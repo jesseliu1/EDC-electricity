@@ -1,0 +1,50 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#e3f2fd', 'primaryTextColor': '#1565c0', 'primaryBorderColor': '#1976d2', 'lineColor': '#1976d2', 'secondaryColor': '#fff8e1', 'tertiaryColor': '#fce4ec'}}}%%
+flowchart TB
+  %% 泳道：系统
+  subgraph SYS["🖥️ 系统 System"]
+    direction LR
+    S0[读取Header Scope<br/>厂区/产线/设备] --> S1[加载炉次列表<br/>中心库优先]
+    S1 --> S2[炉次切割/识别<br/>生成heat_id]
+    S2 --> S3[炉次详情加载<br/>曲线+KPI]
+    S3 --> S4[对比计算<br/>输出偏差%/热区]
+    S4 --> S5[特征提取<br/>知识卡匹配Top3]
+    S5 --> S6[导出/留证<br/>PDF/JSON/审计包]
+    S5 --> S7[触发闭环<br/>偏差事件→收件箱]
+  end
+
+  %% 泳道：老师傅
+  subgraph M["👷 老师傅 Master"]
+    direction LR
+    M0[选择设备Scope<br/>Header三级下拉] --> M1[筛选目标炉次]
+    M1 --> M2[查看叠图+热区<br/>判断正常/异常]
+    M2 --> M3[归类判断<br/>正常/异常/未知]
+    M3 --> M4[发起任务单<br/>填写处置建议]
+    M3 --> M5[新建知识卡<br/>现象+处方]
+  end
+
+  %% 泳道：工程师
+  subgraph E["🔧 工程师 Engineer"]
+    E0[维护切割规则<br/>冷启/热炉/检修]
+    E1[维护信号口径<br/>功率/电压/采样]
+    E2[维护对齐策略<br/>方差窗口/DTW]
+    E3[维护审计字段<br/>参数/版本引用]
+  end
+
+  %% 泳道：厂长
+  subgraph A["📊 厂长 Manager"]
+    direction LR
+    A0[查看汇总看板<br/>偏差分布/趋势] --> A1[确认优先级<br/>跟踪闭环完成率]
+    A1 --> A2[审计抽查<br/>导出包证据链]
+  end
+
+  %% 跨泳道连接
+  M0 --> S0
+  S1 --> M1
+  E0 --> S2
+  E2 --> S4
+  S4 --> M2
+  S5 --> M3
+  M4 --> S7
+  S6 --> A2
+  S7 --> A0
+  E3 --> S6

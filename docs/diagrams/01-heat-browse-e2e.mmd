@@ -1,0 +1,16 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#e1f5fe', 'primaryTextColor': '#01579b', 'primaryBorderColor': '#0288d1', 'lineColor': '#0288d1', 'secondaryColor': '#fff3e0', 'tertiaryColor': '#f3e5f5'}}}%%
+flowchart TD
+  A([进入：炉次浏览与对比]) --> B0[B0 Header三级下拉：厂区/产线/设备<br/>写入全局Scope]
+  B0 --> B1[B1 炉次列表初始化<br/>默认时间窗：近24h/7天<br/>数据源：中心数据仓/历史库优先]
+  B1 --> B2[B2 炉次识别/切割<br/>按批次号/炉次信号；否则用切割规则<br/>产出heat_id + start/end + 元数据]
+  B2 --> B3[B3 炉次筛选/搜索<br/>按时间/班次/产品/偏差等级/能耗/状态]
+  B3 --> B4[B4 进入炉次详情<br/>加载单炉曲线+KPI<br/>确认上下文]
+  B4 --> B5[B5 与黄金基线对比<br/>自动引用Published基线版本<br/>输出：叠图+偏差%曲线+热区TopN+审计ID]
+  B5 -->|需归类| B6[B6 偏差解释与归类<br/>特征提取/向量化<br/>知识卡Top3匹配<br/>老师傅认领：正常/异常/未知]
+  B5 -->|直接导出| B7
+  B6 --> B7[B7 留证与导出<br/>PDF/CSV/JSON/审计包<br/>记录导出日志]
+  B6 -->|偏差大于阈值| B8[B8 触发闭环<br/>生成偏差事件→偏差收件箱<br/>需要处理→创建纠偏任务单<br/>可沉淀知识卡]
+  B4 -.->|返回列表| B3
+  B5 -.->|返回列表| B3
+  B7 --> Z([结束：本次对比会话完成])
+  B8 --> Z

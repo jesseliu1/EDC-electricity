@@ -1,0 +1,26 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#e8f5e9', 'primaryTextColor': '#2e7d32', 'primaryBorderColor': '#43a047', 'lineColor': '#43a047', 'secondaryColor': '#fff3e0', 'tertiaryColor': '#ffebee'}}}%%
+stateDiagram-v2
+  [*] --> Detected: 偏差识别<br/>(大于阈值或规则触发)
+  Detected --> Inbox: 生成偏差事件<br/>进入偏差收件箱
+
+  Inbox --> Triaged: 老师傅/班组认领<br/>判定：正常/异常/未知
+  Triaged --> Whitelisted: 判定为正常波动<br/>加入白名单
+  Triaged --> NeedTask: 判定需纠偏
+  Triaged --> Unknown: 未知新物种
+
+  NeedTask --> TaskOpen: 任务单已创建
+  TaskOpen --> TaskDoing: 执行中
+  TaskDoing --> TaskOpen: 方案不对<br/>重新派单
+  TaskDoing --> TaskDone: 执行完成
+  TaskDone --> KnowledgeUpdate: 复盘沉淀
+  
+  TaskOpen --> Escalated: 超时未处理
+  Escalated --> TaskOpen: 厂长确认后<br/>重新分配
+
+  Unknown --> KnowledgeDraft: 老师傅补充语义
+  KnowledgeDraft --> KnowledgeUpdate: 审核通过
+  KnowledgeDraft --> Unknown: 信息不足<br/>继续观察
+
+  KnowledgeUpdate --> Closed: 事件关闭
+  Whitelisted --> Closed: 自动关闭<br/>(记录但不升级)
+  Closed --> [*]
