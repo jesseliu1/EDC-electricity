@@ -1,0 +1,71 @@
+"""Alembic 环境配置
+
+支持 SQLAlchemy 自动生成迁移脚本。
+"""
+
+from logging.config import fileConfig
+
+from sqlalchemy import engine_from_config, pool
+
+from alembic import context
+
+# 导入应用配置和模型
+from src.config import settings
+from src.database import Base
+from src.models import Baseline, Heat, Setting, Task  # noqa: F401 - 需要导入以注册模型
+
+# Alembic Config 对象
+config = context.config
+
+# 设置数据库 URL（从应用配置获取）
+# 注意：Alembic 迁移使用同步驱动，需要转换 URL
+db_url = settings.database_url.replace("sqlite+aiosqlite", "sqlite")
+config.set_main_option("sqlalchemy.url", db_url)
+
+# 配置 Python 日志
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+# 设置 target_metadata 用于自动生成迁移
+target_metadata = Base.metadata
+
+
+def run_migrations_offline() -> None:
+    """离线模式运行迁移
+
+    仅使用 URL 配置上下文，不需要实际连接数据库。
+    """
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def run_migrations_online() -> None:
+    """在线模式运行迁移
+
+    创建引擎并关联连接到上下文。
+    """
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+
+    with connectable.connect() as connection:
+        context.configure(connection=connection, target_metadata=target_metadata)
+
+        with context.begin_transaction():
+            context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
