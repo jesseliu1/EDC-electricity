@@ -1,0 +1,132 @@
+{
+  "common": {
+    "appName": "AIマスター知能製錬システム",
+    "loading": "読み込み中...",
+    "confirm": "確認",
+    "cancel": "キャンセル",
+    "save": "保存",
+    "delete": "削除",
+    "edit": "編集",
+    "create": "新規作成",
+    "search": "検索",
+    "export": "エクスポート",
+    "import": "インポート",
+    "refresh": "更新",
+    "back": "戻る",
+    "submit": "送信",
+    "reset": "リセット",
+    "success": "成功",
+    "error": "エラー",
+    "warning": "警告",
+    "info": "情報",
+    "viewAll": "すべて表示"
+  },
+  "nav": {
+    "dashboard": "ダッシュボード",
+    "baselines": "ゴールデンベースライン",
+    "heats": "ヒート閲覧",
+    "tasks": "是正タスク",
+    "inbox": "偏差受信箱",
+    "reports": "日報・監査",
+    "settings": "設定"
+  },
+  "dashboard": {
+    "title": "ダッシュボード",
+    "todayHeats": "本日のヒート数",
+    "avgDeviation": "平均偏差",
+    "pendingTasks": "未処理タスク",
+    "baselineStatus": "ベースライン状態",
+    "realtimeCurve": "リアルタイム曲線比較",
+    "recentHeats": "最近のヒート",
+    "timeRange": {
+      "5m": "5分",
+      "1h": "1時間",
+      "6h": "6時間",
+      "24h": "24時間"
+    },
+    "chart": {
+      "goldenBaseline": "ゴールデンベースライン",
+      "currentProduction": "現在の生産",
+      "power": "電力",
+      "voltage": "電圧",
+      "temperature": "温度"
+    },
+    "heatList": {
+      "heatNo": "ヒート番号",
+      "startTime": "開始時間",
+      "deviation": "偏差",
+      "status": "ステータス"
+    },
+    "unit": {
+      "heats": "炉",
+      "tasks": "件",
+      "percent": "%"
+    },
+    "baselineStatusNormal": "正常",
+    "trendFromYesterday": "前日比"
+  },
+  "baseline": {
+    "title": "ゴールデンベースライン",
+    "name": "ベースライン名",
+    "status": "ステータス",
+    "version": "バージョン",
+    "tolerance": "許容誤差",
+    "createTime": "作成日時",
+    "publishTime": "公開日時",
+    "statusDraft": "下書き",
+    "statusPublished": "公開済み",
+    "statusDisabled": "無効",
+    "createBaseline": "ベースライン作成",
+    "selectHeat": "ヒート選択",
+    "previewCurve": "曲線プレビュー",
+    "setParams": "パラメータ設定",
+    "publish": "公開"
+  },
+  "heat": {
+    "title": "ヒート閲覧",
+    "heatNo": "ヒート番号",
+    "startTime": "開始時間",
+    "endTime": "終了時間",
+    "deviation": "偏差",
+    "status": "ステータス",
+    "statusNormal": "正常",
+    "statusAbnormal": "異常",
+    "statusPending": "分析待ち",
+    "compareWithBaseline": "ベースラインと比較",
+    "createTask": "是正タスク作成"
+  },
+  "task": {
+    "title": "是正タスク",
+    "taskNo": "タスク番号",
+    "relatedHeat": "関連ヒート",
+    "deviation": "偏差率",
+    "status": "ステータス",
+    "statusPending": "未処理",
+    "statusInProgress": "処理中",
+    "statusCompleted": "完了",
+    "statusCancelled": "キャンセル",
+    "causeAnalysis": "原因分析",
+    "improvement": "改善方法",
+    "prevention": "予防対策",
+    "exportPdf": "PDF出力"
+  },
+  "inbox": {
+    "title": "偏差受信箱",
+    "deviationList": "偏差リスト",
+    "viewDetail": "詳細表示"
+  },
+  "report": {
+    "title": "日報・監査",
+    "dailyReport": "生産日報",
+    "date": "日付",
+    "totalHeats": "総ヒート数",
+    "normalRate": "正常率",
+    "exportPdf": "PDF出力"
+  },
+  "settings": {
+    "title": "設定",
+    "defaultTolerance": "デフォルト許容誤差",
+    "edcConnection": "EDC接続設定",
+    "reportTime": "レポート生成時間"
+  }
+}

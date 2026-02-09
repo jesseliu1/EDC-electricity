@@ -1,0 +1,132 @@
+{
+  "common": {
+    "appName": "AI老師傅智慧熔煉系統",
+    "loading": "載入中...",
+    "confirm": "確認",
+    "cancel": "取消",
+    "save": "儲存",
+    "delete": "刪除",
+    "edit": "編輯",
+    "create": "新建",
+    "search": "搜尋",
+    "export": "匯出",
+    "import": "匯入",
+    "refresh": "重新整理",
+    "back": "返回",
+    "submit": "提交",
+    "reset": "重設",
+    "success": "成功",
+    "error": "錯誤",
+    "warning": "警告",
+    "info": "提示",
+    "viewAll": "查看全部"
+  },
+  "nav": {
+    "dashboard": "總覽",
+    "baselines": "黃金基線庫",
+    "heats": "爐次瀏覽",
+    "tasks": "糾偏任務單",
+    "inbox": "偏差收件箱",
+    "reports": "日報與稽核",
+    "settings": "系統設定"
+  },
+  "dashboard": {
+    "title": "總覽",
+    "todayHeats": "今日爐數",
+    "avgDeviation": "平均偏差",
+    "pendingTasks": "待處理任務",
+    "baselineStatus": "基線狀態",
+    "realtimeCurve": "即時曲線對比",
+    "recentHeats": "最近爐次",
+    "timeRange": {
+      "5m": "5分鐘",
+      "1h": "1小時",
+      "6h": "6小時",
+      "24h": "24小時"
+    },
+    "chart": {
+      "goldenBaseline": "黃金基線",
+      "currentProduction": "當前生產",
+      "power": "功率",
+      "voltage": "電壓",
+      "temperature": "溫度"
+    },
+    "heatList": {
+      "heatNo": "爐次編號",
+      "startTime": "開始時間",
+      "deviation": "偏差",
+      "status": "狀態"
+    },
+    "unit": {
+      "heats": "爐",
+      "tasks": "個",
+      "percent": "%"
+    },
+    "baselineStatusNormal": "正常",
+    "trendFromYesterday": "較昨日"
+  },
+  "baseline": {
+    "title": "黃金基線庫",
+    "name": "基線名稱",
+    "status": "狀態",
+    "version": "版本",
+    "tolerance": "容許誤差",
+    "createTime": "建立時間",
+    "publishTime": "發佈時間",
+    "statusDraft": "草稿",
+    "statusPublished": "已發佈",
+    "statusDisabled": "已停用",
+    "createBaseline": "新建基線",
+    "selectHeat": "選擇爐次",
+    "previewCurve": "預覽曲線",
+    "setParams": "設定參數",
+    "publish": "發佈"
+  },
+  "heat": {
+    "title": "爐次瀏覽",
+    "heatNo": "爐次編號",
+    "startTime": "開始時間",
+    "endTime": "結束時間",
+    "deviation": "偏差",
+    "status": "狀態",
+    "statusNormal": "正常",
+    "statusAbnormal": "異常",
+    "statusPending": "待分析",
+    "compareWithBaseline": "與基線對比",
+    "createTask": "產生糾偏任務"
+  },
+  "task": {
+    "title": "糾偏任務單",
+    "taskNo": "任務編號",
+    "relatedHeat": "關聯爐次",
+    "deviation": "偏差百分比",
+    "status": "狀態",
+    "statusPending": "待處理",
+    "statusInProgress": "處理中",
+    "statusCompleted": "已完成",
+    "statusCancelled": "已取消",
+    "causeAnalysis": "原因分析",
+    "improvement": "改善方法",
+    "prevention": "預防對策",
+    "exportPdf": "匯出PDF"
+  },
+  "inbox": {
+    "title": "偏差收件箱",
+    "deviationList": "偏差列表",
+    "viewDetail": "檢視詳情"
+  },
+  "report": {
+    "title": "日報與稽核",
+    "dailyReport": "生產日報",
+    "date": "日期",
+    "totalHeats": "總爐數",
+    "normalRate": "正常率",
+    "exportPdf": "匯出PDF"
+  },
+  "settings": {
+    "title": "系統設定",
+    "defaultTolerance": "預設容許誤差",
+    "edcConnection": "EDC連線設定",
+    "reportTime": "報表產生時間"
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "common": {
+    "appName": "AI老师傅智慧熔炼系统",
+    "loading": "加载中...",
+    "confirm": "确认",
+    "cancel": "取消",
+    "save": "保存",
+    "delete": "删除",
+    "edit": "编辑",
+    "create": "新建",
+    "search": "搜索",
+    "export": "导出",
+    "import": "导入",
+    "refresh": "刷新",
+    "back": "返回",
+    "submit": "提交",
+    "reset": "重置",
+    "success": "成功",
+    "error": "错误",
+    "warning": "警告",
+    "info": "提示",
+    "viewAll": "查看全部"
+  },
+  "nav": {
+    "dashboard": "总览",
+    "baselines": "黄金基线库",
+    "heats": "炉次浏览",
+    "tasks": "纠偏任务单",
+    "inbox": "偏差收件箱",
+    "reports": "日报与审计",
+    "settings": "系统设置"
+  },
+  "dashboard": {
+    "title": "总览",
+    "todayHeats": "今日炉数",
+    "avgDeviation": "平均偏差",
+    "pendingTasks": "待处理任务",
+    "baselineStatus": "基线状态",
+    "realtimeCurve": "实时曲线对比",
+    "recentHeats": "最近炉次",
+    "timeRange": {
+      "5m": "5分钟",
+      "1h": "1小时",
+      "6h": "6小时",
+      "24h": "24小时"
+    },
+    "chart": {
+      "goldenBaseline": "黄金基线",
+      "currentProduction": "当前生产",
+      "power": "功率",
+      "voltage": "电压",
+      "temperature": "温度"
+    },
+    "heatList": {
+      "heatNo": "炉次编号",
+      "startTime": "开始时间",
+      "deviation": "偏差",
+      "status": "状态"
+    },
+    "unit": {
+      "heats": "炉",
+      "tasks": "个",
+      "percent": "%"
+    },
+    "baselineStatusNormal": "正常",
+    "trendFromYesterday": "较昨日"
+  },
+  "baseline": {
+    "title": "黄金基线库",
+    "name": "基线名称",
+    "status": "状态",
+    "version": "版本",
+    "tolerance": "容许误差",
+    "createTime": "创建时间",
+    "publishTime": "发布时间",
+    "statusDraft": "草稿",
+    "statusPublished": "已发布",
+    "statusDisabled": "已停用",
+    "createBaseline": "新建基线",
+    "selectHeat": "选择炉次",
+    "previewCurve": "预览曲线",
+    "setParams": "设置参数",
+    "publish": "发布"
+  },
+  "heat": {
+    "title": "炉次浏览",
+    "heatNo": "炉次编号",
+    "startTime": "开始时间",
+    "endTime": "结束时间",
+    "deviation": "偏差",
+    "status": "状态",
+    "statusNormal": "正常",
+    "statusAbnormal": "异常",
+    "statusPending": "待分析",
+    "compareWithBaseline": "与基线对比",
+    "createTask": "生成纠偏任务"
+  },
+  "task": {
+    "title": "纠偏任务单",
+    "taskNo": "任务编号",
+    "relatedHeat": "关联炉次",
+    "deviation": "偏差百分比",
+    "status": "状态",
+    "statusPending": "待处理",
+    "statusInProgress": "处理中",
+    "statusCompleted": "已完成",
+    "statusCancelled": "已取消",
+    "causeAnalysis": "原因分析",
+    "improvement": "改善方法",
+    "prevention": "预防对策",
+    "exportPdf": "导出PDF"
+  },
+  "inbox": {
+    "title": "偏差收件箱",
+    "deviationList": "偏差列表",
+    "viewDetail": "查看详情"
+  },
+  "report": {
+    "title": "日报与审计",
+    "dailyReport": "生产日报",
+    "date": "日期",
+    "totalHeats": "总炉数",
+    "normalRate": "正常率",
+    "exportPdf": "导出PDF"
+  },
+  "settings": {
+    "title": "系统设置",
+    "defaultTolerance": "默认容许误差",
+    "edcConnection": "EDC连接配置",
+    "reportTime": "报表生成时间"
+  }
+}

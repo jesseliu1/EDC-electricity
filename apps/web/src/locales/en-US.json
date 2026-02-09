@@ -1,0 +1,132 @@
+{
+  "common": {
+    "appName": "AI Master Intelligent Smelting System",
+    "loading": "Loading...",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "search": "Search",
+    "export": "Export",
+    "import": "Import",
+    "refresh": "Refresh",
+    "back": "Back",
+    "submit": "Submit",
+    "reset": "Reset",
+    "success": "Success",
+    "error": "Error",
+    "warning": "Warning",
+    "info": "Info",
+    "viewAll": "View All"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "baselines": "Golden Baselines",
+    "heats": "Heat Browser",
+    "tasks": "Correction Tasks",
+    "inbox": "Deviation Inbox",
+    "reports": "Reports & Audit",
+    "settings": "Settings"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "todayHeats": "Today's Heats",
+    "avgDeviation": "Avg Deviation",
+    "pendingTasks": "Pending Tasks",
+    "baselineStatus": "Baseline Status",
+    "realtimeCurve": "Realtime Curve Comparison",
+    "recentHeats": "Recent Heats",
+    "timeRange": {
+      "5m": "5 min",
+      "1h": "1 hour",
+      "6h": "6 hours",
+      "24h": "24 hours"
+    },
+    "chart": {
+      "goldenBaseline": "Golden Baseline",
+      "currentProduction": "Current Production",
+      "power": "Power",
+      "voltage": "Voltage",
+      "temperature": "Temperature"
+    },
+    "heatList": {
+      "heatNo": "Heat No.",
+      "startTime": "Start Time",
+      "deviation": "Deviation",
+      "status": "Status"
+    },
+    "unit": {
+      "heats": "heats",
+      "tasks": "items",
+      "percent": "%"
+    },
+    "baselineStatusNormal": "Normal",
+    "trendFromYesterday": "vs yesterday"
+  },
+  "baseline": {
+    "title": "Golden Baselines",
+    "name": "Baseline Name",
+    "status": "Status",
+    "version": "Version",
+    "tolerance": "Tolerance",
+    "createTime": "Created At",
+    "publishTime": "Published At",
+    "statusDraft": "Draft",
+    "statusPublished": "Published",
+    "statusDisabled": "Disabled",
+    "createBaseline": "Create Baseline",
+    "selectHeat": "Select Heat",
+    "previewCurve": "Preview Curve",
+    "setParams": "Set Parameters",
+    "publish": "Publish"
+  },
+  "heat": {
+    "title": "Heat Browser",
+    "heatNo": "Heat No.",
+    "startTime": "Start Time",
+    "endTime": "End Time",
+    "deviation": "Deviation",
+    "status": "Status",
+    "statusNormal": "Normal",
+    "statusAbnormal": "Abnormal",
+    "statusPending": "Pending",
+    "compareWithBaseline": "Compare with Baseline",
+    "createTask": "Create Correction Task"
+  },
+  "task": {
+    "title": "Correction Tasks",
+    "taskNo": "Task No.",
+    "relatedHeat": "Related Heat",
+    "deviation": "Deviation %",
+    "status": "Status",
+    "statusPending": "Pending",
+    "statusInProgress": "In Progress",
+    "statusCompleted": "Completed",
+    "statusCancelled": "Cancelled",
+    "causeAnalysis": "Cause Analysis",
+    "improvement": "Improvement",
+    "prevention": "Prevention",
+    "exportPdf": "Export PDF"
+  },
+  "inbox": {
+    "title": "Deviation Inbox",
+    "deviationList": "Deviation List",
+    "viewDetail": "View Detail"
+  },
+  "report": {
+    "title": "Reports & Audit",
+    "dailyReport": "Daily Report",
+    "date": "Date",
+    "totalHeats": "Total Heats",
+    "normalRate": "Normal Rate",
+    "exportPdf": "Export PDF"
+  },
+  "settings": {
+    "title": "Settings",
+    "defaultTolerance": "Default Tolerance",
+    "edcConnection": "EDC Connection",
+    "reportTime": "Report Generation Time"
+  }
+}

@@ -1,0 +1,54 @@
+import { createRouter, createWebHistory } from 'vue-router'
+import type { RouteRecordRaw } from 'vue-router'
+
+const routes: RouteRecordRaw[] = [
+  {
+    path: '/',
+    name: 'Dashboard',
+    component: () => import('@/views/DashboardView.vue'),
+    meta: { title: 'dashboard.title' },
+  },
+  {
+    path: '/baselines',
+    name: 'Baselines',
+    component: () => import('@/views/BaselineListView.vue'),
+    meta: { title: 'baseline.title' },
+  },
+  {
+    path: '/heats',
+    name: 'Heats',
+    component: () => import('@/views/HeatListView.vue'),
+    meta: { title: 'heat.title' },
+  },
+  {
+    path: '/tasks',
+    name: 'Tasks',
+    component: () => import('@/views/TaskListView.vue'),
+    meta: { title: 'task.title' },
+  },
+  {
+    path: '/inbox',
+    name: 'Inbox',
+    component: () => import('@/views/InboxView.vue'),
+    meta: { title: 'inbox.title' },
+  },
+  {
+    path: '/reports',
+    name: 'Reports',
+    component: () => import('@/views/ReportListView.vue'),
+    meta: { title: 'report.title' },
+  },
+  {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('@/views/SettingsView.vue'),
+    meta: { title: 'settings.title' },
+  },
+]
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes,
+})
+
+export default router
