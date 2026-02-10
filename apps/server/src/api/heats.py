@@ -1,9 +1,11 @@
-"""炉次 API 路由"""
+"""炉次 API 路由。"""
+
+from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from ..schemas import (
     CurvePoint,
@@ -15,10 +17,97 @@ from ..schemas import (
     HeatResponse,
     HeatWithCurve,
 )
+from ..schemas.heat import BaselineWithCurveSimple
 from ..services import DeviationService
 
 router = APIRouter(prefix="/heats", tags=["Heats"])
 deviation_service = DeviationService()
+
+
+def _curve_points(
+    start: datetime, minutes: int, base: float, amp: float, phase: float
+) -> list[CurvePoint]:
+    points: list[CurvePoint] = []
+    for idx in range(minutes):
+        ts = int((start + timedelta(minutes=idx)).timestamp() * 1000)
+        value = base + amp * ((idx + int(phase)) % 10) / 10
+        points.append(CurvePoint(timestamp=ts, value=round(value, 3)))
+    return points
+
+
+def _seed_heats() -> dict[str, dict[str, Any]]:
+    now = datetime.now().replace(second=0, microsecond=0)
+    seeded: dict[str, dict[str, Any]] = {}
+    for idx in range(60):
+        start_time = now - timedelta(hours=idx + 1)
+        end_time = start_time + timedelta(minutes=45)
+        status: str
+        if idx % 8 == 0:
+            status = "pending"
+        elif idx % 4 == 0:
+            status = "abnormal"
+        else:
+            status = "normal"
+
+        power_curve = _curve_points(start_time, 46, 430 + (idx % 7), 35, phase=float(idx))
+        voltage_curve = _curve_points(start_time, 46, 378 + (idx % 5), 8, phase=float(idx + 3))
+        baseline_power_curve = _curve_points(start_time, 46, 435, 24, phase=2.0)
+        baseline_voltage_curve = _curve_points(start_time, 46, 380, 5, phase=1.0)
+
+        max_dev = None if status == "pending" else round(4.2 + (idx % 9) * 1.8, 3)
+        avg_dev = None if status == "pending" else round(2.1 + (idx % 7) * 1.1, 3)
+
+        heat_id = f"heat-{idx + 1:03d}"
+        seeded[heat_id] = {
+            "id": heat_id,
+            "heat_no": f"H{now.strftime('%Y%m%d')}-{idx + 1:03d}",
+            "start_time": start_time,
+            "end_time": end_time,
+            "baseline_id": "baseline-001" if status != "pending" else None,
+            "deviation_percent": max_dev,
+            "avg_deviation_percent": avg_dev,
+            "status": status,
+            "temperature": round(1450 + (idx % 6) * 5.5, 2),
+            "created_at": start_time,
+            "power_curve": power_curve,
+            "voltage_curve": voltage_curve,
+            "baseline_power_curve": baseline_power_curve,
+            "baseline_voltage_curve": baseline_voltage_curve,
+        }
+    return seeded
+
+
+_HEAT_STORE: dict[str, dict[str, Any]] = _seed_heats()
+
+
+def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
+    return HeatResponse(
+        id=item["id"],
+        heat_no=item["heat_no"],
+        start_time=item["start_time"],
+        end_time=item["end_time"],
+        baseline_id=item["baseline_id"],
+        deviation_percent=item["deviation_percent"],
+        avg_deviation_percent=item["avg_deviation_percent"],
+        status=item["status"],
+        temperature=item["temperature"],
+        created_at=item["created_at"],
+    )
+
+
+def _to_heat_with_curve(item: dict[str, Any]) -> HeatWithCurve:
+    return HeatWithCurve(
+        **_to_heat_response(item).model_dump(),
+        power_curve=item["power_curve"],
+        voltage_curve=item["voltage_curve"],
+    )
+
+
+def _get_or_404(heat_id: str) -> dict[str, Any]:
+    item = _HEAT_STORE.get(heat_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="炉次不存在")
+    return item
 
 
 @router.get("", response_model=HeatListResponse)
@@ -31,37 +120,25 @@ async def list_heats(
     page: int = Query(default=1, ge=1, description="页码"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
 ) -> HeatListResponse:
-    """获取炉次列表
+    """获取炉次列表（支持状态和日期范围筛选）。"""
+    items = list(_HEAT_STORE.values())
+    items.sort(key=lambda x: x["start_time"], reverse=True)
 
-    支持按状态和日期范围筛选。
-    """
-    # TODO: 实现真实逻辑，从数据库查询
-    now = datetime.now()
-    items = []
-    for i in range(page_size):
-        start = now - timedelta(hours=i + 1)
-        end = start + timedelta(minutes=45)
-        heat_status = "normal" if i % 4 != 0 else "abnormal"
-        if status and heat_status != status:
-            continue
-        items.append(
-            HeatResponse(
-                id=f"heat-{i + 1:03d}",
-                heat_no=f"H{now.strftime('%Y%m%d')}-{i + 1:03d}",
-                start_time=start,
-                end_time=end,
-                baseline_id="baseline-001" if i % 2 == 0 else None,
-                deviation_percent=5.2 + i * 1.5 if i % 4 == 0 else 3.1 + i * 0.5,
-                avg_deviation_percent=4.5 + i * 0.8 if i % 4 == 0 else 2.5 + i * 0.3,
-                status=heat_status,
-                temperature=1450.0 + i * 5,
-                created_at=start,
-            )
-        )
+    if status:
+        items = [item for item in items if item["status"] == status]
+    if start_date:
+        items = [item for item in items if item["start_time"] >= start_date]
+    if end_date:
+        items = [item for item in items if item["start_time"] <= end_date]
+
+    total = len(items)
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    paged = items[start_idx:end_idx]
 
     return HeatListResponse(
-        items=items[:page_size],
-        total=50,  # 模拟总数
+        items=[_to_heat_response(item) for item in paged],
+        total=total,
         page=page,
         page_size=page_size,
     )
@@ -69,119 +146,84 @@ async def list_heats(
 
 @router.get("/{heat_id}", response_model=HeatResponse)
 async def get_heat(heat_id: str) -> HeatResponse:
-    """获取炉次详情"""
-    # TODO: 实现真实逻辑
-    now = datetime.now()
-    return HeatResponse(
-        id=heat_id,
-        heat_no=f"H{now.strftime('%Y%m%d')}-001",
-        start_time=now - timedelta(hours=1),
-        end_time=now - timedelta(minutes=15),
-        baseline_id="baseline-001",
-        deviation_percent=8.5,
-        avg_deviation_percent=5.2,
-        status="abnormal",
-        temperature=1455.0,
-        created_at=now - timedelta(hours=1),
-    )
+    """获取炉次详情。"""
+    item = _get_or_404(heat_id)
+    return _to_heat_response(item)
 
 
 @router.get("/{heat_id}/curve", response_model=HeatWithCurve)
 async def get_heat_curve(heat_id: str) -> HeatWithCurve:
-    """获取炉次曲线数据"""
-    # TODO: 实现真实逻辑
-    now = datetime.now()
-
-    # 生成模拟曲线数据
-    power_curve = [CurvePoint(timestamp=1000 * i, value=440 + (i % 15) * 6) for i in range(100)]
-    voltage_curve = [CurvePoint(timestamp=1000 * i, value=375 + (i % 8) * 3) for i in range(100)]
-
-    return HeatWithCurve(
-        id=heat_id,
-        heat_no=f"H{now.strftime('%Y%m%d')}-001",
-        start_time=now - timedelta(hours=1),
-        end_time=now - timedelta(minutes=15),
-        baseline_id="baseline-001",
-        deviation_percent=8.5,
-        avg_deviation_percent=5.2,
-        status="abnormal",
-        temperature=1455.0,
-        created_at=now - timedelta(hours=1),
-        power_curve=power_curve,
-        voltage_curve=voltage_curve,
-    )
+    """获取炉次曲线数据。"""
+    item = _get_or_404(heat_id)
+    return _to_heat_with_curve(item)
 
 
 @router.get("/{heat_id}/compare", response_model=HeatCompareResponse)
 async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
-    """获取炉次与基线对比数据"""
-    # TODO: 实现真实逻辑
-    now = datetime.now()
+    """获取炉次与基线对比数据。"""
+    item = _get_or_404(heat_id)
 
-    # 生成模拟曲线数据
-    heat_power = [CurvePoint(timestamp=1000 * i, value=440 + (i % 15) * 6) for i in range(100)]
-    heat_voltage = [CurvePoint(timestamp=1000 * i, value=375 + (i % 8) * 3) for i in range(100)]
-    baseline_power = [CurvePoint(timestamp=1000 * i, value=450 + (i % 10) * 5) for i in range(100)]
-    baseline_voltage = [CurvePoint(timestamp=1000 * i, value=380 + (i % 5) * 2) for i in range(100)]
-
-    heat = HeatWithCurve(
-        id=heat_id,
-        heat_no=f"H{now.strftime('%Y%m%d')}-001",
-        start_time=now - timedelta(hours=1),
-        end_time=now - timedelta(minutes=15),
-        baseline_id="baseline-001",
-        deviation_percent=8.5,
-        avg_deviation_percent=5.2,
-        status="abnormal",
-        temperature=1455.0,
-        created_at=now - timedelta(hours=1),
-        power_curve=heat_power,
-        voltage_curve=heat_voltage,
+    heat = _to_heat_with_curve(item)
+    baseline = (
+        BaselineWithCurveSimple(
+            id=item["baseline_id"] or "baseline-001",
+            name="标准基线 v2.1",
+            power_curve=item["baseline_power_curve"],
+            voltage_curve=item["baseline_voltage_curve"],
+            tolerance_percent=15.0,
+        )
+        if item["baseline_id"]
+        else None
     )
 
-    from ..schemas.heat import BaselineWithCurveSimple
-
-    baseline = BaselineWithCurveSimple(
-        id="baseline-001",
-        name="标准基线 v2.1",
-        power_curve=baseline_power,
-        voltage_curve=baseline_voltage,
-        tolerance_percent=15.0,
+    baseline_curve = [
+        (float(point.timestamp), float(point.value)) for point in item["baseline_power_curve"]
+    ]
+    current_curve = [(float(point.timestamp), float(point.value)) for point in item["power_curve"]]
+    result = deviation_service.calculate_deviation(
+        baseline_curve=baseline_curve,
+        current_curve=current_curve,
+        tolerance=15.0,
     )
 
-    # 模拟偏差区间
     deviation_ranges = [
-        DeviationRange(start=20000, end=35000, deviation=18.5),
-        DeviationRange(start=60000, end=75000, deviation=22.3),
+        DeviationRange(
+            start=int(item_range["start"]),
+            end=int(item_range["end"]),
+            deviation=float(item_range["deviation"]),
+        )
+        for item_range in result["abnormal_ranges"]
     ]
 
     return HeatCompareResponse(
         heat=heat,
         baseline=baseline,
         deviation_ranges=deviation_ranges,
-        max_deviation=22.3,
-        avg_deviation=8.5,
+        max_deviation=result["max_deviation"],
+        avg_deviation=result["avg_deviation"],
     )
 
 
 @router.post("/{heat_id}/analyze", response_model=HeatAnalyzeResponse)
 async def analyze_heat(heat_id: str, data: HeatAnalyzeRequest) -> HeatAnalyzeResponse:
-    """触发炉次偏差分析
+    """触发炉次偏差分析。"""
+    item = _get_or_404(heat_id)
+    baseline_id = data.baseline_id or item["baseline_id"] or "baseline-001"
 
-    使用指定基线或当前激活基线进行偏差分析。
-    """
-    baseline_id = data.baseline_id or "baseline-001"
-
-    # 模拟曲线（MVP 阶段）
-    baseline_curve = [(float(1000 * i), float(450 + (i % 10) * 4)) for i in range(100)]
-    current_curve = [(float(1000 * i), float(442 + (i % 13) * 5)) for i in range(100)]
-    tolerance = 15.0
-
+    baseline_curve = [
+        (float(point.timestamp), float(point.value)) for point in item["baseline_power_curve"]
+    ]
+    current_curve = [(float(point.timestamp), float(point.value)) for point in item["power_curve"]]
     result = deviation_service.calculate_deviation(
         baseline_curve=baseline_curve,
         current_curve=current_curve,
-        tolerance=tolerance,
+        tolerance=15.0,
     )
+
+    item["baseline_id"] = baseline_id
+    item["deviation_percent"] = result["max_deviation"]
+    item["avg_deviation_percent"] = result["avg_deviation"]
+    item["status"] = result["status"]
 
     return HeatAnalyzeResponse(
         heat_id=heat_id,
@@ -191,10 +233,10 @@ async def analyze_heat(heat_id: str, data: HeatAnalyzeRequest) -> HeatAnalyzeRes
         status=result["status"],
         deviation_ranges=[
             DeviationRange(
-                start=int(item["start"]),
-                end=int(item["end"]),
-                deviation=float(item["deviation"]),
+                start=int(item_range["start"]),
+                end=int(item_range["end"]),
+                deviation=float(item_range["deviation"]),
             )
-            for item in result["abnormal_ranges"]
+            for item_range in result["abnormal_ranges"]
         ],
     )

@@ -6,11 +6,11 @@
 
 ## 当前状态
 
-**当前阶段**: Phase 3 - 炉次浏览 + 偏差分析
+**当前阶段**: Phase 4 - 纠偏任务 + 日报
 
-**当前步骤**: Step 3.4 炉次 API
+**当前步骤**: Step 4.1 任务列表页
 
-**进度**: 90%
+**进度**: 88%
 
 ---
 
@@ -102,18 +102,28 @@
   - [x] 实现偏差计算逻辑
   - [x] 实现异常区间识别
   - [x] 单元测试（3项通过）
+- [x] Step 3.4 炉次 API
+  - [x] GET /api/heats
+  - [x] GET /api/heats/{id}
+  - [x] GET /api/heats/{id}/curve
+  - [x] GET /api/heats/{id}/compare
+  - [x] POST /api/heats/{id}/analyze
+- [x] Step 3.5 Mock 数据完善
+  - [x] 生成模拟炉次数据（正常/异常/待分析）
+  - [x] 生成模拟曲线数据
+  - [x] API 测试覆盖（heats API + deviation service）
 
 ---
 
 ## 进行中
 
-- [ ] Step 3.4 炉次 API
+- [ ] Step 4.1 任务列表页
 
 ---
 
 ## 待开始
 
-- Step 3.5 Mock 数据完善
+- Step 4.2 任务详情页
 - Step 1.5 Dashboard API 前后端联调验证
 
 ---
