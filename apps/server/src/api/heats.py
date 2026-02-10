@@ -3,9 +3,11 @@
 from datetime import datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from ..schemas import (
+    CurvePoint,
+    DeviationRange,
     HeatAnalyzeRequest,
     HeatAnalyzeResponse,
     HeatCompareResponse,
@@ -13,8 +15,10 @@ from ..schemas import (
     HeatResponse,
     HeatWithCurve,
 )
+from ..services import DeviationService
 
 router = APIRouter(prefix="/heats", tags=["Heats"])
+deviation_service = DeviationService()
 
 
 @router.get("", response_model=HeatListResponse)
@@ -22,8 +26,8 @@ async def list_heats(
     status: Literal["normal", "abnormal", "pending"] | None = Query(
         default=None, description="状态筛选"
     ),
-    start_date: datetime | None = Query(default=None, description="开始日期"),
-    end_date: datetime | None = Query(default=None, description="结束日期"),
+    start_date: datetime | None = Query(default=None, description="开始日期"),  # noqa: B008
+    end_date: datetime | None = Query(default=None, description="结束日期"),  # noqa: B008
     page: int = Query(default=1, ge=1, description="页码"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
 ) -> HeatListResponse:
@@ -89,8 +93,8 @@ async def get_heat_curve(heat_id: str) -> HeatWithCurve:
     now = datetime.now()
 
     # 生成模拟曲线数据
-    power_curve = [{"timestamp": 1000 * i, "value": 440 + (i % 15) * 6} for i in range(100)]
-    voltage_curve = [{"timestamp": 1000 * i, "value": 375 + (i % 8) * 3} for i in range(100)]
+    power_curve = [CurvePoint(timestamp=1000 * i, value=440 + (i % 15) * 6) for i in range(100)]
+    voltage_curve = [CurvePoint(timestamp=1000 * i, value=375 + (i % 8) * 3) for i in range(100)]
 
     return HeatWithCurve(
         id=heat_id,
@@ -115,10 +119,10 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     now = datetime.now()
 
     # 生成模拟曲线数据
-    heat_power = [{"timestamp": 1000 * i, "value": 440 + (i % 15) * 6} for i in range(100)]
-    heat_voltage = [{"timestamp": 1000 * i, "value": 375 + (i % 8) * 3} for i in range(100)]
-    baseline_power = [{"timestamp": 1000 * i, "value": 450 + (i % 10) * 5} for i in range(100)]
-    baseline_voltage = [{"timestamp": 1000 * i, "value": 380 + (i % 5) * 2} for i in range(100)]
+    heat_power = [CurvePoint(timestamp=1000 * i, value=440 + (i % 15) * 6) for i in range(100)]
+    heat_voltage = [CurvePoint(timestamp=1000 * i, value=375 + (i % 8) * 3) for i in range(100)]
+    baseline_power = [CurvePoint(timestamp=1000 * i, value=450 + (i % 10) * 5) for i in range(100)]
+    baseline_voltage = [CurvePoint(timestamp=1000 * i, value=380 + (i % 5) * 2) for i in range(100)]
 
     heat = HeatWithCurve(
         id=heat_id,
@@ -147,8 +151,8 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
 
     # 模拟偏差区间
     deviation_ranges = [
-        {"start": 20000, "end": 35000, "deviation": 18.5},
-        {"start": 60000, "end": 75000, "deviation": 22.3},
+        DeviationRange(start=20000, end=35000, deviation=18.5),
+        DeviationRange(start=60000, end=75000, deviation=22.3),
     ]
 
     return HeatCompareResponse(
@@ -166,17 +170,31 @@ async def analyze_heat(heat_id: str, data: HeatAnalyzeRequest) -> HeatAnalyzeRes
 
     使用指定基线或当前激活基线进行偏差分析。
     """
-    # TODO: 实现真实逻辑
     baseline_id = data.baseline_id or "baseline-001"
+
+    # 模拟曲线（MVP 阶段）
+    baseline_curve = [(float(1000 * i), float(450 + (i % 10) * 4)) for i in range(100)]
+    current_curve = [(float(1000 * i), float(442 + (i % 13) * 5)) for i in range(100)]
+    tolerance = 15.0
+
+    result = deviation_service.calculate_deviation(
+        baseline_curve=baseline_curve,
+        current_curve=current_curve,
+        tolerance=tolerance,
+    )
 
     return HeatAnalyzeResponse(
         heat_id=heat_id,
         baseline_id=baseline_id,
-        max_deviation=22.3,
-        avg_deviation=8.5,
-        status="abnormal",
+        max_deviation=result["max_deviation"],
+        avg_deviation=result["avg_deviation"],
+        status=result["status"],
         deviation_ranges=[
-            {"start": 20000, "end": 35000, "deviation": 18.5},
-            {"start": 60000, "end": 75000, "deviation": 22.3},
+            DeviationRange(
+                start=int(item["start"]),
+                end=int(item["end"]),
+                deviation=float(item["deviation"]),
+            )
+            for item in result["abnormal_ranges"]
         ],
     )
