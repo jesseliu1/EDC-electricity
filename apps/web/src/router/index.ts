@@ -27,6 +27,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'heat.title' },
   },
   {
+    path: '/heats/:id',
+    name: 'HeatDetail',
+    component: () => import('@/views/HeatDetailView.vue'),
+    meta: { title: 'heat.detailTitle' },
+  },
+  {
     path: '/tasks',
     name: 'Tasks',
     component: () => import('@/views/TaskListView.vue'),

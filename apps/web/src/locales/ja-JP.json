@@ -126,6 +126,13 @@
   },
   "heat": {
     "title": "ヒート閲覧",
+    "detailTitle": "ヒート詳細",
+    "detailDeveloping": "ヒート詳細ページは開発中です...",
+    "totalCount": "合計",
+    "filterDateRange": "日付範囲",
+    "to": "〜",
+    "startDate": "開始日",
+    "endDate": "終了日",
     "heatNo": "ヒート番号",
     "startTime": "開始時間",
     "endTime": "終了時間",

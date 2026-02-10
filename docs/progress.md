@@ -8,9 +8,9 @@
 
 **当前阶段**: Phase 3 - 炉次浏览 + 偏差分析
 
-**当前步骤**: Step 3.1 炉次列表页
+**当前步骤**: Step 3.2 炉次详情页
 
-**进度**: 78%
+**进度**: 82%
 
 ---
 
@@ -86,18 +86,22 @@
   - [x] POST /api/baselines/{id}/publish
   - [x] POST /api/baselines/{id}/disable
   - [x] DELETE /api/baselines/{id}
+- [x] Step 3.1 炉次列表页
+  - [x] 创建炉次列表组件
+  - [x] 实现日期范围筛选
+  - [x] 实现偏差状态筛选（正常/异常/待分析）
+  - [x] 实现分页
 
 ---
 
 ## 进行中
 
-- [ ] Step 3.1 炉次列表页
+- [ ] Step 3.2 炉次详情页
 
 ---
 
 ## 待开始
 
-- Step 3.2 炉次详情页
 - Step 1.5 Dashboard API 前后端联调验证
 
 ---

@@ -126,6 +126,13 @@
   },
   "heat": {
     "title": "爐次瀏覽",
+    "detailTitle": "爐次詳情",
+    "detailDeveloping": "爐次詳情頁開發中...",
+    "totalCount": "總數",
+    "filterDateRange": "日期範圍",
+    "to": "至",
+    "startDate": "開始日期",
+    "endDate": "結束日期",
     "heatNo": "爐次編號",
     "startTime": "開始時間",
     "endTime": "結束時間",

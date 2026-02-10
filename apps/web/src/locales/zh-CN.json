@@ -126,6 +126,13 @@
   },
   "heat": {
     "title": "炉次浏览",
+    "detailTitle": "炉次详情",
+    "detailDeveloping": "炉次详情页开发中...",
+    "totalCount": "总数",
+    "filterDateRange": "日期范围",
+    "to": "至",
+    "startDate": "开始日期",
+    "endDate": "结束日期",
     "heatNo": "炉次编号",
     "startTime": "开始时间",
     "endTime": "结束时间",

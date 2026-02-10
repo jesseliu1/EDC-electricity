@@ -126,6 +126,13 @@
   },
   "heat": {
     "title": "Heat Browser",
+    "detailTitle": "Heat Detail",
+    "detailDeveloping": "Heat detail page is under development...",
+    "totalCount": "Total",
+    "filterDateRange": "Date Range",
+    "to": "to",
+    "startDate": "Start Date",
+    "endDate": "End Date",
     "heatNo": "Heat No.",
     "startTime": "Start Time",
     "endTime": "End Time",
