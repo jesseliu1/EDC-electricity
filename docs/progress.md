@@ -6,11 +6,11 @@
 
 ## 当前状态
 
-**当前阶段**: Phase 1 - 项目基础 + Dashboard
+**当前阶段**: Phase 3 - 炉次浏览 + 偏差分析
 
-**当前步骤**: Step 1.5 Dashboard API
+**当前步骤**: Step 3.1 炉次列表页
 
-**进度**: 50%
+**进度**: 78%
 
 ---
 
@@ -62,22 +62,43 @@
   - [x] 创建实时曲线图组件 (RealtimeChart)
   - [x] 实现时间范围选择（5分钟/1小时/6小时/全天）
   - [x] 创建最近炉次列表组件
+- [x] Step 2.1 基线列表页
+  - [x] 创建基线卡片组件 (BaselineCard)
+  - [x] 实现基线列表页面
+  - [x] 实现状态筛选（草稿/已发布/已停用）
+  - [x] 前端基线 API 模块与 Store（含 Mock 回退）
+- [x] Step 2.2 新建基线向导
+  - [x] 创建向导组件框架 (BaselineWizard)
+  - [x] Step 1: 候选炉次选择（日期范围、炉次选择、曲线预览）
+  - [x] Step 2: 预览对比（基线与当前曲线、统计信息）
+  - [x] Step 3: 设置参数（名称、容许误差、描述）
+  - [x] Step 4: 发布确认（保存草稿/发布）
+- [x] Step 2.3 基线详情页
+  - [x] 基线信息展示
+  - [x] 曲线图展示
+  - [x] 版本历史
+  - [x] 编辑/停用/创建新版本操作
+- [x] Step 2.4 基线 API
+  - [x] GET /api/baselines
+  - [x] GET /api/baselines/{id}
+  - [x] POST /api/baselines
+  - [x] PATCH /api/baselines/{id}
+  - [x] POST /api/baselines/{id}/publish
+  - [x] POST /api/baselines/{id}/disable
+  - [x] DELETE /api/baselines/{id}
 
 ---
 
 ## 进行中
 
-- [ ] Step 1.5 Dashboard API
-  - [x] 前端 API 客户端与 dashboard 模块
-  - [x] Dashboard Pinia Store + Mock 回退
-  - [x] Dashboard 页面接入 API 数据
-  - [ ] 前端联调验证（待执行）
+- [ ] Step 3.1 炉次列表页
 
 ---
 
 ## 待开始
 
-- Step 2.1 基线列表页
+- Step 3.2 炉次详情页
+- Step 1.5 Dashboard API 前后端联调验证
 
 ---
 

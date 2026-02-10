@@ -15,6 +15,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'baseline.title' },
   },
   {
+    path: '/baselines/:id',
+    name: 'BaselineDetail',
+    component: () => import('@/views/BaselineDetailView.vue'),
+    meta: { title: 'baseline.detail.title' },
+  },
+  {
     path: '/heats',
     name: 'Heats',
     component: () => import('@/views/HeatListView.vue'),
