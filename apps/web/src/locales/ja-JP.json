@@ -165,7 +165,8 @@
     "causeAnalysis": "原因分析",
     "improvement": "改善方法",
     "prevention": "予防対策",
-    "exportPdf": "PDF出力"
+    "exportPdf": "PDF出力",
+    "completeRequired": "原因分析・改善方法・予防対策を入力してください"
   },
   "inbox": {
     "title": "偏差受信箱",
@@ -178,12 +179,17 @@
     "date": "日付",
     "totalHeats": "総ヒート数",
     "normalRate": "正常率",
-    "exportPdf": "PDF出力"
+    "exportPdf": "PDF出力",
+    "topDeviationHeats": "偏差上位ヒート"
   },
   "settings": {
     "title": "設定",
     "defaultTolerance": "デフォルト許容誤差",
     "edcConnection": "EDC接続設定",
-    "reportTime": "レポート生成時間"
+    "reportTime": "レポート生成時間",
+    "edcBaseUrl": "EDC API URL",
+    "edcApiKey": "EDC API Key",
+    "testConnection": "接続テスト",
+    "edcTestSuccess": "EDC 接続テスト成功"
   }
 }

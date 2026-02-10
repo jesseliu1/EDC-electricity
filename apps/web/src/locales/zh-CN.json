@@ -165,7 +165,8 @@
     "causeAnalysis": "原因分析",
     "improvement": "改善方法",
     "prevention": "预防对策",
-    "exportPdf": "导出PDF"
+    "exportPdf": "导出PDF",
+    "completeRequired": "请先填写原因分析、改善方法和预防对策"
   },
   "inbox": {
     "title": "偏差收件箱",
@@ -178,12 +179,17 @@
     "date": "日期",
     "totalHeats": "总炉数",
     "normalRate": "正常率",
-    "exportPdf": "导出PDF"
+    "exportPdf": "导出PDF",
+    "topDeviationHeats": "偏差最高炉次"
   },
   "settings": {
     "title": "系统设置",
     "defaultTolerance": "默认容许误差",
     "edcConnection": "EDC连接配置",
-    "reportTime": "报表生成时间"
+    "reportTime": "报表生成时间",
+    "edcBaseUrl": "EDC API 地址",
+    "edcApiKey": "EDC API Key",
+    "testConnection": "测试连接",
+    "edcTestSuccess": "EDC 连接测试成功"
   }
 }

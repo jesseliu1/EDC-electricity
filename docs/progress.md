@@ -6,11 +6,11 @@
 
 ## 当前状态
 
-**当前阶段**: Phase 4 - 纠偏任务 + 日报
+**当前阶段**: MVP 完成（待联调整体验收）
 
-**当前步骤**: Step 4.1 任务列表页
+**当前步骤**: 联调与验收
 
-**进度**: 88%
+**进度**: 100%
 
 ---
 
@@ -112,19 +112,57 @@
   - [x] 生成模拟炉次数据（正常/异常/待分析）
   - [x] 生成模拟曲线数据
   - [x] API 测试覆盖（heats API + deviation service）
+- [x] Step 4.1 任务列表页
+  - [x] 任务列表
+  - [x] 状态筛选（待处理/处理中/已完成/已取消）
+  - [x] 分页
+- [x] Step 4.2 任务详情页
+  - [x] 关联炉次信息
+  - [x] 偏差信息展示
+  - [x] 原因分析/改善方法/预防对策表单
+  - [x] 保存与完成提交流程
+- [x] Step 4.3 任务 PDF 导出
+  - [x] 后端任务 PDF 导出接口可下载
+  - [x] 前端导出入口
+- [x] Step 4.4 任务 API
+  - [x] GET /api/tasks
+  - [x] GET /api/tasks/{id}
+  - [x] POST /api/tasks
+  - [x] PATCH /api/tasks/{id}
+  - [x] POST /api/tasks/{id}/complete
+- [x] Step 4.5 日报系统
+  - [x] 日报列表页
+  - [x] 日报详情页
+  - [x] 日报 PDF 导出接口与前端入口
+  - [x] GET /api/reports/daily
+  - [x] GET /api/reports/daily/{date}
+  - [x] GET /api/reports/daily/{date}/pdf
+- [x] Step 4.6 系统设置
+  - [x] 设置页面
+  - [x] 容许误差设置
+  - [x] EDC 连接配置（含测试连接）
+  - [x] 报表生成时间设置
+  - [x] GET /api/settings
+  - [x] PATCH /api/settings
+- [x] Step 4.7 偏差收件箱（简化版）
+  - [x] 偏差收件箱列表页
+  - [x] 查看偏差详情（跳转炉次详情）
+- [x] Step 1.5 Dashboard API 前后端联调验证
+  - [x] /api/dashboard/stats
+  - [x] /api/dashboard/realtime
+  - [x] /api/dashboard/recent-heats
 
 ---
 
 ## 进行中
 
-- [ ] Step 4.1 任务列表页
+- [ ] 联调整体验收（跨页面走查）
 
 ---
 
 ## 待开始
 
-- Step 4.2 任务详情页
-- Step 1.5 Dashboard API 前后端联调验证
+- 无（MVP 功能开发已完成）
 
 ---
 

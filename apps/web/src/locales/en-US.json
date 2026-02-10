@@ -165,7 +165,8 @@
     "causeAnalysis": "Cause Analysis",
     "improvement": "Improvement",
     "prevention": "Prevention",
-    "exportPdf": "Export PDF"
+    "exportPdf": "Export PDF",
+    "completeRequired": "Please fill cause analysis, improvement and prevention first"
   },
   "inbox": {
     "title": "Deviation Inbox",
@@ -178,12 +179,17 @@
     "date": "Date",
     "totalHeats": "Total Heats",
     "normalRate": "Normal Rate",
-    "exportPdf": "Export PDF"
+    "exportPdf": "Export PDF",
+    "topDeviationHeats": "Top Deviation Heats"
   },
   "settings": {
     "title": "Settings",
     "defaultTolerance": "Default Tolerance",
     "edcConnection": "EDC Connection",
-    "reportTime": "Report Generation Time"
+    "reportTime": "Report Generation Time",
+    "edcBaseUrl": "EDC API URL",
+    "edcApiKey": "EDC API Key",
+    "testConnection": "Test Connection",
+    "edcTestSuccess": "EDC connection test succeeded"
   }
 }

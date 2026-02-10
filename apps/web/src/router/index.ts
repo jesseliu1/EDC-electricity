@@ -39,6 +39,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'task.title' },
   },
   {
+    path: '/tasks/:id',
+    name: 'TaskDetail',
+    component: () => import('@/views/TaskDetailView.vue'),
+    meta: { title: 'task.title' },
+  },
+  {
     path: '/inbox',
     name: 'Inbox',
     component: () => import('@/views/InboxView.vue'),
@@ -49,6 +55,12 @@ const routes: RouteRecordRaw[] = [
     name: 'Reports',
     component: () => import('@/views/ReportListView.vue'),
     meta: { title: 'report.title' },
+  },
+  {
+    path: '/reports/:date',
+    name: 'ReportDetail',
+    component: () => import('@/views/ReportDetailView.vue'),
+    meta: { title: 'report.dailyReport' },
   },
   {
     path: '/settings',
