@@ -128,6 +128,7 @@
     "title": "爐次瀏覽",
     "detailTitle": "爐次詳情",
     "detailDeveloping": "爐次詳情頁開發中...",
+    "detailSummary": "爐次摘要",
     "totalCount": "總數",
     "filterDateRange": "日期範圍",
     "to": "至",
@@ -141,8 +142,15 @@
     "statusNormal": "正常",
     "statusAbnormal": "異常",
     "statusPending": "待分析",
+    "avgDeviation": "平均偏差",
+    "maxDeviation": "最大偏差",
+    "temperature": "出湯溫度",
+    "baselineName": "對比基線",
+    "abnormalRanges": "異常區間",
+    "range": "區間",
     "compareWithBaseline": "與基線對比",
-    "createTask": "產生糾偏任務"
+    "createTask": "產生糾偏任務",
+    "createTaskHint": "任務建立入口開發中"
   },
   "task": {
     "title": "糾偏任務單",

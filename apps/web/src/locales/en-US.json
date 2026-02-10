@@ -128,6 +128,7 @@
     "title": "Heat Browser",
     "detailTitle": "Heat Detail",
     "detailDeveloping": "Heat detail page is under development...",
+    "detailSummary": "Heat Summary",
     "totalCount": "Total",
     "filterDateRange": "Date Range",
     "to": "to",
@@ -141,8 +142,15 @@
     "statusNormal": "Normal",
     "statusAbnormal": "Abnormal",
     "statusPending": "Pending",
+    "avgDeviation": "Avg Deviation",
+    "maxDeviation": "Max Deviation",
+    "temperature": "Tap Temperature",
+    "baselineName": "Baseline",
+    "abnormalRanges": "Abnormal Ranges",
+    "range": "Range",
     "compareWithBaseline": "Compare with Baseline",
-    "createTask": "Create Correction Task"
+    "createTask": "Create Correction Task",
+    "createTaskHint": "Task creation entry is under development"
   },
   "task": {
     "title": "Correction Tasks",

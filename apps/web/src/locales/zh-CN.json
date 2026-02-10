@@ -128,6 +128,7 @@
     "title": "炉次浏览",
     "detailTitle": "炉次详情",
     "detailDeveloping": "炉次详情页开发中...",
+    "detailSummary": "炉次摘要",
     "totalCount": "总数",
     "filterDateRange": "日期范围",
     "to": "至",
@@ -141,8 +142,15 @@
     "statusNormal": "正常",
     "statusAbnormal": "异常",
     "statusPending": "待分析",
+    "avgDeviation": "平均偏差",
+    "maxDeviation": "最大偏差",
+    "temperature": "出汤温度",
+    "baselineName": "对比基线",
+    "abnormalRanges": "异常区间",
+    "range": "区间",
     "compareWithBaseline": "与基线对比",
-    "createTask": "生成纠偏任务"
+    "createTask": "生成纠偏任务",
+    "createTaskHint": "任务创建入口开发中"
   },
   "task": {
     "title": "纠偏任务单",

@@ -128,6 +128,7 @@
     "title": "ヒート閲覧",
     "detailTitle": "ヒート詳細",
     "detailDeveloping": "ヒート詳細ページは開発中です...",
+    "detailSummary": "ヒート概要",
     "totalCount": "合計",
     "filterDateRange": "日付範囲",
     "to": "〜",
@@ -141,8 +142,15 @@
     "statusNormal": "正常",
     "statusAbnormal": "異常",
     "statusPending": "分析待ち",
+    "avgDeviation": "平均偏差",
+    "maxDeviation": "最大偏差",
+    "temperature": "出湯温度",
+    "baselineName": "比較基線",
+    "abnormalRanges": "異常区間",
+    "range": "区間",
     "compareWithBaseline": "ベースラインと比較",
-    "createTask": "是正タスク作成"
+    "createTask": "是正タスク作成",
+    "createTaskHint": "タスク作成入口は開発中です"
   },
   "task": {
     "title": "是正タスク",

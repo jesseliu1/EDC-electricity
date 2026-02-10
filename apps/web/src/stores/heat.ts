@@ -1,7 +1,15 @@
 import { defineStore } from 'pinia'
 import dayjs from 'dayjs'
 import { heatApi } from '@/api/heat'
-import type { HeatListQuery, HeatResponseItem, HeatStatus } from '@/api/heat'
+import type {
+  CurvePoint,
+  DeviationRange,
+  HeatCompareResponse,
+  HeatListQuery,
+  HeatResponseItem,
+  HeatStatus,
+  HeatWithCurveResponse
+} from '@/api/heat'
 
 export interface HeatItem {
   id: string
@@ -18,6 +26,17 @@ export interface HeatItem {
 interface HeatFilters {
   status: 'all' | HeatStatus
   dateRange: [Date, Date] | null
+}
+
+export interface HeatDetail {
+  base: HeatItem
+  powerCurve: CurvePoint[]
+  voltageCurve: CurvePoint[]
+  baselineName: string | null
+  baselinePowerCurve: CurvePoint[]
+  deviationRanges: DeviationRange[]
+  maxDeviation: number | null
+  avgDeviation: number | null
 }
 
 function mapHeat(item: HeatResponseItem): HeatItem {
@@ -61,9 +80,73 @@ function mockHeats(page: number, pageSize: number, status: 'all' | HeatStatus): 
   }
 }
 
+function mockDetail(id: string): HeatDetail {
+  const start = dayjs().subtract(1, 'hour')
+  const base: HeatItem = {
+    id,
+    heatNo: `H${dayjs().format('YYYYMMDD')}-001`,
+    startTime: start.format('YYYY-MM-DD HH:mm'),
+    endTime: start.add(45, 'minute').format('YYYY-MM-DD HH:mm'),
+    baselineId: 'baseline-001',
+    deviationPercent: 12.5,
+    avgDeviationPercent: 6.8,
+    status: 'abnormal',
+    temperature: 1458
+  }
+
+  const powerCurve = Array.from({ length: 60 }).map((_, i) => ({
+    timestamp: start.add(i, 'minute').valueOf(),
+    value: Number((430 + Math.sin(i / 8) * 30 + (Math.random() - 0.5) * 8).toFixed(1))
+  }))
+  const baselinePowerCurve = Array.from({ length: 60 }).map((_, i) => ({
+    timestamp: start.add(i, 'minute').valueOf(),
+    value: Number((438 + Math.sin(i / 8) * 22).toFixed(1))
+  }))
+  const voltageCurve = Array.from({ length: 60 }).map((_, i) => ({
+    timestamp: start.add(i, 'minute').valueOf(),
+    value: Number((380 + Math.cos(i / 9) * 7).toFixed(1))
+  }))
+
+  return {
+    base,
+    powerCurve,
+    voltageCurve,
+    baselineName: '标准基线 v2.1',
+    baselinePowerCurve,
+    deviationRanges: [
+      {
+        start: powerCurve[18].timestamp,
+        end: powerCurve[25].timestamp,
+        deviation: 16.4
+      },
+      {
+        start: powerCurve[38].timestamp,
+        end: powerCurve[45].timestamp,
+        deviation: 21.2
+      }
+    ],
+    maxDeviation: 21.2,
+    avgDeviation: 6.8
+  }
+}
+
+function mapDetail(base: HeatResponseItem, curve: HeatWithCurveResponse, compare: HeatCompareResponse): HeatDetail {
+  return {
+    base: mapHeat(base),
+    powerCurve: curve.power_curve,
+    voltageCurve: curve.voltage_curve,
+    baselineName: compare.baseline?.name || null,
+    baselinePowerCurve: compare.baseline?.power_curve || [],
+    deviationRanges: compare.deviation_ranges,
+    maxDeviation: compare.max_deviation,
+    avgDeviation: compare.avg_deviation
+  }
+}
+
 export const useHeatStore = defineStore('heat', {
   state: () => ({
     list: [] as HeatItem[],
+    current: null as HeatDetail | null,
     loading: false,
     page: 1,
     pageSize: 10,
@@ -118,6 +201,22 @@ export const useHeatStore = defineStore('heat', {
       this.pageSize = pageSize
       this.page = 1
       await this.fetchList()
+    },
+    async fetchDetail(id: string) {
+      this.loading = true
+      try {
+        const [base, curve, compare] = await Promise.all([
+          heatApi.get(id),
+          heatApi.getCurve(id),
+          heatApi.getCompare(id)
+        ])
+        this.current = mapDetail(base, curve, compare)
+      } catch (error) {
+        console.warn('Heat detail fallback to mock.', error)
+        this.current = mockDetail(id)
+      } finally {
+        this.loading = false
+      }
     }
   }
 })
