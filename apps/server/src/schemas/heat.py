@@ -45,6 +45,9 @@ class HeatCompareResponse(BaseModel):
 
     heat: HeatWithCurve = Field(..., description="炉次数据")
     baseline: "BaselineWithCurveSimple | None" = Field(default=None, description="基线数据")
+    baselines: list["BaselineCompareItem"] = Field(
+        default_factory=list, description="多基线对比数据"
+    )
     deviation_ranges: list[DeviationRange] = Field(default_factory=list, description="偏差区间列表")
     max_deviation: float | None = Field(default=None, description="最大偏差百分比")
     avg_deviation: float | None = Field(default=None, description="平均偏差百分比")
@@ -58,6 +61,15 @@ class BaselineWithCurveSimple(BaseModel):
     power_curve: list[CurvePoint] = Field(..., description="功率曲线")
     voltage_curve: list[CurvePoint] = Field(..., description="电压曲线")
     tolerance_percent: float = Field(..., description="容许误差百分比")
+
+
+class BaselineCompareItem(BaseModel):
+    """单条黄金基线对比结果"""
+
+    baseline: BaselineWithCurveSimple = Field(..., description="基线数据")
+    deviation_ranges: list[DeviationRange] = Field(default_factory=list, description="偏差区间")
+    max_deviation: float | None = Field(default=None, description="最大偏差百分比")
+    avg_deviation: float | None = Field(default=None, description="平均偏差百分比")
 
 
 class HeatListResponse(BaseModel):

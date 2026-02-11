@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElButton, ElCard, ElEmpty, ElInput, ElMessage, ElTag } from 'element-plus'
+import { ElButton, ElCard, ElEmpty, ElInput, ElMessage, ElTabPane, ElTabs, ElTag } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -25,6 +25,16 @@ const current = computed(() => heatStore.current)
 
 const editingDescription = ref(false)
 const descriptionDraft = ref('')
+const activeBaselineId = ref('')
+
+const selectedComparison = computed(() => {
+  if (!current.value) return null
+  if (current.value.baselineComparisons.length === 0) return null
+  return (
+    current.value.baselineComparisons.find(item => item.baseline.id === activeBaselineId.value) ||
+    current.value.baselineComparisons[0]
+  )
+})
 
 const statusTagType = computed(() => {
   if (!current.value) return 'info'
@@ -68,7 +78,9 @@ const compareOption = computed<EChartsOption>(() => {
         smooth: true,
         showSymbol: false,
         lineStyle: { width: 2, type: 'dashed', color: '#67C23A' },
-        data: current.value.baselinePowerCurve.map(point => point.value)
+        data: (selectedComparison.value?.baseline.power_curve || current.value.baselinePowerCurve).map(
+          point => point.value
+        )
       },
       {
         name: t('dashboard.chart.currentProduction'),
@@ -78,7 +90,7 @@ const compareOption = computed<EChartsOption>(() => {
         lineStyle: { width: 2, color: '#409EFF' },
         markArea: {
           itemStyle: { color: 'rgba(245, 108, 108, 0.18)' },
-          data: current.value.deviationRanges.map(range => {
+          data: (selectedComparison.value?.deviation_ranges || current.value.deviationRanges).map(range => {
             const start = dayjs(range.start).format('HH:mm')
             const end = dayjs(range.end).format('HH:mm')
             return [{ xAxis: start }, { xAxis: end }]
@@ -112,7 +124,9 @@ async function saveDescription() {
 
 onMounted(() => {
   if (!heatId.value) return
-  void heatStore.fetchDetail(heatId.value)
+  void heatStore.fetchDetail(heatId.value).then(() => {
+    activeBaselineId.value = heatStore.current?.baselineComparisons[0]?.baseline.id || ''
+  })
 })
 </script>
 
@@ -152,7 +166,17 @@ onMounted(() => {
     >
       <el-card class="xl:col-span-2">
         <template #header>
-          <span>{{ t('heat.compareWithBaseline') }}</span>
+          <div class="space-y-3">
+            <span>{{ t('heat.compareWithBaseline') }}</span>
+            <el-tabs v-model="activeBaselineId" type="border-card">
+              <el-tab-pane
+                v-for="item in current.baselineComparisons"
+                :key="item.baseline.id"
+                :name="item.baseline.id"
+                :label="item.baseline.name"
+              />
+            </el-tabs>
+          </div>
         </template>
         <v-chart
           :option="compareOption"
@@ -217,7 +241,7 @@ onMounted(() => {
           </div>
           <div>
             <span class="text-gray-500">{{ t('heat.baselineName') }}:</span>
-            <span class="ml-2 font-medium">{{ current.baselineName || '--' }}</span>
+            <span class="ml-2 font-medium">{{ selectedComparison?.baseline.name || '--' }}</span>
           </div>
         </div>
       </el-card>
@@ -228,11 +252,11 @@ onMounted(() => {
         <span>{{ t('heat.abnormalRanges') }}</span>
       </template>
       <div
-        v-if="current.deviationRanges.length > 0"
+        v-if="(selectedComparison?.deviation_ranges || current.deviationRanges).length > 0"
         class="space-y-2 text-sm"
       >
         <div
-          v-for="(range, idx) in current.deviationRanges"
+          v-for="(range, idx) in selectedComparison?.deviation_ranges || current.deviationRanges"
           :key="`${range.start}-${range.end}`"
           class="rounded-md border border-red-200 bg-red-50 p-3"
         >

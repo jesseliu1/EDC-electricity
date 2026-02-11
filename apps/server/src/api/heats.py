@@ -8,6 +8,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Query
 
 from ..schemas import (
+    BaselineCompareItem,
     CurvePoint,
     DeviationRange,
     HeatAnalyzeRequest,
@@ -66,6 +67,7 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
             "start_time": start_time,
             "end_time": end_time,
             "baseline_id": "baseline-001" if status != "pending" else None,
+            "baseline_ids": ["baseline-001", "baseline-002"] if status != "pending" else [],
             "deviation_percent": max_dev,
             "avg_deviation_percent": avg_dev,
             "status": status,
@@ -180,43 +182,72 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     item = _get_or_404(heat_id)
 
     heat = _to_heat_with_curve(item)
-    baseline = (
-        BaselineWithCurveSimple(
-            id=item["baseline_id"] or "baseline-001",
-            name="标准基线 v2.1",
-            power_curve=item["baseline_power_curve"],
-            voltage_curve=item["baseline_voltage_curve"],
-            tolerance_percent=15.0,
+    baseline_ids = item.get("baseline_ids", [])
+    baseline_compares: list[BaselineCompareItem] = []
+    for idx, baseline_id in enumerate(baseline_ids):
+        baseline_curve_points = _curve_points(
+            item["start_time"],
+            46,
+            435 + idx * 5,
+            24 + idx * 3,
+            phase=2.0 + idx,
         )
-        if item["baseline_id"]
-        else None
-    )
-
-    baseline_curve = [
-        (float(point.timestamp), float(point.value)) for point in item["baseline_power_curve"]
-    ]
-    current_curve = [(float(point.timestamp), float(point.value)) for point in item["power_curve"]]
-    result = deviation_service.calculate_deviation(
-        baseline_curve=baseline_curve,
-        current_curve=current_curve,
-        tolerance=15.0,
-    )
-
-    deviation_ranges = [
-        DeviationRange(
-            start=int(item_range["start"]),
-            end=int(item_range["end"]),
-            deviation=float(item_range["deviation"]),
+        baseline_voltage_curve_points = _curve_points(
+            item["start_time"],
+            46,
+            380 + idx * 2,
+            5 + idx,
+            phase=1.0 + idx,
         )
-        for item_range in result["abnormal_ranges"]
-    ]
+
+        baseline_curve = [
+            (float(point.timestamp), float(point.value)) for point in baseline_curve_points
+        ]
+        current_curve = [
+            (float(point.timestamp), float(point.value)) for point in item["power_curve"]
+        ]
+        result = deviation_service.calculate_deviation(
+            baseline_curve=baseline_curve,
+            current_curve=current_curve,
+            tolerance=15.0,
+        )
+
+        deviation_ranges = [
+            DeviationRange(
+                start=int(item_range["start"]),
+                end=int(item_range["end"]),
+                deviation=float(item_range["deviation"]),
+            )
+            for item_range in result["abnormal_ranges"]
+        ]
+
+        baseline_compares.append(
+            BaselineCompareItem(
+                baseline=BaselineWithCurveSimple(
+                    id=baseline_id,
+                    name="标准基线 v2.1" if idx == 0 else "高功率基线",
+                    power_curve=baseline_curve_points,
+                    voltage_curve=baseline_voltage_curve_points,
+                    tolerance_percent=15.0,
+                ),
+                deviation_ranges=deviation_ranges,
+                max_deviation=result["max_deviation"],
+                avg_deviation=result["avg_deviation"],
+            )
+        )
+
+    baseline = baseline_compares[0].baseline if baseline_compares else None
+    deviation_ranges = baseline_compares[0].deviation_ranges if baseline_compares else []
+    max_deviation = baseline_compares[0].max_deviation if baseline_compares else None
+    avg_deviation = baseline_compares[0].avg_deviation if baseline_compares else None
 
     return HeatCompareResponse(
         heat=heat,
         baseline=baseline,
+        baselines=baseline_compares,
         deviation_ranges=deviation_ranges,
-        max_deviation=result["max_deviation"],
-        avg_deviation=result["avg_deviation"],
+        max_deviation=max_deviation,
+        avg_deviation=avg_deviation,
     )
 
 

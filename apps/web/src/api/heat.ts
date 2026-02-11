@@ -58,6 +58,14 @@ export interface HeatWithCurveResponse extends HeatResponseItem {
 export interface HeatCompareResponse {
   heat: HeatWithCurveResponse
   baseline: BaselineCurveSimple | null
+  baselines?: BaselineCompareItem[]
+  deviation_ranges: DeviationRange[]
+  max_deviation: number | null
+  avg_deviation: number | null
+}
+
+export interface BaselineCompareItem {
+  baseline: BaselineCurveSimple
   deviation_ranges: DeviationRange[]
   max_deviation: number | null
   avg_deviation: number | null

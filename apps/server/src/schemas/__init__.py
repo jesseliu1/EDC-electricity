@@ -27,6 +27,7 @@ from .dashboard import (
     RecentHeatsResponse,
 )
 from .heat import (
+    BaselineCompareItem,
     DeviationRange,
     HeatAnalyzeRequest,
     HeatAnalyzeResponse,
@@ -72,6 +73,7 @@ __all__ = [
     "CurveData",
     # Heat
     "DeviationRange",
+    "BaselineCompareItem",
     "HeatResponse",
     "HeatWithCurve",
     "HeatCompareResponse",

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import dayjs from 'dayjs'
 import { heatApi } from '@/api/heat'
 import type {
+  BaselineCompareItem,
   CurvePoint,
   DeviationRange,
   HeatCompareResponse,
@@ -35,6 +36,7 @@ export interface HeatDetail {
   voltageCurve: CurvePoint[]
   baselineName: string | null
   baselinePowerCurve: CurvePoint[]
+  baselineComparisons: BaselineCompareItem[]
   deviationRanges: DeviationRange[]
   maxDeviation: number | null
   avgDeviation: number | null
@@ -117,6 +119,44 @@ function mockDetail(id: string): HeatDetail {
     voltageCurve,
     baselineName: '标准基线 v2.1',
     baselinePowerCurve,
+    baselineComparisons: [
+      {
+        baseline: {
+          id: 'baseline-001',
+          name: '标准基线 v2.1',
+          power_curve: baselinePowerCurve,
+          voltage_curve: voltageCurve,
+          tolerance_percent: 15
+        },
+        deviation_ranges: [
+          {
+            start: powerCurve[18].timestamp,
+            end: powerCurve[25].timestamp,
+            deviation: 16.4
+          }
+        ],
+        max_deviation: 21.2,
+        avg_deviation: 6.8
+      },
+      {
+        baseline: {
+          id: 'baseline-002',
+          name: '高功率基线',
+          power_curve: baselinePowerCurve.map(item => ({ ...item, value: item.value + 8 })),
+          voltage_curve: voltageCurve,
+          tolerance_percent: 15
+        },
+        deviation_ranges: [
+          {
+            start: powerCurve[32].timestamp,
+            end: powerCurve[40].timestamp,
+            deviation: 14.2
+          }
+        ],
+        max_deviation: 19.1,
+        avg_deviation: 5.9
+      }
+    ],
     deviationRanges: [
       {
         start: powerCurve[18].timestamp,
@@ -135,15 +175,28 @@ function mockDetail(id: string): HeatDetail {
 }
 
 function mapDetail(base: HeatResponseItem, curve: HeatWithCurveResponse, compare: HeatCompareResponse): HeatDetail {
+  const comparisons = compare.baselines ||
+    (compare.baseline
+      ? [
+          {
+            baseline: compare.baseline,
+            deviation_ranges: compare.deviation_ranges,
+            max_deviation: compare.max_deviation,
+            avg_deviation: compare.avg_deviation
+          }
+        ]
+      : [])
+
   return {
     base: mapHeat(base),
     powerCurve: curve.power_curve,
     voltageCurve: curve.voltage_curve,
-    baselineName: compare.baseline?.name || null,
-    baselinePowerCurve: compare.baseline?.power_curve || [],
-    deviationRanges: compare.deviation_ranges,
-    maxDeviation: compare.max_deviation,
-    avgDeviation: compare.avg_deviation
+    baselineName: comparisons[0]?.baseline.name || null,
+    baselinePowerCurve: comparisons[0]?.baseline.power_curve || [],
+    baselineComparisons: comparisons,
+    deviationRanges: comparisons[0]?.deviation_ranges || [],
+    maxDeviation: comparisons[0]?.max_deviation || null,
+    avgDeviation: comparisons[0]?.avg_deviation || null
   }
 }
 
