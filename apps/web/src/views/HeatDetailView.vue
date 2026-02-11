@@ -123,6 +123,25 @@ function handleCreateTask() {
   ElMessage.info(t('heat.createTaskHint'))
 }
 
+function handleCreateBaselineFromHeat() {
+  if (!current.value) return
+
+  const firstPoint = current.value.powerCurve[0]
+  const lastPoint = current.value.powerCurve[current.value.powerCurve.length - 1]
+  const defaultStart = firstPoint ? dayjs(firstPoint.timestamp) : dayjs(current.value.base.startTime)
+  const defaultEnd = lastPoint ? dayjs(lastPoint.timestamp) : dayjs(current.value.base.endTime)
+
+  router.push({
+    path: '/baselines',
+    query: {
+      sourceHeatId: current.value.base.id,
+      selectedStartTime: defaultStart.toISOString(),
+      selectedEndTime: defaultEnd.toISOString(),
+      name: `${current.value.base.heatNo}-${t('baseline.name')}`
+    }
+  })
+}
+
 function startEditDescription() {
   descriptionDraft.value = current.value?.base.description || ''
   editingDescription.value = true
@@ -227,6 +246,9 @@ onMounted(() => {
           @click="handleCreateTask"
         >
           {{ t('heat.createTask') }}
+        </el-button>
+        <el-button type="success" @click="handleCreateBaselineFromHeat">
+          {{ t('heat.createBaselineFromHeat') }}
         </el-button>
         <el-button
           v-if="current?.base.cutStatus === 'major_issue' || current?.base.cutStatus === 'blocked'"

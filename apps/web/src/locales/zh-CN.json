@@ -170,6 +170,7 @@
     "range": "区间",
     "compareWithBaseline": "与基线对比",
     "createTask": "生成纠偏任务",
+    "createBaselineFromHeat": "基于当前炉次创建基线",
     "createTaskHint": "任务创建入口开发中",
     "cutStatus": "切割状态",
     "cutStatusnormal": "正常",

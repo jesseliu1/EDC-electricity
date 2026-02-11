@@ -170,6 +170,7 @@
     "range": "區間",
     "compareWithBaseline": "與基線對比",
     "createTask": "產生糾偏任務",
+    "createBaselineFromHeat": "基於當前爐次建立基線",
     "createTaskHint": "任務建立入口開發中",
     "cutStatus": "切割狀態",
     "cutStatusnormal": "正常",

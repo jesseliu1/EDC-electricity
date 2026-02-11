@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElButton, ElRadioGroup, ElRadioButton, ElEmpty, ElMessage, ElDialog } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import BaselineCard from '@/components/baseline/BaselineCard.vue'
@@ -11,8 +11,15 @@ import type { BaselineStatus } from '@/api/baseline'
 
 const { t } = useI18n()
 const router = useRouter()
+const route = useRoute()
 const baselineStore = useBaselineStore()
 const wizardVisible = ref(false)
+const wizardPrefill = ref<{
+  sourceHeatId?: string
+  selectedStartTime?: string
+  selectedEndTime?: string
+  name?: string
+} | null>(null)
 
 type BaselineFilter = 'all' | BaselineStatus
 
@@ -23,7 +30,33 @@ async function handleFilterChange(value: string | number | boolean | undefined) 
 }
 
 function handleCreate() {
+  wizardPrefill.value = null
   wizardVisible.value = true
+}
+
+function getQueryStringValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value) && typeof value[0] === 'string') return value[0]
+  return ''
+}
+
+function handlePrefillFromRoute() {
+  const sourceHeatId = getQueryStringValue(route.query.sourceHeatId)
+  if (!sourceHeatId) return
+
+  const selectedStartTime = getQueryStringValue(route.query.selectedStartTime)
+  const selectedEndTime = getQueryStringValue(route.query.selectedEndTime)
+  const name = getQueryStringValue(route.query.name)
+
+  wizardPrefill.value = {
+    sourceHeatId,
+    selectedStartTime,
+    selectedEndTime,
+    name
+  }
+  wizardVisible.value = true
+
+  void router.replace({ path: '/baselines' })
 }
 
 function handleEdit(id: string) {
@@ -75,6 +108,7 @@ async function handleWizardSubmit(payload: {
 
 onMounted(() => {
   baselineStore.fetchList()
+  handlePrefillFromRoute()
 })
 </script>
 
@@ -148,6 +182,10 @@ onMounted(() => {
       append-to-body
     >
       <BaselineWizard
+        :initial-source-heat-id="wizardPrefill?.sourceHeatId"
+        :initial-selected-start-time="wizardPrefill?.selectedStartTime"
+        :initial-selected-end-time="wizardPrefill?.selectedEndTime"
+        :initial-name="wizardPrefill?.name"
         @cancel="wizardVisible = false"
         @submit="handleWizardSubmit"
       />

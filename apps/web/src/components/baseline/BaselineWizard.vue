@@ -54,12 +54,25 @@ interface WizardSubmitPayload {
   mode: 'draft' | 'publish'
 }
 
+interface Props {
+  initialSourceHeatId?: string
+  initialSelectedStartTime?: string
+  initialSelectedEndTime?: string
+  initialName?: string
+}
+
 interface Emits {
   (e: 'cancel'): void
   (e: 'submit', payload: WizardSubmitPayload): void
 }
 
 const emit = defineEmits<Emits>()
+const props = withDefaults(defineProps<Props>(), {
+  initialSourceHeatId: '',
+  initialSelectedStartTime: '',
+  initialSelectedEndTime: '',
+  initialName: ''
+})
 const { t } = useI18n()
 const baselineDefinitionStore = useBaselineDefinitionStore()
 
@@ -298,14 +311,59 @@ function handleSelectHeat(id: string) {
   resetRangeByHeat()
 }
 
+function ensurePrefillHeatCandidate() {
+  if (!props.initialSourceHeatId) return
+  const exists = heatCandidates.value.some(item => item.id === props.initialSourceHeatId)
+  if (exists) return
+
+  const start = props.initialSelectedStartTime ? dayjs(props.initialSelectedStartTime) : dayjs().subtract(1, 'hour')
+  const points = Array.from({ length: 360 }).map((_, index) => {
+    const ts = start.add(index * 10, 'second').valueOf()
+    return {
+      timestamp: ts,
+      power: Number((425 + Math.sin(index / 16) * 22 + (index % 4)).toFixed(1)),
+      voltage: Number((381 + Math.cos(index / 21) * 5).toFixed(1))
+    }
+  })
+
+  heatCandidates.value.unshift({
+    id: props.initialSourceHeatId,
+    heatNo: props.initialName || `H-PREFILL-${props.initialSourceHeatId}`,
+    date: dayjs(points[0]?.timestamp || Date.now()).format('YYYY-MM-DD HH:mm:ss'),
+    points
+  })
+}
+
+function applyPrefillRange() {
+  if (!props.initialSelectedStartTime || !props.initialSelectedEndTime) return
+  selectedStart.value = dayjs(props.initialSelectedStartTime).valueOf()
+  selectedEnd.value = dayjs(props.initialSelectedEndTime).valueOf()
+  normalizeRange()
+}
+
 onMounted(async () => {
+  ensurePrefillHeatCandidate()
+
   await baselineDefinitionStore.fetchList('active')
   const firstDefinition = baselineDefinitionStore.list[0]
   if (!formData.value.definitionId && firstDefinition) {
     formData.value.definitionId = firstDefinition.id
   }
+  if (props.initialName) {
+    formData.value.name = props.initialName
+  }
+
+  if (props.initialSourceHeatId) {
+    selectedHeatId.value = props.initialSourceHeatId
+  }
+
   if (!selectedHeatId.value && heatCandidates.value[0]) {
     selectedHeatId.value = heatCandidates.value[0].id
+  }
+
+  if (props.initialSelectedStartTime && props.initialSelectedEndTime) {
+    applyPrefillRange()
+  } else {
     resetRangeByHeat()
   }
 })

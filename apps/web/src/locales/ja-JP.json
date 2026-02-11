@@ -170,6 +170,7 @@
     "range": "区間",
     "compareWithBaseline": "ベースラインと比較",
     "createTask": "是正タスク作成",
+    "createBaselineFromHeat": "このヒートからベースライン作成",
     "createTaskHint": "タスク作成入口は開発中です",
     "cutStatus": "切り分け状態",
     "cutStatusnormal": "正常",

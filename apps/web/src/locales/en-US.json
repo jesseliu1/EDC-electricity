@@ -170,6 +170,7 @@
     "range": "Range",
     "compareWithBaseline": "Compare with Baseline",
     "createTask": "Create Correction Task",
+    "createBaselineFromHeat": "Create Baseline from This Heat",
     "createTaskHint": "Task creation entry is under development",
     "cutStatus": "Cutting Status",
     "cutStatusnormal": "Normal",
