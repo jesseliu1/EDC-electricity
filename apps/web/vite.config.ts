@@ -19,4 +19,16 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vue: ['vue', 'vue-router', 'pinia', 'vue-i18n'],
+          elementPlus: ['element-plus', '@element-plus/icons-vue'],
+          echarts: ['echarts', 'vue-echarts'],
+        },
+      },
+    },
+  },
 })
