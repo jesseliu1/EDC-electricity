@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Odometer,
   DataLine,
+  Grid,
   List,
   Document,
   Message,
@@ -45,6 +46,12 @@ const menuItems = computed(() => [
     name: 'Baselines',
     icon: DataLine,
     label: t('nav.baselines'),
+  },
+  {
+    path: '/baseline-definitions',
+    name: 'BaselineDefinitions',
+    icon: Grid,
+    label: t('nav.baselineDefinitions'),
   },
   {
     path: '/heats',

@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from .baseline_definitions import router as baseline_definitions_router
 from .baselines import router as baselines_router
 from .dashboard import router as dashboard_router
 from .heats import router as heats_router
@@ -13,6 +14,7 @@ api_router = APIRouter()
 
 # 注册所有子路由
 api_router.include_router(dashboard_router)
+api_router.include_router(baseline_definitions_router)
 api_router.include_router(baselines_router)
 api_router.include_router(heats_router)
 api_router.include_router(tasks_router)

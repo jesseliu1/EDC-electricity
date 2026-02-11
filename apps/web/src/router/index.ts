@@ -9,6 +9,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'dashboard.title' },
   },
   {
+    path: '/baseline-definitions',
+    name: 'BaselineDefinitions',
+    component: () => import('@/views/BaselineDefinitionListView.vue'),
+    meta: { title: 'baselineDefinition.title' },
+  },
+  {
     path: '/baselines',
     name: 'Baselines',
     component: () => import('@/views/BaselineListView.vue'),

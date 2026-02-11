@@ -32,7 +32,8 @@
     "tasks": "糾偏任務單",
     "inbox": "偏差收件箱",
     "reports": "日報與稽核",
-    "settings": "系統設定"
+    "settings": "系統設定",
+    "baselineDefinitions": "基線定義"
   },
   "dashboard": {
     "title": "總覽",
@@ -192,5 +193,41 @@
     "edcApiKey": "EDC API Key",
     "testConnection": "測試連線",
     "edcTestSuccess": "EDC 連線測試成功"
+  },
+  "baselineDefinition": {
+    "title": "黃金基線定義",
+    "status": "狀態",
+    "definitionName": "定義名稱",
+    "description": "描述",
+    "expectedDuration": "預期時長",
+    "minutes": "分鐘",
+    "metricCount": "指標數量",
+    "instanceCount": "實例數量",
+    "statusActive": "啟用",
+    "statusDisabled": "已停用",
+    "createDefinition": "新建定義",
+    "editDefinition": "編輯定義",
+    "createSuccess": "定義已建立",
+    "updateSuccess": "定義已更新",
+    "deleteSuccess": "定義已刪除",
+    "disableSuccess": "定義已停用",
+    "enableSuccess": "定義已啟用",
+    "enable": "啟用",
+    "deleteConfirm": "確定要刪除此定義嗎？",
+    "nameRequired": "請輸入定義名稱",
+    "namePlaceholder": "請輸入基線定義名稱",
+    "descriptionPlaceholder": "請輸入描述說明",
+    "manageMetrics": "管理指標",
+    "metricsFor": "管理指標",
+    "addMetric": "新增指標",
+    "metricName": "指標名稱",
+    "metricUnit": "單位",
+    "noMetrics": "尚無指標，請新增",
+    "metricFieldRequired": "請填寫指標名稱與單位",
+    "metricAddSuccess": "指標已新增",
+    "metricUpdateSuccess": "指標已更新",
+    "metricDeleteSuccess": "指標已刪除",
+    "metricDeleteConfirm": "確定要刪除此指標嗎？",
+    "createdAt": "建立時間"
   }
 }

@@ -32,7 +32,8 @@
     "tasks": "纠偏任务单",
     "inbox": "偏差收件箱",
     "reports": "日报与审计",
-    "settings": "系统设置"
+    "settings": "系统设置",
+    "baselineDefinitions": "基线定义"
   },
   "dashboard": {
     "title": "总览",
@@ -192,5 +193,41 @@
     "edcApiKey": "EDC API Key",
     "testConnection": "测试连接",
     "edcTestSuccess": "EDC 连接测试成功"
+  },
+  "baselineDefinition": {
+    "title": "黄金基线定义",
+    "status": "状态",
+    "definitionName": "定义名称",
+    "description": "描述",
+    "expectedDuration": "预期时长",
+    "minutes": "分钟",
+    "metricCount": "指标数量",
+    "instanceCount": "实例数量",
+    "statusActive": "启用",
+    "statusDisabled": "已停用",
+    "createDefinition": "新建定义",
+    "editDefinition": "编辑定义",
+    "createSuccess": "定义已创建",
+    "updateSuccess": "定义已更新",
+    "deleteSuccess": "定义已删除",
+    "disableSuccess": "定义已停用",
+    "enableSuccess": "定义已启用",
+    "enable": "启用",
+    "deleteConfirm": "确定要删除此定义吗？",
+    "nameRequired": "请输入定义名称",
+    "namePlaceholder": "请输入基线定义名称",
+    "descriptionPlaceholder": "请输入描述说明",
+    "manageMetrics": "管理指标",
+    "metricsFor": "管理指标",
+    "addMetric": "添加指标",
+    "metricName": "指标名称",
+    "metricUnit": "单位",
+    "noMetrics": "暂无指标，请添加",
+    "metricFieldRequired": "请填写指标名称和单位",
+    "metricAddSuccess": "指标已添加",
+    "metricUpdateSuccess": "指标已更新",
+    "metricDeleteSuccess": "指标已删除",
+    "metricDeleteConfirm": "确定要删除此指标吗？",
+    "createdAt": "创建时间"
   }
 }

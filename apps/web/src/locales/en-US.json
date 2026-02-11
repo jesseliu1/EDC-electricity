@@ -32,7 +32,8 @@
     "tasks": "Correction Tasks",
     "inbox": "Deviation Inbox",
     "reports": "Reports & Audit",
-    "settings": "Settings"
+    "settings": "Settings",
+    "baselineDefinitions": "Baseline Definitions"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -192,5 +193,41 @@
     "edcApiKey": "EDC API Key",
     "testConnection": "Test Connection",
     "edcTestSuccess": "EDC connection test succeeded"
+  },
+  "baselineDefinition": {
+    "title": "Baseline Definitions",
+    "status": "Status",
+    "definitionName": "Definition Name",
+    "description": "Description",
+    "expectedDuration": "Expected Duration",
+    "minutes": "min",
+    "metricCount": "Metrics",
+    "instanceCount": "Instances",
+    "statusActive": "Active",
+    "statusDisabled": "Disabled",
+    "createDefinition": "Create Definition",
+    "editDefinition": "Edit Definition",
+    "createSuccess": "Definition created",
+    "updateSuccess": "Definition updated",
+    "deleteSuccess": "Definition deleted",
+    "disableSuccess": "Definition disabled",
+    "enableSuccess": "Definition enabled",
+    "enable": "Enable",
+    "deleteConfirm": "Are you sure to delete this definition?",
+    "nameRequired": "Please input definition name",
+    "namePlaceholder": "Enter baseline definition name",
+    "descriptionPlaceholder": "Enter description",
+    "manageMetrics": "Manage Metrics",
+    "metricsFor": "Metrics for",
+    "addMetric": "Add Metric",
+    "metricName": "Metric Name",
+    "metricUnit": "Unit",
+    "noMetrics": "No metrics yet, please add",
+    "metricFieldRequired": "Please fill metric name and unit",
+    "metricAddSuccess": "Metric added",
+    "metricUpdateSuccess": "Metric updated",
+    "metricDeleteSuccess": "Metric deleted",
+    "metricDeleteConfirm": "Are you sure to delete this metric?",
+    "createdAt": "Created At"
   }
 }

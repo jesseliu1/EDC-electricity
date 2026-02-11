@@ -32,7 +32,8 @@
     "tasks": "是正タスク",
     "inbox": "偏差受信箱",
     "reports": "日報・監査",
-    "settings": "設定"
+    "settings": "設定",
+    "baselineDefinitions": "ベースライン定義"
   },
   "dashboard": {
     "title": "ダッシュボード",
@@ -192,5 +193,41 @@
     "edcApiKey": "EDC API Key",
     "testConnection": "接続テスト",
     "edcTestSuccess": "EDC 接続テスト成功"
+  },
+  "baselineDefinition": {
+    "title": "ゴールデンベースライン定義",
+    "status": "ステータス",
+    "definitionName": "定義名",
+    "description": "説明",
+    "expectedDuration": "想定時間",
+    "minutes": "分",
+    "metricCount": "指標数",
+    "instanceCount": "インスタンス数",
+    "statusActive": "有効",
+    "statusDisabled": "無効",
+    "createDefinition": "定義作成",
+    "editDefinition": "定義編集",
+    "createSuccess": "定義を作成しました",
+    "updateSuccess": "定義を更新しました",
+    "deleteSuccess": "定義を削除しました",
+    "disableSuccess": "定義を無効化しました",
+    "enableSuccess": "定義を有効化しました",
+    "enable": "有効化",
+    "deleteConfirm": "この定義を削除しますか？",
+    "nameRequired": "定義名を入力してください",
+    "namePlaceholder": "ベースライン定義名を入力",
+    "descriptionPlaceholder": "説明を入力",
+    "manageMetrics": "指標管理",
+    "metricsFor": "指標管理",
+    "addMetric": "指標追加",
+    "metricName": "指標名",
+    "metricUnit": "単位",
+    "noMetrics": "指標がありません。追加してください",
+    "metricFieldRequired": "指標名と単位を入力してください",
+    "metricAddSuccess": "指標を追加しました",
+    "metricUpdateSuccess": "指標を更新しました",
+    "metricDeleteSuccess": "指標を削除しました",
+    "metricDeleteConfirm": "この指標を削除しますか？",
+    "createdAt": "作成日時"
   }
 }
