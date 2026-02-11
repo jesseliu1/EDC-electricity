@@ -38,6 +38,9 @@ class Heat(Base):
         String(50), nullable=False, unique=True, comment="炉次编号"
     )
 
+    # 炉次描述（用户可选填）
+    description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="炉次描述")
+
     # 时间范围
     start_time: Mapped[datetime] = mapped_column(DateTime, nullable=False, comment="开始时间")
     end_time: Mapped[datetime] = mapped_column(DateTime, nullable=False, comment="结束时间")

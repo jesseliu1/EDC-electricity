@@ -1,0 +1,512 @@
+#!/usr/bin/env python3
+
+# -*- coding: utf-8 -*-
+
+“””
+ASNS Master Studio V3.1 - AI 老師傅黃金基線系統
+完整修正版主程式
+“””
+
+import streamlit as st
+import psycopg2
+import pandas as pd
+import numpy as np
+import json
+import os
+import time
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# ==================== 系統配置 ====================
+
+st.set_page_config(
+page_title=“ASNS Master Studio”,
+layout=“wide”,
+page_icon=“🚦”
+)
+
+# ==================== 多語言字典 ====================
+
+LANG = {
+“zh-TW”: {
+“title”: “🚦 AI 老師傅黃金基線系統”,
+“tab_mon”: “🔴 即時戰情室”,
+“tab_task”: “🔧 糾偏任務回報”,
+“tab_create”: “📈 基線建立”,
+“tab_lib”: “🗃️ 基線庫”,
+“lbl_base”: “選擇監控基線”,
+“btn_start”: “▶ 開始監控”,
+“btn_stop”: “⏹ 停止”,
+“st_g”: “✅ 正常”,
+“st_y”: “🟡 警告 (不發單)”,
+“st_r”: “🔴 異常 (已發單)”,
+“curr”: “即時值”,
+“dev”: “偏差率”,
+“tol”: “容許誤差”,
+“task_list”: “待處理的紅燈異常單”,
+“t_id”: “單號”,
+“t_time”: “發生時間”,
+“t_var”: “最大偏差”,
+“t_stat”: “狀態”,
+“f_cause”: “異常原因 (Root Cause)”,
+“f_act”: “處置方法 (Action)”,
+“f_prev”: “預防措施 (Prevention)”,
+“f_user”: “處理人”,
+“btn_submit”: “✅ 提交結案”,
+“msg_done”: “任務已結案！”,
+“no_task”: “🎉 目前沒有異常單”,
+“panel_create”: “📝 老師傅操作面板”,
+“btn_save”: “🌟 設為黃金基線”,
+“msg_saved”: “基線已儲存！”
+},
+“zh-CN”: {
+“title”: “🚦 AI 老师傅黄金基线系统”,
+“tab_mon”: “🔴 即时战情室”,
+“tab_task”: “🔧 纠偏任务回报”,
+“tab_create”: “📈 基线建立”,
+“tab_lib”: “🗃️ 基线库”,
+“lbl_base”: “选择监控基线”,
+“btn_start”: “▶ 开始监控”,
+“btn_stop”: “⏹ 停止”,
+“st_g”: “✅ 正常”,
+“st_y”: “🟡 警告 (不发单)”,
+“st_r”: “🔴 异常 (已发单)”,
+“curr”: “即时值”,
+“dev”: “偏差率”,
+“tol”: “容许误差”,
+“task_list”: “待处理的红灯异常单”,
+“t_id”: “单号”,
+“t_time”: “发生时间”,
+“t_var”: “最大偏差”,
+“t_stat”: “状态”,
+“f_cause”: “异常原因”,
+“f_act”: “处置方法”,
+“f_prev”: “预防措施”,
+“f_user”: “处理人”,
+“btn_submit”: “✅ 提交结案”,
+“msg_done”: “任务已结案！”,
+“no_task”: “🎉 目前没有异常单”,
+“panel_create”: “📝 老师傅操作面板”,
+“btn_save”: “🌟 设为黄金基线”,
+“msg_saved”: “基线已保存！”
+},
+“en”: {
+“title”: “🚦 ASNS Master Studio”,
+“tab_mon”: “🔴 Real-time Monitor”,
+“tab_task”: “🔧 Correction Tasks”,
+“tab_create”: “📈 Create Baseline”,
+“tab_lib”: “🗃️ Library”,
+“lbl_base”: “Select Baseline”,
+“btn_start”: “▶ Start”,
+“btn_stop”: “⏹ Stop”,
+“st_g”: “✅ Normal”,
+“st_y”: “🟡 Warning”,
+“st_r”: “🔴 Critical (Task Created)”,
+“curr”: “Value”,
+“dev”: “Variance”,
+“tol”: “Tolerance”,
+“task_list”: “Pending Correction Tasks”,
+“t_id”: “ID”,
+“t_time”: “Time”,
+“t_var”: “Max Var”,
+“t_stat”: “Status”,
+“f_cause”: “Root Cause”,
+“f_act”: “Action”,
+“f_prev”: “Prevention”,
+“f_user”: “Operator”,
+“btn_submit”: “✅ Close Task”,
+“msg_done”: “Task Closed!”,
+“no_task”: “🎉 No pending tasks.”,
+“panel_create”: “📝 Master Panel”,
+“btn_save”: “🌟 Save as Golden”,
+“msg_saved”: “Baseline Saved!”
+},
+“ja”: {
+“title”: “🚦 AI 匠の黄金ベースライン”,
+“tab_mon”: “🔴 リアルタイム”,
+“tab_task”: “🔧 是正タスク報告”,
+“tab_create”: “📈 基準作成”,
+“tab_lib”: “🗃️ ライブラリ”,
+“lbl_base”: “基準選択”,
+“btn_start”: “▶ 開始”,
+“btn_stop”: “⏹ 停止”,
+“st_g”: “✅ 正常”,
+“st_y”: “🟡 警告”,
+“st_r”: “🔴 異常 (発行済)”,
+“curr”: “現在値”,
+“dev”: “偏差率”,
+“tol”: “許容誤差”,
+“task_list”: “未処理の異常タスク”,
+“t_id”: “ID”,
+“t_time”: “発生時刻”,
+“t_var”: “最大偏差”,
+“t_stat”: “状態”,
+“f_cause”: “原因”,
+“f_act”: “処置”,
+“f_prev”: “予防”,
+“f_user”: “担当者”,
+“btn_submit”: “✅ 完了報告”,
+“msg_done”: “タスク完了！”,
+“no_task”: “🎉 未処理タスクなし”,
+“panel_create”: “📝 匠パネル”,
+“btn_save”: “🌟 保存”,
+“msg_saved”: “保存しました！”
+}
+}
+
+# ==================== 資料庫連線 ====================
+
+def get_conn():
+“”“取得資料庫連線（含錯誤處理）”””
+try:
+return psycopg2.connect(
+host=os.getenv(‘DB_HOST’),
+database=os.getenv(‘DB_NAME’),
+user=os.getenv(‘DB_USER’),
+password=os.getenv(‘DB_PASS’)
+)
+except Exception as e:
+st.error(f”資料庫連線失敗：{e}”)
+return None
+
+# ==================== Session State 初始化 ====================
+
+if ‘rt_data’ not in st.session_state:
+st.session_state.rt_data = []
+if ‘monitoring’ not in st.session_state:
+st.session_state.monitoring = False
+if ‘monitor_index’ not in st.session_state:
+st.session_state.monitor_index = 0
+if ‘in_alarm’ not in st.session_state:
+st.session_state.in_alarm = False
+
+# ==================== 側邊欄 ====================
+
+with st.sidebar:
+st.header(“🌐 Language”)
+lang = st.selectbox(“Lang”, list(LANG.keys()), index=0)
+T = LANG[lang]
+st.markdown(”—”)
+st.info(”**Version:** V3.1”)
+st.info(”**Port:** 8002”)
+st.markdown(”—”)
+
+```
+# 系統狀態指示
+st.caption("系統狀態")
+if st.session_state.monitoring:
+    st.success("🔴 監控中...")
+else:
+    st.info("⏸️ 待命中")
+```
+
+# ==================== 主標題 ====================
+
+st.title(T[“title”])
+
+# ==================== 頁籤 ====================
+
+tab1, tab2, tab3, tab4 = st.tabs([
+T[“tab_mon”],
+T[“tab_task”],
+T[“tab_create”],
+T[“tab_lib”]
+])
+
+# ==================== Tab 1: 即時戰情室 ====================
+
+with tab1:
+# 讀取基線清單
+conn = get_conn()
+if conn:
+try:
+df_base = pd.read_sql(
+“SELECT * FROM asns_golden_baselines WHERE is_active=True ORDER BY baseline_id DESC”,
+conn
+)
+except Exception as e:
+st.error(f”讀取基線清單失敗：{e}”)
+df_base = pd.DataFrame()
+finally:
+conn.close()
+else:
+df_base = pd.DataFrame()
+
+```
+if df_base.empty:
+    st.warning("⚠️ 尚未建立任何基線，請先到「基線建立」頁籤建立。")
+else:
+    base_map = {
+        f"{r['baseline_id']} - {r['baseline_name']}": r 
+        for i, r in df_base.iterrows()
+    }
+    
+    # 控制面板與監控面板
+    c_ctrl, c_dash = st.columns([1, 3])
+    
+    with c_ctrl:
+        st.subheader("🎮 控制面板")
+        sel = st.selectbox(T["lbl_base"], list(base_map.keys()))
+        
+        if sel:
+            base = base_map[sel]
+            curve = json.loads(base['curve_data'])
+            tol = base['tolerance_pct']
+            
+            st.metric(T["tol"], f"{tol}%")
+            st.caption(f"SUID: {base['suid']}")
+            st.caption(f"CUID: {base['cuid']}")
+            
+            st.markdown("---")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(T["btn_start"], type="primary", use_container_width=True):
+                    st.session_state.monitoring = True
+                    st.session_state.rt_data = []
+                    st.session_state.monitor_index = 0
+                    st.session_state.in_alarm = False
+                    st.rerun()
+            
+            with col2:
+                if st.button(T["btn_stop"], use_container_width=True):
+                    st.session_state.monitoring = False
+                    st.rerun()
+    
+    with c_dash:
+        st.subheader("📊 監控儀表板")
+        ph_chart = st.empty()
+        ph_metric = st.empty()
+        
+        if st.session_state.monitoring and sel:
+            base = base_map[sel]
+            curve = json.loads(base['curve_data'])
+            tol = base['tolerance_pct']
+            
+            idx = st.session_state.monitor_index
+            
+            if idx < len(curve):
+                # 處理當前數據點
+                golden = curve[idx]
+                real = golden + np.random.normal(0, 5)
+                
+                # Demo 模式異常注入
+                if os.getenv('DEMO_MODE', 'false').lower() == 'true':
+                    if 50 < idx < 70:
+                        real += golden * 0.4  # 注入 40% 偏差
+                
+                st.session_state.rt_data.append(real)
+                var_pct = abs(real - golden) / (abs(golden) + 0.01) * 100
+                
+                # ========== 紅綠燈判定 ==========
+                if var_pct <= tol:
+                    status, color = T["st_g"], "normal"
+                    st.session_state.in_alarm = False  # 恢復正常
+                elif var_pct <= tol * 1.5:
+                    status, color = T["st_y"], "off"
+                    # 黃燈不改變 alarm 狀態
+                else:
+                    status, color = T["st_r"], "inverse"
+                    
+                    # ========== 自動發單（防重複）==========
+                    if not st.session_state.in_alarm:
+                        try:
+                            conn = get_conn()
+                            if conn:
+                                cur = conn.cursor()
+                                cur.execute(
+                                    "INSERT INTO asns_correction_tasks "
+                                    "(baseline_id, suid, cuid, max_variance, status) "
+                                    "VALUES (%s, %s, %s, %s, 0)",
+                                    (base['baseline_id'], base['suid'], base['cuid'], var_pct)
+                                )
+                                conn.commit()
+                                conn.close()
+                                st.toast(f"🚨 {T['st_r']}", icon="🔴")
+                        except Exception as e:
+                            st.error(f"發單失敗：{e}")
+                        
+                        st.session_state.in_alarm = True  # 標記已發單
+                
+                # ========== 更新 UI ==========
+                with ph_metric.container():
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric(T["curr"], f"{real:.2f}")
+                    m2.metric(T["dev"], f"{var_pct:.1f}%", delta_color=color)
+                    
+                    if color == "inverse":
+                        m3.error(status)
+                    elif color == "off":
+                        m3.warning(status)
+                    else:
+                        m3.success(status)
+                
+                with ph_chart.container():
+                    # 準備圖表數據
+                    chart_data = pd.DataFrame({
+                        "Golden": curve[:idx+1],
+                        "Real-time": st.session_state.rt_data
+                    })
+                    st.line_chart(
+                        chart_data,
+                        color=["#CCCCCC", "#FF4B4B"],
+                        height=400
+                    )
+                
+                # ========== 推進索引並重新運行 ==========
+                st.session_state.monitor_index += 1
+                time.sleep(0.1)
+                st.rerun()
+            else:
+                # 監控完成
+                st.session_state.monitoring = False
+                st.info("✅ 監控完成")
+        
+        elif not st.session_state.monitoring and len(st.session_state.rt_data) > 0:
+            # 顯示最後狀態
+            with ph_chart.container():
+                chart_data = pd.DataFrame({
+                    "Golden": curve,
+                    "Real-time": st.session_state.rt_data + [None] * (len(curve) - len(st.session_state.rt_data))
+                })
+                st.line_chart(
+                    chart_data,
+                    color=["#CCCCCC", "#FF4B4B"],
+                    height=400
+                )
+```
+
+# ==================== Tab 2: 糾偏任務回報 ====================
+
+with tab2:
+st.subheader(T[“task_list”])
+
+```
+conn = get_conn()
+if conn:
+    try:
+        tasks = pd.read_sql(
+            "SELECT task_id, suid, cuid, occurred_at, max_variance "
+            "FROM asns_correction_tasks WHERE status=0 ORDER BY task_id DESC",
+            conn
+        )
+    except Exception as e:
+        st.error(f"讀取任務清單失敗：{e}")
+        tasks = pd.DataFrame()
+    finally:
+        conn.close()
+else:
+    tasks = pd.DataFrame()
+
+if tasks.empty:
+    st.info(T["no_task"])
+else:
+    st.dataframe(tasks, use_container_width=True)
+    
+    st.markdown("---")
+    st.subheader("📝 填寫回報")
+    
+    tid = st.selectbox(T["t_id"], tasks['task_id'])
+    
+    with st.form("fix_form"):
+        c = st.text_area(T["f_cause"], height=100)
+        a = st.text_area(T["f_act"], height=100)
+        p = st.text_area(T["f_prev"], height=100)
+        u = st.text_input(T["f_user"])
+        
+        submitted = st.form_submit_button(T["btn_submit"], type="primary")
+        
+        if submitted:
+            if not all([c, a, p, u]):
+                st.error("❌ 請填寫所有欄位")
+            else:
+                try:
+                    conn = get_conn()
+                    if conn:
+                        cur = conn.cursor()
+                        cur.execute(
+                            "UPDATE asns_correction_tasks "
+                            "SET root_cause=%s, action_taken=%s, prevention_measure=%s, "
+                            "operator_name=%s, status=1 "
+                            "WHERE task_id=%s",
+                            (c, a, p, u, tid)
+                        )
+                        conn.commit()
+                        conn.close()
+                        st.success(T["msg_done"])
+                        time.sleep(1)
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"結案失敗：{e}")
+```
+
+# ==================== Tab 3: 基線建立 ====================
+
+with tab3:
+st.subheader(T[“panel_create”])
+
+```
+def generate_curve():
+    """生成模擬黃金曲線"""
+    x = np.linspace(0, 12, 200)
+    y = 100 * (1 - np.exp(-0.5 * x)) + np.random.normal(0, 1, 200)
+    return y.tolist()
+
+c1, c2 = st.columns([3, 1])
+
+with c1:
+    st.caption("預覽曲線")
+    preview_curve = generate_curve()
+    st.line_chart(preview_curve, height=400)
+
+with c2:
+    st.caption("基線設定")
+    n = st.text_input("Name", "Golden_01")
+    suid = st.text_input("SUID", "S1")
+    cuid = st.text_input("CUID", "C1")
+    t = st.slider("Tolerance %", 1, 20, 10)
+    
+    if st.button(T["btn_save"], type="primary", use_container_width=True):
+        try:
+            conn = get_conn()
+            if conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO asns_golden_baselines "
+                    "(baseline_name, suid, cuid, tolerance_pct, curve_data) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (n, suid, cuid, t, json.dumps(generate_curve()))
+                )
+                conn.commit()
+                conn.close()
+                st.success(T["msg_saved"])
+                time.sleep(1)
+                st.rerun()
+        except Exception as e:
+            st.error(f"儲存失敗：{e}")
+```
+
+# ==================== Tab 4: 基線庫 ====================
+
+with tab4:
+st.subheader(“📚 黃金基線庫”)
+
+```
+conn = get_conn()
+if conn:
+    try:
+        all_baselines = pd.read_sql(
+            "SELECT baseline_id, baseline_name, suid, cuid, "
+            "tolerance_pct, created_at, is_active "
+            "FROM asns_golden_baselines ORDER BY baseline_id DESC",
+            conn
+        )
+        st.dataframe(all_baselines, use_container_width=True)
+    except Exception as e:
+        st.error(f"讀取基線庫失敗：{e}")
+    finally:
+        conn.close()
+
+st.caption("💡 提示：可在此查看所有已建立的基線紀錄")
+```

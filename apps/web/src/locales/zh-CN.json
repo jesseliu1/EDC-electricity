@@ -135,6 +135,7 @@
     "startDate": "开始日期",
     "endDate": "结束日期",
     "heatNo": "炉次编号",
+    "description": "描述",
     "startTime": "开始时间",
     "endTime": "结束时间",
     "deviation": "偏差",

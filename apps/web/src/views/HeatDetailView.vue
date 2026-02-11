@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElButton, ElCard, ElEmpty, ElMessage, ElTag } from 'element-plus'
+import { ElButton, ElCard, ElEmpty, ElInput, ElMessage, ElTag } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -22,6 +22,9 @@ const heatStore = useHeatStore()
 
 const heatId = computed(() => String(route.params.id || ''))
 const current = computed(() => heatStore.current)
+
+const editingDescription = ref(false)
+const descriptionDraft = ref('')
 
 const statusTagType = computed(() => {
   if (!current.value) return 'info'
@@ -95,6 +98,18 @@ function handleCreateTask() {
   ElMessage.info(t('heat.createTaskHint'))
 }
 
+function startEditDescription() {
+  descriptionDraft.value = current.value?.base.description || ''
+  editingDescription.value = true
+}
+
+async function saveDescription() {
+  if (!heatId.value) return
+  await heatStore.updateDescription(heatId.value, descriptionDraft.value)
+  editingDescription.value = false
+  ElMessage.success(t('common.success'))
+}
+
 onMounted(() => {
   if (!heatId.value) return
   void heatStore.fetchDetail(heatId.value)
@@ -152,24 +167,49 @@ onMounted(() => {
         </template>
         <div class="space-y-3 text-sm text-gray-700">
           <div>
+            <span class="text-gray-500">{{ t('heat.description') }}:</span>
+            <template v-if="!editingDescription">
+              <span class="ml-2 font-medium">{{ current.base.description || t('common.noDescription') }}</span>
+              <el-button
+                type="primary"
+                link
+                class="ml-2"
+                @click="startEditDescription"
+              >
+                {{ t('common.edit') }}
+              </el-button>
+            </template>
+            <template v-else>
+              <el-input
+                v-model="descriptionDraft"
+                class="ml-2 inline-block w-64"
+                size="small"
+                @keyup.enter="saveDescription"
+              />
+              <el-button
+                type="primary"
+                link
+                class="ml-1"
+                @click="saveDescription"
+              >
+                {{ t('common.save') }}
+              </el-button>
+              <el-button
+                link
+                class="ml-1"
+                @click="editingDescription = false"
+              >
+                {{ t('common.cancel') }}
+              </el-button>
+            </template>
+          </div>
+          <div>
             <span class="text-gray-500">{{ t('heat.startTime') }}:</span>
             <span class="ml-2 font-medium">{{ current.base.startTime }}</span>
           </div>
           <div>
             <span class="text-gray-500">{{ t('heat.endTime') }}:</span>
             <span class="ml-2 font-medium">{{ current.base.endTime }}</span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('heat.deviation') }}:</span>
-            <span class="ml-2 font-medium">{{ current.base.deviationPercent ?? '--' }}%</span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('heat.avgDeviation') }}:</span>
-            <span class="ml-2 font-medium">{{ current.base.avgDeviationPercent ?? '--' }}%</span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('heat.maxDeviation') }}:</span>
-            <span class="ml-2 font-medium">{{ current.maxDeviation ?? '--' }}%</span>
           </div>
           <div>
             <span class="text-gray-500">{{ t('heat.temperature') }}:</span>

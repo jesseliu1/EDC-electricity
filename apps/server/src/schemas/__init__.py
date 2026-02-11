@@ -32,6 +32,7 @@ from .heat import (
     HeatCompareResponse,
     HeatListResponse,
     HeatResponse,
+    HeatUpdate,
     HeatWithCurve,
 )
 from .setting import (
@@ -75,6 +76,7 @@ __all__ = [
     "HeatListResponse",
     "HeatAnalyzeRequest",
     "HeatAnalyzeResponse",
+    "HeatUpdate",
     # Task
     "TaskCreate",
     "TaskUpdate",

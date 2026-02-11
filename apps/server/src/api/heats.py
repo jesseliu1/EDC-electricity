@@ -15,6 +15,7 @@ from ..schemas import (
     HeatCompareResponse,
     HeatListResponse,
     HeatResponse,
+    HeatUpdate,
     HeatWithCurve,
 )
 from ..schemas.heat import BaselineWithCurveSimple
@@ -61,6 +62,7 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
         seeded[heat_id] = {
             "id": heat_id,
             "heat_no": f"H{now.strftime('%Y%m%d')}-{idx + 1:03d}",
+            "description": None,
             "start_time": start_time,
             "end_time": end_time,
             "baseline_id": "baseline-001" if status != "pending" else None,
@@ -84,6 +86,7 @@ def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
     return HeatResponse(
         id=item["id"],
         heat_no=item["heat_no"],
+        description=item.get("description"),
         start_time=item["start_time"],
         end_time=item["end_time"],
         baseline_id=item["baseline_id"],
@@ -148,6 +151,19 @@ async def list_heats(
 async def get_heat(heat_id: str) -> HeatResponse:
     """获取炉次详情。"""
     item = _get_or_404(heat_id)
+    return _to_heat_response(item)
+
+
+@router.patch("/{heat_id}", response_model=HeatResponse)
+async def update_heat(heat_id: str, data: HeatUpdate) -> HeatResponse:
+    """更新炉次信息（描述、起止时间）。"""
+    item = _get_or_404(heat_id)
+    if data.description is not None:
+        item["description"] = data.description
+    if data.start_time is not None:
+        item["start_time"] = data.start_time
+    if data.end_time is not None:
+        item["end_time"] = data.end_time
     return _to_heat_response(item)
 
 

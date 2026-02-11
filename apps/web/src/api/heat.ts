@@ -5,6 +5,7 @@ export type HeatStatus = 'normal' | 'abnormal' | 'pending'
 export interface HeatResponseItem {
   id: string
   heat_no: string
+  description: string | null
   start_time: string
   end_time: string
   baseline_id: string | null
@@ -62,9 +63,17 @@ export interface HeatCompareResponse {
   avg_deviation: number | null
 }
 
+export interface HeatUpdatePayload {
+  description?: string | null
+  start_time?: string
+  end_time?: string
+}
+
 export const heatApi = {
   list: (query: HeatListQuery) => client.get<HeatListResponse>('/heats', { params: query }),
   get: (id: string) => client.get<HeatResponseItem>(`/heats/${id}`),
   getCurve: (id: string) => client.get<HeatWithCurveResponse>(`/heats/${id}/curve`),
-  getCompare: (id: string) => client.get<HeatCompareResponse>(`/heats/${id}/compare`)
+  getCompare: (id: string) => client.get<HeatCompareResponse>(`/heats/${id}/compare`),
+  update: (id: string, payload: HeatUpdatePayload) =>
+    client.patch<HeatResponseItem>(`/heats/${id}`, payload)
 }

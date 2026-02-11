@@ -20,6 +20,7 @@ class HeatResponse(BaseModel):
 
     id: str = Field(..., description="炉次ID")
     heat_no: str = Field(..., description="炉次编号")
+    description: str | None = Field(default=None, description="炉次描述")
     start_time: datetime = Field(..., description="开始时间")
     end_time: datetime = Field(..., description="结束时间")
     baseline_id: str | None = Field(default=None, description="对比基线ID")
@@ -83,6 +84,14 @@ class HeatAnalyzeResponse(BaseModel):
     avg_deviation: float = Field(..., description="平均偏差百分比")
     status: str = Field(..., description="分析结果状态")
     deviation_ranges: list[DeviationRange] = Field(..., description="偏差区间列表")
+
+
+class HeatUpdate(BaseModel):
+    """更新炉次请求"""
+
+    description: str | None = Field(default=None, description="炉次描述")
+    start_time: datetime | None = Field(default=None, description="开始时间")
+    end_time: datetime | None = Field(default=None, description="结束时间")
 
 
 # 更新前向引用

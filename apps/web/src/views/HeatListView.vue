@@ -117,18 +117,18 @@ onMounted(() => {
               <div class="text-base font-semibold text-gray-900">
                 {{ item.heatNo }}
               </div>
+              <div
+                v-if="item.description"
+                class="text-sm text-gray-400"
+              >
+                {{ item.description }}
+              </div>
               <div class="text-sm text-gray-500">
                 {{ item.startTime }} - {{ item.endTime }}
               </div>
             </div>
 
             <div class="flex items-center gap-4 flex-wrap">
-              <div class="text-sm text-gray-600">
-                {{ t('heat.deviation') }}:
-                <span class="font-semibold">
-                  {{ item.deviationPercent !== null ? `${item.deviationPercent}%` : '--' }}
-                </span>
-              </div>
               <el-tag :type="statusTagType(item.status)">
                 {{ statusText(item.status) }}
               </el-tag>

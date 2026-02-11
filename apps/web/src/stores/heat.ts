@@ -14,6 +14,7 @@ import type {
 export interface HeatItem {
   id: string
   heatNo: string
+  description: string | null
   startTime: string
   endTime: string
   baselineId: string | null
@@ -43,6 +44,7 @@ function mapHeat(item: HeatResponseItem): HeatItem {
   return {
     id: item.id,
     heatNo: item.heat_no,
+    description: item.description ?? null,
     startTime: dayjs(item.start_time).format('YYYY-MM-DD HH:mm'),
     endTime: dayjs(item.end_time).format('YYYY-MM-DD HH:mm'),
     baselineId: item.baseline_id,
@@ -61,6 +63,7 @@ function mockHeats(page: number, pageSize: number, status: 'all' | HeatStatus): 
     return {
       id: `mock-heat-${idx + 1}`,
       heatNo: `H${dayjs().format('YYYYMMDD')}-${String(idx + 1).padStart(3, '0')}`,
+      description: null,
       startTime: now.format('YYYY-MM-DD HH:mm'),
       endTime: now.add(45, 'minute').format('YYYY-MM-DD HH:mm'),
       baselineId: idx % 2 === 0 ? 'baseline-001' : null,
@@ -85,6 +88,7 @@ function mockDetail(id: string): HeatDetail {
   const base: HeatItem = {
     id,
     heatNo: `H${dayjs().format('YYYYMMDD')}-001`,
+    description: null,
     startTime: start.format('YYYY-MM-DD HH:mm'),
     endTime: start.add(45, 'minute').format('YYYY-MM-DD HH:mm'),
     baselineId: 'baseline-001',
@@ -216,6 +220,18 @@ export const useHeatStore = defineStore('heat', {
         this.current = mockDetail(id)
       } finally {
         this.loading = false
+      }
+    },
+    async updateDescription(id: string, description: string) {
+      try {
+        await heatApi.update(id, { description })
+        if (this.current && this.current.base.id === id) {
+          this.current.base.description = description
+        }
+        const item = this.list.find(h => h.id === id)
+        if (item) item.description = description
+      } catch (error) {
+        console.warn('Update heat description failed.', error)
       }
     }
   }
