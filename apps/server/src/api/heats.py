@@ -16,6 +16,7 @@ from ..schemas import (
     HeatCompareResponse,
     HeatListResponse,
     HeatResponse,
+    HeatResumeCuttingRequest,
     HeatUpdate,
     HeatWithCurve,
 )
@@ -234,6 +235,34 @@ async def update_heat(heat_id: str, data: HeatUpdate) -> HeatResponse:
             if other["start_time"] > current_start:
                 other["start_time"] = other["start_time"] + delta
                 other["end_time"] = other["end_time"] + delta
+
+    return _to_heat_response(item)
+
+
+@router.post("/{heat_id}/resume-cutting", response_model=HeatResponse)
+async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatResponse:
+    """恢复重大事故后的炉次切割。"""
+    item = _get_or_404(heat_id)
+
+    item["cut_status"] = "normal"
+    item["major_issue"] = False
+    item["blocked_by_issue"] = False
+    if item["status"] == "pending":
+        item["status"] = "normal"
+    item["time_offset_percent"] = min(item.get("time_offset_percent") or 0.0, 8.0)
+
+    if data.adjust_subsequent:
+        current_start = item["start_time"]
+        for other in _HEAT_STORE.values():
+            if other["id"] == heat_id:
+                continue
+            if other["start_time"] > current_start and other.get("cut_status") == "blocked":
+                other["cut_status"] = "normal"
+                other["blocked_by_issue"] = False
+                other["major_issue"] = False
+                if other["status"] == "pending":
+                    other["status"] = "normal"
+                other["time_offset_percent"] = 6.0
 
     return _to_heat_response(item)
 

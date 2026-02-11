@@ -22,6 +22,8 @@ export interface BaselineResponse {
   definition_id: string
   definition_name: string
   source_heat_id: string
+  selected_start_time?: string | null
+  selected_end_time?: string | null
   tolerance_percent: number
   status: BaselineStatus
   version: number
@@ -44,6 +46,8 @@ export interface BaselineCreatePayload {
   description?: string
   definition_id: string
   source_heat_id: string
+  selected_start_time?: string
+  selected_end_time?: string
   tolerance_percent: number
 }
 

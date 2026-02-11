@@ -173,6 +173,26 @@ async function saveTiming() {
   ElMessage.success(t('common.success'))
 }
 
+async function handleResumeCutting() {
+  if (!heatId.value || !current.value) return
+  let adjustSubsequent = true
+  try {
+    await ElMessageBox.confirm(t('heat.resumeCuttingConfirm'), t('common.warning'), {
+      confirmButtonText: t('heat.resumeCuttingWithSubsequent'),
+      cancelButtonText: t('heat.resumeCuttingOnlyCurrent'),
+      distinguishCancelAndClose: true,
+      type: 'warning'
+    })
+    adjustSubsequent = true
+  } catch {
+    adjustSubsequent = false
+  }
+
+  await heatStore.resumeCutting(heatId.value, adjustSubsequent)
+  await heatStore.fetchDetail(heatId.value)
+  ElMessage.success(t('heat.resumeCuttingSuccess'))
+}
+
 onMounted(() => {
   if (!heatId.value) return
   void heatStore.fetchDetail(heatId.value).then(() => {
@@ -207,6 +227,13 @@ onMounted(() => {
           @click="handleCreateTask"
         >
           {{ t('heat.createTask') }}
+        </el-button>
+        <el-button
+          v-if="current?.base.cutStatus === 'major_issue' || current?.base.cutStatus === 'blocked'"
+          type="warning"
+          @click="handleResumeCutting"
+        >
+          {{ t('heat.resumeCutting') }}
         </el-button>
       </div>
     </div>

@@ -319,6 +319,30 @@ export const useHeatStore = defineStore('heat', {
       } catch (error) {
         console.warn('Update heat timing failed.', error)
       }
+    },
+    async resumeCutting(id: string, adjustSubsequent: boolean) {
+      try {
+        const updated = await heatApi.resumeCutting(id, { adjust_subsequent: adjustSubsequent })
+        const mapped = mapHeat(updated)
+
+        if (this.current && this.current.base.id === id) {
+          this.current.base = {
+            ...this.current.base,
+            ...mapped
+          }
+        }
+
+        const item = this.list.find(h => h.id === id)
+        if (item) {
+          Object.assign(item, mapped)
+        }
+
+        if (adjustSubsequent) {
+          await this.fetchList()
+        }
+      } catch (error) {
+        console.warn('Resume cutting failed.', error)
+      }
     }
   }
 })

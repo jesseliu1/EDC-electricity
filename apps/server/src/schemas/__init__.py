@@ -34,6 +34,7 @@ from .heat import (
     HeatCompareResponse,
     HeatListResponse,
     HeatResponse,
+    HeatResumeCuttingRequest,
     HeatUpdate,
     HeatWithCurve,
 )
@@ -79,6 +80,7 @@ __all__ = [
     "HeatWithCurve",
     "HeatCompareResponse",
     "HeatListResponse",
+    "HeatResumeCuttingRequest",
     "HeatAnalyzeRequest",
     "HeatAnalyzeResponse",
     "HeatUpdate",

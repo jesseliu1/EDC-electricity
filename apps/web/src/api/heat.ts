@@ -82,11 +82,18 @@ export interface HeatUpdatePayload {
   adjust_subsequent?: boolean
 }
 
+export interface HeatResumeCuttingPayload {
+  adjust_subsequent?: boolean
+  note?: string
+}
+
 export const heatApi = {
   list: (query: HeatListQuery) => client.get<HeatListResponse>('/heats', { params: query }),
   get: (id: string) => client.get<HeatResponseItem>(`/heats/${id}`),
   getCurve: (id: string) => client.get<HeatWithCurveResponse>(`/heats/${id}/curve`),
   getCompare: (id: string) => client.get<HeatCompareResponse>(`/heats/${id}/compare`),
   update: (id: string, payload: HeatUpdatePayload) =>
-    client.patch<HeatResponseItem>(`/heats/${id}`, payload)
+    client.patch<HeatResponseItem>(`/heats/${id}`, payload),
+  resumeCutting: (id: string, payload: HeatResumeCuttingPayload) =>
+    client.post<HeatResponseItem>(`/heats/${id}/resume-cutting`, payload)
 }

@@ -22,6 +22,8 @@ export interface BaselineItem {
   createdAt: string
   publishedAt: string | null
   sourceHeatId: string
+  selectedStartTime: string | null
+  selectedEndTime: string | null
 }
 
 export interface BaselineDetail extends BaselineItem {
@@ -43,7 +45,9 @@ function mapBaseline(item: BaselineResponse): BaselineItem {
     tolerancePercent: item.tolerance_percent,
     createdAt: item.created_at,
     publishedAt: item.published_at,
-    sourceHeatId: item.source_heat_id
+    sourceHeatId: item.source_heat_id,
+    selectedStartTime: item.selected_start_time || null,
+    selectedEndTime: item.selected_end_time || null
   }
 }
 
@@ -65,7 +69,9 @@ function mockBaselines(): BaselineItem[] {
       tolerancePercent: 5,
       createdAt: now.subtract(10, 'day').toISOString(),
       publishedAt: now.subtract(9, 'day').toISOString(),
-      sourceHeatId: 'heat-001'
+      sourceHeatId: 'heat-001',
+      selectedStartTime: null,
+      selectedEndTime: null
     },
     {
       id: 'baseline-002',
@@ -78,7 +84,9 @@ function mockBaselines(): BaselineItem[] {
       tolerancePercent: 3,
       createdAt: now.subtract(3, 'day').toISOString(),
       publishedAt: null,
-      sourceHeatId: 'heat-014'
+      sourceHeatId: 'heat-014',
+      selectedStartTime: null,
+      selectedEndTime: null
     },
     {
       id: 'baseline-003',
@@ -91,7 +99,9 @@ function mockBaselines(): BaselineItem[] {
       tolerancePercent: 8,
       createdAt: now.subtract(60, 'day').toISOString(),
       publishedAt: now.subtract(55, 'day').toISOString(),
-      sourceHeatId: 'heat-089'
+      sourceHeatId: 'heat-089',
+      selectedStartTime: null,
+      selectedEndTime: null
     }
   ]
 }
@@ -109,7 +119,9 @@ function mockBaselineDetail(id: string): BaselineDetail {
     tolerancePercent: 15,
     createdAt: dayjs().toISOString(),
     publishedAt: null,
-    sourceHeatId: 'heat-001'
+    sourceHeatId: 'heat-001',
+    selectedStartTime: null,
+    selectedEndTime: null
   }
   const powerCurve: CurvePoint[] = Array.from({ length: 20 }).map((_, idx) => ({
     timestamp: dayjs().subtract(20 - idx, 'minute').valueOf(),
@@ -248,7 +260,9 @@ export const useBaselineStore = defineStore('baseline', {
           tolerancePercent: payload.tolerance_percent,
           createdAt: now,
           publishedAt: mode === 'publish' ? now : null,
-          sourceHeatId: payload.source_heat_id
+          sourceHeatId: payload.source_heat_id,
+          selectedStartTime: payload.selected_start_time || null,
+          selectedEndTime: payload.selected_end_time || null
         })
       }
     },

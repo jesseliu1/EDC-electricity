@@ -50,6 +50,8 @@ async function handleWizardSubmit(payload: {
   description: string
   definitionId: string
   sourceHeatId: string
+  selectedStartTime?: string
+  selectedEndTime?: string
   tolerancePercent: number
   mode: 'draft' | 'publish'
 }) {
@@ -59,6 +61,8 @@ async function handleWizardSubmit(payload: {
       description: payload.description,
       definition_id: payload.definitionId,
       source_heat_id: payload.sourceHeatId,
+      selected_start_time: payload.selectedStartTime,
+      selected_end_time: payload.selectedEndTime,
       tolerance_percent: payload.tolerancePercent
     },
     payload.mode

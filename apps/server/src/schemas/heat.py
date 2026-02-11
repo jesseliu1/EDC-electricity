@@ -111,5 +111,12 @@ class HeatUpdate(BaseModel):
     adjust_subsequent: bool = Field(default=False, description="是否自动调整后续炉次")
 
 
+class HeatResumeCuttingRequest(BaseModel):
+    """恢复炉次切割请求"""
+
+    adjust_subsequent: bool = Field(default=True, description="是否联动恢复后续炉次")
+    note: str | None = Field(default=None, description="恢复备注")
+
+
 # 更新前向引用
 HeatCompareResponse.model_rebuild()

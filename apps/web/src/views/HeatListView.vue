@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import {
@@ -18,6 +18,10 @@ import type { HeatStatus } from '@/api/heat'
 const { t } = useI18n()
 const router = useRouter()
 const heatStore = useHeatStore()
+const blockedCount = computed(() => heatStore.list.filter(item => item.cutStatus === 'blocked').length)
+const majorIssueCount = computed(
+  () => heatStore.list.filter(item => item.cutStatus === 'major_issue').length
+)
 
 type StatusFilter = 'all' | HeatStatus
 
@@ -110,6 +114,9 @@ onMounted(() => {
     </el-card>
 
     <el-card>
+      <div v-if="majorIssueCount > 0 || blockedCount > 0" class="mb-4 rounded-lg border border-warning bg-yellow-50 p-3 text-sm text-yellow-700">
+        {{ t('heat.cuttingAlert', { major: majorIssueCount, blocked: blockedCount }) }}
+      </div>
       <div
         v-if="heatStore.list.length > 0"
         class="space-y-3"
