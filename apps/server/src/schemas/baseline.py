@@ -34,6 +34,8 @@ class BaselineUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=100, description="基线名称")
     description: str | None = Field(default=None, description="基线描述")
+    selected_start_time: datetime | None = Field(default=None, description="图上选点开始时间")
+    selected_end_time: datetime | None = Field(default=None, description="图上选点结束时间")
     tolerance_percent: float | None = Field(
         default=None, ge=0, le=100, description="容许误差百分比"
     )

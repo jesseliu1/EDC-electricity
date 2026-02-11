@@ -139,7 +139,8 @@
       "description": "描述",
       "newVersion": "建立新版本",
       "newVersionHint": "建立新版本功能開發中",
-      "editHint": "編輯功能開發中"
+      "editHint": "編輯功能開發中",
+      "editDraftOnly": "僅草稿狀態可編輯"
     }
   },
   "heat": {

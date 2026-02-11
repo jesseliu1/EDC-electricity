@@ -3,6 +3,7 @@ import dayjs from 'dayjs'
 import { baselineApi } from '@/api/baseline'
 import type {
   BaselineCreatePayload,
+  BaselineUpdatePayload,
   CurveData,
   CurvePoint,
   BaselineListResponse,
@@ -276,6 +277,26 @@ export const useBaselineStore = defineStore('baseline', {
         this.current = mockBaselineDetail(id)
       } finally {
         this.loading = false
+      }
+    },
+    async updateBaseline(id: string, payload: BaselineUpdatePayload) {
+      try {
+        const updated = await baselineApi.update(id, payload)
+        const mapped = mapBaseline(updated)
+        const listIndex = this.list.findIndex(item => item.id === id)
+        if (listIndex >= 0) {
+          this.list[listIndex] = mapped
+        }
+        if (this.current && this.current.id === id) {
+          this.current = {
+            ...this.current,
+            ...mapped
+          }
+        }
+        return true
+      } catch (error) {
+        console.warn('Update baseline failed.', error)
+        return false
       }
     },
     async fetchVersionHistory(id: string) {

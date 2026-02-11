@@ -290,6 +290,10 @@ async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineRes
         item["name"] = data.name
     if data.description is not None:
         item["description"] = data.description
+    if data.selected_start_time is not None:
+        item["selected_start_time"] = data.selected_start_time
+    if data.selected_end_time is not None:
+        item["selected_end_time"] = data.selected_end_time
     if data.tolerance_percent is not None:
         item["tolerance_percent"] = data.tolerance_percent
     item["updated_at"] = _now()

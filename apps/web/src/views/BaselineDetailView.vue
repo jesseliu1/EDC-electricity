@@ -1,8 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElButton, ElCard, ElEmpty, ElMessage, ElTag, ElTimeline, ElTimelineItem } from 'element-plus'
+import {
+  ElButton,
+  ElCard,
+  ElDatePicker,
+  ElDialog,
+  ElEmpty,
+  ElForm,
+  ElFormItem,
+  ElInput,
+  ElInputNumber,
+  ElMessage,
+  ElTag,
+  ElTimeline,
+  ElTimelineItem
+} from 'element-plus'
 import { Edit, Plus, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -19,6 +33,15 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const baselineStore = useBaselineStore()
+const editVisible = ref(false)
+
+const editForm = reactive({
+  name: '',
+  description: '',
+  tolerancePercent: 15,
+  selectedStartTime: null as Date | null,
+  selectedEndTime: null as Date | null
+})
 
 const baselineId = computed(() => String(route.params.id || ''))
 const baseline = computed(() => baselineStore.current)
@@ -99,7 +122,45 @@ function handleBack() {
 }
 
 function handleEdit() {
-  ElMessage.info(t('baseline.detail.editHint'))
+  if (!baseline.value) return
+  if (baseline.value.status !== 'draft') {
+    ElMessage.warning(t('baseline.detail.editDraftOnly'))
+    return
+  }
+  editForm.name = baseline.value.name
+  editForm.description = baseline.value.description || ''
+  editForm.tolerancePercent = baseline.value.tolerancePercent
+  editForm.selectedStartTime = baseline.value.selectedStartTime
+    ? dayjs(baseline.value.selectedStartTime).toDate()
+    : null
+  editForm.selectedEndTime = baseline.value.selectedEndTime
+    ? dayjs(baseline.value.selectedEndTime).toDate()
+    : null
+  editVisible.value = true
+}
+
+async function handleSaveEdit() {
+  if (!baseline.value) return
+  if (!editForm.name.trim()) {
+    ElMessage.warning(t('baseline.wizard.nameRequired'))
+    return
+  }
+  const ok = await baselineStore.updateBaseline(baseline.value.id, {
+    name: editForm.name.trim(),
+    description: editForm.description.trim() || undefined,
+    tolerance_percent: editForm.tolerancePercent,
+    selected_start_time: editForm.selectedStartTime
+      ? dayjs(editForm.selectedStartTime).toISOString()
+      : undefined,
+    selected_end_time: editForm.selectedEndTime ? dayjs(editForm.selectedEndTime).toISOString() : undefined
+  })
+  if (!ok) {
+    ElMessage.error(t('common.error'))
+    return
+  }
+  editVisible.value = false
+  await baselineStore.fetchDetail(baseline.value.id)
+  ElMessage.success(t('common.success'))
 }
 
 async function handleToggleStatus() {
@@ -218,6 +279,14 @@ onMounted(async () => {
             <span class="ml-2 font-medium">{{ baseline.sourceHeatId }}</span>
           </div>
           <div>
+            <span class="text-gray-500">{{ t('baseline.wizard.pointRange') }}:</span>
+            <span class="ml-2 font-medium">
+              {{ baseline.selectedStartTime ? dayjs(baseline.selectedStartTime).format('YYYY-MM-DD HH:mm:ss') : '--' }}
+              ~
+              {{ baseline.selectedEndTime ? dayjs(baseline.selectedEndTime).format('YYYY-MM-DD HH:mm:ss') : '--' }}
+            </span>
+          </div>
+          <div>
             <span class="text-gray-500">{{ t('baseline.detail.temperature') }}:</span>
             <span class="ml-2 font-medium">{{ baseline.temperature ?? '--' }}</span>
           </div>
@@ -265,5 +334,39 @@ onMounted(async () => {
         </el-timeline-item>
       </el-timeline>
     </el-card>
+
+    <ElDialog v-model="editVisible" :title="t('common.edit')" width="620px" destroy-on-close>
+      <el-form label-position="top">
+        <el-form-item :label="t('baseline.name')">
+          <el-input v-model="editForm.name" />
+        </el-form-item>
+        <el-form-item :label="t('baseline.wizard.description')">
+          <el-input v-model="editForm.description" type="textarea" :rows="3" />
+        </el-form-item>
+        <el-form-item :label="t('baseline.tolerance')">
+          <el-input-number v-model="editForm.tolerancePercent" :min="0" :max="100" :step="0.5" />
+        </el-form-item>
+        <el-form-item :label="t('baseline.wizard.rangeStart')">
+          <el-date-picker
+            v-model="editForm.selectedStartTime"
+            type="datetime"
+            format="YYYY-MM-DD HH:mm:ss"
+            class="w-full"
+          />
+        </el-form-item>
+        <el-form-item :label="t('baseline.wizard.rangeEnd')">
+          <el-date-picker
+            v-model="editForm.selectedEndTime"
+            type="datetime"
+            format="YYYY-MM-DD HH:mm:ss"
+            class="w-full"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="handleSaveEdit">{{ t('common.save') }}</el-button>
+      </template>
+    </ElDialog>
   </div>
 </template>

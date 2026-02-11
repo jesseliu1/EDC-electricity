@@ -54,6 +54,8 @@ export interface BaselineCreatePayload {
 export interface BaselineUpdatePayload {
   name?: string
   description?: string
+  selected_start_time?: string
+  selected_end_time?: string
   tolerance_percent?: number
 }
 
