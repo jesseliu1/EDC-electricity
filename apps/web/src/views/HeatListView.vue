@@ -39,7 +39,8 @@ function cutStatusTagType(cutStatus: 'normal' | 'major_issue' | 'blocked') {
   return 'success'
 }
 
-function handleStatusChange(value: string | number | boolean) {
+function handleStatusChange(value: string | number | boolean | undefined) {
+  if (value === undefined) return
   void heatStore.setStatus(value as StatusFilter)
 }
 

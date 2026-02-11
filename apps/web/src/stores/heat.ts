@@ -70,6 +70,7 @@ function mockHeats(page: number, pageSize: number, status: 'all' | HeatStatus): 
   const all = Array.from({ length: total }).map((_, idx) => {
     const now = dayjs().subtract(idx + 1, 'hour')
     const currentStatus: HeatStatus = idx % 5 === 0 ? 'abnormal' : idx % 7 === 0 ? 'pending' : 'normal'
+    const cutStatus: HeatItem['cutStatus'] = currentStatus === 'pending' ? 'blocked' : 'normal'
     return {
       id: `mock-heat-${idx + 1}`,
       heatNo: `H${dayjs().format('YYYYMMDD')}-${String(idx + 1).padStart(3, '0')}`,
@@ -80,7 +81,7 @@ function mockHeats(page: number, pageSize: number, status: 'all' | HeatStatus): 
       deviationPercent: currentStatus === 'pending' ? null : Number((3 + (idx % 8) * 1.7).toFixed(1)),
       avgDeviationPercent: currentStatus === 'pending' ? null : Number((2 + (idx % 6) * 1.2).toFixed(1)),
       timeOffsetPercent: currentStatus === 'pending' ? null : Number((idx % 5) * 1.6),
-      cutStatus: currentStatus === 'pending' ? 'blocked' : 'normal',
+      cutStatus,
       majorIssue: false,
       blockedByIssue: currentStatus === 'pending',
       status: currentStatus,
@@ -129,6 +130,17 @@ function mockDetail(id: string): HeatDetail {
     value: Number((380 + Math.cos(i / 9) * 7).toFixed(1))
   }))
 
+  const safeRange = (startIndex: number, endIndex: number, deviation: number): DeviationRange => {
+    const startPoint = powerCurve[startIndex]
+    const endPoint = powerCurve[endIndex]
+    const fallback = powerCurve[0]
+    return {
+      start: startPoint?.timestamp ?? fallback?.timestamp ?? Date.now(),
+      end: endPoint?.timestamp ?? fallback?.timestamp ?? Date.now(),
+      deviation
+    }
+  }
+
   return {
     base,
     powerCurve,
@@ -145,11 +157,7 @@ function mockDetail(id: string): HeatDetail {
           tolerance_percent: 15
         },
         deviation_ranges: [
-          {
-            start: powerCurve[18].timestamp,
-            end: powerCurve[25].timestamp,
-            deviation: 16.4
-          }
+          safeRange(18, 25, 16.4)
         ],
         max_deviation: 21.2,
         avg_deviation: 6.8
@@ -163,27 +171,15 @@ function mockDetail(id: string): HeatDetail {
           tolerance_percent: 15
         },
         deviation_ranges: [
-          {
-            start: powerCurve[32].timestamp,
-            end: powerCurve[40].timestamp,
-            deviation: 14.2
-          }
+          safeRange(32, 40, 14.2)
         ],
         max_deviation: 19.1,
         avg_deviation: 5.9
       }
     ],
     deviationRanges: [
-      {
-        start: powerCurve[18].timestamp,
-        end: powerCurve[25].timestamp,
-        deviation: 16.4
-      },
-      {
-        start: powerCurve[38].timestamp,
-        end: powerCurve[45].timestamp,
-        deviation: 21.2
-      }
+      safeRange(18, 25, 16.4),
+      safeRange(38, 45, 21.2)
     ],
     maxDeviation: 21.2,
     avgDeviation: 6.8

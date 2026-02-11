@@ -38,6 +38,10 @@
   - [x] vite manualChunks 分包（vue/elementPlus/echarts）
   - [x] 移除全量 Element Plus 图标全局注册
   - [x] 产物验证：分包生效，构建通过
+- [x] 前端类型系统收敛
+  - [x] API client 统一返回数据类型（消除 AxiosResponse 级联类型问题）
+  - [x] 修复 baseline/heat/task/report 等模块 TS 类型错误
+  - [x] 验证通过：`vue-tsc --noEmit`、`pnpm build`
 
 ### 2026-02-09
 

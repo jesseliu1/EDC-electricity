@@ -191,8 +191,9 @@ function submit(mode: 'draft' | 'publish') {
 
 onMounted(async () => {
   await baselineDefinitionStore.fetchList('active')
-  if (!formData.value.definitionId && baselineDefinitionStore.list.length > 0) {
-    formData.value.definitionId = baselineDefinitionStore.list[0].id
+  const firstDefinition = baselineDefinitionStore.list[0]
+  if (!formData.value.definitionId && firstDefinition) {
+    formData.value.definitionId = firstDefinition.id
   }
 })
 </script>

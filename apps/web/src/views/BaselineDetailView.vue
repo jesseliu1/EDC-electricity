@@ -53,7 +53,7 @@ const curveOption = computed<EChartsOption>(() => {
     current.curvesData.length > 0
       ? current.curvesData.map(item => ({
           name: `${item.metric_name} (${item.unit})`,
-          type: 'line',
+          type: 'line' as const,
           smooth: true,
           showSymbol: false,
           lineStyle: { color: item.color, width: 2 },
@@ -62,7 +62,7 @@ const curveOption = computed<EChartsOption>(() => {
       : [
           {
             name: t('dashboard.chart.power'),
-            type: 'line',
+            type: 'line' as const,
             smooth: true,
             showSymbol: false,
             lineStyle: { color: '#409EFF', width: 2 },
@@ -70,10 +70,10 @@ const curveOption = computed<EChartsOption>(() => {
           },
           {
             name: t('dashboard.chart.voltage'),
-            type: 'line',
+            type: 'line' as const,
             smooth: true,
             showSymbol: false,
-            lineStyle: { color: '#67C23A', width: 2, type: 'dashed' },
+            lineStyle: { color: '#67C23A', width: 2, type: 'dashed' as const },
             data: current.voltageCurve.map(point => point.value)
           }
         ]

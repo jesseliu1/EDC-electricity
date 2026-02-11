@@ -24,7 +24,8 @@ function statusText(status: TaskStatus) {
   return t('task.statusCancelled')
 }
 
-function handleStatusChange(value: string | number | boolean) {
+function handleStatusChange(value: string | number | boolean | undefined) {
+  if (value === undefined) return
   void taskStore.setStatus(value as 'all' | TaskStatus)
 }
 

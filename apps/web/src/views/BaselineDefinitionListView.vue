@@ -37,7 +37,8 @@ const filteredList = computed(() => {
   return store.list.filter(d => d.status === currentFilter.value)
 })
 
-async function handleFilterChange(value: string | number | boolean) {
+async function handleFilterChange(value: string | number | boolean | undefined) {
+  if (value === undefined) return
   currentFilter.value = value as StatusFilter
 }
 

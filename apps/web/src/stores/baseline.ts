@@ -97,7 +97,20 @@ function mockBaselines(): BaselineItem[] {
 }
 
 function mockBaselineDetail(id: string): BaselineDetail {
-  const base = mockBaselines().find(item => item.id === id) || mockBaselines()[0]
+  const mockList = mockBaselines()
+  const base = mockList.find(item => item.id === id) || mockList[0] || {
+    id: 'baseline-local',
+    name: '默认基线',
+    description: null,
+    definitionId: 'def-001',
+    definitionName: '标准熔炼基线',
+    status: 'draft' as BaselineStatus,
+    version: 1,
+    tolerancePercent: 15,
+    createdAt: dayjs().toISOString(),
+    publishedAt: null,
+    sourceHeatId: 'heat-001'
+  }
   const powerCurve: CurvePoint[] = Array.from({ length: 20 }).map((_, idx) => ({
     timestamp: dayjs().subtract(20 - idx, 'minute').valueOf(),
     value: Number((420 + Math.sin(idx / 3) * 35 + idx * 0.8).toFixed(1))

@@ -59,6 +59,7 @@ function mockReports(): ReportItem[] {
 }
 
 function mockReportDetail(date: string): ReportDetail {
+  const compactDate = date.split('-').join('')
   return {
     date,
     totalHeats: 14,
@@ -71,8 +72,8 @@ function mockReportDetail(date: string): ReportDetail {
     normalRate: 85.7,
     effectiveHours: 18.6,
     topDeviations: [
-      { heatNo: `H${date.replaceAll('-', '')}-003`, deviation: 22.4 },
-      { heatNo: `H${date.replaceAll('-', '')}-007`, deviation: 18.1 }
+      { heatNo: `H${compactDate}-003`, deviation: 22.4 },
+      { heatNo: `H${compactDate}-007`, deviation: 18.1 }
     ]
   }
 }

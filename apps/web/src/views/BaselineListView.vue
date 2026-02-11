@@ -16,7 +16,8 @@ const wizardVisible = ref(false)
 
 type BaselineFilter = 'all' | BaselineStatus
 
-async function handleFilterChange(value: string | number | boolean) {
+async function handleFilterChange(value: string | number | boolean | undefined) {
+  if (value === undefined) return
   const filter = value as BaselineFilter
   await baselineStore.setFilter(filter)
 }
