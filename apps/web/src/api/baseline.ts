@@ -7,10 +7,20 @@ export interface CurvePoint {
   value: number
 }
 
+export interface CurveData {
+  metric_id: string
+  metric_name: string
+  unit: string
+  color: string
+  points: CurvePoint[]
+}
+
 export interface BaselineResponse {
   id: string
   name: string
   description: string | null
+  definition_id: string
+  definition_name: string
   source_heat_id: string
   tolerance_percent: number
   status: BaselineStatus
@@ -18,6 +28,7 @@ export interface BaselineResponse {
   created_at: string
   updated_at: string
   published_at: string | null
+  curves_data?: CurveData[]
   power_curve?: CurvePoint[]
   voltage_curve?: CurvePoint[]
   temperature?: number | null
@@ -31,6 +42,7 @@ export interface BaselineListResponse {
 export interface BaselineCreatePayload {
   name: string
   description?: string
+  definition_id: string
   source_heat_id: string
   tolerance_percent: number
 }
@@ -42,9 +54,12 @@ export interface BaselineUpdatePayload {
 }
 
 export const baselineApi = {
-  list: (status?: BaselineStatus) =>
+  list: (status?: BaselineStatus, definitionId?: string) =>
     client.get<BaselineListResponse>('/baselines', {
-      params: status ? { status } : undefined
+      params: {
+        ...(status ? { status } : {}),
+        ...(definitionId ? { definition_id: definitionId } : {})
+      }
     }),
   get: (id: string) => client.get<BaselineResponse>(`/baselines/${id}`),
   create: (payload: BaselineCreatePayload) =>

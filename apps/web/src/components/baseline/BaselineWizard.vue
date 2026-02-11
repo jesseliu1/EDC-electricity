@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ElButton,
@@ -11,7 +11,9 @@ import {
   ElInput,
   ElInputNumber,
   ElMessage,
+  ElOption,
   ElRadio,
+  ElSelect,
   ElSteps,
   ElStep
 } from 'element-plus'
@@ -21,6 +23,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import type { EChartsOption } from 'echarts'
+import { useBaselineDefinitionStore } from '@/stores/baselineDefinition'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
 
@@ -35,6 +38,7 @@ interface HeatCandidate {
 interface WizardSubmitPayload {
   name: string
   description: string
+  definitionId: string
   sourceHeatId: string
   tolerancePercent: number
   mode: 'draft' | 'publish'
@@ -47,6 +51,7 @@ interface Emits {
 
 const emit = defineEmits<Emits>()
 const { t } = useI18n()
+const baselineDefinitionStore = useBaselineDefinitionStore()
 
 const activeStep = ref(0)
 const dateRange = ref<[Date, Date] | null>(null)
@@ -55,6 +60,7 @@ const selectedHeatId = ref('')
 const formData = ref({
   name: '',
   description: '',
+  definitionId: '',
   tolerancePercent: 15
 })
 
@@ -153,6 +159,10 @@ function nextStep() {
     ElMessage.warning(t('baseline.wizard.nameRequired'))
     return
   }
+  if (activeStep.value === 2 && !formData.value.definitionId) {
+    ElMessage.warning(t('baseline.wizard.definitionRequired'))
+    return
+  }
   if (activeStep.value < 3) {
     activeStep.value += 1
   }
@@ -165,18 +175,26 @@ function prevStep() {
 }
 
 function submit(mode: 'draft' | 'publish') {
-  if (!selectedHeatId.value || !formData.value.name.trim()) {
+  if (!selectedHeatId.value || !formData.value.name.trim() || !formData.value.definitionId) {
     ElMessage.warning(t('baseline.wizard.incompleteForm'))
     return
   }
   emit('submit', {
     name: formData.value.name.trim(),
     description: formData.value.description.trim(),
+    definitionId: formData.value.definitionId,
     sourceHeatId: selectedHeatId.value,
     tolerancePercent: formData.value.tolerancePercent,
     mode
   })
 }
+
+onMounted(async () => {
+  await baselineDefinitionStore.fetchList('active')
+  if (!formData.value.definitionId && baselineDefinitionStore.list.length > 0) {
+    formData.value.definitionId = baselineDefinitionStore.list[0].id
+  }
+})
 </script>
 
 <template>
@@ -276,6 +294,20 @@ function submit(mode: 'draft' | 'publish') {
               :placeholder="t('baseline.wizard.namePlaceholder')"
             />
           </el-form-item>
+          <el-form-item :label="t('baseline.wizard.definition')">
+            <el-select
+              v-model="formData.definitionId"
+              class="w-full"
+              :placeholder="t('baseline.wizard.definitionPlaceholder')"
+            >
+              <el-option
+                v-for="item in baselineDefinitionStore.list"
+                :key="item.id"
+                :label="item.definitionName"
+                :value="item.id"
+              />
+            </el-select>
+          </el-form-item>
           <el-form-item :label="t('baseline.tolerance')">
             <el-input-number
               v-model="formData.tolerancePercent"
@@ -306,6 +338,13 @@ function submit(mode: 'draft' | 'publish') {
           <div>
             <span class="text-gray-500">{{ t('baseline.selectHeat') }}:</span>
             {{ selectedHeat?.heatNo || '--' }}
+          </div>
+          <div>
+            <span class="text-gray-500">{{ t('baseline.wizard.definition') }}:</span>
+            {{
+              baselineDefinitionStore.list.find(item => item.id === formData.definitionId)?.definitionName ||
+              '--'
+            }}
           </div>
           <div>
             <span class="text-gray-500">{{ t('baseline.tolerance') }}:</span>

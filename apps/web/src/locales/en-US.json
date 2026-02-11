@@ -73,6 +73,7 @@
   "baseline": {
     "title": "Golden Baselines",
     "name": "Baseline Name",
+    "definitionName": "Definition",
     "status": "Status",
     "version": "Version",
     "tolerance": "Tolerance",
@@ -103,6 +104,9 @@
       "currentHeat": "Current Heat",
       "avgPower": "Average Power",
       "peakPower": "Peak Power",
+      "definition": "Baseline Definition",
+      "definitionPlaceholder": "Please select a baseline definition",
+      "definitionRequired": "Please select a baseline definition",
       "namePlaceholder": "Enter baseline name",
       "description": "Description",
       "descriptionPlaceholder": "Enter baseline description",

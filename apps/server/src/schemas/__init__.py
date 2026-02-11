@@ -10,6 +10,7 @@ from .baseline import (
     BaselineSummary,
     BaselineUpdate,
     BaselineWithCurve,
+    CurveData,
 )
 from .common import (
     CurvePoint,
@@ -68,6 +69,7 @@ __all__ = [
     "BaselineWithCurve",
     "BaselineListResponse",
     "BaselineSummary",
+    "CurveData",
     # Heat
     "DeviationRange",
     "HeatResponse",

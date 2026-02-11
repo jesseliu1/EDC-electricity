@@ -3,6 +3,7 @@ import dayjs from 'dayjs'
 import { baselineApi } from '@/api/baseline'
 import type {
   BaselineCreatePayload,
+  CurveData,
   CurvePoint,
   BaselineListResponse,
   BaselineResponse,
@@ -13,6 +14,8 @@ export interface BaselineItem {
   id: string
   name: string
   description: string | null
+  definitionId: string
+  definitionName: string
   status: BaselineStatus
   version: number
   tolerancePercent: number
@@ -22,6 +25,7 @@ export interface BaselineItem {
 }
 
 export interface BaselineDetail extends BaselineItem {
+  curvesData: CurveData[]
   powerCurve: CurvePoint[]
   voltageCurve: CurvePoint[]
   temperature: number | null
@@ -32,6 +36,8 @@ function mapBaseline(item: BaselineResponse): BaselineItem {
     id: item.id,
     name: item.name,
     description: item.description,
+    definitionId: item.definition_id,
+    definitionName: item.definition_name,
     status: item.status,
     version: item.version,
     tolerancePercent: item.tolerance_percent,
@@ -52,6 +58,8 @@ function mockBaselines(): BaselineItem[] {
       id: 'baseline-001',
       name: '标准铸铁基线 v1',
       description: '适用于标准铸铁生产，包含功率与电压稳定段。',
+      definitionId: 'def-001',
+      definitionName: '标准熔炼基线',
       status: 'published',
       version: 1,
       tolerancePercent: 5,
@@ -63,6 +71,8 @@ function mockBaselines(): BaselineItem[] {
       id: 'baseline-002',
       name: '高强度钢基线 v2',
       description: '用于高强度钢生产，偏差阈值更严格。',
+      definitionId: 'def-002',
+      definitionName: '高功率熔炼基线',
       status: 'draft',
       version: 2,
       tolerancePercent: 3,
@@ -74,6 +84,8 @@ function mockBaselines(): BaselineItem[] {
       id: 'baseline-003',
       name: '旧版铸铁基线',
       description: '旧工艺基线，已停用。',
+      definitionId: 'def-001',
+      definitionName: '标准熔炼基线',
       status: 'disabled',
       version: 1,
       tolerancePercent: 8,
@@ -97,6 +109,22 @@ function mockBaselineDetail(id: string): BaselineDetail {
 
   return {
     ...base,
+    curvesData: [
+      {
+        metric_id: 'metric-001',
+        metric_name: '功率',
+        unit: 'kW',
+        color: '#409EFF',
+        points: powerCurve
+      },
+      {
+        metric_id: 'metric-002',
+        metric_name: '电压',
+        unit: 'V',
+        color: '#67C23A',
+        points: voltageCurve
+      }
+    ],
     powerCurve,
     voltageCurve,
     temperature: 1465
@@ -106,6 +134,7 @@ function mockBaselineDetail(id: string): BaselineDetail {
 function mapBaselineDetail(item: BaselineResponse): BaselineDetail {
   return {
     ...mapBaseline(item),
+    curvesData: item.curves_data || [],
     powerCurve: item.power_curve || [],
     voltageCurve: item.voltage_curve || [],
     temperature: item.temperature ?? null
@@ -199,6 +228,8 @@ export const useBaselineStore = defineStore('baseline', {
           id: `local-${Date.now()}`,
           name: payload.name,
           description: payload.description || null,
+          definitionId: payload.definition_id,
+          definitionName: '本地定义',
           status: mode === 'publish' ? 'published' : 'draft',
           version: 1,
           tolerancePercent: payload.tolerance_percent,

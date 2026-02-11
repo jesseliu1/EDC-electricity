@@ -73,6 +73,7 @@
   "baseline": {
     "title": "ゴールデンベースライン",
     "name": "ベースライン名",
+    "definitionName": "定義",
     "status": "ステータス",
     "version": "バージョン",
     "tolerance": "許容誤差",
@@ -103,6 +104,9 @@
       "currentHeat": "対象ヒート",
       "avgPower": "平均電力",
       "peakPower": "ピーク電力",
+      "definition": "ベースライン定義",
+      "definitionPlaceholder": "ベースライン定義を選択",
+      "definitionRequired": "ベースライン定義を選択してください",
       "namePlaceholder": "ベースライン名を入力",
       "description": "説明",
       "descriptionPlaceholder": "ベースライン説明を入力",

@@ -47,6 +47,7 @@ async function handleDisable(id: string) {
 async function handleWizardSubmit(payload: {
   name: string
   description: string
+  definitionId: string
   sourceHeatId: string
   tolerancePercent: number
   mode: 'draft' | 'publish'
@@ -55,6 +56,7 @@ async function handleWizardSubmit(payload: {
     {
       name: payload.name,
       description: payload.description,
+      definition_id: payload.definitionId,
       source_heat_id: payload.sourceHeatId,
       tolerance_percent: payload.tolerancePercent
     },

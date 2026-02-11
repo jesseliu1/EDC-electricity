@@ -47,12 +47,41 @@ const statusLabel = computed(() => {
 const curveOption = computed<EChartsOption>(() => {
   const current = baseline.value
   if (!current) return {}
-  const labels = current.powerCurve.map(point => dayjs(point.timestamp).format('HH:mm'))
+  const firstCurve = current.curvesData[0]?.points || current.powerCurve
+  const labels = firstCurve.map(point => dayjs(point.timestamp).format('HH:mm'))
+  const series =
+    current.curvesData.length > 0
+      ? current.curvesData.map(item => ({
+          name: `${item.metric_name} (${item.unit})`,
+          type: 'line',
+          smooth: true,
+          showSymbol: false,
+          lineStyle: { color: item.color, width: 2 },
+          data: item.points.map(point => point.value)
+        }))
+      : [
+          {
+            name: t('dashboard.chart.power'),
+            type: 'line',
+            smooth: true,
+            showSymbol: false,
+            lineStyle: { color: '#409EFF', width: 2 },
+            data: current.powerCurve.map(point => point.value)
+          },
+          {
+            name: t('dashboard.chart.voltage'),
+            type: 'line',
+            smooth: true,
+            showSymbol: false,
+            lineStyle: { color: '#67C23A', width: 2, type: 'dashed' },
+            data: current.voltageCurve.map(point => point.value)
+          }
+        ]
   return {
     grid: { left: 45, right: 20, top: 30, bottom: 30 },
     tooltip: { trigger: 'axis' },
     legend: {
-      data: [t('dashboard.chart.power'), t('dashboard.chart.voltage')],
+      data: series.map(item => item.name),
       top: 0
     },
     xAxis: {
@@ -60,29 +89,8 @@ const curveOption = computed<EChartsOption>(() => {
       boundaryGap: false,
       data: labels
     },
-    yAxis: [
-      { type: 'value', name: t('dashboard.chart.power') },
-      { type: 'value', name: t('dashboard.chart.voltage') }
-    ],
-    series: [
-      {
-        name: t('dashboard.chart.power'),
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        lineStyle: { color: '#409EFF', width: 2 },
-        data: current.powerCurve.map(point => point.value)
-      },
-      {
-        name: t('dashboard.chart.voltage'),
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        yAxisIndex: 1,
-        lineStyle: { color: '#67C23A', width: 2, type: 'dashed' },
-        data: current.voltageCurve.map(point => point.value)
-      }
-    ]
+    yAxis: { type: 'value' },
+    series
   }
 })
 
@@ -185,6 +193,10 @@ onMounted(async () => {
           <span>{{ t('baseline.detail.infoTitle') }}</span>
         </template>
         <div class="space-y-3 text-sm text-gray-700">
+          <div>
+            <span class="text-gray-500">{{ t('baseline.definitionName') }}:</span>
+            <span class="ml-2 font-medium">{{ baseline.definitionName }}</span>
+          </div>
           <div>
             <span class="text-gray-500">{{ t('baseline.version') }}:</span>
             <span class="ml-2 font-medium">v{{ baseline.version }}</span>

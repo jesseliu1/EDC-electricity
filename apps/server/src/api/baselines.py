@@ -1,4 +1,4 @@
-"""基线 API 路由"""
+"""基线 API 路由（黄金基线实例）"""
 
 from datetime import datetime
 from typing import Any, Literal
@@ -13,17 +13,49 @@ from ..schemas import (
     BaselineSummary,
     BaselineUpdate,
     BaselineWithCurve,
+    CurveData,
     MessageResponse,
 )
+
+# 引用 definition store 以做关联校验
+from .baseline_definitions import _DEFINITION_STORE
 
 router = APIRouter(prefix="/baselines", tags=["Baselines"])
 
 
-def _build_curve(seed: int) -> list[dict[str, float]]:
+def _build_curve(seed: int, length: int = 100) -> list[dict[str, float]]:
     """生成稳定的模拟曲线数据。"""
     return [
-        {"timestamp": 1000.0 * i, "value": float(430 + ((i + seed) % 12) * 3)} for i in range(100)
+        {"timestamp": 1000.0 * i, "value": float(430 + ((i + seed) % 12) * 3)}
+        for i in range(length)
     ]
+
+
+def _build_curves_data(definition_id: str, seed: int) -> list[dict[str, Any]]:
+    """根据定义的指标生成动态曲线数据。"""
+    definition = _DEFINITION_STORE.get(definition_id)
+    if not definition:
+        return []
+
+    curves = []
+    for idx, metric in enumerate(definition["metrics"]):
+        points = _build_curve(seed + idx * 2)
+        curves.append(
+            {
+                "metric_id": metric["id"],
+                "metric_name": metric["name"],
+                "unit": metric["unit"],
+                "color": metric["color"],
+                "points": points,
+            }
+        )
+    return curves
+
+
+def _get_definition_name(definition_id: str) -> str:
+    """获取定义名称。"""
+    definition = _DEFINITION_STORE.get(definition_id)
+    return definition["definition_name"] if definition else ""
 
 
 def _now() -> datetime:
@@ -35,6 +67,7 @@ _BASELINE_STORE: dict[str, dict[str, Any]] = {
         "id": "baseline-001",
         "name": "标准基线 v2.1",
         "description": "2024年优化后的标准生产基线",
+        "definition_id": "def-001",
         "source_heat_id": "heat-ref-001",
         "tolerance_percent": 15.0,
         "status": "published",
@@ -45,11 +78,13 @@ _BASELINE_STORE: dict[str, dict[str, Any]] = {
         "power_curve": _build_curve(1),
         "voltage_curve": _build_curve(3),
         "temperature": 1450.0,
+        "curves_data": _build_curves_data("def-001", 1),
     },
     "baseline-002": {
         "id": "baseline-002",
         "name": "高功率基线",
         "description": "高功率生产模式基线",
+        "definition_id": "def-002",
         "source_heat_id": "heat-ref-002",
         "tolerance_percent": 12.0,
         "status": "draft",
@@ -60,6 +95,7 @@ _BASELINE_STORE: dict[str, dict[str, Any]] = {
         "power_curve": _build_curve(5),
         "voltage_curve": _build_curve(7),
         "temperature": 1460.0,
+        "curves_data": _build_curves_data("def-002", 5),
     },
 }
 
@@ -69,6 +105,8 @@ def _to_baseline_response(item: dict[str, Any]) -> BaselineResponse:
         id=item["id"],
         name=item["name"],
         description=item["description"],
+        definition_id=item["definition_id"],
+        definition_name=_get_definition_name(item["definition_id"]),
         source_heat_id=item["source_heat_id"],
         tolerance_percent=item["tolerance_percent"],
         status=item["status"],
@@ -80,10 +118,23 @@ def _to_baseline_response(item: dict[str, Any]) -> BaselineResponse:
 
 
 def _to_baseline_with_curve(item: dict[str, Any]) -> BaselineWithCurve:
+    curves_data = [
+        CurveData(
+            metric_id=curve["metric_id"],
+            metric_name=curve["metric_name"],
+            unit=curve["unit"],
+            color=curve["color"],
+            points=curve["points"],
+        )
+        for curve in item.get("curves_data", [])
+    ]
+
     return BaselineWithCurve(
         id=item["id"],
         name=item["name"],
         description=item["description"],
+        definition_id=item["definition_id"],
+        definition_name=_get_definition_name(item["definition_id"]),
         source_heat_id=item["source_heat_id"],
         tolerance_percent=item["tolerance_percent"],
         status=item["status"],
@@ -91,9 +142,10 @@ def _to_baseline_with_curve(item: dict[str, Any]) -> BaselineWithCurve:
         created_at=item["created_at"],
         updated_at=item["updated_at"],
         published_at=item["published_at"],
-        power_curve=item["power_curve"],
-        voltage_curve=item["voltage_curve"],
-        temperature=item["temperature"],
+        curves_data=curves_data,
+        power_curve=item.get("power_curve", []),
+        voltage_curve=item.get("voltage_curve", []),
+        temperature=item.get("temperature"),
     )
 
 
@@ -104,11 +156,46 @@ def _get_or_404(baseline_id: str) -> dict[str, Any]:
     return item
 
 
+def _validate_definition(definition_id: str) -> dict[str, Any]:
+    """校验定义存在且为 active 状态。"""
+    definition = _DEFINITION_STORE.get(definition_id)
+    if not definition:
+        raise HTTPException(status_code=400, detail="基线定义不存在")
+    if definition["status"] != "active":
+        raise HTTPException(status_code=400, detail="基线定义已停用，无法创建实例")
+    return definition
+
+
+def _validate_equal_length(definition_id: str, current_id: str | None = None) -> None:
+    """同一定义下已发布实例曲线长度一致性校验。"""
+    published = [
+        item
+        for item in _BASELINE_STORE.values()
+        if item["definition_id"] == definition_id
+        and item["status"] == "published"
+        and item["id"] != current_id
+    ]
+    if len(published) < 2:
+        return
+
+    first = published[0].get("curves_data", [])
+    if not first:
+        return
+
+    first_lengths = [len(c["points"]) for c in first]
+    for item in published[1:]:
+        curves = item.get("curves_data", [])
+        lengths = [len(c["points"]) for c in curves]
+        if lengths != first_lengths:
+            raise HTTPException(status_code=400, detail="同一定义下黄金基线实例曲线长度不一致")
+
+
 @router.get("", response_model=BaselineListResponse)
 async def list_baselines(
     status: Literal["draft", "published", "disabled"] | None = Query(
         default=None, description="状态筛选"
     ),
+    definition_id: str | None = Query(default=None, description="基线定义ID筛选"),
     page: int = Query(default=1, ge=1, description="页码"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
 ) -> BaselineListResponse:
@@ -118,6 +205,9 @@ async def list_baselines(
 
     if status:
         items = [item for item in items if item["status"] == status]
+
+    if definition_id:
+        items = [item for item in items if item["definition_id"] == definition_id]
 
     total = len(items)
     start = (page - 1) * page_size
@@ -153,13 +243,16 @@ async def get_baseline(baseline_id: str) -> BaselineWithCurve:
 
 @router.post("", response_model=BaselineResponse, status_code=201)
 async def create_baseline(data: BaselineCreate) -> BaselineResponse:
-    """创建新基线，默认草稿状态。"""
+    """创建新基线实例，默认草稿状态。"""
+    _validate_definition(data.definition_id)
+
     now = _now()
     baseline_id = f"baseline-{uuid4()}"
     item = {
         "id": baseline_id,
         "name": data.name,
         "description": data.description,
+        "definition_id": data.definition_id,
         "source_heat_id": data.source_heat_id,
         "tolerance_percent": data.tolerance_percent,
         "status": "draft",
@@ -170,6 +263,7 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
         "power_curve": _build_curve(9),
         "voltage_curve": _build_curve(11),
         "temperature": 1455.0,
+        "curves_data": _build_curves_data(data.definition_id, 9),
     }
     _BASELINE_STORE[baseline_id] = item
     return _to_baseline_response(item)
@@ -199,6 +293,8 @@ async def publish_baseline(baseline_id: str) -> BaselineResponse:
     item = _get_or_404(baseline_id)
     if item["status"] != "draft":
         raise HTTPException(status_code=400, detail="仅草稿状态可发布")
+
+    _validate_equal_length(item["definition_id"], current_id=baseline_id)
 
     now = _now()
     item["status"] = "published"

@@ -73,6 +73,7 @@
   "baseline": {
     "title": "黃金基線庫",
     "name": "基線名稱",
+    "definitionName": "基線定義",
     "status": "狀態",
     "version": "版本",
     "tolerance": "容許誤差",
@@ -103,6 +104,9 @@
       "currentHeat": "當前爐次",
       "avgPower": "平均功率",
       "peakPower": "峰值功率",
+      "definition": "基線定義",
+      "definitionPlaceholder": "請選擇基線定義",
+      "definitionRequired": "請先選擇基線定義",
       "namePlaceholder": "請輸入基線名稱",
       "description": "描述",
       "descriptionPlaceholder": "請輸入基線說明",

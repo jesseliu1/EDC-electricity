@@ -7,11 +7,22 @@ from pydantic import BaseModel, Field
 from .common import CurvePoint
 
 
-class BaselineCreate(BaseModel):
-    """创建基线请求"""
+class CurveData(BaseModel):
+    """按指标ID存储的曲线数据"""
 
-    name: str = Field(..., min_length=1, max_length=100, description="基线名称")
+    metric_id: str = Field(..., description="指标ID")
+    metric_name: str = Field(..., description="指标名称")
+    unit: str = Field(..., description="单位")
+    color: str = Field(..., description="颜色")
+    points: list[CurvePoint] = Field(..., description="曲线数据点")
+
+
+class BaselineCreate(BaseModel):
+    """创建基线请求（黄金基线实例）"""
+
+    name: str = Field(..., min_length=1, max_length=100, description="实例名称")
     description: str | None = Field(default=None, description="基线描述")
+    definition_id: str = Field(..., description="所属基线定义ID")
     source_heat_id: str = Field(..., description="来源炉次ID")
     tolerance_percent: float = Field(default=15.0, ge=0, le=100, description="容许误差百分比")
 
@@ -27,11 +38,13 @@ class BaselineUpdate(BaseModel):
 
 
 class BaselineResponse(BaseModel):
-    """基线响应"""
+    """基线响应（黄金基线实例）"""
 
     id: str = Field(..., description="基线ID")
-    name: str = Field(..., description="基线名称")
+    name: str = Field(..., description="实例名称")
     description: str | None = Field(default=None, description="基线描述")
+    definition_id: str = Field(..., description="所属基线定义ID")
+    definition_name: str = Field(default="", description="所属基线定义名称")
     source_heat_id: str = Field(..., description="来源炉次ID")
     tolerance_percent: float = Field(..., description="容许误差百分比")
     status: str = Field(..., description="状态: draft/published/disabled")
@@ -46,8 +59,11 @@ class BaselineResponse(BaseModel):
 class BaselineWithCurve(BaselineResponse):
     """带曲线数据的基线响应"""
 
-    power_curve: list[CurvePoint] = Field(..., description="功率曲线")
-    voltage_curve: list[CurvePoint] = Field(..., description="电压曲线")
+    # 新字段：按指标ID存储的动态曲线
+    curves_data: list[CurveData] = Field(default_factory=list, description="动态曲线数据")
+    # 旧字段：保留兼容（先加新不破旧）
+    power_curve: list[CurvePoint] = Field(default_factory=list, description="功率曲线")
+    voltage_curve: list[CurvePoint] = Field(default_factory=list, description="电压曲线")
     temperature: float | None = Field(default=None, description="出汤温度")
 
 

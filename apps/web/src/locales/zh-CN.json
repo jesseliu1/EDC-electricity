@@ -73,6 +73,7 @@
   "baseline": {
     "title": "黄金基线库",
     "name": "基线名称",
+    "definitionName": "基线定义",
     "status": "状态",
     "version": "版本",
     "tolerance": "容许误差",
@@ -103,6 +104,9 @@
       "currentHeat": "当前炉次",
       "avgPower": "平均功率",
       "peakPower": "峰值功率",
+      "definition": "基线定义",
+      "definitionPlaceholder": "请选择基线定义",
+      "definitionRequired": "请先选择基线定义",
       "namePlaceholder": "请输入基线名称",
       "description": "描述",
       "descriptionPlaceholder": "请输入基线说明",
