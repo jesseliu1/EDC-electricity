@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from ..schemas import (
+    CuttingSettingRequest,
     EDCConnectionRequest,
     MessageResponse,
     ReportSettingRequest,
@@ -22,6 +23,11 @@ _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     "edc_api_key": {"value": "", "description": "EDC API 密钥"},
     "report_generation_hour": {"value": "2", "description": "日报生成时间（小时）"},
     "active_baseline_id": {"value": "baseline-001", "description": "当前激活的基线ID"},
+    "time_tolerance_percent": {"value": "10.0", "description": "炉次切割时间偏移容忍率(%)"},
+    "major_issue_duration_minutes": {"value": "8", "description": "持续不一致判定重大事故分钟数"},
+    "work_start_time": {"value": "08:00", "description": "上班时间"},
+    "work_end_time": {"value": "18:00", "description": "下班时间"},
+    "break_periods": {"value": "12:00-13:00", "description": "休息时间段，逗号分隔"},
 }
 
 
@@ -77,3 +83,16 @@ async def update_report_settings(data: ReportSettingRequest) -> MessageResponse:
     """更新报表设置。"""
     _SETTINGS_STORE["report_generation_hour"]["value"] = str(data.generation_hour)
     return MessageResponse(message=f"日报生成时间已设置为 {data.generation_hour}:00", success=True)
+
+
+@router.put("/cutting", response_model=MessageResponse)
+async def update_cutting_settings(data: CuttingSettingRequest) -> MessageResponse:
+    """更新炉次切割设置。"""
+    _SETTINGS_STORE["time_tolerance_percent"]["value"] = str(data.time_tolerance_percent)
+    _SETTINGS_STORE["major_issue_duration_minutes"]["value"] = str(
+        data.major_issue_duration_minutes
+    )
+    _SETTINGS_STORE["work_start_time"]["value"] = data.work_start_time
+    _SETTINGS_STORE["work_end_time"]["value"] = data.work_end_time
+    _SETTINGS_STORE["break_periods"]["value"] = ",".join(data.break_periods)
+    return MessageResponse(message="炉次切割设置已更新", success=True)

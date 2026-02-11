@@ -27,6 +27,11 @@ async function saveReport() {
   ElMessage.success(t('common.success'))
 }
 
+async function saveCutting() {
+  await settingStore.saveCutting()
+  ElMessage.success(t('common.success'))
+}
+
 onMounted(() => {
   void settingStore.fetchSettings()
 })
@@ -108,6 +113,45 @@ onMounted(() => {
           type="primary"
           @click="saveReport"
         >
+          {{ t('common.save') }}
+        </el-button>
+      </div>
+    </el-card>
+
+    <el-card>
+      <template #header>
+        <span>{{ t('settings.cuttingConfig') }}</span>
+      </template>
+      <el-form label-position="top" class="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <el-form-item :label="t('settings.timeTolerancePercent')">
+          <el-input-number
+            v-model="settingStore.data.timeTolerancePercent"
+            :min="0"
+            :max="100"
+          />
+        </el-form-item>
+        <el-form-item :label="t('settings.majorIssueDurationMinutes')">
+          <el-input-number
+            v-model="settingStore.data.majorIssueDurationMinutes"
+            :min="1"
+            :max="120"
+          />
+        </el-form-item>
+        <el-form-item :label="t('settings.workStartTime')">
+          <el-input v-model="settingStore.data.workStartTime" placeholder="08:00" />
+        </el-form-item>
+        <el-form-item :label="t('settings.workEndTime')">
+          <el-input v-model="settingStore.data.workEndTime" placeholder="18:00" />
+        </el-form-item>
+        <el-form-item :label="t('settings.breakPeriods')" class="md:col-span-2">
+          <el-input
+            v-model="settingStore.data.breakPeriods"
+            :placeholder="t('settings.breakPeriodsPlaceholder')"
+          />
+        </el-form-item>
+      </el-form>
+      <div class="flex justify-end">
+        <el-button type="primary" @click="saveCutting">
           {{ t('common.save') }}
         </el-button>
       </div>

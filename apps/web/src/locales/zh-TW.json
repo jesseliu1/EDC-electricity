@@ -156,7 +156,16 @@
     "range": "區間",
     "compareWithBaseline": "與基線對比",
     "createTask": "產生糾偏任務",
-    "createTaskHint": "任務建立入口開發中"
+    "createTaskHint": "任務建立入口開發中",
+    "cutStatus": "切割狀態",
+    "cutStatusnormal": "正常",
+    "cutStatusmajor_issue": "重大事故",
+    "cutStatusblocked": "已阻斷",
+    "timeOffsetPercent": "時間偏移",
+    "editTiming": "編輯時間",
+    "adjustSubsequentConfirm": "是否自動調整後續爐次時間？",
+    "adjustSubsequentYes": "自動調整後續",
+    "adjustSubsequentNo": "僅調整當前"
   },
   "task": {
     "title": "糾偏任務單",
@@ -196,7 +205,14 @@
     "edcBaseUrl": "EDC API 位址",
     "edcApiKey": "EDC API Key",
     "testConnection": "測試連線",
-    "edcTestSuccess": "EDC 連線測試成功"
+    "edcTestSuccess": "EDC 連線測試成功",
+    "cuttingConfig": "爐次切割設定",
+    "timeTolerancePercent": "時間偏移容忍率(%)",
+    "majorIssueDurationMinutes": "重大事故判定分鐘數",
+    "workStartTime": "上班時間",
+    "workEndTime": "下班時間",
+    "breakPeriods": "休息時段",
+    "breakPeriodsPlaceholder": "例如 12:00-13:00,15:30-15:45"
   },
   "baselineDefinition": {
     "title": "黃金基線定義",

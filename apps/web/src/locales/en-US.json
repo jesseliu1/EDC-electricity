@@ -156,7 +156,16 @@
     "range": "Range",
     "compareWithBaseline": "Compare with Baseline",
     "createTask": "Create Correction Task",
-    "createTaskHint": "Task creation entry is under development"
+    "createTaskHint": "Task creation entry is under development",
+    "cutStatus": "Cutting Status",
+    "cutStatusnormal": "Normal",
+    "cutStatusmajor_issue": "Major Issue",
+    "cutStatusblocked": "Blocked",
+    "timeOffsetPercent": "Time Offset",
+    "editTiming": "Edit Timing",
+    "adjustSubsequentConfirm": "Auto-adjust subsequent heats?",
+    "adjustSubsequentYes": "Adjust Subsequent",
+    "adjustSubsequentNo": "Current Only"
   },
   "task": {
     "title": "Correction Tasks",
@@ -196,7 +205,14 @@
     "edcBaseUrl": "EDC API URL",
     "edcApiKey": "EDC API Key",
     "testConnection": "Test Connection",
-    "edcTestSuccess": "EDC connection test succeeded"
+    "edcTestSuccess": "EDC connection test succeeded",
+    "cuttingConfig": "Heat Cutting Settings",
+    "timeTolerancePercent": "Time Offset Tolerance (%)",
+    "majorIssueDurationMinutes": "Major Issue Duration (min)",
+    "workStartTime": "Work Start Time",
+    "workEndTime": "Work End Time",
+    "breakPeriods": "Break Periods",
+    "breakPeriodsPlaceholder": "e.g. 12:00-13:00,15:30-15:45"
   },
   "baselineDefinition": {
     "title": "Baseline Definitions",

@@ -156,7 +156,16 @@
     "range": "区间",
     "compareWithBaseline": "与基线对比",
     "createTask": "生成纠偏任务",
-    "createTaskHint": "任务创建入口开发中"
+    "createTaskHint": "任务创建入口开发中",
+    "cutStatus": "切割状态",
+    "cutStatusnormal": "正常",
+    "cutStatusmajor_issue": "重大事故",
+    "cutStatusblocked": "已阻断",
+    "timeOffsetPercent": "时间偏移",
+    "editTiming": "编辑时间",
+    "adjustSubsequentConfirm": "是否自动调整后续炉次时间？",
+    "adjustSubsequentYes": "自动调整后续",
+    "adjustSubsequentNo": "仅调整当前"
   },
   "task": {
     "title": "纠偏任务单",
@@ -196,7 +205,14 @@
     "edcBaseUrl": "EDC API 地址",
     "edcApiKey": "EDC API Key",
     "testConnection": "测试连接",
-    "edcTestSuccess": "EDC 连接测试成功"
+    "edcTestSuccess": "EDC 连接测试成功",
+    "cuttingConfig": "炉次切割设置",
+    "timeTolerancePercent": "时间偏移容忍率(%)",
+    "majorIssueDurationMinutes": "重大事故判定分钟数",
+    "workStartTime": "上班时间",
+    "workEndTime": "下班时间",
+    "breakPeriods": "休息时段",
+    "breakPeriodsPlaceholder": "如 12:00-13:00,15:30-15:45"
   },
   "baselineDefinition": {
     "title": "黄金基线定义",

@@ -156,7 +156,16 @@
     "range": "区間",
     "compareWithBaseline": "ベースラインと比較",
     "createTask": "是正タスク作成",
-    "createTaskHint": "タスク作成入口は開発中です"
+    "createTaskHint": "タスク作成入口は開発中です",
+    "cutStatus": "切り分け状態",
+    "cutStatusnormal": "正常",
+    "cutStatusmajor_issue": "重大事故",
+    "cutStatusblocked": "停止中",
+    "timeOffsetPercent": "時間ずれ",
+    "editTiming": "時間編集",
+    "adjustSubsequentConfirm": "後続ヒートを自動調整しますか？",
+    "adjustSubsequentYes": "後続も調整",
+    "adjustSubsequentNo": "現在のみ"
   },
   "task": {
     "title": "是正タスク",
@@ -196,7 +205,14 @@
     "edcBaseUrl": "EDC API URL",
     "edcApiKey": "EDC API Key",
     "testConnection": "接続テスト",
-    "edcTestSuccess": "EDC 接続テスト成功"
+    "edcTestSuccess": "EDC 接続テスト成功",
+    "cuttingConfig": "ヒート切り分け設定",
+    "timeTolerancePercent": "時間ずれ許容率(%)",
+    "majorIssueDurationMinutes": "重大事故判定分数",
+    "workStartTime": "勤務開始",
+    "workEndTime": "勤務終了",
+    "breakPeriods": "休憩時間帯",
+    "breakPeriodsPlaceholder": "例 12:00-13:00,15:30-15:45"
   },
   "baselineDefinition": {
     "title": "ゴールデンベースライン定義",

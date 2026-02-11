@@ -11,6 +11,10 @@ export interface HeatResponseItem {
   baseline_id: string | null
   deviation_percent: number | null
   avg_deviation_percent: number | null
+  time_offset_percent: number | null
+  cut_status: 'normal' | 'major_issue' | 'blocked'
+  major_issue: boolean
+  blocked_by_issue: boolean
   status: HeatStatus
   temperature: number | null
   created_at: string
@@ -75,6 +79,7 @@ export interface HeatUpdatePayload {
   description?: string | null
   start_time?: string
   end_time?: string
+  adjust_subsequent?: boolean
 }
 
 export const heatApi = {

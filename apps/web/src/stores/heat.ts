@@ -21,6 +21,10 @@ export interface HeatItem {
   baselineId: string | null
   deviationPercent: number | null
   avgDeviationPercent: number | null
+  timeOffsetPercent: number | null
+  cutStatus: 'normal' | 'major_issue' | 'blocked'
+  majorIssue: boolean
+  blockedByIssue: boolean
   status: HeatStatus
   temperature: number | null
 }
@@ -52,6 +56,10 @@ function mapHeat(item: HeatResponseItem): HeatItem {
     baselineId: item.baseline_id,
     deviationPercent: item.deviation_percent,
     avgDeviationPercent: item.avg_deviation_percent,
+    timeOffsetPercent: item.time_offset_percent,
+    cutStatus: item.cut_status,
+    majorIssue: item.major_issue,
+    blockedByIssue: item.blocked_by_issue,
     status: item.status,
     temperature: item.temperature
   }
@@ -71,6 +79,10 @@ function mockHeats(page: number, pageSize: number, status: 'all' | HeatStatus): 
       baselineId: idx % 2 === 0 ? 'baseline-001' : null,
       deviationPercent: currentStatus === 'pending' ? null : Number((3 + (idx % 8) * 1.7).toFixed(1)),
       avgDeviationPercent: currentStatus === 'pending' ? null : Number((2 + (idx % 6) * 1.2).toFixed(1)),
+      timeOffsetPercent: currentStatus === 'pending' ? null : Number((idx % 5) * 1.6),
+      cutStatus: currentStatus === 'pending' ? 'blocked' : 'normal',
+      majorIssue: false,
+      blockedByIssue: currentStatus === 'pending',
       status: currentStatus,
       temperature: 1450 + (idx % 5) * 6
     }
@@ -96,6 +108,10 @@ function mockDetail(id: string): HeatDetail {
     baselineId: 'baseline-001',
     deviationPercent: 12.5,
     avgDeviationPercent: 6.8,
+    timeOffsetPercent: 5.2,
+    cutStatus: 'major_issue',
+    majorIssue: true,
+    blockedByIssue: false,
     status: 'abnormal',
     temperature: 1458
   }
@@ -285,6 +301,27 @@ export const useHeatStore = defineStore('heat', {
         if (item) item.description = description
       } catch (error) {
         console.warn('Update heat description failed.', error)
+      }
+    },
+    async updateTiming(id: string, startTime: string, endTime: string, adjustSubsequent: boolean) {
+      try {
+        const updated = await heatApi.update(id, {
+          start_time: dayjs(startTime).toISOString(),
+          end_time: dayjs(endTime).toISOString(),
+          adjust_subsequent: adjustSubsequent
+        })
+        const mapped = mapHeat(updated)
+        if (this.current && this.current.base.id === id) {
+          this.current.base.startTime = mapped.startTime
+          this.current.base.endTime = mapped.endTime
+        }
+        const item = this.list.find(h => h.id === id)
+        if (item) {
+          item.startTime = mapped.startTime
+          item.endTime = mapped.endTime
+        }
+      } catch (error) {
+        console.warn('Update heat timing failed.', error)
       }
     }
   }

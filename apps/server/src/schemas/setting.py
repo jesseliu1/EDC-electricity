@@ -40,3 +40,15 @@ class ReportSettingRequest(BaseModel):
     """报表设置请求"""
 
     generation_hour: int = Field(..., ge=0, le=23, description="日报生成时间（小时）")
+
+
+class CuttingSettingRequest(BaseModel):
+    """炉次切割设置请求"""
+
+    time_tolerance_percent: float = Field(..., ge=0, le=100, description="时间偏移容忍率")
+    major_issue_duration_minutes: int = Field(
+        ..., ge=1, le=120, description="持续不一致判定重大事故的分钟数"
+    )
+    work_start_time: str = Field(..., description="上班时间，格式 HH:mm")
+    work_end_time: str = Field(..., description="下班时间，格式 HH:mm")
+    break_periods: list[str] = Field(default_factory=list, description="休息时段，格式 HH:mm-HH:mm")

@@ -40,16 +40,43 @@ def _curve_points(
 def _seed_heats() -> dict[str, dict[str, Any]]:
     now = datetime.now().replace(second=0, microsecond=0)
     seeded: dict[str, dict[str, Any]] = {}
+    major_issue_triggered = False
     for idx in range(60):
         start_time = now - timedelta(hours=idx + 1)
         end_time = start_time + timedelta(minutes=45)
-        status: str
-        if idx % 8 == 0:
-            status = "pending"
-        elif idx % 4 == 0:
-            status = "abnormal"
+        status: str = "normal"
+
+        # Demo 两组数据:
+        # 组1(前30条): 时间偏移都在容忍值内，但部分数值偏差异常
+        # 组2(后30条): 出现重大事故后，后续炉次进入阻断
+        group = 1 if idx < 30 else 2
+
+        if group == 1:
+            status = "abnormal" if idx % 6 == 0 else "normal"
+            cut_status = "normal"
+            major_issue = False
+            blocked_by_issue = False
+            time_offset_percent = round((idx % 5) * 1.5, 2)  # 0~6%
         else:
-            status = "normal"
+            if idx == 34:
+                major_issue_triggered = True
+                status = "abnormal"
+                cut_status = "major_issue"
+                major_issue = True
+                blocked_by_issue = False
+                time_offset_percent = 28.5
+            elif major_issue_triggered:
+                status = "pending"
+                cut_status = "blocked"
+                major_issue = False
+                blocked_by_issue = True
+                time_offset_percent = None
+            else:
+                status = "normal"
+                cut_status = "normal"
+                major_issue = False
+                blocked_by_issue = False
+                time_offset_percent = round((idx % 4) * 2.0, 2)
 
         power_curve = _curve_points(start_time, 46, 430 + (idx % 7), 35, phase=float(idx))
         voltage_curve = _curve_points(start_time, 46, 378 + (idx % 5), 8, phase=float(idx + 3))
@@ -70,6 +97,10 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
             "baseline_ids": ["baseline-001", "baseline-002"] if status != "pending" else [],
             "deviation_percent": max_dev,
             "avg_deviation_percent": avg_dev,
+            "time_offset_percent": time_offset_percent,
+            "cut_status": cut_status,
+            "major_issue": major_issue,
+            "blocked_by_issue": blocked_by_issue,
             "status": status,
             "temperature": round(1450 + (idx % 6) * 5.5, 2),
             "created_at": start_time,
@@ -94,6 +125,10 @@ def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
         baseline_id=item["baseline_id"],
         deviation_percent=item["deviation_percent"],
         avg_deviation_percent=item["avg_deviation_percent"],
+        time_offset_percent=item.get("time_offset_percent"),
+        cut_status=item.get("cut_status", "normal"),
+        major_issue=item.get("major_issue", False),
+        blocked_by_issue=item.get("blocked_by_issue", False),
         status=item["status"],
         temperature=item["temperature"],
         created_at=item["created_at"],
@@ -113,6 +148,26 @@ def _get_or_404(heat_id: str) -> dict[str, Any]:
     if not item:
         raise HTTPException(status_code=404, detail="炉次不存在")
     return item
+
+
+@router.get("/stream/mock", response_model=HeatListResponse)
+async def get_mock_stream(
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
+) -> HeatListResponse:
+    """模拟实时流入炉次（按最近开始时间返回）。"""
+    items = list(_HEAT_STORE.values())
+    items.sort(key=lambda x: x["start_time"], reverse=True)
+    total = len(items)
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    paged = items[start_idx:end_idx]
+    return HeatListResponse(
+        items=[_to_heat_response(item) for item in paged],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("", response_model=HeatListResponse)
@@ -160,12 +215,26 @@ async def get_heat(heat_id: str) -> HeatResponse:
 async def update_heat(heat_id: str, data: HeatUpdate) -> HeatResponse:
     """更新炉次信息（描述、起止时间）。"""
     item = _get_or_404(heat_id)
+    original_start = item["start_time"]
+
     if data.description is not None:
         item["description"] = data.description
     if data.start_time is not None:
         item["start_time"] = data.start_time
     if data.end_time is not None:
         item["end_time"] = data.end_time
+
+    if data.adjust_subsequent and data.start_time is not None:
+        delta = data.start_time - original_start
+        # 以开始时间顺序调整后续炉次
+        current_start = item["start_time"]
+        for other in _HEAT_STORE.values():
+            if other["id"] == heat_id:
+                continue
+            if other["start_time"] > current_start:
+                other["start_time"] = other["start_time"] + delta
+                other["end_time"] = other["end_time"] + delta
+
     return _to_heat_response(item)
 
 

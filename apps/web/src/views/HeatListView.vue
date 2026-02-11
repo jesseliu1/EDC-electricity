@@ -33,6 +33,12 @@ function statusText(status: HeatStatus) {
   return t('heat.statusPending')
 }
 
+function cutStatusTagType(cutStatus: 'normal' | 'major_issue' | 'blocked') {
+  if (cutStatus === 'major_issue') return 'danger'
+  if (cutStatus === 'blocked') return 'warning'
+  return 'success'
+}
+
 function handleStatusChange(value: string | number | boolean) {
   void heatStore.setStatus(value as StatusFilter)
 }
@@ -132,6 +138,12 @@ onMounted(() => {
               <el-tag :type="statusTagType(item.status)">
                 {{ statusText(item.status) }}
               </el-tag>
+              <el-tag :type="cutStatusTagType(item.cutStatus)">
+                {{ t(`heat.cutStatus${item.cutStatus}`) }}
+              </el-tag>
+              <span class="text-xs text-gray-500">
+                {{ t('heat.timeOffsetPercent') }}: {{ item.timeOffsetPercent === null ? '--' : `${item.timeOffsetPercent}%` }}
+              </span>
               <el-button
                 type="primary"
                 link

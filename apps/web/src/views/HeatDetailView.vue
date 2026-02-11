@@ -2,7 +2,18 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElButton, ElCard, ElEmpty, ElInput, ElMessage, ElTabPane, ElTabs, ElTag } from 'element-plus'
+import {
+  ElButton,
+  ElCard,
+  ElDatePicker,
+  ElEmpty,
+  ElInput,
+  ElMessage,
+  ElMessageBox,
+  ElTabPane,
+  ElTabs,
+  ElTag
+} from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -25,6 +36,8 @@ const current = computed(() => heatStore.current)
 
 const editingDescription = ref(false)
 const descriptionDraft = ref('')
+const editingTiming = ref(false)
+const timingDraft = ref<[Date, Date] | null>(null)
 const activeBaselineId = ref('')
 
 const selectedComparison = computed(() => {
@@ -119,6 +132,44 @@ async function saveDescription() {
   if (!heatId.value) return
   await heatStore.updateDescription(heatId.value, descriptionDraft.value)
   editingDescription.value = false
+  ElMessage.success(t('common.success'))
+}
+
+function startEditTiming() {
+  if (!current.value) return
+  timingDraft.value = [
+    dayjs(current.value.base.startTime).toDate(),
+    dayjs(current.value.base.endTime).toDate()
+  ]
+  editingTiming.value = true
+}
+
+async function saveTiming() {
+  if (!heatId.value || !timingDraft.value) return
+  let adjustSubsequent = false
+  try {
+    await ElMessageBox.confirm(
+      t('heat.adjustSubsequentConfirm'),
+      t('common.confirm'),
+      {
+        distinguishCancelAndClose: true,
+        confirmButtonText: t('heat.adjustSubsequentYes'),
+        cancelButtonText: t('heat.adjustSubsequentNo'),
+        type: 'warning'
+      }
+    )
+    adjustSubsequent = true
+  } catch {
+    adjustSubsequent = false
+  }
+
+  await heatStore.updateTiming(
+    heatId.value,
+    dayjs(timingDraft.value[0]).format('YYYY-MM-DD HH:mm:ss'),
+    dayjs(timingDraft.value[1]).format('YYYY-MM-DD HH:mm:ss'),
+    adjustSubsequent
+  )
+  editingTiming.value = false
   ElMessage.success(t('common.success'))
 }
 
@@ -229,11 +280,43 @@ onMounted(() => {
           </div>
           <div>
             <span class="text-gray-500">{{ t('heat.startTime') }}:</span>
-            <span class="ml-2 font-medium">{{ current.base.startTime }}</span>
+            <template v-if="!editingTiming">
+              <span class="ml-2 font-medium">{{ current.base.startTime }}</span>
+            </template>
           </div>
           <div>
             <span class="text-gray-500">{{ t('heat.endTime') }}:</span>
-            <span class="ml-2 font-medium">{{ current.base.endTime }}</span>
+            <template v-if="!editingTiming">
+              <span class="ml-2 font-medium">{{ current.base.endTime }}</span>
+              <el-button type="primary" link class="ml-2" @click="startEditTiming">
+                {{ t('heat.editTiming') }}
+              </el-button>
+            </template>
+            <template v-else>
+              <el-date-picker
+                v-model="timingDraft"
+                type="datetimerange"
+                :range-separator="t('heat.to')"
+                :start-placeholder="t('heat.startTime')"
+                :end-placeholder="t('heat.endTime')"
+              />
+              <el-button type="primary" link class="ml-2" @click="saveTiming">
+                {{ t('common.save') }}
+              </el-button>
+              <el-button link class="ml-1" @click="editingTiming = false">
+                {{ t('common.cancel') }}
+              </el-button>
+            </template>
+          </div>
+          <div>
+            <span class="text-gray-500">{{ t('heat.cutStatus') }}:</span>
+            <span class="ml-2 font-medium">{{ t(`heat.cutStatus${current.base.cutStatus}`) }}</span>
+          </div>
+          <div>
+            <span class="text-gray-500">{{ t('heat.timeOffsetPercent') }}:</span>
+            <span class="ml-2 font-medium">
+              {{ current.base.timeOffsetPercent === null ? '--' : `${current.base.timeOffsetPercent}%` }}
+            </span>
           </div>
           <div>
             <span class="text-gray-500">{{ t('heat.temperature') }}:</span>

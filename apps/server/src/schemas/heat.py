@@ -26,6 +26,10 @@ class HeatResponse(BaseModel):
     baseline_id: str | None = Field(default=None, description="对比基线ID")
     deviation_percent: float | None = Field(default=None, description="最大偏差百分比")
     avg_deviation_percent: float | None = Field(default=None, description="平均偏差百分比")
+    time_offset_percent: float | None = Field(default=None, description="时间偏移百分比")
+    cut_status: str = Field(default="normal", description="切割状态: normal/major_issue/blocked")
+    major_issue: bool = Field(default=False, description="是否重大事故")
+    blocked_by_issue: bool = Field(default=False, description="是否因重大事故阻断")
     status: str = Field(..., description="状态: normal/abnormal/pending")
     temperature: float | None = Field(default=None, description="出汤温度")
     created_at: datetime = Field(..., description="创建时间")
@@ -104,6 +108,7 @@ class HeatUpdate(BaseModel):
     description: str | None = Field(default=None, description="炉次描述")
     start_time: datetime | None = Field(default=None, description="开始时间")
     end_time: datetime | None = Field(default=None, description="结束时间")
+    adjust_subsequent: bool = Field(default=False, description="是否自动调整后续炉次")
 
 
 # 更新前向引用

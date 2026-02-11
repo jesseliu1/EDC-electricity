@@ -38,6 +38,7 @@ from .heat import (
     HeatWithCurve,
 )
 from .setting import (
+    CuttingSettingRequest,
     EDCConnectionRequest,
     ReportSettingRequest,
     SettingItem,
@@ -94,6 +95,7 @@ __all__ = [
     "SettingsResponse",
     "SettingsUpdateRequest",
     "ToleranceSettingRequest",
+    "CuttingSettingRequest",
     "EDCConnectionRequest",
     "ReportSettingRequest",
     # Dashboard
