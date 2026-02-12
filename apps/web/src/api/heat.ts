@@ -71,6 +71,18 @@ export interface HeatCompareResponse {
   avg_deviation: number | null
 }
 
+export interface CuttingTimelineEvent {
+  timestamp: string
+  event_type: string
+  title: string
+  detail: string
+}
+
+export interface CuttingTimelineResponse {
+  heat_id: string
+  events: CuttingTimelineEvent[]
+}
+
 export interface BaselineCompareItem {
   baseline: BaselineCurveSimple
   deviation_ranges: DeviationRange[]
@@ -95,6 +107,8 @@ export const heatApi = {
   get: (id: string) => client.get<HeatResponseItem>(`/heats/${id}`),
   getCurve: (id: string) => client.get<HeatWithCurveResponse>(`/heats/${id}/curve`),
   getCompare: (id: string) => client.get<HeatCompareResponse>(`/heats/${id}/compare`),
+  getCuttingTimeline: (id: string) =>
+    client.get<CuttingTimelineResponse>(`/heats/${id}/cutting-timeline`),
   update: (id: string, payload: HeatUpdatePayload) =>
     client.patch<HeatResponseItem>(`/heats/${id}`, payload),
   resumeCutting: (id: string, payload: HeatResumeCuttingPayload) =>

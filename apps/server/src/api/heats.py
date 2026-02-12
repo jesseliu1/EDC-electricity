@@ -10,6 +10,8 @@ from fastapi import APIRouter, HTTPException, Query
 from ..schemas import (
     BaselineCompareItem,
     CurvePoint,
+    CuttingTimelineEvent,
+    CuttingTimelineResponse,
     DeviationRange,
     HeatAnalyzeRequest,
     HeatAnalyzeResponse,
@@ -335,6 +337,69 @@ async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatRe
                 other["time_offset_percent"] = 6.0
 
     return _to_heat_response(item)
+
+
+@router.get("/{heat_id}/cutting-timeline", response_model=CuttingTimelineResponse)
+async def get_cutting_timeline(heat_id: str) -> CuttingTimelineResponse:
+    """获取炉次切割判定时间轴。"""
+    item = _get_or_404(heat_id)
+    config = _get_cutting_config()
+
+    start_time: datetime = item["start_time"]
+    events: list[CuttingTimelineEvent] = [
+        CuttingTimelineEvent(
+            timestamp=start_time,
+            event_type="stream_in",
+            title="实时流入",
+            detail="炉次进入切割判定队列",
+        ),
+        CuttingTimelineEvent(
+            timestamp=start_time + timedelta(minutes=1),
+            event_type="window_check",
+            title="窗口判定",
+            detail=(
+                f"连续不一致 {item.get('mismatch_duration_minutes') or 0} 分钟，"
+                f"阈值 {config['major_issue_minutes']} 分钟"
+            ),
+        ),
+        CuttingTimelineEvent(
+            timestamp=start_time + timedelta(minutes=2),
+            event_type="schedule_check",
+            title="班次窗口检查",
+            detail=f"当前窗口：{item.get('schedule_tag', 'work')}",
+        ),
+    ]
+
+    cut_status = item.get("cut_status", "normal")
+    if cut_status == "major_issue":
+        events.append(
+            CuttingTimelineEvent(
+                timestamp=start_time + timedelta(minutes=3),
+                event_type="major_issue",
+                title="触发重大事故",
+                detail="连续不一致超过阈值，后续炉次阻断",
+            )
+        )
+    elif cut_status == "blocked":
+        events.append(
+            CuttingTimelineEvent(
+                timestamp=start_time + timedelta(minutes=3),
+                event_type="blocked",
+                title="切割阻断",
+                detail=f"阻断原因：{item.get('cut_reason') or 'unknown'}",
+            )
+        )
+    else:
+        events.append(
+            CuttingTimelineEvent(
+                timestamp=start_time + timedelta(minutes=3),
+                event_type="normal",
+                title="判定正常",
+                detail="切割继续执行",
+            )
+        )
+
+    return CuttingTimelineResponse(heat_id=heat_id, events=events)
 
 
 @router.get("/{heat_id}/curve", response_model=HeatWithCurve)

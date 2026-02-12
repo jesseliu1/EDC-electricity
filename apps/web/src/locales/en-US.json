@@ -167,6 +167,7 @@
     "temperature": "Tap Temperature",
     "baselineName": "Baseline",
     "abnormalRanges": "Abnormal Ranges",
+    "cuttingTimeline": "Cutting Timeline",
     "range": "Range",
     "compareWithBaseline": "Compare with Baseline",
     "pickBaselineStart": "Pick Start",

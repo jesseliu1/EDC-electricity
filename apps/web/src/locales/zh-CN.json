@@ -167,6 +167,7 @@
     "temperature": "出汤温度",
     "baselineName": "对比基线",
     "abnormalRanges": "异常区间",
+    "cuttingTimeline": "切割判定时间轴",
     "range": "区间",
     "compareWithBaseline": "与基线对比",
     "pickBaselineStart": "选基线起点",

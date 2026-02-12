@@ -3,6 +3,7 @@ import dayjs from 'dayjs'
 import { heatApi } from '@/api/heat'
 import type {
   BaselineCompareItem,
+  CuttingTimelineEvent,
   CurvePoint,
   DeviationRange,
   HeatCompareResponse,
@@ -47,6 +48,7 @@ export interface HeatDetail {
   deviationRanges: DeviationRange[]
   maxDeviation: number | null
   avgDeviation: number | null
+  cuttingTimeline: CuttingTimelineEvent[]
 }
 
 function mapHeat(item: HeatResponseItem): HeatItem {
@@ -195,11 +197,36 @@ function mockDetail(id: string): HeatDetail {
       safeRange(38, 45, 21.2)
     ],
     maxDeviation: 21.2,
-    avgDeviation: 6.8
+    avgDeviation: 6.8,
+    cuttingTimeline: [
+      {
+        timestamp: dayjs(base.startTime).toISOString(),
+        event_type: 'stream_in',
+        title: '实时流入',
+        detail: '炉次进入判定队列'
+      },
+      {
+        timestamp: dayjs(base.startTime).add(1, 'minute').toISOString(),
+        event_type: 'window_check',
+        title: '窗口判定',
+        detail: '连续不一致 11 分钟，阈值 8 分钟'
+      },
+      {
+        timestamp: dayjs(base.startTime).add(3, 'minute').toISOString(),
+        event_type: 'major_issue',
+        title: '触发重大事故',
+        detail: '后续炉次阻断'
+      }
+    ]
   }
 }
 
-function mapDetail(base: HeatResponseItem, curve: HeatWithCurveResponse, compare: HeatCompareResponse): HeatDetail {
+function mapDetail(
+  base: HeatResponseItem,
+  curve: HeatWithCurveResponse,
+  compare: HeatCompareResponse,
+  timeline: CuttingTimelineEvent[]
+): HeatDetail {
   const comparisons = compare.baselines ||
     (compare.baseline
       ? [
@@ -221,7 +248,8 @@ function mapDetail(base: HeatResponseItem, curve: HeatWithCurveResponse, compare
     baselineComparisons: comparisons,
     deviationRanges: comparisons[0]?.deviation_ranges || [],
     maxDeviation: comparisons[0]?.max_deviation || null,
-    avgDeviation: comparisons[0]?.avg_deviation || null
+    avgDeviation: comparisons[0]?.avg_deviation || null,
+    cuttingTimeline: timeline
   }
 }
 
@@ -287,12 +315,13 @@ export const useHeatStore = defineStore('heat', {
     async fetchDetail(id: string) {
       this.loading = true
       try {
-        const [base, curve, compare] = await Promise.all([
+        const [base, curve, compare, timeline] = await Promise.all([
           heatApi.get(id),
           heatApi.getCurve(id),
-          heatApi.getCompare(id)
+          heatApi.getCompare(id),
+          heatApi.getCuttingTimeline(id)
         ])
-        this.current = mapDetail(base, curve, compare)
+        this.current = mapDetail(base, curve, compare, timeline.events)
       } catch (error) {
         console.warn('Heat detail fallback to mock.', error)
         this.current = mockDetail(id)

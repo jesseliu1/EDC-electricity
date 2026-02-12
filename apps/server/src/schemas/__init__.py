@@ -28,6 +28,8 @@ from .dashboard import (
 )
 from .heat import (
     BaselineCompareItem,
+    CuttingTimelineEvent,
+    CuttingTimelineResponse,
     DeviationRange,
     HeatAnalyzeRequest,
     HeatAnalyzeResponse,
@@ -76,6 +78,8 @@ __all__ = [
     # Heat
     "DeviationRange",
     "BaselineCompareItem",
+    "CuttingTimelineEvent",
+    "CuttingTimelineResponse",
     "HeatResponse",
     "HeatWithCurve",
     "HeatCompareResponse",

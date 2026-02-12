@@ -121,5 +121,21 @@ class HeatResumeCuttingRequest(BaseModel):
     note: str | None = Field(default=None, description="恢复备注")
 
 
+class CuttingTimelineEvent(BaseModel):
+    """切割判定时间轴事件"""
+
+    timestamp: datetime = Field(..., description="事件时间")
+    event_type: str = Field(..., description="事件类型")
+    title: str = Field(..., description="事件标题")
+    detail: str = Field(..., description="事件详情")
+
+
+class CuttingTimelineResponse(BaseModel):
+    """切割判定时间轴响应"""
+
+    heat_id: str = Field(..., description="炉次ID")
+    events: list[CuttingTimelineEvent] = Field(default_factory=list, description="时间轴事件")
+
+
 # 更新前向引用
 HeatCompareResponse.model_rebuild()

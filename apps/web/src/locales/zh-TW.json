@@ -167,6 +167,7 @@
     "temperature": "出湯溫度",
     "baselineName": "對比基線",
     "abnormalRanges": "異常區間",
+    "cuttingTimeline": "切割判定時間軸",
     "range": "區間",
     "compareWithBaseline": "與基線對比",
     "pickBaselineStart": "選基線起點",

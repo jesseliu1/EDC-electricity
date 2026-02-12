@@ -12,6 +12,8 @@ import {
   ElMessageBox,
   ElTabPane,
   ElTabs,
+  ElTimeline,
+  ElTimelineItem,
   ElTag
 } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
@@ -483,6 +485,23 @@ onMounted(() => {
         v-else
         :description="t('common.noData')"
       />
+    </el-card>
+
+    <el-card v-if="current">
+      <template #header>
+        <span>{{ t('heat.cuttingTimeline') }}</span>
+      </template>
+      <el-timeline>
+        <el-timeline-item
+          v-for="item in current.cuttingTimeline"
+          :key="`${item.event_type}-${item.timestamp}`"
+          :timestamp="dayjs(item.timestamp).format('YYYY-MM-DD HH:mm:ss')"
+          placement="top"
+        >
+          <div class="text-sm font-medium text-gray-800">{{ item.title }}</div>
+          <div class="text-xs text-gray-500 mt-1">{{ item.detail }}</div>
+        </el-timeline-item>
+      </el-timeline>
     </el-card>
 
     <el-empty
