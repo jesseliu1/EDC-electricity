@@ -12,6 +12,9 @@ export interface HeatResponseItem {
   deviation_percent: number | null
   avg_deviation_percent: number | null
   time_offset_percent: number | null
+  mismatch_duration_minutes: number | null
+  schedule_tag: 'work' | 'break' | 'off_shift'
+  cut_reason: string | null
   cut_status: 'normal' | 'major_issue' | 'blocked'
   major_issue: boolean
   blocked_by_issue: boolean

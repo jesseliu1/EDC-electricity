@@ -43,6 +43,17 @@ function cutStatusTagType(cutStatus: 'normal' | 'major_issue' | 'blocked') {
   return 'success'
 }
 
+function scheduleTagType(tag: 'work' | 'break' | 'off_shift') {
+  if (tag === 'work') return 'success'
+  if (tag === 'break') return 'warning'
+  return 'info'
+}
+
+function cutReasonText(reason: string | null) {
+  if (!reason) return '--'
+  return t(`heat.cutReason.${reason}`)
+}
+
 function handleStatusChange(value: string | number | boolean | undefined) {
   if (value === undefined) return
   void heatStore.setStatus(value as StatusFilter)
@@ -149,8 +160,18 @@ onMounted(() => {
               <el-tag :type="cutStatusTagType(item.cutStatus)">
                 {{ t(`heat.cutStatus${item.cutStatus}`) }}
               </el-tag>
+              <el-tag size="small" :type="scheduleTagType(item.scheduleTag)">
+                {{ t(`heat.scheduleTag.${item.scheduleTag}`) }}
+              </el-tag>
               <span class="text-xs text-gray-500">
                 {{ t('heat.timeOffsetPercent') }}: {{ item.timeOffsetPercent === null ? '--' : `${item.timeOffsetPercent}%` }}
+              </span>
+              <span class="text-xs text-gray-500">
+                {{ t('heat.mismatchDurationMinutes') }}:
+                {{ item.mismatchDurationMinutes === null ? '--' : `${item.mismatchDurationMinutes}min` }}
+              </span>
+              <span class="text-xs text-gray-500">
+                {{ t('heat.cutReasonLabel') }}: {{ cutReasonText(item.cutReason) }}
               </span>
               <el-button
                 type="primary"

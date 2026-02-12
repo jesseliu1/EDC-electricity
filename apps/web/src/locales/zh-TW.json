@@ -169,6 +169,10 @@
     "abnormalRanges": "異常區間",
     "range": "區間",
     "compareWithBaseline": "與基線對比",
+    "pickBaselineStart": "選基線起點",
+    "pickBaselineEnd": "選基線終點",
+    "resetBaselineRange": "重設選區",
+    "selectedBaselineRange": "目前選區",
     "createTask": "產生糾偏任務",
     "createBaselineFromHeat": "基於當前爐次建立基線",
     "createTaskHint": "任務建立入口開發中",
@@ -177,6 +181,9 @@
     "cutStatusmajor_issue": "重大事故",
     "cutStatusblocked": "已阻斷",
     "timeOffsetPercent": "時間偏移",
+    "mismatchDurationMinutes": "連續不一致時長",
+    "scheduleTagLabel": "班次視窗",
+    "cutReasonLabel": "切割原因",
     "editTiming": "編輯時間",
     "adjustSubsequentConfirm": "是否自動調整後續爐次時間？",
     "adjustSubsequentYes": "自動調整後續",
@@ -186,7 +193,22 @@
     "resumeCuttingWithSubsequent": "恢復並聯動後續",
     "resumeCuttingOnlyCurrent": "僅恢復當前",
     "resumeCuttingSuccess": "切割已恢復",
-    "cuttingAlert": "目前有 {major} 個重大事故爐次，{blocked} 個阻斷爐次等待恢復"
+    "cuttingAlert": "目前有 {major} 個重大事故爐次，{blocked} 個阻斷爐次等待恢復",
+    "scheduleTag": {
+      "work": "作業時段",
+      "break": "休息時段",
+      "off_shift": "班次外"
+    },
+    "cutReason": {
+      "continuous_mismatch": "連續不一致超過閾值",
+      "major_issue_lock": "重大事故後續阻斷",
+      "schedule_window": "班次/休息視窗阻斷",
+      "time_offset_exceed": "時間偏移超容忍",
+      "within_tolerance": "偏移在容忍範圍內",
+      "manual_resume": "人工恢復切割",
+      "manual_resume_followup": "人工恢復後續爐次",
+      "unknown": "未知"
+    }
   },
   "task": {
     "title": "糾偏任務單",

@@ -169,6 +169,10 @@
     "abnormalRanges": "異常区間",
     "range": "区間",
     "compareWithBaseline": "ベースラインと比較",
+    "pickBaselineStart": "開始点選択",
+    "pickBaselineEnd": "終了点選択",
+    "resetBaselineRange": "区間リセット",
+    "selectedBaselineRange": "現在の選択区間",
     "createTask": "是正タスク作成",
     "createBaselineFromHeat": "このヒートからベースライン作成",
     "createTaskHint": "タスク作成入口は開発中です",
@@ -177,6 +181,9 @@
     "cutStatusmajor_issue": "重大事故",
     "cutStatusblocked": "停止中",
     "timeOffsetPercent": "時間ずれ",
+    "mismatchDurationMinutes": "連続不一致時間",
+    "scheduleTagLabel": "シフトウィンドウ",
+    "cutReasonLabel": "切り分け理由",
     "editTiming": "時間編集",
     "adjustSubsequentConfirm": "後続ヒートを自動調整しますか？",
     "adjustSubsequentYes": "後続も調整",
@@ -186,7 +193,22 @@
     "resumeCuttingWithSubsequent": "再開して後続反映",
     "resumeCuttingOnlyCurrent": "現在のみ再開",
     "resumeCuttingSuccess": "切り分けを再開しました",
-    "cuttingAlert": "重大事故ヒート {major} 件、停止ヒート {blocked} 件が復旧待ちです"
+    "cuttingAlert": "重大事故ヒート {major} 件、停止ヒート {blocked} 件が復旧待ちです",
+    "scheduleTag": {
+      "work": "作業時間",
+      "break": "休憩時間",
+      "off_shift": "シフト外"
+    },
+    "cutReason": {
+      "continuous_mismatch": "連続不一致が閾値超過",
+      "major_issue_lock": "重大事故後の停止",
+      "schedule_window": "シフト/休憩ウィンドウ停止",
+      "time_offset_exceed": "時間ずれが許容超過",
+      "within_tolerance": "許容範囲内",
+      "manual_resume": "手動再開",
+      "manual_resume_followup": "後続ヒート手動再開",
+      "unknown": "不明"
+    }
   },
   "task": {
     "title": "是正タスク",

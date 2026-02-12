@@ -169,6 +169,10 @@
     "abnormalRanges": "Abnormal Ranges",
     "range": "Range",
     "compareWithBaseline": "Compare with Baseline",
+    "pickBaselineStart": "Pick Start",
+    "pickBaselineEnd": "Pick End",
+    "resetBaselineRange": "Reset Range",
+    "selectedBaselineRange": "Selected Range",
     "createTask": "Create Correction Task",
     "createBaselineFromHeat": "Create Baseline from This Heat",
     "createTaskHint": "Task creation entry is under development",
@@ -177,6 +181,9 @@
     "cutStatusmajor_issue": "Major Issue",
     "cutStatusblocked": "Blocked",
     "timeOffsetPercent": "Time Offset",
+    "mismatchDurationMinutes": "Continuous Mismatch",
+    "scheduleTagLabel": "Schedule Window",
+    "cutReasonLabel": "Cutting Reason",
     "editTiming": "Edit Timing",
     "adjustSubsequentConfirm": "Auto-adjust subsequent heats?",
     "adjustSubsequentYes": "Adjust Subsequent",
@@ -186,7 +193,22 @@
     "resumeCuttingWithSubsequent": "Resume + Subsequent",
     "resumeCuttingOnlyCurrent": "Resume Current Only",
     "resumeCuttingSuccess": "Cutting resumed",
-    "cuttingAlert": "There are {major} major-issue heats and {blocked} blocked heats pending recovery"
+    "cuttingAlert": "There are {major} major-issue heats and {blocked} blocked heats pending recovery",
+    "scheduleTag": {
+      "work": "Work Shift",
+      "break": "Break Window",
+      "off_shift": "Off Shift"
+    },
+    "cutReason": {
+      "continuous_mismatch": "Continuous mismatch exceeds threshold",
+      "major_issue_lock": "Blocked after major issue",
+      "schedule_window": "Blocked by shift/break window",
+      "time_offset_exceed": "Time offset exceeds tolerance",
+      "within_tolerance": "Within tolerance",
+      "manual_resume": "Manually resumed",
+      "manual_resume_followup": "Follow-up resumed manually",
+      "unknown": "Unknown"
+    }
   },
   "task": {
     "title": "Correction Tasks",

@@ -22,6 +22,9 @@ export interface HeatItem {
   deviationPercent: number | null
   avgDeviationPercent: number | null
   timeOffsetPercent: number | null
+  mismatchDurationMinutes: number | null
+  scheduleTag: 'work' | 'break' | 'off_shift'
+  cutReason: string | null
   cutStatus: 'normal' | 'major_issue' | 'blocked'
   majorIssue: boolean
   blockedByIssue: boolean
@@ -57,6 +60,9 @@ function mapHeat(item: HeatResponseItem): HeatItem {
     deviationPercent: item.deviation_percent,
     avgDeviationPercent: item.avg_deviation_percent,
     timeOffsetPercent: item.time_offset_percent,
+    mismatchDurationMinutes: item.mismatch_duration_minutes,
+    scheduleTag: item.schedule_tag,
+    cutReason: item.cut_reason,
     cutStatus: item.cut_status,
     majorIssue: item.major_issue,
     blockedByIssue: item.blocked_by_issue,
@@ -71,6 +77,7 @@ function mockHeats(page: number, pageSize: number, status: 'all' | HeatStatus): 
     const now = dayjs().subtract(idx + 1, 'hour')
     const currentStatus: HeatStatus = idx % 5 === 0 ? 'abnormal' : idx % 7 === 0 ? 'pending' : 'normal'
     const cutStatus: HeatItem['cutStatus'] = currentStatus === 'pending' ? 'blocked' : 'normal'
+    const scheduleTag: HeatItem['scheduleTag'] = currentStatus === 'pending' ? 'off_shift' : 'work'
     return {
       id: `mock-heat-${idx + 1}`,
       heatNo: `H${dayjs().format('YYYYMMDD')}-${String(idx + 1).padStart(3, '0')}`,
@@ -81,6 +88,9 @@ function mockHeats(page: number, pageSize: number, status: 'all' | HeatStatus): 
       deviationPercent: currentStatus === 'pending' ? null : Number((3 + (idx % 8) * 1.7).toFixed(1)),
       avgDeviationPercent: currentStatus === 'pending' ? null : Number((2 + (idx % 6) * 1.2).toFixed(1)),
       timeOffsetPercent: currentStatus === 'pending' ? null : Number((idx % 5) * 1.6),
+      mismatchDurationMinutes: currentStatus === 'pending' ? null : 3 + (idx % 6),
+      scheduleTag,
+      cutReason: currentStatus === 'pending' ? 'schedule_window' : 'within_tolerance',
       cutStatus,
       majorIssue: false,
       blockedByIssue: currentStatus === 'pending',
@@ -110,6 +120,9 @@ function mockDetail(id: string): HeatDetail {
     deviationPercent: 12.5,
     avgDeviationPercent: 6.8,
     timeOffsetPercent: 5.2,
+    mismatchDurationMinutes: 11,
+    scheduleTag: 'work',
+    cutReason: 'continuous_mismatch',
     cutStatus: 'major_issue',
     majorIssue: true,
     blockedByIssue: false,

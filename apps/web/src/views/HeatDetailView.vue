@@ -39,6 +39,9 @@ const descriptionDraft = ref('')
 const editingTiming = ref(false)
 const timingDraft = ref<[Date, Date] | null>(null)
 const activeBaselineId = ref('')
+const selectBoundary = ref<'start' | 'end'>('start')
+const baselineStartTs = ref<number | null>(null)
+const baselineEndTs = ref<number | null>(null)
 
 const selectedComparison = computed(() => {
   if (!current.value) return null
@@ -128,18 +131,51 @@ function handleCreateBaselineFromHeat() {
 
   const firstPoint = current.value.powerCurve[0]
   const lastPoint = current.value.powerCurve[current.value.powerCurve.length - 1]
-  const defaultStart = firstPoint ? dayjs(firstPoint.timestamp) : dayjs(current.value.base.startTime)
-  const defaultEnd = lastPoint ? dayjs(lastPoint.timestamp) : dayjs(current.value.base.endTime)
+  const selectedStart = baselineStartTs.value
+    ? dayjs(baselineStartTs.value)
+    : firstPoint
+      ? dayjs(firstPoint.timestamp)
+      : dayjs(current.value.base.startTime)
+  const selectedEnd = baselineEndTs.value
+    ? dayjs(baselineEndTs.value)
+    : lastPoint
+      ? dayjs(lastPoint.timestamp)
+      : dayjs(current.value.base.endTime)
 
   router.push({
     path: '/baselines',
     query: {
       sourceHeatId: current.value.base.id,
-      selectedStartTime: defaultStart.toISOString(),
-      selectedEndTime: defaultEnd.toISOString(),
+      selectedStartTime: selectedStart.toISOString(),
+      selectedEndTime: selectedEnd.toISOString(),
       name: `${current.value.base.heatNo}-${t('baseline.name')}`
     }
   })
+}
+
+function handleChartPickClick(params: { dataIndex?: number }) {
+  if (!current.value || params.dataIndex === undefined) return
+  const point = current.value.powerCurve[params.dataIndex]
+  if (!point) return
+
+  if (selectBoundary.value === 'start') {
+    baselineStartTs.value = point.timestamp
+    selectBoundary.value = 'end'
+  } else {
+    baselineEndTs.value = point.timestamp
+    selectBoundary.value = 'start'
+  }
+
+  if (baselineStartTs.value && baselineEndTs.value && baselineStartTs.value > baselineEndTs.value) {
+    const tmp = baselineStartTs.value
+    baselineStartTs.value = baselineEndTs.value
+    baselineEndTs.value = tmp
+  }
+}
+
+function resetBaselineRange() {
+  baselineStartTs.value = null
+  baselineEndTs.value = null
 }
 
 function startEditDescription() {
@@ -276,12 +312,38 @@ onMounted(() => {
                 :label="item.baseline.name"
               />
             </el-tabs>
+            <div class="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+              <el-button
+                size="small"
+                :type="selectBoundary === 'start' ? 'primary' : 'default'"
+                @click="selectBoundary = 'start'"
+              >
+                {{ t('heat.pickBaselineStart') }}
+              </el-button>
+              <el-button
+                size="small"
+                :type="selectBoundary === 'end' ? 'primary' : 'default'"
+                @click="selectBoundary = 'end'"
+              >
+                {{ t('heat.pickBaselineEnd') }}
+              </el-button>
+              <el-button size="small" @click="resetBaselineRange">
+                {{ t('heat.resetBaselineRange') }}
+              </el-button>
+              <span>
+                {{ t('heat.selectedBaselineRange') }}:
+                {{ baselineStartTs ? dayjs(baselineStartTs).format('HH:mm:ss') : '--' }}
+                ~
+                {{ baselineEndTs ? dayjs(baselineEndTs).format('HH:mm:ss') : '--' }}
+              </span>
+            </div>
           </div>
         </template>
         <v-chart
           :option="compareOption"
           autoresize
           class="h-80"
+          @click="handleChartPickClick"
         />
       </el-card>
 
@@ -366,6 +428,24 @@ onMounted(() => {
             <span class="ml-2 font-medium">
               {{ current.base.timeOffsetPercent === null ? '--' : `${current.base.timeOffsetPercent}%` }}
             </span>
+          </div>
+          <div>
+            <span class="text-gray-500">{{ t('heat.mismatchDurationMinutes') }}:</span>
+            <span class="ml-2 font-medium">
+              {{
+                current.base.mismatchDurationMinutes === null
+                  ? '--'
+                  : `${current.base.mismatchDurationMinutes} min`
+              }}
+            </span>
+          </div>
+          <div>
+            <span class="text-gray-500">{{ t('heat.scheduleTagLabel') }}:</span>
+            <span class="ml-2 font-medium">{{ t(`heat.scheduleTag.${current.base.scheduleTag}`) }}</span>
+          </div>
+          <div>
+            <span class="text-gray-500">{{ t('heat.cutReasonLabel') }}:</span>
+            <span class="ml-2 font-medium">{{ t(`heat.cutReason.${current.base.cutReason || 'unknown'}`) }}</span>
           </div>
           <div>
             <span class="text-gray-500">{{ t('heat.temperature') }}:</span>

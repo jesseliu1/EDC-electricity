@@ -22,9 +22,52 @@ from ..schemas import (
 )
 from ..schemas.heat import BaselineWithCurveSimple
 from ..services import DeviationService
+from .settings import _SETTINGS_STORE
 
 router = APIRouter(prefix="/heats", tags=["Heats"])
 deviation_service = DeviationService()
+
+
+def _get_cutting_config() -> dict[str, Any]:
+    """读取切割配置。"""
+    tolerance = float(_SETTINGS_STORE.get("time_tolerance_percent", {}).get("value") or 10.0)
+    major_issue_minutes = int(
+        _SETTINGS_STORE.get("major_issue_duration_minutes", {}).get("value") or 8
+    )
+    work_start = str(_SETTINGS_STORE.get("work_start_time", {}).get("value") or "08:00")
+    work_end = str(_SETTINGS_STORE.get("work_end_time", {}).get("value") or "18:00")
+    break_raw = str(_SETTINGS_STORE.get("break_periods", {}).get("value") or "12:00-13:00")
+    break_periods = [item.strip() for item in break_raw.split(",") if item.strip()]
+    return {
+        "tolerance": tolerance,
+        "major_issue_minutes": major_issue_minutes,
+        "work_start": work_start,
+        "work_end": work_end,
+        "break_periods": break_periods,
+    }
+
+
+def _to_minutes(value: str) -> int:
+    hour, minute = value.split(":", 1)
+    return int(hour) * 60 + int(minute)
+
+
+def _schedule_tag_of(start_time: datetime, config: dict[str, Any]) -> str:
+    """根据时间判断班次标签。"""
+    current = start_time.hour * 60 + start_time.minute
+    work_start = _to_minutes(config["work_start"])
+    work_end = _to_minutes(config["work_end"])
+    if current < work_start or current > work_end:
+        return "off_shift"
+
+    for period in config["break_periods"]:
+        try:
+            start_str, end_str = period.split("-", 1)
+            if _to_minutes(start_str) <= current <= _to_minutes(end_str):
+                return "break"
+        except ValueError:
+            continue
+    return "work"
 
 
 def _curve_points(
@@ -40,6 +83,7 @@ def _curve_points(
 
 def _seed_heats() -> dict[str, dict[str, Any]]:
     now = datetime.now().replace(second=0, microsecond=0)
+    config = _get_cutting_config()
     seeded: dict[str, dict[str, Any]] = {}
     major_issue_triggered = False
     for idx in range(60):
@@ -49,35 +93,49 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
 
         # Demo 两组数据:
         # 组1(前30条): 时间偏移都在容忍值内，但部分数值偏差异常
-        # 组2(后30条): 出现重大事故后，后续炉次进入阻断
+        # 组2(后30条): 连续不一致超过阈值触发重大事故，后续阻断
         group = 1 if idx < 30 else 2
+
+        schedule_tag = _schedule_tag_of(start_time, config)
+        mismatch_minutes = 3 + (idx % 6)
+        time_offset_percent = round((idx % 7) * 1.6, 2)
+        cut_reason: str | None = None
+        cut_status = "normal"
+        major_issue = False
+        blocked_by_issue = False
 
         if group == 1:
             status = "abnormal" if idx % 6 == 0 else "normal"
-            cut_status = "normal"
-            major_issue = False
-            blocked_by_issue = False
-            time_offset_percent = round((idx % 5) * 1.5, 2)  # 0~6%
+            mismatch_minutes = 4 + (idx % 4)
+            time_offset_percent = round((idx % 5) * 1.4, 2)
         else:
+            mismatch_minutes = 6 + (idx % 7)
             if idx == 34:
-                major_issue_triggered = True
-                status = "abnormal"
-                cut_status = "major_issue"
-                major_issue = True
-                blocked_by_issue = False
-                time_offset_percent = 28.5
-            elif major_issue_triggered:
-                status = "pending"
-                cut_status = "blocked"
-                major_issue = False
-                blocked_by_issue = True
-                time_offset_percent = None
-            else:
-                status = "normal"
-                cut_status = "normal"
-                major_issue = False
-                blocked_by_issue = False
-                time_offset_percent = round((idx % 4) * 2.0, 2)
+                mismatch_minutes = max(config["major_issue_minutes"] + 2, mismatch_minutes)
+
+        if schedule_tag in {"break", "off_shift"}:
+            cut_status = "blocked"
+            blocked_by_issue = True
+            status = "pending"
+            cut_reason = "schedule_window"
+            time_offset_percent = None
+        elif major_issue_triggered:
+            cut_status = "blocked"
+            blocked_by_issue = True
+            status = "pending"
+            cut_reason = "major_issue_lock"
+            time_offset_percent = None
+        elif mismatch_minutes >= config["major_issue_minutes"]:
+            cut_status = "major_issue"
+            major_issue = True
+            status = "abnormal"
+            cut_reason = "continuous_mismatch"
+            major_issue_triggered = True
+        elif time_offset_percent > config["tolerance"]:
+            status = "abnormal"
+            cut_reason = "time_offset_exceed"
+        else:
+            cut_reason = "within_tolerance"
 
         power_curve = _curve_points(start_time, 46, 430 + (idx % 7), 35, phase=float(idx))
         voltage_curve = _curve_points(start_time, 46, 378 + (idx % 5), 8, phase=float(idx + 3))
@@ -99,6 +157,9 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
             "deviation_percent": max_dev,
             "avg_deviation_percent": avg_dev,
             "time_offset_percent": time_offset_percent,
+            "mismatch_duration_minutes": mismatch_minutes,
+            "schedule_tag": schedule_tag,
+            "cut_reason": cut_reason,
             "cut_status": cut_status,
             "major_issue": major_issue,
             "blocked_by_issue": blocked_by_issue,
@@ -127,6 +188,9 @@ def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
         deviation_percent=item["deviation_percent"],
         avg_deviation_percent=item["avg_deviation_percent"],
         time_offset_percent=item.get("time_offset_percent"),
+        mismatch_duration_minutes=item.get("mismatch_duration_minutes"),
+        schedule_tag=item.get("schedule_tag", "work"),
+        cut_reason=item.get("cut_reason"),
         cut_status=item.get("cut_status", "normal"),
         major_issue=item.get("major_issue", False),
         blocked_by_issue=item.get("blocked_by_issue", False),
@@ -247,6 +311,9 @@ async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatRe
     item["cut_status"] = "normal"
     item["major_issue"] = False
     item["blocked_by_issue"] = False
+    item["cut_reason"] = "manual_resume"
+    item["schedule_tag"] = "work"
+    item["mismatch_duration_minutes"] = min(item.get("mismatch_duration_minutes") or 0, 4)
     if item["status"] == "pending":
         item["status"] = "normal"
     item["time_offset_percent"] = min(item.get("time_offset_percent") or 0.0, 8.0)
@@ -260,6 +327,9 @@ async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatRe
                 other["cut_status"] = "normal"
                 other["blocked_by_issue"] = False
                 other["major_issue"] = False
+                other["cut_reason"] = "manual_resume_followup"
+                other["schedule_tag"] = "work"
+                other["mismatch_duration_minutes"] = 4
                 if other["status"] == "pending":
                     other["status"] = "normal"
                 other["time_offset_percent"] = 6.0
