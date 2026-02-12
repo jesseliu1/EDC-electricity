@@ -11,6 +11,7 @@ export interface SystemSettings {
   workStartTime: string
   workEndTime: string
   breakPeriods: string
+  baselineLengthScopeMode: 'definition' | 'system' | 'production_line'
 }
 
 const defaultSettings: SystemSettings = {
@@ -22,7 +23,8 @@ const defaultSettings: SystemSettings = {
   majorIssueDurationMinutes: 8,
   workStartTime: '08:00',
   workEndTime: '18:00',
-  breakPeriods: '12:00-13:00'
+  breakPeriods: '12:00-13:00',
+  baselineLengthScopeMode: 'definition'
 }
 
 export const useSettingStore = defineStore('setting', {
@@ -45,6 +47,9 @@ export const useSettingStore = defineStore('setting', {
         this.data.workStartTime = map.work_start_time || '08:00'
         this.data.workEndTime = map.work_end_time || '18:00'
         this.data.breakPeriods = map.break_periods || '12:00-13:00'
+        const mode = map.baseline_length_scope_mode
+        this.data.baselineLengthScopeMode =
+          mode === 'system' || mode === 'production_line' ? mode : 'definition'
       } catch (error) {
         console.warn('Settings fallback to default.', error)
       } finally {
@@ -74,6 +79,7 @@ export const useSettingStore = defineStore('setting', {
           .map(item => item.trim())
           .filter(Boolean)
       })
+      await settingApi.updateBaselineLengthScope(this.data.baselineLengthScopeMode)
     }
   }
 })

@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElButton, ElCard, ElForm, ElFormItem, ElInput, ElInputNumber, ElMessage } from 'element-plus'
+import {
+  ElButton,
+  ElCard,
+  ElForm,
+  ElFormItem,
+  ElInput,
+  ElInputNumber,
+  ElMessage,
+  ElRadioButton,
+  ElRadioGroup
+} from 'element-plus'
 import { useSettingStore } from '@/stores/setting'
 
 const { t } = useI18n()
@@ -148,6 +158,13 @@ onMounted(() => {
             v-model="settingStore.data.breakPeriods"
             :placeholder="t('settings.breakPeriodsPlaceholder')"
           />
+        </el-form-item>
+        <el-form-item :label="t('settings.baselineLengthScopeMode')" class="md:col-span-2">
+          <el-radio-group v-model="settingStore.data.baselineLengthScopeMode">
+            <el-radio-button label="definition">{{ t('settings.scopeDefinition') }}</el-radio-button>
+            <el-radio-button label="system">{{ t('settings.scopeSystem') }}</el-radio-button>
+            <el-radio-button label="production_line">{{ t('settings.scopeProductionLine') }}</el-radio-button>
+          </el-radio-group>
         </el-form-item>
       </el-form>
       <div class="flex justify-end">

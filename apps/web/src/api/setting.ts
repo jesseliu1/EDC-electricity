@@ -25,5 +25,7 @@ export const settingApi = {
     work_start_time: string
     work_end_time: string
     break_periods: string[]
-  }) => client.put('/settings/cutting', payload)
+  }) => client.put('/settings/cutting', payload),
+  updateBaselineLengthScope: (scope_mode: 'definition' | 'system' | 'production_line') =>
+    client.put('/settings/baseline-length-scope', { scope_mode })
 }

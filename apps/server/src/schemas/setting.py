@@ -52,3 +52,11 @@ class CuttingSettingRequest(BaseModel):
     work_start_time: str = Field(..., description="上班时间，格式 HH:mm")
     work_end_time: str = Field(..., description="下班时间，格式 HH:mm")
     break_periods: list[str] = Field(default_factory=list, description="休息时段，格式 HH:mm-HH:mm")
+
+
+class BaselineLengthScopeSettingRequest(BaseModel):
+    """基线等长校验范围设置"""
+
+    scope_mode: str = Field(
+        ..., description="等长校验范围: definition/system/production_line(预留)"
+    )

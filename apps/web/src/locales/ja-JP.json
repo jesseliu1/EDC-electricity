@@ -149,6 +149,7 @@
     "detailDeveloping": "ヒート詳細ページは開発中です...",
     "detailSummary": "ヒート概要",
     "totalCount": "合計",
+    "ingestMockHeat": "モック流入1件",
     "filterDateRange": "日付範囲",
     "to": "〜",
     "startDate": "開始日",
@@ -256,7 +257,11 @@
     "workStartTime": "勤務開始",
     "workEndTime": "勤務終了",
     "breakPeriods": "休憩時間帯",
-    "breakPeriodsPlaceholder": "例 12:00-13:00,15:30-15:45"
+    "breakPeriodsPlaceholder": "例 12:00-13:00,15:30-15:45",
+    "baselineLengthScopeMode": "基線等長検証範囲",
+    "scopeDefinition": "定義単位",
+    "scopeSystem": "システム全体",
+    "scopeProductionLine": "生産ライン単位（予約）"
   },
   "baselineDefinition": {
     "title": "ゴールデンベースライン定義",

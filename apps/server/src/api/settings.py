@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from ..schemas import (
+    BaselineLengthScopeSettingRequest,
     CuttingSettingRequest,
     EDCConnectionRequest,
     MessageResponse,
@@ -28,6 +29,10 @@ _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     "work_start_time": {"value": "08:00", "description": "上班时间"},
     "work_end_time": {"value": "18:00", "description": "下班时间"},
     "break_periods": {"value": "12:00-13:00", "description": "休息时间段，逗号分隔"},
+    "baseline_length_scope_mode": {
+        "value": "definition",
+        "description": "基线等长校验范围: definition/system/production_line",
+    },
 }
 
 
@@ -96,3 +101,14 @@ async def update_cutting_settings(data: CuttingSettingRequest) -> MessageRespons
     _SETTINGS_STORE["work_end_time"]["value"] = data.work_end_time
     _SETTINGS_STORE["break_periods"]["value"] = ",".join(data.break_periods)
     return MessageResponse(message="炉次切割设置已更新", success=True)
+
+
+@router.put("/baseline-length-scope", response_model=MessageResponse)
+async def update_baseline_length_scope(data: BaselineLengthScopeSettingRequest) -> MessageResponse:
+    """更新基线等长校验范围。"""
+    valid_modes = {"definition", "system", "production_line"}
+    if data.scope_mode not in valid_modes:
+        return MessageResponse(message="scope_mode 非法", success=False)
+
+    _SETTINGS_STORE["baseline_length_scope_mode"]["value"] = data.scope_mode
+    return MessageResponse(message=f"基线等长校验范围已更新为 {data.scope_mode}", success=True)

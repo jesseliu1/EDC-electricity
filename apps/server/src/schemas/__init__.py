@@ -41,6 +41,7 @@ from .heat import (
     HeatWithCurve,
 )
 from .setting import (
+    BaselineLengthScopeSettingRequest,
     CuttingSettingRequest,
     EDCConnectionRequest,
     ReportSettingRequest,
@@ -101,6 +102,7 @@ __all__ = [
     "SettingsResponse",
     "SettingsUpdateRequest",
     "ToleranceSettingRequest",
+    "BaselineLengthScopeSettingRequest",
     "CuttingSettingRequest",
     "EDCConnectionRequest",
     "ReportSettingRequest",

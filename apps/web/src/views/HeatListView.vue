@@ -78,8 +78,13 @@ onMounted(() => {
       <h1 class="text-2xl font-bold text-gray-900">
         {{ t('heat.title') }}
       </h1>
-      <div class="text-sm text-gray-500">
-        {{ t('heat.totalCount') }}: {{ heatStore.total }}
+      <div class="flex items-center gap-3">
+        <div class="text-sm text-gray-500">
+          {{ t('heat.totalCount') }}: {{ heatStore.total }}
+        </div>
+        <el-button type="primary" plain @click="heatStore.ingestMockHeat">
+          {{ t('heat.ingestMockHeat') }}
+        </el-button>
       </div>
     </div>
 

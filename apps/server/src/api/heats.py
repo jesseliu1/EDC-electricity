@@ -177,6 +177,7 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
 
 
 _HEAT_STORE: dict[str, dict[str, Any]] = _seed_heats()
+_NEXT_HEAT_INDEX = len(_HEAT_STORE) + 1
 
 
 def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
@@ -217,6 +218,103 @@ def _get_or_404(heat_id: str) -> dict[str, Any]:
     return item
 
 
+def _latest_heat() -> dict[str, Any] | None:
+    if not _HEAT_STORE:
+        return None
+    return max(_HEAT_STORE.values(), key=lambda x: x["start_time"])
+
+
+def _build_ingested_heat() -> dict[str, Any]:
+    """构造一条实时流入的模拟炉次。"""
+    global _NEXT_HEAT_INDEX
+
+    config = _get_cutting_config()
+    latest = _latest_heat()
+    start_time = (
+        latest["start_time"] + timedelta(minutes=50)
+        if latest
+        else datetime.now().replace(second=0, microsecond=0)
+    )
+    end_time = start_time + timedelta(minutes=45)
+
+    schedule_tag = _schedule_tag_of(start_time, config)
+    mismatch_minutes = 3 + (_NEXT_HEAT_INDEX % 9)
+    time_offset_percent = round((_NEXT_HEAT_INDEX % 8) * 1.7, 2)
+
+    has_major_issue_lock = any(
+        item.get("cut_status") == "major_issue" or item.get("cut_reason") == "major_issue_lock"
+        for item in _HEAT_STORE.values()
+    )
+
+    cut_status = "normal"
+    status = "normal"
+    major_issue = False
+    blocked_by_issue = False
+    cut_reason = "within_tolerance"
+
+    if schedule_tag in {"break", "off_shift"}:
+        cut_status = "blocked"
+        status = "pending"
+        blocked_by_issue = True
+        cut_reason = "schedule_window"
+        time_offset_percent = None
+    elif has_major_issue_lock:
+        cut_status = "blocked"
+        status = "pending"
+        blocked_by_issue = True
+        cut_reason = "major_issue_lock"
+        time_offset_percent = None
+    elif mismatch_minutes >= config["major_issue_minutes"]:
+        cut_status = "major_issue"
+        status = "abnormal"
+        major_issue = True
+        cut_reason = "continuous_mismatch"
+    elif time_offset_percent > config["tolerance"]:
+        status = "abnormal"
+        cut_reason = "time_offset_exceed"
+
+    power_curve = _curve_points(
+        start_time, 46, 430 + (_NEXT_HEAT_INDEX % 7), 35, phase=float(_NEXT_HEAT_INDEX)
+    )
+    voltage_curve = _curve_points(
+        start_time, 46, 378 + (_NEXT_HEAT_INDEX % 5), 8, phase=float(_NEXT_HEAT_INDEX + 3)
+    )
+    baseline_power_curve = _curve_points(start_time, 46, 435, 24, phase=2.0)
+    baseline_voltage_curve = _curve_points(start_time, 46, 380, 5, phase=1.0)
+
+    max_dev = None if status == "pending" else round(4.2 + (_NEXT_HEAT_INDEX % 9) * 1.8, 3)
+    avg_dev = None if status == "pending" else round(2.1 + (_NEXT_HEAT_INDEX % 7) * 1.1, 3)
+
+    heat_id = f"heat-{_NEXT_HEAT_INDEX:03d}"
+    heat = {
+        "id": heat_id,
+        "heat_no": f"H{start_time.strftime('%Y%m%d')}-{_NEXT_HEAT_INDEX:03d}",
+        "description": None,
+        "start_time": start_time,
+        "end_time": end_time,
+        "baseline_id": "baseline-001" if status != "pending" else None,
+        "baseline_ids": ["baseline-001", "baseline-002"] if status != "pending" else [],
+        "deviation_percent": max_dev,
+        "avg_deviation_percent": avg_dev,
+        "time_offset_percent": time_offset_percent,
+        "mismatch_duration_minutes": mismatch_minutes,
+        "schedule_tag": schedule_tag,
+        "cut_reason": cut_reason,
+        "cut_status": cut_status,
+        "major_issue": major_issue,
+        "blocked_by_issue": blocked_by_issue,
+        "status": status,
+        "temperature": round(1450 + (_NEXT_HEAT_INDEX % 6) * 5.5, 2),
+        "created_at": start_time,
+        "power_curve": power_curve,
+        "voltage_curve": voltage_curve,
+        "baseline_power_curve": baseline_power_curve,
+        "baseline_voltage_curve": baseline_voltage_curve,
+    }
+    _NEXT_HEAT_INDEX += 1
+    return heat
+
+
 @router.get("/stream/mock", response_model=HeatListResponse)
 async def get_mock_stream(
     page: int = Query(default=1, ge=1, description="页码"),
@@ -235,6 +333,14 @@ async def get_mock_stream(
         page=page,
         page_size=page_size,
     )
+
+
+@router.post("/stream/mock/ingest", response_model=HeatResponse)
+async def ingest_mock_stream_heat() -> HeatResponse:
+    """模拟实时流入一条新炉次并返回。"""
+    heat = _build_ingested_heat()
+    _HEAT_STORE[heat["id"]] = heat
+    return _to_heat_response(heat)
 
 
 @router.get("", response_model=HeatListResponse)

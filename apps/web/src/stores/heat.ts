@@ -293,6 +293,14 @@ export const useHeatStore = defineStore('heat', {
         this.loading = false
       }
     },
+    async ingestMockHeat() {
+      try {
+        await heatApi.ingestMock()
+        await this.fetchList()
+      } catch (error) {
+        console.warn('Ingest mock heat failed.', error)
+      }
+    },
     async setStatus(status: 'all' | HeatStatus) {
       this.filters.status = status
       this.page = 1

@@ -149,6 +149,7 @@
     "detailDeveloping": "Heat detail page is under development...",
     "detailSummary": "Heat Summary",
     "totalCount": "Total",
+    "ingestMockHeat": "Ingest Mock Heat",
     "filterDateRange": "Date Range",
     "to": "to",
     "startDate": "Start Date",
@@ -256,7 +257,11 @@
     "workStartTime": "Work Start Time",
     "workEndTime": "Work End Time",
     "breakPeriods": "Break Periods",
-    "breakPeriodsPlaceholder": "e.g. 12:00-13:00,15:30-15:45"
+    "breakPeriodsPlaceholder": "e.g. 12:00-13:00,15:30-15:45",
+    "baselineLengthScopeMode": "Baseline Length Scope",
+    "scopeDefinition": "By Definition",
+    "scopeSystem": "System-wide",
+    "scopeProductionLine": "By Production Line (reserved)"
   },
   "baselineDefinition": {
     "title": "Baseline Definitions",

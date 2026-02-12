@@ -19,6 +19,7 @@ from ..schemas import (
 
 # 引用 definition store 以做关联校验
 from .baseline_definitions import _DEFINITION_STORE
+from .settings import _SETTINGS_STORE
 
 router = APIRouter(prefix="/baselines", tags=["Baselines"])
 
@@ -175,13 +176,30 @@ def _validate_definition(definition_id: str) -> dict[str, Any]:
 
 
 def _validate_equal_length(definition_id: str, current_id: str | None = None) -> None:
-    """同一定义下已发布实例曲线长度一致性校验。"""
+    """按配置范围校验已发布实例曲线长度一致性。"""
+    scope_mode = str(
+        _SETTINGS_STORE.get("baseline_length_scope_mode", {}).get("value") or "definition"
+    )
+
+    def scope_key(item: dict[str, Any]) -> str:
+        if scope_mode == "system":
+            return "system"
+        if scope_mode == "production_line":
+            # 生产线字段预留：MVP 先不引生产线，缺省回落到定义维度
+            production_line = item.get("production_line_id")
+            if production_line:
+                return f"production_line:{production_line}"
+        return f"definition:{item['definition_id']}"
+
+    current_item = _BASELINE_STORE.get(current_id) if current_id else None
+    current_scope = scope_key(current_item) if current_item else f"definition:{definition_id}"
+
     published = [
         item
         for item in _BASELINE_STORE.values()
-        if item["definition_id"] == definition_id
-        and item["status"] == "published"
+        if item["status"] == "published"
         and item["id"] != current_id
+        and scope_key(item) == current_scope
     ]
     if len(published) < 2:
         return

@@ -149,6 +149,7 @@
     "detailDeveloping": "爐次詳情頁開發中...",
     "detailSummary": "爐次摘要",
     "totalCount": "總數",
+    "ingestMockHeat": "模擬流入一爐",
     "filterDateRange": "日期範圍",
     "to": "至",
     "startDate": "開始日期",
@@ -256,7 +257,11 @@
     "workStartTime": "上班時間",
     "workEndTime": "下班時間",
     "breakPeriods": "休息時段",
-    "breakPeriodsPlaceholder": "例如 12:00-13:00,15:30-15:45"
+    "breakPeriodsPlaceholder": "例如 12:00-13:00,15:30-15:45",
+    "baselineLengthScopeMode": "基線等長校驗範圍",
+    "scopeDefinition": "按基線定義",
+    "scopeSystem": "按系統全域",
+    "scopeProductionLine": "按生產線（預留）"
   },
   "baselineDefinition": {
     "title": "黃金基線定義",
