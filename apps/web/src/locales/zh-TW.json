@@ -93,9 +93,9 @@
     "disableSuccess": "基線已停用",
     "saveDraftSuccess": "草稿已儲存",
     "wizard": {
-      "step1": "選擇候選爐次",
-      "step2": "預覽對比",
-      "step3": "設定參數",
+      "step1": "選擇爐次與選點",
+      "step2": "設定參數",
+      "step3": "確認發佈",
       "step4": "發佈確認",
       "to": "至",
       "startDate": "開始日期",

@@ -3,7 +3,7 @@ import type { AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 
 const instance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/edc-api',
   timeout: 10000
 })
 

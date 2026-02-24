@@ -93,9 +93,9 @@
     "disableSuccess": "ベースラインを無効化しました",
     "saveDraftSuccess": "下書きを保存しました",
     "wizard": {
-      "step1": "候補ヒート選択",
-      "step2": "比較プレビュー",
-      "step3": "パラメータ設定",
+      "step1": "ヒートと区間選択",
+      "step2": "パラメータ設定",
+      "step3": "公開確認",
       "step4": "公開確認",
       "to": "〜",
       "startDate": "開始日",

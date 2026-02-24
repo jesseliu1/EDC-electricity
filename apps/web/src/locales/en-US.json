@@ -93,9 +93,9 @@
     "disableSuccess": "Baseline disabled",
     "saveDraftSuccess": "Draft saved",
     "wizard": {
-      "step1": "Select Candidate Heat",
-      "step2": "Preview Compare",
-      "step3": "Set Parameters",
+      "step1": "Select Heat & Range",
+      "step2": "Set Parameters",
+      "step3": "Confirm Publish",
       "step4": "Publish Confirmation",
       "to": "to",
       "startDate": "Start Date",

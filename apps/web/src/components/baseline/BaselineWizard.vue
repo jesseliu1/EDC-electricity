@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ElButton,
@@ -40,7 +40,8 @@ interface HeatCandidate {
   id: string
   heatNo: string
   date: string
-  points: HeatPoint[]
+  startTime: number
+  endTime: number
 }
 
 interface WizardSubmitPayload {
@@ -88,38 +89,9 @@ const formData = ref({
   tolerancePercent: 15
 })
 
-function buildPoints(seed: number): HeatPoint[] {
-  const start = dayjs().subtract(2, 'hour')
-  return Array.from({ length: 360 }).map((_, index) => {
-    const ts = start.add(index * 10, 'second').valueOf()
-    return {
-      timestamp: ts,
-      power: Number((420 + Math.sin((index + seed) / 15) * 28 + (index % 5)).toFixed(1)),
-      voltage: Number((380 + Math.cos((index + seed) / 20) * 6).toFixed(1))
-    }
-  })
-}
+const fullCurvePoints = ref<HeatPoint[]>([])
 
-const heatCandidates = ref<HeatCandidate[]>([
-  {
-    id: 'heat-101',
-    heatNo: 'H20260211-101',
-    date: '2026-02-11 09:30:00',
-    points: buildPoints(1)
-  },
-  {
-    id: 'heat-102',
-    heatNo: 'H20260211-102',
-    date: '2026-02-11 11:15:00',
-    points: buildPoints(5)
-  },
-  {
-    id: 'heat-103',
-    heatNo: 'H20260211-103',
-    date: '2026-02-11 14:40:00',
-    points: buildPoints(9)
-  }
-])
+const heatCandidates = ref<HeatCandidate[]>([])
 
 const selectedHeat = computed(() =>
   heatCandidates.value.find(item => item.id === selectedHeatId.value) || null
@@ -128,18 +100,29 @@ const selectedHeat = computed(() =>
 const selectedStart = ref<number | null>(null)
 const selectedEnd = ref<number | null>(null)
 
-const selectedStartDate = computed<Date | null>({
-  get: () => (selectedStart.value ? new Date(selectedStart.value) : null),
-  set: value => {
-    selectedStart.value = value ? dayjs(value).valueOf() : null
+const selectedStartDate = ref<Date | null>(null)
+const selectedEndDate = ref<Date | null>(null)
+
+watch(() => selectedStart.value, (val) => {
+  selectedStartDate.value = val ? new Date(val) : null
+})
+
+watch(() => selectedEnd.value, (val) => {
+  selectedEndDate.value = val ? new Date(val) : null
+})
+
+watch(selectedStartDate, (val) => {
+  const ts = val ? dayjs(val).valueOf() : null
+  if (ts !== selectedStart.value) {
+    selectedStart.value = ts
     normalizeRange()
   }
 })
 
-const selectedEndDate = computed<Date | null>({
-  get: () => (selectedEnd.value ? new Date(selectedEnd.value) : null),
-  set: value => {
-    selectedEnd.value = value ? dayjs(value).valueOf() : null
+watch(selectedEndDate, (val) => {
+  const ts = val ? dayjs(val).valueOf() : null
+  if (ts !== selectedEnd.value) {
+    selectedEnd.value = ts
     normalizeRange()
   }
 })
@@ -154,22 +137,19 @@ function normalizeRange() {
 }
 
 function resetRangeByHeat() {
-  if (!selectedHeat.value || selectedHeat.value.points.length === 0) {
+  if (!selectedHeat.value) {
     selectedStart.value = null
     selectedEnd.value = null
     return
   }
-  const first = selectedHeat.value.points[0]
-  const last = selectedHeat.value.points[selectedHeat.value.points.length - 1]
-  selectedStart.value = first?.timestamp || null
-  selectedEnd.value = last?.timestamp || null
+  selectedStart.value = selectedHeat.value.startTime || null
+  selectedEnd.value = selectedHeat.value.endTime || null
 }
 
 const compareOption = computed<EChartsOption>(() => {
-  const heat = selectedHeat.value
-  if (!heat) return {}
+  if (fullCurvePoints.value.length === 0) return {}
 
-  const labels = heat.points.map(point => dayjs(point.timestamp).format('HH:mm:ss'))
+  const labels = fullCurvePoints.value.map(point => dayjs(point.timestamp).format('HH:mm:ss'))
   const rangeStart = selectedStart.value ? dayjs(selectedStart.value).format('HH:mm:ss') : null
   const rangeEnd = selectedEnd.value ? dayjs(selectedEnd.value).format('HH:mm:ss') : null
 
@@ -192,7 +172,7 @@ const compareOption = computed<EChartsOption>(() => {
         smooth: true,
         showSymbol: false,
         lineStyle: { color: '#409EFF', width: 2 },
-        data: heat.points.map(point => point.power),
+        data: fullCurvePoints.value.map(point => point.power),
         markArea:
           rangeStart && rangeEnd
             ? {
@@ -208,15 +188,15 @@ const compareOption = computed<EChartsOption>(() => {
         showSymbol: false,
         yAxisIndex: 1,
         lineStyle: { color: '#67C23A', width: 2, type: 'dashed' as const },
-        data: heat.points.map(point => point.voltage)
+        data: fullCurvePoints.value.map(point => point.voltage)
       }
     ]
   }
 })
 
 function handleChartClick(params: { dataIndex?: number }) {
-  if (!selectedHeat.value || params.dataIndex === undefined) return
-  const point = selectedHeat.value.points[params.dataIndex]
+  if (params.dataIndex === undefined || fullCurvePoints.value.length === 0) return
+  const point = fullCurvePoints.value[params.dataIndex]
   if (!point) return
 
   if (selectingBoundary.value === 'start') {
@@ -240,11 +220,10 @@ function adjustBoundary(boundary: 'start' | 'end', deltaSecond: number) {
 }
 
 const summaryStats = computed(() => {
-  const heat = selectedHeat.value
-  if (!heat || !selectedStart.value || !selectedEnd.value) {
+  if (!selectedStart.value || !selectedEnd.value) {
     return { avg: 0, peak: 0, durationSecond: 0 }
   }
-  const selected = heat.points.filter(
+  const selected = fullCurvePoints.value.filter(
     point => point.timestamp >= selectedStart.value! && point.timestamp <= selectedEnd.value!
   )
   if (selected.length === 0) {
@@ -265,19 +244,19 @@ function nextStep() {
     ElMessage.warning(t('baseline.wizard.selectHeatRequired'))
     return
   }
-  if (activeStep.value === 1 && (!selectedStart.value || !selectedEnd.value)) {
+  if (activeStep.value === 0 && (!selectedStart.value || !selectedEnd.value)) {
     ElMessage.warning(t('baseline.wizard.pointRangeRequired'))
     return
   }
-  if (activeStep.value === 2 && !formData.value.name.trim()) {
+  if (activeStep.value === 1 && !formData.value.name.trim()) {
     ElMessage.warning(t('baseline.wizard.nameRequired'))
     return
   }
-  if (activeStep.value === 2 && !formData.value.definitionId) {
+  if (activeStep.value === 1 && !formData.value.definitionId) {
     ElMessage.warning(t('baseline.wizard.definitionRequired'))
     return
   }
-  if (activeStep.value < 3) {
+  if (activeStep.value < 2) {
     activeStep.value += 1
   }
 }
@@ -308,6 +287,7 @@ function submit(mode: 'draft' | 'publish') {
 
 function handleSelectHeat(id: string) {
   selectedHeatId.value = id
+  selectingBoundary.value = 'start'
   resetRangeByHeat()
 }
 
@@ -330,7 +310,8 @@ function ensurePrefillHeatCandidate() {
     id: props.initialSourceHeatId,
     heatNo: props.initialName || `H-PREFILL-${props.initialSourceHeatId}`,
     date: dayjs(points[0]?.timestamp || Date.now()).format('YYYY-MM-DD HH:mm:ss'),
-    points
+    startTime: points[0]?.timestamp || Date.now(),
+    endTime: points[points.length - 1]?.timestamp || Date.now()
   })
 }
 
@@ -342,6 +323,46 @@ function applyPrefillRange() {
 }
 
 onMounted(async () => {
+  const now = dayjs()
+  let curveStart = dayjs().hour(6).minute(0).second(0).millisecond(0)
+  if (now.isBefore(curveStart)) {
+    curveStart = now.startOf('day')
+  }
+  const stepSeconds = 10
+  const totalSeconds = Math.max(0, now.diff(curveStart, 'second'))
+  const totalPoints = Math.max(1, Math.floor(totalSeconds / stepSeconds))
+  fullCurvePoints.value = Array.from({ length: totalPoints + 1 }).map((_, index) => {
+    const ts = curveStart.add(index * stepSeconds, 'second').valueOf()
+    return {
+      timestamp: ts,
+      power: Number((418 + Math.sin(index / 18) * 26 + (index % 6)).toFixed(1)),
+      voltage: Number((382 + Math.cos(index / 22) * 6).toFixed(1))
+    }
+  })
+
+  const candidateSeed = [
+    { id: 'heat-101', heatNo: 'H20260223-101', offsetMinutes: 90, durationMinutes: 30 },
+    { id: 'heat-102', heatNo: 'H20260223-102', offsetMinutes: 210, durationMinutes: 28 },
+    { id: 'heat-103', heatNo: 'H20260223-103', offsetMinutes: 360, durationMinutes: 32 }
+  ]
+  heatCandidates.value = candidateSeed.map(item => {
+    let start = curveStart.add(item.offsetMinutes, 'minute')
+    if (start.isAfter(now)) {
+      start = now.subtract(item.durationMinutes, 'minute')
+    }
+    let end = start.add(item.durationMinutes, 'minute')
+    if (end.isAfter(now)) {
+      end = now
+    }
+    return {
+      id: item.id,
+      heatNo: item.heatNo,
+      date: start.format('YYYY-MM-DD HH:mm:ss'),
+      startTime: start.valueOf(),
+      endTime: end.valueOf()
+    }
+  })
+
   ensurePrefillHeatCandidate()
 
   await baselineDefinitionStore.fetchList('active')
@@ -375,7 +396,6 @@ onMounted(async () => {
       <el-step :title="t('baseline.wizard.step1')" />
       <el-step :title="t('baseline.wizard.step2')" />
       <el-step :title="t('baseline.wizard.step3')" />
-      <el-step :title="t('baseline.wizard.step4')" />
     </el-steps>
 
     <div v-if="activeStep === 0" class="space-y-4">
@@ -394,9 +414,7 @@ onMounted(async () => {
           </label>
         </div>
       </el-card>
-    </div>
 
-    <div v-if="activeStep === 1" class="space-y-4">
       <el-card>
         <template #header>
           <div class="flex items-center justify-between">
@@ -407,7 +425,7 @@ onMounted(async () => {
           </div>
         </template>
 
-        <div v-if="selectedHeat" class="space-y-4">
+        <div v-if="fullCurvePoints.length > 0" class="space-y-4">
           <v-chart :option="compareOption" autoresize class="h-80" @click="handleChartClick" />
 
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -481,7 +499,7 @@ onMounted(async () => {
       </el-card>
     </div>
 
-    <div v-if="activeStep === 2" class="space-y-4">
+    <div v-if="activeStep === 1" class="space-y-4">
       <el-card>
         <el-form label-position="top">
           <el-form-item :label="t('baseline.name')">
@@ -516,7 +534,7 @@ onMounted(async () => {
       </el-card>
     </div>
 
-    <div v-if="activeStep === 3" class="space-y-4">
+    <div v-if="activeStep === 2" class="space-y-4">
       <el-card>
         <div class="space-y-2 text-sm text-gray-700">
           <div><span class="text-gray-500">{{ t('baseline.name') }}:</span> {{ formData.name }}</div>
@@ -555,7 +573,7 @@ onMounted(async () => {
       <el-button @click="emit('cancel')">{{ t('common.cancel') }}</el-button>
       <div class="flex items-center gap-2">
         <el-button v-if="activeStep > 0" @click="prevStep">{{ t('common.back') }}</el-button>
-        <el-button v-if="activeStep < 3" type="primary" @click="nextStep">
+        <el-button v-if="activeStep < 2" type="primary" @click="nextStep">
           {{ t('common.next') }}
         </el-button>
         <template v-else>
