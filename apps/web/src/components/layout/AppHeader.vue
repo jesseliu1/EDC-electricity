@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Search, Bell, QuestionFilled } from '@element-plus/icons-vue'
 
 interface Emits {
   (e: 'toggle-sidebar'): void
@@ -25,7 +24,7 @@ const pageTitle = computed(() => {
 // 系统状态（后续可从 store 获取）
 const systemStatus = computed(() => ({
   isOnline: true,
-  label: '系统运行正常',
+  label: t('common.systemNormal', '系统运行正常'),
 }))
 
 const handleToggleSidebar = () => {
@@ -35,32 +34,30 @@ const handleToggleSidebar = () => {
 
 <template>
   <header
-    class="h-header bg-white border-b border-border-light flex items-center justify-between px-6 shrink-0"
+    class="h-header bg-surface-light border-b border-border-light flex items-center justify-between px-6 lg:px-8 shrink-0 z-10"
   >
     <!-- 左侧：菜单按钮 + 页面标题 + 系统状态 -->
     <div class="flex items-center gap-4">
       <!-- 移动端菜单按钮 -->
       <button
-        class="lg:hidden p-2 text-text-secondary hover:text-primary hover:bg-gray-100 rounded-lg transition-colors"
+        class="lg:hidden p-2 text-slate-500 hover:text-primary hover:bg-slate-100 rounded-lg transition-colors"
         @click="handleToggleSidebar"
       >
-        <el-icon :size="20">
-          <svg viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
-            <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" />
-          </svg>
-        </el-icon>
+        <span class="material-symbols-outlined">menu</span>
       </button>
 
       <!-- 页面标题 -->
-      <h2 class="text-lg font-bold text-text-primary">{{ pageTitle }}</h2>
+      <h2 class="text-xl font-bold text-slate-800 tracking-tight">
+        {{ pageTitle }}
+      </h2>
 
       <!-- 分隔线 -->
-      <div class="hidden md:block h-5 w-px bg-border-light" />
+      <div class="hidden md:block h-6 w-px bg-border-light mx-2" />
 
       <!-- 系统状态指示器 -->
       <span
         v-if="systemStatus.isOnline"
-        class="hidden md:flex items-center gap-2 text-xs font-medium px-2.5 py-1.5 rounded-md bg-green-50 text-green-700 border border-green-200"
+        class="hidden md:flex items-center gap-2 text-xs font-medium px-2 py-1 rounded bg-green-100 text-green-700 border border-green-200"
       >
         <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
         {{ systemStatus.label }}
@@ -68,35 +65,40 @@ const handleToggleSidebar = () => {
     </div>
 
     <!-- 右侧：搜索框 + 工具按钮 -->
-    <div class="flex items-center gap-4">
-      <!-- 搜索框 -->
-      <div class="hidden lg:flex items-center">
-        <el-input
-          :placeholder="t('common.search') + '...'"
-          :prefix-icon="Search"
-          class="w-64"
-          size="default"
-          clearable
+    <div class="flex items-center gap-6">
+      <!-- 搜索框 — 原生 input + Material icon -->
+      <div
+        class="hidden lg:flex items-center bg-slate-100 rounded-lg px-3 py-2 w-64 border border-transparent focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 transition-all"
+      >
+        <span class="material-symbols-outlined text-slate-400 text-[20px]"
+          >search</span
+        >
+        <input
+          type="text"
+          class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 ml-2 p-0 h-auto"
+          :placeholder="t('common.searchHeatId', '搜索炉次 ID...')"
         />
       </div>
 
       <!-- 工具按钮组 -->
-      <div class="flex items-center gap-1">
-        <!-- 通知按钮 -->
-        <el-badge :value="3" :max="99" class="notification-badge">
-          <el-button :icon="Bell" circle size="default" text />
-        </el-badge>
+      <div class="flex items-center gap-3">
+        <!-- 通知按钮 — 红点式 -->
+        <button
+          class="relative p-2 text-slate-500 hover:text-primary hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <span class="material-symbols-outlined">notifications</span>
+          <span
+            class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"
+          />
+        </button>
 
         <!-- 帮助按钮 -->
-        <el-button :icon="QuestionFilled" circle size="default" text />
+        <button
+          class="p-2 text-slate-500 hover:text-primary hover:bg-slate-100 rounded-full transition-colors"
+        >
+          <span class="material-symbols-outlined">help</span>
+        </button>
       </div>
     </div>
   </header>
 </template>
-
-<style scoped>
-.notification-badge :deep(.el-badge__content) {
-  top: 6px;
-  right: 10px;
-}
-</style>

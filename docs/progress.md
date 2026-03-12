@@ -216,6 +216,15 @@
   - [x] /api/dashboard/realtime
   - [x] /api/dashboard/recent-heats
 
+### 2026-03-11（UI 规范统一与打磨）
+- [x] 全局设计令牌 (Design Tokens) 引入 (色彩 `#1152d4`, 字体 `Noto Sans`, 阴影圆角)
+- [x] 整体布局框架升级 (侧边栏导航分组, 头部原生化, UI 响应式容器优化)
+- [x] Dashboard 各组件重制 (彩条 StatCard, 快速导航 QuickLinks, 原生表格 HeatList)
+- [x] 通用组件沉淀 (`PageHeader`, `Breadcrumb`, `StatusBadge`) 替代 Element 原有旧组件
+- [x] 全量列表页 (`BaselineList`, `HeatList`, `TaskList`, `ReportList`, `Settings`) 翻新，统一使用 Tailwind CSS Card
+- [x] 全量详情页 (`BaselineDetail`, `HeatDetail`, `TaskDetail`, `ReportDetail`, `InboxView`) 深度布局重做与图表 UI 升级
+- [x] 修复因重构带来的所有 TypeScript 未使用变量报错，确保 `Exit code: 0` 纯净构建
+
 ---
 
 ## 进行中
@@ -228,15 +237,13 @@
 
 ## 待开始
 
-- 无（MVP 功能开发已完成）
+- 无（MVP 功能与 UI 原型全部开发完成）
 
 ---
 
 ## 已知问题
 
-- `material/UI/` 参考画面风格不统一，后续实现需统一视觉风格
-- 前端构建包体积较大 (1.2MB)，后续需要配置代码分割
-- ESLint 仍有多项 Vue 样式类警告（不阻断构建）
+- ESLint 仍有多项 Vue 样式类警告（不阻断构建，通常为 class 排序问题）
 
 ---
 

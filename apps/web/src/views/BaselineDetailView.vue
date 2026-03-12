@@ -1,23 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  ElButton,
-  ElCard,
   ElDatePicker,
   ElDialog,
-  ElEmpty,
   ElForm,
   ElFormItem,
   ElInput,
   ElInputNumber,
   ElMessage,
-  ElTag,
   ElTimeline,
   ElTimelineItem
 } from 'element-plus'
-import { Edit, Plus, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -26,12 +21,13 @@ import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/compon
 import type { EChartsOption } from 'echarts'
 import dayjs from 'dayjs'
 import { useBaselineStore } from '@/stores/baseline'
+import PageHeader from '@/components/common/PageHeader.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
 
 const { t } = useI18n()
 const route = useRoute()
-const router = useRouter()
 const baselineStore = useBaselineStore()
 const editVisible = ref(false)
 
@@ -71,16 +67,16 @@ const curveOption = computed<EChartsOption>(() => {
   const current = baseline.value
   if (!current) return {}
   const firstCurve = current.curvesData[0]?.points || current.powerCurve
-  const labels = firstCurve.map(point => dayjs(point.timestamp).format('HH:mm'))
+  const labels = firstCurve.map((point) => dayjs(point.timestamp).format('HH:mm'))
   const series =
     current.curvesData.length > 0
-      ? current.curvesData.map(item => ({
+      ? current.curvesData.map((item) => ({
           name: `${item.metric_name} (${item.unit})`,
           type: 'line' as const,
           smooth: true,
           showSymbol: false,
           lineStyle: { color: item.color, width: 2 },
-          data: item.points.map(point => point.value)
+          data: item.points.map((point) => point.value)
         }))
       : [
           {
@@ -88,23 +84,23 @@ const curveOption = computed<EChartsOption>(() => {
             type: 'line' as const,
             smooth: true,
             showSymbol: false,
-            lineStyle: { color: '#409EFF', width: 2 },
-            data: current.powerCurve.map(point => point.value)
+            lineStyle: { color: '#1152d4', width: 2 },
+            data: current.powerCurve.map((point) => point.value)
           },
           {
             name: t('dashboard.chart.voltage'),
             type: 'line' as const,
             smooth: true,
             showSymbol: false,
-            lineStyle: { color: '#67C23A', width: 2, type: 'dashed' as const },
-            data: current.voltageCurve.map(point => point.value)
+            lineStyle: { color: '#f59e0b', width: 2, type: 'dashed' as const },
+            data: current.voltageCurve.map((point) => point.value)
           }
         ]
   return {
     grid: { left: 45, right: 20, top: 30, bottom: 30 },
     tooltip: { trigger: 'axis' },
     legend: {
-      data: series.map(item => item.name),
+      data: series.map((item) => item.name),
       top: 0
     },
     xAxis: {
@@ -116,10 +112,6 @@ const curveOption = computed<EChartsOption>(() => {
     series
   }
 })
-
-function handleBack() {
-  router.push('/baselines')
-}
 
 function handleEdit() {
   if (!baseline.value) return
@@ -152,7 +144,9 @@ async function handleSaveEdit() {
     selected_start_time: editForm.selectedStartTime
       ? dayjs(editForm.selectedStartTime).toISOString()
       : undefined,
-    selected_end_time: editForm.selectedEndTime ? dayjs(editForm.selectedEndTime).toISOString() : undefined
+    selected_end_time: editForm.selectedEndTime
+      ? dayjs(editForm.selectedEndTime).toISOString()
+      : undefined
   })
   if (!ok) {
     ElMessage.error(t('common.error'))
@@ -189,152 +183,148 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between gap-4 flex-wrap">
-      <div class="space-y-2">
-        <div class="text-sm text-gray-500">
-          {{ t('baseline.detail.title') }}
-        </div>
-        <div class="flex items-center gap-3">
-          <h1 class="text-2xl font-bold text-gray-900">
-            {{ baseline?.name || '--' }}
-          </h1>
-          <el-tag
-            :type="statusType"
-            effect="light"
-          >
-            {{ statusLabel }}
-          </el-tag>
-        </div>
-      </div>
-      <div class="flex items-center gap-2">
-        <el-button @click="handleBack">
-          {{ t('common.back') }}
-        </el-button>
-        <el-button
-          :icon="Edit"
+  <div class="flex flex-col gap-6">
+    <!-- 页面头部 -->
+    <PageHeader
+      :title="baseline?.name || '--'"
+      :subtitle="`ID: ${baselineId}`"
+      :description="baseline?.description || t('common.noDescription')"
+    >
+      <template #actions>
+        <StatusBadge :type="statusType" class="mr-2">
+          {{ statusLabel }}
+        </StatusBadge>
+        <button
+          class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
           @click="handleEdit"
         >
+          <span class="material-symbols-outlined text-[18px]">edit</span>
           {{ t('common.edit') }}
-        </el-button>
-        <el-button
+        </button>
+        <button
           v-if="baseline?.status === 'published' || baseline?.status === 'draft'"
-          :icon="baseline?.status === 'published' ? VideoPause : VideoPlay"
+          class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
           @click="handleToggleStatus"
         >
+          <span class="material-symbols-outlined text-[18px]">
+            {{ baseline?.status === 'published' ? 'block' : 'publish' }}
+          </span>
           {{ baseline?.status === 'published' ? t('common.disable') : t('baseline.publish') }}
-        </el-button>
-        <el-button
-          type="primary"
-          :icon="Plus"
+        </button>
+        <button
+          class="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
           @click="handleCreateVersion"
         >
+          <span class="material-symbols-outlined text-[18px]">add_circle</span>
           {{ t('baseline.detail.newVersion') }}
-        </el-button>
-      </div>
-    </div>
+        </button>
+      </template>
+    </PageHeader>
 
     <div
       v-if="baseline"
-      class="grid grid-cols-1 gap-4 xl:grid-cols-3"
+      class="grid grid-cols-1 gap-6 xl:grid-cols-3"
     >
-      <el-card class="xl:col-span-2">
-        <template #header>
-          <span>{{ t('baseline.detail.curveTitle') }}</span>
-        </template>
+      <!-- 主内容区：曲线图 -->
+      <div class="xl:col-span-2 bg-white rounded-xl border border-border-light shadow-card p-5">
+        <div class="flex items-center justify-between mb-4 pb-4 border-b border-border-light">
+          <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-[20px]">ssid_chart</span>
+            {{ t('baseline.detail.curveTitle') }}
+          </h3>
+        </div>
         <v-chart
           :option="curveOption"
           autoresize
-          class="h-80"
+          class="h-96"
         />
-      </el-card>
+      </div>
 
-      <el-card>
-        <template #header>
-          <span>{{ t('baseline.detail.infoTitle') }}</span>
-        </template>
-        <div class="space-y-3 text-sm text-gray-700">
-          <div>
-            <span class="text-gray-500">{{ t('baseline.definitionName') }}:</span>
-            <span class="ml-2 font-medium">{{ baseline.definitionName }}</span>
+      <!-- 右侧信息栏 -->
+      <div class="space-y-6">
+        <!-- 基础信息卡片 -->
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
+          <div class="flex items-center justify-between mb-4 pb-4 border-b border-border-light">
+            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <span class="material-symbols-outlined text-primary text-[20px]">info</span>
+              {{ t('baseline.detail.infoTitle') }}
+            </h3>
           </div>
-          <div>
-            <span class="text-gray-500">{{ t('baseline.version') }}:</span>
-            <span class="ml-2 font-medium">v{{ baseline.version }}</span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('baseline.tolerance') }}:</span>
-            <span class="ml-2 font-medium">{{ baseline.tolerancePercent }}%</span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('baseline.createTime') }}:</span>
-            <span class="ml-2 font-medium">{{ dayjs(baseline.createdAt).format('YYYY-MM-DD HH:mm') }}</span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('baseline.publishTime') }}:</span>
-            <span class="ml-2 font-medium">{{ baseline.publishedAt ? dayjs(baseline.publishedAt).format('YYYY-MM-DD HH:mm') : '--' }}</span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('baseline.detail.sourceHeat') }}:</span>
-            <span class="ml-2 font-medium">{{ baseline.sourceHeatId }}</span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('baseline.wizard.pointRange') }}:</span>
-            <span class="ml-2 font-medium">
-              {{ baseline.selectedStartTime ? dayjs(baseline.selectedStartTime).format('YYYY-MM-DD HH:mm:ss') : '--' }}
-              ~
-              {{ baseline.selectedEndTime ? dayjs(baseline.selectedEndTime).format('YYYY-MM-DD HH:mm:ss') : '--' }}
-            </span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('baseline.detail.temperature') }}:</span>
-            <span class="ml-2 font-medium">{{ baseline.temperature ?? '--' }}</span>
-          </div>
-          <div class="pt-2 border-t border-gray-100">
-            <div class="text-gray-500 mb-1">
-              {{ t('baseline.detail.description') }}
+          <div class="space-y-4 text-sm text-slate-700">
+            <div class="flex justify-between items-center">
+              <span class="text-slate-500">{{ t('baseline.definitionName') }}</span>
+              <span class="font-semibold">{{ baseline.definitionName }}</span>
             </div>
-            <p>{{ baseline.description || t('common.noDescription') }}</p>
+            <div class="flex justify-between items-center">
+              <span class="text-slate-500">{{ t('baseline.version') }}</span>
+              <span class="font-semibold bg-slate-100 px-2 py-0.5 rounded text-xs">v{{ baseline.version }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-slate-500">{{ t('baseline.tolerance') }}</span>
+              <span class="font-semibold">{{ baseline.tolerancePercent }}%</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-slate-500">{{ t('baseline.detail.sourceHeat') }}</span>
+              <span class="font-semibold text-primary cursor-pointer hover:underline">{{ baseline.sourceHeatId }}</span>
+            </div>
+            <div class="pt-4 border-t border-border-light">
+              <span class="text-slate-500 block mb-1 flex items-center gap-1">
+                <span class="material-symbols-outlined text-[16px]">schedule</span>
+                {{ t('baseline.wizard.pointRange') }}
+              </span>
+              <span class="font-mono text-xs text-slate-600 bg-slate-50 p-2 rounded block">
+                {{ baseline.selectedStartTime ? dayjs(baseline.selectedStartTime).format('YYYY-MM-DD HH:mm:ss') : '--' }}
+                <br /><span class="text-slate-400">to</span><br />
+                {{ baseline.selectedEndTime ? dayjs(baseline.selectedEndTime).format('YYYY-MM-DD HH:mm:ss') : '--' }}
+              </span>
+            </div>
           </div>
         </div>
-      </el-card>
+
+        <!-- 版本历史卡片 -->
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
+          <div class="flex items-center justify-between mb-4 pb-4 border-b border-border-light">
+            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <span class="material-symbols-outlined text-primary text-[20px]">history</span>
+              {{ t('baseline.detail.versionHistory') }}
+            </h3>
+          </div>
+          <div v-if="baselineStore.versionHistory.length === 0" class="py-8 flex flex-col items-center justify-center">
+             <span class="material-symbols-outlined text-slate-300 text-4xl">inventory_2</span>
+             <p class="text-sm text-slate-400 mt-2">{{ t('common.noData') }}</p>
+          </div>
+          <el-timeline v-else class="pl-2">
+            <el-timeline-item
+              v-for="version in baselineStore.versionHistory"
+              :key="version.id"
+              :timestamp="dayjs(version.createdAt).format('MM-DD HH:mm')"
+              placement="top"
+              :color="version.id === baseline.id ? '#1152d4' : '#e2e8f0'"
+            >
+              <div class="bg-slate-50 p-3 rounded-lg border border-border-light mt-1">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="font-bold text-sm text-slate-800">{{ version.name }}</span>
+                  <StatusBadge :type="version.status === 'published' ? 'success' : version.status === 'draft' ? 'info' : 'danger'" size="sm">
+                    {{ version.status === 'published' ? t('baseline.statusPublished') : version.status === 'draft' ? t('baseline.statusDraft') : t('baseline.statusDisabled') }}
+                  </StatusBadge>
+                </div>
+                <div class="text-xs text-slate-500 font-medium">
+                  v{{ version.version }} · 阈值 {{ version.tolerancePercent }}%
+                </div>
+              </div>
+            </el-timeline-item>
+          </el-timeline>
+        </div>
+      </div>
     </div>
 
-    <el-card>
-      <template #header>
-        <span>{{ t('baseline.detail.versionHistory') }}</span>
-      </template>
-      <el-empty
-        v-if="baselineStore.versionHistory.length === 0"
-        :description="t('common.noData')"
-      />
-      <el-timeline v-else>
-        <el-timeline-item
-          v-for="version in baselineStore.versionHistory"
-          :key="version.id"
-          :timestamp="dayjs(version.createdAt).format('YYYY-MM-DD HH:mm')"
-          placement="top"
-        >
-          <div class="flex items-center justify-between">
-            <div>
-              <div class="font-medium text-gray-800">
-                {{ version.name }}
-              </div>
-              <div class="text-xs text-gray-500">
-                v{{ version.version }} · {{ version.tolerancePercent }}%
-              </div>
-            </div>
-            <el-tag
-              size="small"
-              :type="version.status === 'published' ? 'success' : version.status === 'draft' ? 'info' : 'danger'"
-            >
-              {{ version.status === 'published' ? t('baseline.statusPublished') : version.status === 'draft' ? t('baseline.statusDraft') : t('baseline.statusDisabled') }}
-            </el-tag>
-          </div>
-        </el-timeline-item>
-      </el-timeline>
-    </el-card>
+    <!-- 空状态 -->
+    <div v-else class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card">
+      <span class="material-symbols-outlined text-slate-300 text-5xl">pending</span>
+      <p class="text-sm text-slate-400 mt-3">{{ t('common.loading') }}</p>
+    </div>
 
+    <!-- 编辑对话框 -->
     <ElDialog v-model="editVisible" :title="t('common.edit')" width="620px" destroy-on-close>
       <el-form label-position="top">
         <el-form-item :label="t('baseline.name')">
@@ -364,8 +354,14 @@ onMounted(async () => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" @click="handleSaveEdit">{{ t('common.save') }}</el-button>
+        <div class="flex justify-end gap-3">
+          <button class="px-4 py-2 bg-white border border-border-light text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors" @click="editVisible = false">
+            {{ t('common.cancel') }}
+          </button>
+          <button class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors" @click="handleSaveEdit">
+            {{ t('common.save') }}
+          </button>
+        </div>
       </template>
     </ElDialog>
   </div>

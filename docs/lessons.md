@@ -28,6 +28,17 @@
 - **适用场景**: 任何新项目开始时
 - **相关文档**: AGENTS.md
 
----
+### 2026-03-11 UI 重构：Vite 与 Tailwind 类名加载失败
+
+- **错误模式**: 新增了自定语义化的工具类 (如 `shadow-card`, `border-light`) 在 Vue 文件使用 `@apply` 导致 `[plugin:vite:css] The class does not exist`。
+- **正确做法**: 在开发模式下，当向 `tailwind.config.js` 增加复杂的新主题或层配置时，有时候 Vite/PostCSS 服务器的缓存不会立刻刷新感知，需要停止 dev server 并重启。
+- **适用场景**: 批量修改或重构项目 UI 的初期、调整设计令牌时。
+
+### 2026-03-11 UI 重构：Typescript unused 报错导致 Build 失败
+
+- **错误模式**: 在批量替换 Element 组件为原生 HTML/Tailwind 后，遗留的未使用 `import { ElComponent } from 'element-plus'` 或未使用的 `useRouter` 等钩子会直接触发 `TS6133` Error 阻断 Vite 构建。
+- **正确做法**: Refactor 完成一个页面后，必须通过 `vue-tsc -b` 或至少肉眼审查 `<script setup>` 顶部的引入区，剔除不再使用的依赖。
+- **适用场景**: 大规模的组件抽离/替换期。
+- **相关文档**: FRONTEND_GUIDELINES.md
 
 <!-- 后续错误记录将添加在此处 -->

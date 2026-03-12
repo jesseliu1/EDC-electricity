@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#1152d4",
+                        "background-light": "#f6f6f8",
+                        "background-dark": "#101622",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', 'Noto Sans SC', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-[#0d121b]">
+<div class="relative flex min-h-screen w-full flex-col">
+<!-- Header -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-[#e7ebf3] bg-white dark:bg-background-dark dark:border-slate-800 px-10 py-3 z-10">
+<div class="flex items-center gap-4 text-primary">
+<div class="size-6 bg-primary rounded-lg flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-sm">factory</span>
+</div>
+<h2 class="text-[#0d121b] dark:text-white text-lg font-bold leading-tight tracking-[-0.015em]">AI老师傅·智慧熔炼偏差分析</h2>
+</div>
+<div class="flex flex-1 justify-end gap-8">
+<div class="flex items-center gap-9">
+<div class="flex items-center gap-2 cursor-pointer">
+<span class="text-sm font-medium text-[#0d121b] dark:text-slate-300">厂区：上海一厂</span>
+<span class="material-symbols-outlined text-xs">expand_more</span>
+</div>
+<div class="flex items-center gap-2 cursor-pointer">
+<span class="text-sm font-medium text-[#0d121b] dark:text-slate-300">产线：A线自动熔炼组</span>
+<span class="material-symbols-outlined text-xs">expand_more</span>
+</div>
+<div class="flex items-center gap-2 cursor-pointer">
+<span class="text-sm font-medium text-[#0d121b] dark:text-slate-300">设备：Furnace-A01</span>
+<span class="material-symbols-outlined text-xs">expand_more</span>
+</div>
+</div>
+<div class="bg-primary/10 rounded-full size-10 flex items-center justify-center border border-primary/20 overflow-hidden">
+<img alt="User Avatar" data-alt="User profile avatar illustration" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDcduKaLixts8xUeJVk37JBLA2C20N_EAmD8sabHNfK0Bo9qR49y0jBYzVAQ58Qrx-N0_ZgyCyN-RW_ZbaQU47KdHfHd7QDaEkAPSoJ5jgf_zZEuvfyc652Zu0lZtejDpzpUfGJcu35fMPt08gVk8SpjkyrI-B9fh4X0T_XEQxStQu5qkHFcGUbhIFD7fkd-wc3cC69JlgR2A41AwEq75QvKGKITgHbPa2hBeHO__mG70mtx2io-v8yn--kxGmqWTDyeqrzfQ0oS5aY"/>
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- Sidebar -->
+<aside class="w-64 border-r border-[#e7ebf3] dark:border-slate-800 bg-white dark:bg-background-dark flex flex-col p-4 shrink-0">
+<div class="flex flex-col gap-1">
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+<span class="material-symbols-outlined">dashboard</span>
+<p class="text-sm font-medium">首页</p>
+</div>
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+<span class="material-symbols-outlined">description</span>
+<p class="text-sm font-medium">知识与审计</p>
+</div>
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary/10 text-primary cursor-default">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1">target</span>
+<p class="text-sm font-bold">黄金基线库</p>
+</div>
+<div class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+<span class="material-symbols-outlined">settings</span>
+<p class="text-sm font-medium">系统管理</p>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 overflow-y-auto bg-background-light dark:bg-[#0b0f1a] p-8">
+<div class="max-w-6xl mx-auto flex flex-col gap-6 pb-24">
+<!-- Breadcrumbs & Title -->
+<div class="flex flex-col gap-4">
+<nav class="flex items-center gap-2 text-sm text-slate-500">
+<span>知识与审计</span>
+<span class="material-symbols-outlined text-xs">chevron_right</span>
+<span>黄金基线库</span>
+<span class="material-symbols-outlined text-xs">chevron_right</span>
+<span>新建基线</span>
+<span class="material-symbols-outlined text-xs">chevron_right</span>
+<span class="text-primary font-medium">离线验证</span>
+</nav>
+<div class="flex justify-between items-end">
+<div class="flex flex-col gap-1">
+<h1 class="text-3xl font-black tracking-tight dark:text-white">新建基线版本</h1>
+<p class="text-slate-500 text-sm">通过历史海量炉次数据对新基线进行仿真测试，验证其在真实工况下的报警准确率</p>
+</div>
+</div>
+</div>
+<!-- Stepper -->
+<div class="w-full bg-white dark:bg-background-dark rounded-xl p-1 border border-slate-200 dark:border-slate-800 flex">
+<div class="flex-1 flex items-center justify-center py-3 gap-2 text-slate-400 opacity-60">
+<span class="size-6 rounded-full border border-slate-300 flex items-center justify-center text-xs font-bold">1</span>
+<span class="text-sm font-bold">基本信息</span>
+</div>
+<div class="flex-1 flex items-center justify-center py-3 gap-2 text-slate-400 opacity-60">
+<span class="size-6 rounded-full border border-slate-300 flex items-center justify-center text-xs font-bold">2</span>
+<span class="text-sm font-bold">工况定义</span>
+</div>
+<div class="flex-1 flex items-center justify-center py-3 gap-2 text-slate-400 opacity-60">
+<span class="size-6 rounded-full border border-slate-300 flex items-center justify-center text-xs font-bold">3</span>
+<span class="text-sm font-bold">规则配置</span>
+</div>
+<div class="flex-1 flex items-center justify-center py-3 gap-2 bg-primary/5 rounded-lg border border-primary/20 text-primary">
+<span class="size-6 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-white">4</span>
+<span class="text-sm font-bold">离线验证</span>
+</div>
+</div>
+<!-- Config Panel -->
+<div class="bg-white dark:bg-background-dark rounded-xl border border-slate-200 dark:border-slate-800 p-5 flex flex-col gap-5">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-8">
+<div class="flex flex-col gap-1">
+<label class="text-[10px] font-bold uppercase tracking-wider text-slate-400">验证样本范围</label>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-xl">history</span>
+<span class="font-bold">最近 50 炉次 (历史数据)</span>
+</div>
+</div>
+<div class="w-px h-10 bg-slate-200 dark:bg-slate-700"></div>
+<div class="flex flex-col gap-1">
+<label class="text-[10px] font-bold uppercase tracking-wider text-slate-400">目标设备 (Scope)</label>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-400 text-xl">precision_manufacturing</span>
+<span class="font-medium">Furnace-A01</span>
+</div>
+</div>
+</div>
+<div class="flex gap-3">
+<button class="px-5 py-2.5 bg-primary/10 text-primary rounded-lg text-sm font-bold hover:bg-primary/20">重新计算</button>
+<button class="px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-bold flex items-center gap-2 shadow-lg shadow-primary/20 hover:bg-blue-700 transition-colors">
+<span class="material-symbols-outlined text-sm">play_arrow</span>
+                                    开始验证
+                                </button>
+</div>
+</div>
+<div class="flex flex-col gap-2">
+<div class="flex justify-between items-center text-xs text-slate-500 font-medium">
+<span>仿真进度: 已完成 50/50 炉</span>
+<span class="text-primary">100% 已就绪</span>
+</div>
+<div class="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+<div class="bg-primary h-full w-full"></div>
+</div>
+</div>
+</div>
+<!-- Visualization Grid -->
+<div class="grid grid-cols-12 gap-6">
+<!-- Histogram Card -->
+<div class="col-span-5 bg-white dark:bg-background-dark rounded-xl border border-slate-200 dark:border-slate-800 p-6 flex flex-col gap-6">
+<div class="flex items-center justify-between">
+<h3 class="font-bold flex items-center gap-2 dark:text-white">
+<span class="material-symbols-outlined text-primary">bar_chart</span>
+                                    偏差% 分布直方图
+                                </h3>
+<span class="text-xs text-slate-400">基于 5,420 个采样点</span>
+</div>
+<div class="flex-1 flex items-end gap-1.5 h-48 px-2">
+<div class="flex-1 bg-primary/10 rounded-t-sm h-[20%] relative group cursor-pointer hover:bg-primary/30">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] opacity-0 group-hover:opacity-100 font-bold">12</div>
+</div>
+<div class="flex-1 bg-primary/20 rounded-t-sm h-[45%]"></div>
+<div class="flex-1 bg-primary/40 rounded-t-sm h-[85%]"></div>
+<div class="flex-1 bg-primary rounded-t-sm h-full shadow-md shadow-primary/10"></div>
+<div class="flex-1 bg-primary/60 rounded-t-sm h-[70%]"></div>
+<div class="flex-1 bg-primary/30 rounded-t-sm h-[40%]"></div>
+<div class="flex-1 bg-primary/10 rounded-t-sm h-[25%]"></div>
+<div class="flex-1 bg-primary/5 rounded-t-sm h-[15%]"></div>
+<div class="flex-1 bg-primary/5 rounded-t-sm h-[8%]"></div>
+<div class="flex-1 bg-primary/5 rounded-t-sm h-[4%]"></div>
+</div>
+<div class="flex justify-between text-[10px] font-bold text-slate-400 border-t border-slate-100 dark:border-slate-800 pt-3">
+<span>0%</span>
+<span>4%</span>
+<span class="text-primary">8% (中位数)</span>
+<span>12%</span>
+<span>16%</span>
+<span>20%+</span>
+</div>
+<p class="text-xs text-slate-500 text-center leading-relaxed">
+                                大部分炉次偏差集中在 <span class="text-primary font-bold">0-8%</span> 区间，符合生产黄金基线特征。
+                            </p>
+</div>
+<!-- Top Deviations Table -->
+<div class="col-span-7 bg-white dark:bg-background-dark rounded-xl border border-slate-200 dark:border-slate-800 p-0 flex flex-col">
+<div class="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+<h3 class="font-bold flex items-center gap-2 dark:text-white">
+<span class="material-symbols-outlined text-primary">list_alt</span>
+                                    Top 偏差炉次列表
+                                </h3>
+<button class="text-xs text-primary font-bold hover:underline">导出 CSV</button>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left text-sm">
+<thead>
+<tr class="text-slate-400 text-xs font-bold border-b border-slate-100 dark:border-slate-800">
+<th class="px-6 py-4">炉次号</th>
+<th class="px-6 py-4">最大偏差%</th>
+<th class="px-6 py-4">发生时段</th>
+<th class="px-6 py-4">纠偏状态</th>
+<th class="px-6 py-4 text-right">操作</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-50 dark:divide-slate-800/50">
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+<td class="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">#H24031201</td>
+<td class="px-6 py-4 text-red-500 font-bold">18.4%</td>
+<td class="px-6 py-4 text-slate-500">14:20 - 14:35</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-red-100 text-red-600 text-[10px] font-black rounded uppercase">触发</span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-primary material-symbols-outlined text-lg">analytics</button>
+</td>
+</tr>
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+<td class="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">#H24031202</td>
+<td class="px-6 py-4 text-amber-500 font-bold">12.1%</td>
+<td class="px-6 py-4 text-slate-500">15:10 - 15:22</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-black rounded uppercase">静默</span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-primary material-symbols-outlined text-lg">analytics</button>
+</td>
+</tr>
+<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+<td class="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">#H24031205</td>
+<td class="px-6 py-4 text-amber-500 font-bold">9.8%</td>
+<td class="px-6 py-4 text-slate-500">17:45 - 17:58</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-slate-100 text-slate-500 text-[10px] font-black rounded uppercase">静默</span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-primary material-symbols-outlined text-lg">analytics</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<!-- Recommendation Card -->
+<div class="bg-gradient-to-r from-primary/5 to-transparent border-l-4 border-primary bg-white dark:bg-background-dark rounded-r-xl shadow-sm p-6 flex items-center justify-between">
+<div class="flex gap-4">
+<div class="size-12 rounded-xl bg-primary flex items-center justify-center text-white shrink-0">
+<span class="material-symbols-outlined text-2xl">auto_awesome</span>
+</div>
+<div class="flex flex-col gap-1">
+<h4 class="font-bold text-lg dark:text-white">系统阈值优化建议</h4>
+<p class="text-sm text-slate-600 dark:text-slate-400">基于仿真结果，系统自动为您计算了最佳运行阈值，以降低误报并兼顾异常捕获。</p>
+<div class="flex items-center gap-6 mt-2">
+<div class="flex items-center gap-2">
+<span class="text-xs text-slate-400 font-medium">关注阈值:</span>
+<span class="text-amber-600 font-black text-lg">6%</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-xs text-slate-400 font-medium">纠偏阈值:</span>
+<span class="text-red-600 font-black text-lg">16%</span>
+</div>
+</div>
+</div>
+</div>
+<button class="px-6 py-3 bg-primary text-white rounded-lg text-sm font-bold flex items-center gap-2 shadow-md hover:translate-y-[-1px] transition-all active:scale-95">
+<span class="material-symbols-outlined text-sm">check_circle</span>
+                            采用建议
+                        </button>
+</div>
+</div>
+</main>
+</div>
+<!-- Footer Actions Bar -->
+<footer class="fixed bottom-0 left-0 right-0 bg-white dark:bg-background-dark border-t border-slate-200 dark:border-slate-800 px-10 py-4 flex justify-between items-center z-20">
+<button class="px-6 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">
+                上一步
+            </button>
+<div class="flex gap-4">
+<button class="px-6 py-2 text-slate-500 hover:text-slate-800 dark:hover:text-white text-sm font-bold transition-colors">
+                    保存草稿
+                </button>
+<button class="px-10 py-2 bg-primary text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/30 hover:bg-blue-700 transition-all">
+                    完成并发布
+                </button>
+</div>
+</footer>
+</div>
+</body></html>

@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElButton, ElCard, ElForm, ElFormItem, ElInput, ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { useTaskStore } from '@/stores/task'
 import { taskApi } from '@/api/task'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const { t } = useI18n()
 const route = useRoute()
-const router = useRouter()
 const taskStore = useTaskStore()
 
 const taskId = computed(() => String(route.params.id || ''))
@@ -52,10 +52,6 @@ async function handleComplete() {
   ElMessage.success(t('task.statusCompleted'))
 }
 
-function handleBack() {
-  router.push('/tasks')
-}
-
 function handleExportPdf() {
   if (!taskId.value) return
   window.open(taskApi.exportPdfUrl(taskId.value), '_blank')
@@ -67,68 +63,97 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between gap-4 flex-wrap">
-      <h1 class="text-2xl font-bold text-gray-900">
-        {{ t('task.title') }} - {{ task?.taskNo || '--' }}
-      </h1>
-      <div class="flex items-center gap-2">
-        <el-button @click="handleBack">
-          {{ t('common.back') }}
-        </el-button>
-        <el-button @click="handleExportPdf">
+  <div class="flex flex-col gap-6">
+    <PageHeader
+      :title="`${t('task.title')} - ${task?.taskNo || '--'}`"
+      :subtitle="`ID: ${taskId}`"
+    >
+      <template #actions>
+        <button
+          class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+          @click="handleExportPdf"
+        >
+          <span class="material-symbols-outlined text-[18px]">picture_as_pdf</span>
           {{ t('task.exportPdf') }}
-        </el-button>
+        </button>
+      </template>
+    </PageHeader>
+
+    <div v-if="task" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <!-- 任务概览 -->
+      <div class="bg-white rounded-xl border border-border-light shadow-card p-5 space-y-4">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light">
+           <span class="material-symbols-outlined text-primary text-[20px]">info</span>
+           任务基本信息
+        </h3>
+        <div class="flex justify-between items-center py-1">
+          <span class="text-slate-500">{{ t('task.relatedHeat') }}</span>
+          <span class="font-semibold text-primary cursor-pointer hover:underline">{{ task.heatNo }}</span>
+        </div>
+        <div class="flex justify-between items-center py-1 border-t border-slate-50 pt-3 mt-1">
+          <span class="text-slate-500">{{ t('task.deviation') }}</span>
+          <span class="font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">{{ task.deviationPercent }}%</span>
+        </div>
+      </div>
+
+      <!-- 任务表单 -->
+      <div class="bg-white rounded-xl border border-border-light shadow-card p-5 md:col-span-2">
+         <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light">
+           <span class="material-symbols-outlined text-primary text-[20px]">assignment</span>
+           纠偏处理记录
+        </h3>
+        <div class="space-y-6 max-w-4xl">
+          <div class="flex flex-col gap-2">
+            <label class="text-sm font-semibold text-slate-700">{{ t('task.causeAnalysis') }}</label>
+            <textarea
+              v-model="form.causeAnalysis"
+              rows="4"
+              class="w-full px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y text-sm bg-slate-50"
+              placeholder="请输入问题原因分析..."
+            />
+          </div>
+          <div class="flex flex-col gap-2">
+            <label class="text-sm font-semibold text-slate-700">{{ t('task.improvement') }}</label>
+            <textarea
+              v-model="form.improvement"
+              rows="4"
+              class="w-full px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y text-sm bg-slate-50"
+              placeholder="请输入改善措施建议..."
+            />
+          </div>
+          <div class="flex flex-col gap-2">
+            <label class="text-sm font-semibold text-slate-700">{{ t('task.prevention') }}</label>
+            <textarea
+              v-model="form.prevention"
+              rows="4"
+              class="w-full px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y text-sm bg-slate-50"
+              placeholder="请输入预防再发措施..."
+            />
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-3 mt-8 pt-6 border-t border-border-light">
+          <button
+            class="px-5 py-2.5 bg-white border border-border-light text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+            @click="handleSave"
+          >
+            {{ t('common.save') }}
+          </button>
+          <button
+            class="px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors flex items-center gap-2 shadow-sm"
+            @click="handleComplete"
+          >
+            <span class="material-symbols-outlined text-[18px]">verified</span>
+            {{ t('common.submit') }}
+          </button>
+        </div>
       </div>
     </div>
-
-    <el-card v-if="task">
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div class="text-sm text-gray-600">
-          {{ t('task.relatedHeat') }}: {{ task.heatNo }}
-        </div>
-        <div class="text-sm text-gray-600">
-          {{ t('task.deviation') }}: {{ task.deviationPercent }}%
-        </div>
-      </div>
-    </el-card>
-
-    <el-card>
-      <el-form label-position="top">
-        <el-form-item :label="t('task.causeAnalysis')">
-          <el-input
-            v-model="form.causeAnalysis"
-            type="textarea"
-            :rows="4"
-          />
-        </el-form-item>
-        <el-form-item :label="t('task.improvement')">
-          <el-input
-            v-model="form.improvement"
-            type="textarea"
-            :rows="4"
-          />
-        </el-form-item>
-        <el-form-item :label="t('task.prevention')">
-          <el-input
-            v-model="form.prevention"
-            type="textarea"
-            :rows="4"
-          />
-        </el-form-item>
-      </el-form>
-
-      <div class="flex justify-end gap-2">
-        <el-button @click="handleSave">
-          {{ t('common.save') }}
-        </el-button>
-        <el-button
-          type="primary"
-          @click="handleComplete"
-        >
-          {{ t('common.submit') }}
-        </el-button>
-      </div>
-    </el-card>
+    
+    <!-- 空状态 -->
+    <div v-else class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card">
+      <span class="material-symbols-outlined text-slate-300 text-5xl">pending</span>
+      <p class="text-sm text-slate-400 mt-3">{{ t('common.loading') }}</p>
+    </div>
   </div>
 </template>

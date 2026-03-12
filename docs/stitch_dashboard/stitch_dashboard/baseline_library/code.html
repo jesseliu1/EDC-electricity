@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>黄金基线库优化版 Baseline Library</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#00E5FF", // Bright Cyan
+                        "primary-hover": "#00B8CC",
+                        "primary-light": "#E0FCFF",
+                        "industry-bg": "#F1F5F9", // Slightly darker slate for better contrast with white cards
+                        "sidebar-bg": "#FFFFFF",
+                        "border-color": "#E2E8F0",
+                        "text-main": "#0F172A",
+                        "text-secondary": "#64748B",
+                        "success": "#10B981",
+                        "warning": "#F59E0B"
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "Noto Sans SC", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "industrial": "12px",
+                        "sm": "4px"
+                    },
+                    boxShadow: {
+                        "soft": "0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)",
+                        "card": "0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)"
+                    },
+                    fontSize: {
+                        "xxs": "0.65rem"
+                    }
+                },
+            },
+        }
+    </script>
+<style type="text/tailwindcss">
+        @layer base {
+            body {
+                @apply bg-industry-bg text-text-main font-display;
+            }
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }.custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #CBD5E1;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="antialiased overflow-hidden h-screen w-full flex text-sm">
+<aside class="w-64 flex flex-col border-r border-border-color bg-sidebar-bg shrink-0 z-30 shadow-sm">
+<div class="h-16 flex items-center gap-3 px-5 border-b border-border-color">
+<div class="relative h-8 w-8 overflow-hidden rounded-md bg-primary/10">
+<img alt="AI Master Logo" class="h-full w-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAEPwI03z8LTuGoxi-NXyUpfCroAIZeeP3f9scWDAp3slFFzN618KLjunNEDNAraXZ8xE7tS9M4riECAMpKTvujo2dmD9dTyjBnUA0fY9VLSRVjJ0sjYjEQx6nbH_FNFKzynWeNXX1QvDlL0a_HBc7iLi-bLy3MeGlkKKbB0Lvx4ETof__lmUFcDk418-llM07PT-ow_RsDimDujDhNZDF6V-r7jraeZv8-wVY61VQ28vfayffEaPNkzBHBB2O5WxaNFfiyR8XTBiF5"/>
+</div>
+<div class="flex flex-col">
+<h1 class="text-sm font-bold text-text-main tracking-tight">AI 老师傅</h1>
+<p class="text-[10px] text-text-secondary tracking-wider uppercase">Smart Smelting</p>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto py-4 px-3 space-y-6">
+<div>
+<p class="px-3 text-xs font-semibold text-text-secondary/80 uppercase tracking-wider mb-2">生产概览</p>
+<nav class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-industrial text-text-secondary hover:bg-slate-50 hover:text-text-main transition-colors group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">dashboard</span>
+<span class="text-sm font-medium">仪表盘</span>
+</a>
+</nav>
+</div>
+<div>
+<p class="px-3 text-xs font-semibold text-text-secondary/80 uppercase tracking-wider mb-2">监控与分析</p>
+<nav class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-industrial text-text-secondary hover:bg-slate-50 hover:text-text-main transition-colors group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">timeline</span>
+<span class="text-sm font-medium">实时熔炼监控</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-industrial text-text-secondary hover:bg-slate-50 hover:text-text-main transition-colors group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">analytics</span>
+<span class="text-sm font-medium">偏差分析报告</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-industrial bg-primary-light text-primary-hover font-bold border border-primary/10 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px] fill-current">library_books</span>
+<span class="text-sm">黄金基线库</span>
+</a>
+</nav>
+</div>
+<div>
+<p class="px-3 text-xs font-semibold text-text-secondary/80 uppercase tracking-wider mb-2">系统设置</p>
+<nav class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-industrial text-text-secondary hover:bg-slate-50 hover:text-text-main transition-colors group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">settings</span>
+<span class="text-sm font-medium">参数配置</span>
+</a>
+</nav>
+</div>
+</div>
+</aside>
+<main class="flex-1 flex flex-col h-full bg-industry-bg min-w-0">
+<header class="h-16 flex items-center justify-between px-6 bg-white border-b border-border-color shrink-0 z-20 shadow-sm">
+<div class="flex items-center gap-6">
+<div class="relative group">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-text-secondary text-lg group-focus-within:text-primary transition-colors">search</span>
+<input class="pl-9 pr-4 py-1.5 bg-slate-50 border border-border-color rounded-industrial text-sm w-64 placeholder-text-secondary/70 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none" placeholder="全局搜索..." type="text"/>
+</div>
+<div class="flex items-center gap-2">
+<div class="relative">
+<select class="appearance-none bg-slate-50 border border-border-color rounded-industrial py-1.5 pl-3 pr-8 text-xs font-medium text-text-main focus:ring-1 focus:ring-primary focus:border-primary cursor-pointer hover:bg-slate-100 transition-colors">
+<option>一号厂区 (Main)</option>
+<option>二号厂区 (East)</option>
+</select>
+<span class="absolute right-2 top-1/2 -translate-y-1/2 material-symbols-outlined text-sm text-text-secondary pointer-events-none">expand_more</span>
+</div>
+<span class="text-text-secondary/30">/</span>
+<div class="relative">
+<select class="appearance-none bg-slate-50 border border-border-color rounded-industrial py-1.5 pl-3 pr-8 text-xs font-medium text-text-main focus:ring-1 focus:ring-primary focus:border-primary cursor-pointer hover:bg-slate-100 transition-colors">
+<option>真空熔炼 A线</option>
+<option>真空熔炼 B线</option>
+</select>
+<span class="absolute right-2 top-1/2 -translate-y-1/2 material-symbols-outlined text-sm text-text-secondary pointer-events-none">expand_more</span>
+</div>
+<span class="text-text-secondary/30">/</span>
+<div class="relative">
+<select class="appearance-none bg-slate-50 border border-border-color rounded-industrial py-1.5 pl-3 pr-8 text-xs font-medium text-text-main focus:ring-1 focus:ring-primary focus:border-primary cursor-pointer hover:bg-slate-100 transition-colors">
+<option>VIM-003 炉</option>
+<option>VIM-004 炉</option>
+</select>
+<span class="absolute right-2 top-1/2 -translate-y-1/2 material-symbols-outlined text-sm text-text-secondary pointer-events-none">expand_more</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="relative p-2 rounded-full hover:bg-slate-100 text-text-secondary hover:text-text-main transition-colors">
+<span class="material-symbols-outlined text-[22px]">notifications</span>
+<span class="absolute top-2 right-2 h-2 w-2 rounded-full bg-red-500 border border-white"></span>
+</button>
+<div class="h-8 w-[1px] bg-border-color"></div>
+<div class="flex items-center gap-3">
+<div class="text-right hidden xl:block">
+<p class="text-sm font-semibold text-text-main">张工艺师</p>
+<p class="text-[10px] text-text-secondary">高级工程师</p>
+</div>
+<div class="h-9 w-9 rounded-full bg-primary/20 text-primary-hover flex items-center justify-center text-xs font-bold ring-2 ring-white shadow-sm">
+                        ZH
+                    </div>
+</div>
+</div>
+</header>
+<div class="bg-white px-6 py-4 border-b border-border-color shrink-0">
+<nav aria-label="Breadcrumb" class="flex text-xs text-text-secondary mb-2">
+<ol class="flex items-center space-x-2">
+<li><a class="hover:text-primary transition-colors" href="#">首页</a></li>
+<li><span class="material-symbols-outlined text-[10px] align-middle">chevron_right</span></li>
+<li><a class="hover:text-primary transition-colors" href="#">监控与分析</a></li>
+<li><span class="material-symbols-outlined text-[10px] align-middle">chevron_right</span></li>
+<li class="text-text-main font-medium">黄金基线库</li>
+</ol>
+</nav>
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+<div>
+<h1 class="text-2xl font-bold text-text-main tracking-tight">黄金基线库 <span class="text-lg font-light text-text-secondary ml-2 font-display">Baseline Library</span></h1>
+<p class="text-text-secondary text-xs mt-1 max-w-2xl">沉淀与管理经过专家验证的最佳熔炼曲线，作为系统偏差分析的对比基准。</p>
+</div>
+<div class="flex items-center gap-3">
+<button class="flex items-center gap-1.5 px-3 py-1.5 border border-border-color text-text-secondary text-xs font-medium rounded-industrial bg-white hover:bg-slate-50 hover:text-text-main hover:border-text-secondary transition-all">
+<span class="material-symbols-outlined text-base">refresh</span>
+                        刷新数据
+                    </button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 border border-border-color text-text-secondary text-xs font-medium rounded-industrial bg-white hover:bg-slate-50 hover:text-text-main hover:border-text-secondary transition-all">
+<span class="material-symbols-outlined text-base">download</span>
+                        导出
+                    </button>
+<button class="flex items-center gap-1.5 px-4 py-1.5 bg-text-main text-white text-xs font-medium rounded-industrial shadow hover:bg-slate-800 transition-all">
+<span class="material-symbols-outlined text-base">add</span>
+                        新增基线
+                    </button>
+</div>
+</div>
+</div>
+<div class="flex-1 flex overflow-hidden p-5 gap-5">
+<div class="w-[60%] flex flex-col bg-white rounded-industrial border border-border-color shadow-card overflow-hidden">
+<div class="px-4 py-3 border-b border-border-color flex justify-between items-center bg-slate-50/50">
+<div class="flex items-center gap-2">
+<span class="bg-primary/10 text-primary-hover p-1 rounded">
+<span class="material-symbols-outlined text-lg">list</span>
+</span>
+<h3 class="font-bold text-sm text-text-main">基线列表</h3>
+<span class="text-xs text-text-secondary font-normal ml-1">共 12 条记录</span>
+</div>
+<div class="flex items-center gap-2">
+<select class="bg-white border border-border-color text-xs rounded-md px-2 py-1 focus:ring-1 focus:ring-primary focus:border-primary">
+<option>全部范围</option>
+<option>Alloy 718</option>
+<option>Alloy 625</option>
+</select>
+<div class="relative">
+<input class="pl-7 pr-2 py-1 text-xs border border-border-color rounded-md w-32 focus:ring-1 focus:ring-primary focus:border-primary" placeholder="搜索名称..." type="text"/>
+<span class="material-symbols-outlined absolute left-1.5 top-1/2 -translate-y-1/2 text-sm text-text-secondary">search</span>
+</div>
+</div>
+</div>
+<div class="flex-1 overflow-auto custom-scrollbar">
+<table class="w-full text-left border-collapse">
+<thead class="bg-slate-50 sticky top-0 z-10 shadow-sm">
+<tr>
+<th class="py-3 px-4 text-xs font-semibold text-text-secondary uppercase tracking-wider w-1/4">基线名称</th>
+<th class="py-3 px-4 text-xs font-semibold text-text-secondary uppercase tracking-wider">日期/炉号</th>
+<th class="py-3 px-4 text-xs font-semibold text-text-secondary uppercase tracking-wider text-center">时长 (min)</th>
+<th class="py-3 px-4 text-xs font-semibold text-text-secondary uppercase tracking-wider w-1/6">稳定性评分</th>
+<th class="py-3 px-4 text-xs font-semibold text-text-secondary uppercase tracking-wider w-24">状态</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-border-color">
+<tr class="hover:bg-primary/5 transition-colors cursor-pointer group border-l-4 border-l-primary bg-primary/[0.02]">
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="font-bold text-text-main text-sm group-hover:text-primary-hover transition-colors">V2.4 - Alloy 718</span>
+<span class="text-[10px] text-text-secondary">叶片精铸工艺 A</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="text-xs text-text-main">2023-11-01</span>
+<span class="text-[10px] text-text-secondary font-mono">VIM-003-2489</span>
+</div>
+</td>
+<td class="py-3 px-4 text-center">
+<span class="text-xs font-mono font-medium text-text-main">240</span>
+</td>
+<td class="py-3 px-4">
+<div class="w-full">
+<div class="flex justify-between text-[10px] mb-1">
+<span class="text-primary-hover font-bold">98.5</span>
+</div>
+<div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+<div class="bg-primary h-1.5 rounded-full" style="width: 98.5%"></div>
+</div>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-600 border border-emerald-100 ring-1 ring-emerald-500/10">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse"></span>
+                                        当前生效
+                                    </span>
+</td>
+</tr>
+<tr class="hover:bg-slate-50 transition-colors cursor-pointer border-l-4 border-l-transparent">
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="font-bold text-text-main text-sm">V2.3 - Alloy 718</span>
+<span class="text-[10px] text-text-secondary">叶片精铸工艺 A</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="text-xs text-text-main">2023-10-15</span>
+<span class="text-[10px] text-text-secondary font-mono">VIM-003-2412</span>
+</div>
+</td>
+<td class="py-3 px-4 text-center">
+<span class="text-xs font-mono font-medium text-text-main">238</span>
+</td>
+<td class="py-3 px-4">
+<div class="w-full">
+<div class="flex justify-between text-[10px] mb-1">
+<span class="text-text-secondary font-bold">92.0</span>
+</div>
+<div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+<div class="bg-slate-300 h-1.5 rounded-full" style="width: 92%"></div>
+</div>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 border border-slate-200">
+                                        历史版本
+                                    </span>
+</td>
+</tr>
+<tr class="hover:bg-slate-50 transition-colors cursor-pointer border-l-4 border-l-transparent">
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="font-bold text-text-main text-sm">V1.5 - Alloy 625</span>
+<span class="text-[10px] text-text-secondary">涡轮盘试制</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="text-xs text-text-main">2023-09-20</span>
+<span class="text-[10px] text-text-secondary font-mono">VIM-002-1104</span>
+</div>
+</td>
+<td class="py-3 px-4 text-center">
+<span class="text-xs font-mono font-medium text-text-main">255</span>
+</td>
+<td class="py-3 px-4">
+<div class="w-full">
+<div class="flex justify-between text-[10px] mb-1">
+<span class="text-text-secondary font-bold">88.5</span>
+</div>
+<div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+<div class="bg-slate-300 h-1.5 rounded-full" style="width: 88.5%"></div>
+</div>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-500 border border-indigo-100">
+                                        科研验证
+                                    </span>
+</td>
+</tr>
+<tr class="hover:bg-slate-50 transition-colors cursor-pointer border-l-4 border-l-transparent">
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="font-bold text-text-main text-sm">V2.2 - Alloy 718</span>
+<span class="text-[10px] text-text-secondary">叶片精铸工艺 A</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="text-xs text-text-main">2023-08-05</span>
+<span class="text-[10px] text-text-secondary font-mono">VIM-003-2350</span>
+</div>
+</td>
+<td class="py-3 px-4 text-center">
+<span class="text-xs font-mono font-medium text-text-main">241</span>
+</td>
+<td class="py-3 px-4">
+<div class="w-full">
+<div class="flex justify-between text-[10px] mb-1">
+<span class="text-text-secondary font-bold">94.2</span>
+</div>
+<div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+<div class="bg-slate-300 h-1.5 rounded-full" style="width: 94.2%"></div>
+</div>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 border border-slate-200">
+                                        历史版本
+                                    </span>
+</td>
+</tr>
+<tr class="hover:bg-slate-50 transition-colors cursor-pointer border-l-4 border-l-transparent">
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="font-bold text-text-main text-sm">V2.1 - Alloy 718</span>
+<span class="text-[10px] text-text-secondary">叶片精铸工艺 A</span>
+</div>
+</td>
+<td class="py-3 px-4">
+<div class="flex flex-col">
+<span class="text-xs text-text-main">2023-07-22</span>
+<span class="text-[10px] text-text-secondary font-mono">VIM-003-2299</span>
+</div>
+</td>
+<td class="py-3 px-4 text-center">
+<span class="text-xs font-mono font-medium text-text-main">242</span>
+</td>
+<td class="py-3 px-4">
+<div class="w-full">
+<div class="flex justify-between text-[10px] mb-1">
+<span class="text-text-secondary font-bold">91.0</span>
+</div>
+<div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+<div class="bg-slate-300 h-1.5 rounded-full" style="width: 91%"></div>
+</div>
+</div>
+</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 border border-slate-200">
+                                        历史版本
+                                    </span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="px-4 py-2 border-t border-border-color bg-slate-50/50 flex justify-end items-center gap-2 text-xs text-text-secondary">
+<span>1-5 of 12</span>
+<button class="p-1 hover:bg-slate-200 rounded"><span class="material-symbols-outlined text-sm">chevron_left</span></button>
+<button class="p-1 hover:bg-slate-200 rounded"><span class="material-symbols-outlined text-sm">chevron_right</span></button>
+</div>
+</div>
+<div class="w-[40%] flex flex-col bg-white rounded-industrial border border-border-color shadow-card overflow-hidden">
+<div class="px-5 py-4 border-b border-border-color flex justify-between items-center bg-slate-50/30">
+<div class="flex flex-col">
+<span class="text-[10px] text-text-secondary uppercase tracking-wider font-bold">Details Preview</span>
+<h2 class="text-lg font-bold text-text-main">V2.4 - Alloy 718</h2>
+</div>
+<span class="material-symbols-outlined text-text-secondary/50">info</span>
+</div>
+<div class="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
+<div class="space-y-2">
+<div class="flex justify-between items-center">
+<h4 class="text-xs font-bold text-text-main flex items-center gap-1.5">
+<span class="material-symbols-outlined text-base text-primary-hover">stacked_line_chart</span>
+                                功率/电压曲线缩略
+                            </h4>
+<div class="flex gap-3">
+<span class="flex items-center gap-1 text-[10px] text-text-secondary"><span class="w-2 h-2 rounded-full bg-sky-500"></span>Power</span>
+<span class="flex items-center gap-1 text-[10px] text-text-secondary"><span class="w-2 h-2 rounded-full bg-amber-400"></span>Volt</span>
+</div>
+</div>
+<div class="h-40 bg-slate-50 rounded-lg border border-border-color relative overflow-hidden">
+<div class="absolute inset-0 grid grid-rows-4 grid-cols-6 pointer-events-none">
+<div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div>
+<div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div>
+<div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div>
+<div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div><div class="border-b border-slate-200 border-dashed"></div>
+</div>
+<svg class="w-full h-full absolute inset-0 z-10 p-2" preserveAspectRatio="none" viewBox="0 0 100 50">
+<path d="M0,45 L10,40 C20,35 30,10 40,8 C50,6 60,15 70,20 C80,25 90,30 100,35" fill="none" stroke="#0EA5E9" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+<path d="M0,45 L10,40 C20,35 30,10 40,8 C50,6 60,15 70,20 C80,25 90,30 100,35 L100,50 L0,50 Z" fill="url(#grad1)" opacity="0.2"></path>
+<path d="M0,30 L15,30 C25,30 35,28 50,15 C65,2 75,5 100,8" fill="none" stroke="#FBBF24" stroke-dasharray="3,1" stroke-width="1.5"></path>
+<defs>
+<linearGradient id="grad1" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" style="stop-color:#0EA5E9;stop-opacity:1"></stop>
+<stop offset="100%" style="stop-color:#0EA5E9;stop-opacity:0"></stop>
+</linearGradient>
+</defs>
+</svg>
+</div>
+</div>
+<div class="bg-indigo-50/50 rounded-lg p-4 border border-indigo-100">
+<h4 class="text-xs font-bold text-indigo-900 mb-2 flex items-center gap-1.5">
+<span class="material-symbols-outlined text-base">psychology</span>
+                             专家选择理由
+                        </h4>
+<p class="text-xs leading-relaxed text-indigo-900/80 italic">
+                            “该炉次在晶体生长关键阶段（60-120min）展现了极佳的功率稳定性，温度波动控制在 ±2°C 范围内，且真空度保持在理想区间，是近三年来质量最优的生产批次，建议设为 Alloy 718 标准基线。”
+                        </p>
+<div class="mt-3 flex items-center gap-2">
+<div class="h-5 w-5 rounded-full bg-indigo-200 flex items-center justify-center text-[10px] font-bold text-indigo-700">LI</div>
+<span class="text-[10px] font-semibold text-indigo-800">李主任 · 首席专家</span>
+</div>
+</div>
+<div>
+<button class="w-full flex items-center justify-center gap-2 py-3 bg-primary text-text-main font-bold text-sm rounded-industrial shadow-md shadow-primary/20 hover:bg-primary-hover hover:shadow-lg transition-all group">
+<span class="material-symbols-outlined group-hover:scale-110 transition-transform">verified_user</span>
+                            设为当前生产基线
+                        </button>
+<p class="text-[10px] text-center text-text-secondary mt-2">
+                            * 操作将立即生效，并归档旧版基线
+                        </p>
+</div>
+<div class="border-t border-border-color pt-4">
+<h4 class="text-xs font-bold text-text-secondary uppercase mb-3">元数据信息</h4>
+<dl class="grid grid-cols-2 gap-x-4 gap-y-4 text-xs">
+<div>
+<dt class="text-text-secondary mb-1">创建人</dt>
+<dd class="font-medium text-text-main flex items-center gap-1">
+<span class="material-symbols-outlined text-sm text-text-secondary">person</span>
+                                     张工艺师
+                                 </dd>
+</div>
+<div>
+<dt class="text-text-secondary mb-1">审核人</dt>
+<dd class="font-medium text-text-main flex items-center gap-1">
+<span class="material-symbols-outlined text-sm text-text-secondary">gavel</span>
+                                     李主任
+                                 </dd>
+</div>
+<div class="col-span-2">
+<dt class="text-text-secondary mb-1">生效时间</dt>
+<dd class="font-medium text-text-main flex items-center gap-1">
+<span class="material-symbols-outlined text-sm text-text-secondary">schedule</span>
+                                     2023-11-02 08:30:00
+                                 </dd>
+</div>
+<div class="col-span-2">
+<dt class="text-text-secondary mb-1">备注</dt>
+<dd class="text-text-main bg-slate-50 p-2 rounded border border-border-color">
+                                     此次更新增加了针对真空度异常波动的补偿逻辑。
+                                 </dd>
+</div>
+</dl>
+</div>
+</div>
+</div>
+</div>
+</main>
+
+</body></html>

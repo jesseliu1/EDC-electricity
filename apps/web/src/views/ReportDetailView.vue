@@ -1,22 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElButton, ElCard, ElEmpty } from 'element-plus'
 import { useReportStore } from '@/stores/report'
 import { reportApi } from '@/api/report'
+import PageHeader from '@/components/common/PageHeader.vue'
 
 const { t } = useI18n()
 const route = useRoute()
-const router = useRouter()
 const reportStore = useReportStore()
 
 const reportDate = computed(() => String(route.params.date || ''))
 const detail = computed(() => reportStore.current)
-
-function handleBack() {
-  router.push('/reports')
-}
 
 function handleExport() {
   if (!reportDate.value) return
@@ -30,80 +25,93 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between gap-4 flex-wrap">
-      <h1 class="text-2xl font-bold text-gray-900">
-        {{ t('report.dailyReport') }} - {{ reportDate }}
-      </h1>
-      <div class="flex items-center gap-2">
-        <el-button @click="handleBack">
-          {{ t('common.back') }}
-        </el-button>
-        <el-button
-          type="primary"
+  <div class="flex flex-col gap-6">
+    <PageHeader
+      :title="`${t('report.dailyReport')} - ${reportDate}`"
+      subtitle="Data compiled from 00:00 to 23:59"
+    >
+      <template #actions>
+        <button
+          class="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
           @click="handleExport"
         >
+          <span class="material-symbols-outlined text-[18px]">download</span>
           {{ t('report.exportPdf') }}
-        </el-button>
-      </div>
-    </div>
-
-    <el-card v-if="detail">
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div class="rounded-lg bg-gray-50 p-3">
-          <div class="text-sm text-gray-500">
-            {{ t('report.totalHeats') }}
-          </div>
-          <div class="mt-1 text-xl font-semibold">
-            {{ detail.totalHeats }}
-          </div>
-        </div>
-        <div class="rounded-lg bg-gray-50 p-3">
-          <div class="text-sm text-gray-500">
-            {{ t('report.normalRate') }}
-          </div>
-          <div class="mt-1 text-xl font-semibold">
-            {{ detail.normalRate }}%
-          </div>
-        </div>
-        <div class="rounded-lg bg-gray-50 p-3">
-          <div class="text-sm text-gray-500">
-            {{ t('dashboard.avgDeviation') }}
-          </div>
-          <div class="mt-1 text-xl font-semibold">
-            {{ detail.avgDeviation }}%
-          </div>
-        </div>
-        <div class="rounded-lg bg-gray-50 p-3">
-          <div class="text-sm text-gray-500">
-            {{ t('task.statusCompleted') }}
-          </div>
-          <div class="mt-1 text-xl font-semibold">
-            {{ detail.completedTasks }}
-          </div>
-        </div>
-      </div>
-    </el-card>
-
-    <el-card v-if="detail">
-      <template #header>
-        <span>{{ t('report.topDeviationHeats') }}</span>
+        </button>
       </template>
-      <div class="space-y-2">
-        <div
-          v-for="item in detail.topDeviations"
-          :key="item.heatNo"
-          class="rounded-md border border-gray-200 px-3 py-2 flex items-center justify-between"
-        >
-          <span>{{ item.heatNo }}</span>
-          <span class="text-red-600 font-medium">{{ item.deviation }}%</span>
+    </PageHeader>
+
+    <template v-if="detail">
+      <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+        <!-- 统计卡片区块 -->
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-5 relative overflow-hidden group hover:border-border-dark transition-colors">
+          <div class="flex justify-between items-start">
+            <span class="text-sm font-medium text-slate-500">{{ t('report.totalHeats') }}</span>
+            <span class="material-symbols-outlined text-slate-200 text-3xl group-hover:text-primary transition-colors">local_fire_department</span>
+          </div>
+          <div class="mt-2 text-3xl font-bold text-slate-800">{{ detail.totalHeats }}</div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-5 relative overflow-hidden group hover:border-border-dark transition-colors">
+          <div class="flex justify-between items-start">
+            <span class="text-sm font-medium text-slate-500">{{ t('report.normalRate') }}</span>
+            <span class="material-symbols-outlined text-slate-200 text-3xl group-hover:text-green-500 transition-colors">check_circle</span>
+          </div>
+          <div class="mt-2 text-3xl font-bold text-green-600">{{ detail.normalRate }}%</div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-5 relative overflow-hidden group hover:border-border-dark transition-colors">
+          <div class="flex justify-between items-start">
+            <span class="text-sm font-medium text-slate-500">{{ t('dashboard.avgDeviation') }}</span>
+            <span class="material-symbols-outlined text-slate-200 text-3xl group-hover:text-orange-500 transition-colors">trending_up</span>
+          </div>
+          <div class="mt-2 text-3xl font-bold text-slate-800">{{ detail.avgDeviation }}%</div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-5 relative overflow-hidden group hover:border-border-dark transition-colors">
+          <div class="flex justify-between items-start">
+            <span class="text-sm font-medium text-slate-500">{{ t('task.statusCompleted') }}</span>
+            <span class="material-symbols-outlined text-slate-200 text-3xl group-hover:text-primary transition-colors">task_alt</span>
+          </div>
+          <div class="mt-2 text-3xl font-bold text-slate-800">{{ detail.completedTasks }}</div>
         </div>
       </div>
-    </el-card>
 
-    <el-empty
-      v-else
-      :description="t('common.loading')"
-    />
+      <!-- Top Deviations 表格区 -->
+      <div class="bg-white rounded-xl border border-border-light shadow-card overflow-hidden">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 p-5 pb-4 border-b border-border-light bg-slate-50/50">
+          <span class="material-symbols-outlined text-primary text-[20px]">sort</span>
+          {{ t('report.topDeviationHeats') }}
+        </h3>
+        
+        <div v-if="detail.topDeviations.length > 0" class="divide-y divide-border-light">
+          <div
+            v-for="(item, index) in detail.topDeviations"
+            :key="item.heatNo"
+            class="px-5 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
+          >
+            <div class="flex items-center gap-4">
+              <span class="font-mono font-bold text-sm text-slate-300 w-6">#{{ index + 1 }}</span>
+              <span class="font-semibold text-slate-800">{{ item.heatNo }}</span>
+            </div>
+            <div class="flex flex-col items-end gap-1">
+               <span class="font-bold text-red-600 font-mono tracking-tight">{{ item.deviation }}%</span>
+               <div class="w-32 h-1.5 bg-slate-100 rounded-full overflow-hidden flex justify-end">
+                 <div class="h-full bg-red-500 rounded-full" :style="{ width: `${Math.min(item.deviation, 100)}%` }"></div>
+               </div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="py-12 flex flex-col items-center justify-center">
+          <span class="material-symbols-outlined text-slate-300 text-4xl">check_circle</span>
+          <p class="text-sm text-slate-500 mt-2 font-medium">No deviations recorded</p>
+        </div>
+      </div>
+    </template>
+
+    <div v-else class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card">
+      <span class="material-symbols-outlined text-slate-300 text-5xl">pending</span>
+      <p class="text-sm text-slate-400 mt-3">{{ t('common.loading') }}</p>
+    </div>
   </div>
 </template>

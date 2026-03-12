@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>System Settings - AI Master Smelter</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Theme Configuration -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#104dc6",
+                        "background-light": "#f6f6f8",
+                        "background-dark": "#101622",
+                        "surface-light": "#ffffff",
+                        "surface-dark": "#1e2430",
+                        "accent-cyan": "#00e5ff", // Bright cyan for switches
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem", 
+                        "lg": "1rem", 
+                        "xl": "12px", // Specifically set to 12px as requested
+                        "2xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom scrollbar for industrial feel */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #475569;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-[#0d121b] dark:text-gray-100 flex h-screen w-full overflow-hidden transition-colors duration-300">
+<!-- Sidebar Navigation -->
+<aside class="w-[280px] bg-white dark:bg-[#151b28] border-r border-[#e7ebf3] dark:border-gray-800 flex flex-col justify-between shrink-0 h-full z-20">
+<!-- Logo & Header -->
+<div class="p-6">
+<div class="flex items-center gap-3 text-[#0d121b] dark:text-white mb-8">
+<div class="size-8 text-primary">
+<svg class="w-full h-full" fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path clip-rule="evenodd" d="M39.475 21.6262C40.358 21.4363 40.6863 21.5589 40.7581 21.5934C40.7876 21.655 40.8547 21.857 40.8082 22.3336C40.7408 23.0255 40.4502 24.0046 39.8572 25.2301C38.6799 27.6631 36.5085 30.6631 33.5858 33.5858C30.6631 36.5085 27.6632 38.6799 25.2301 39.8572C24.0046 40.4502 23.0255 40.7407 22.3336 40.8082C21.8571 40.8547 21.6551 40.7875 21.5934 40.7581C21.5589 40.6863 21.4363 40.358 21.6262 39.475C21.8562 38.4054 22.4689 36.9657 23.5038 35.2817C24.7575 33.2417 26.5497 30.9744 28.7621 28.762C30.9744 26.5497 33.2417 24.7574 35.2817 23.5037C36.9657 22.4689 38.4054 21.8562 39.475 21.6262ZM4.41189 29.2403L18.7597 43.5881C19.8813 44.7097 21.4027 44.9179 22.7217 44.7893C24.0585 44.659 25.5148 44.1631 26.9723 43.4579C29.9052 42.0387 33.2618 39.5667 36.4142 36.4142C39.5667 33.2618 42.0387 29.9052 43.4579 26.9723C44.1631 25.5148 44.659 24.0585 44.7893 22.7217C44.9179 21.4027 44.7097 19.8813 43.5881 18.7597L29.2403 4.41187C27.8527 3.02428 25.8765 3.02573 24.2861 3.36776C22.6081 3.72863 20.7334 4.58419 18.8396 5.74801C16.4978 7.18716 13.9881 9.18353 11.5858 11.5858C9.18354 13.988 7.18717 16.4978 5.74802 18.8396C4.58421 20.7334 3.72865 22.6081 3.36778 24.2861C3.02574 25.8765 3.02429 27.8527 4.41189 29.2403Z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+<div>
+<h2 class="text-base font-bold leading-tight tracking-tight">AI Master Smelter</h2>
+<p class="text-[10px] text-gray-500 font-medium uppercase tracking-wider">Industrial V2.0</p>
+</div>
+</div>
+<!-- Nav Items -->
+<nav class="flex flex-col gap-2">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-white/5 transition-colors group" href="#">
+<span class="material-symbols-outlined text-gray-500 group-hover:text-primary dark:text-gray-400">pie_chart</span>
+<span class="text-gray-700 dark:text-gray-300 font-medium text-sm">Overview</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-white/5 transition-colors group" href="#">
+<span class="material-symbols-outlined text-gray-500 group-hover:text-primary dark:text-gray-400">trending_up</span>
+<span class="text-gray-700 dark:text-gray-300 font-medium text-sm">Deviation Analysis</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-white/5 transition-colors group" href="#">
+<span class="material-symbols-outlined text-gray-500 group-hover:text-primary dark:text-gray-400">adjust</span>
+<span class="text-gray-700 dark:text-gray-300 font-medium text-sm">Golden Baseline</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-white/5 transition-colors group" href="#">
+<span class="material-symbols-outlined text-gray-500 group-hover:text-primary dark:text-gray-400">description</span>
+<span class="text-gray-700 dark:text-gray-300 font-medium text-sm">Reports</span>
+</a>
+<div class="h-px bg-gray-200 dark:bg-gray-800 my-2"></div>
+<!-- Active State for Settings -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-primary/10 text-primary transition-colors" href="#">
+<span class="material-symbols-outlined fill-current">settings</span>
+<span class="font-bold text-sm">System Settings</span>
+</a>
+</nav>
+</div>
+<!-- User Profile -->
+<div class="p-4 border-t border-[#e7ebf3] dark:border-gray-800">
+<div class="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-white/5 cursor-pointer">
+<div class="bg-center bg-no-repeat bg-cover rounded-full size-10 ring-2 ring-white dark:ring-gray-700 shadow-sm" data-alt="Profile picture of the current user" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuDqy_isTUrlVp-f5jJGiYs0iOucLQN_zamPVuhjpOXj8QXDKzk3O8hFSQjhlyR_AejX7uKbB1_wIrKwojjwKXgLuXbIxiEzIA39JltR8004CWsYdhr9jfWeSeM8l2b4qKqb3cDzCV7FqeSNEAcBxwKXVeYx0QVO7MdAZfvt3ymaSD1LhoYucQnAhdHEGvAsZ9_8g7HBeL6FI09GO0RFkPq23bXvZNh4sHEcbCkFcvA4JRQ-Y3orNp-4YeXjY8F3m7FhPO-tTcqSG4N8");'></div>
+<div class="flex flex-col min-w-0">
+<h3 class="text-sm font-semibold truncate dark:text-white">James Wilson</h3>
+<p class="text-xs text-[#4c669a] dark:text-gray-400 truncate">Process Engineer</p>
+</div>
+<span class="material-symbols-outlined text-gray-400 ml-auto">more_vert</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Wrapper -->
+<main class="flex-1 flex flex-col h-full overflow-hidden relative">
+<!-- Top Header -->
+<header class="h-16 shrink-0 border-b border-[#e7ebf3] dark:border-gray-800 bg-white/80 dark:bg-[#151b28]/80 backdrop-blur-md flex items-center justify-between px-8 z-10">
+<h1 class="text-xl font-bold text-[#0d121b] dark:text-white tracking-tight">System Configuration</h1>
+<div class="flex items-center gap-3">
+<button class="size-9 flex items-center justify-center rounded-xl bg-[#e7ebf3] hover:bg-[#dbe0ea] dark:bg-gray-800 dark:hover:bg-gray-700 text-[#0d121b] dark:text-white transition-colors">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</button>
+<button class="size-9 flex items-center justify-center rounded-xl bg-[#e7ebf3] hover:bg-[#dbe0ea] dark:bg-gray-800 dark:hover:bg-gray-700 text-[#0d121b] dark:text-white transition-colors relative">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+<span class="absolute top-2 right-2 size-1.5 bg-red-500 rounded-full"></span>
+</button>
+<button class="size-9 flex items-center justify-center rounded-xl bg-[#e7ebf3] hover:bg-[#dbe0ea] dark:bg-gray-800 dark:hover:bg-gray-700 text-[#0d121b] dark:text-white transition-colors">
+<span class="material-symbols-outlined text-[20px]">help</span>
+</button>
+</div>
+</header>
+<!-- Content Area -->
+<div class="flex-1 overflow-hidden p-8">
+<div class="max-w-[1200px] mx-auto h-full flex flex-col lg:flex-row gap-8">
+<!-- Vertical Tabs Navigation (Left Pane) -->
+<div class="w-full lg:w-64 shrink-0 flex flex-col gap-1">
+<h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-2">Global Settings</h2>
+<button class="flex items-center justify-between w-full px-4 py-3 rounded-xl bg-white dark:bg-[#1e2430] border border-primary dark:border-primary shadow-sm text-primary font-semibold text-left transition-all">
+<span class="flex items-center gap-3">
+<span class="material-symbols-outlined">database</span>
+                            EDC Configuration
+                        </span>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+<button class="flex items-center justify-between w-full px-4 py-3 rounded-xl hover:bg-white dark:hover:bg-[#1e2430] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium text-left transition-all border border-transparent">
+<span class="flex items-center gap-3">
+<span class="material-symbols-outlined">tune</span>
+                            Thresholds
+                        </span>
+</button>
+<button class="flex items-center justify-between w-full px-4 py-3 rounded-xl hover:bg-white dark:hover:bg-[#1e2430] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium text-left transition-all border border-transparent">
+<span class="flex items-center gap-3">
+<span class="material-symbols-outlined">mail</span>
+                            Notifications
+                        </span>
+</button>
+<div class="mt-8">
+<h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider px-3 mb-2">System</h2>
+<button class="flex items-center justify-between w-full px-4 py-3 rounded-xl hover:bg-white dark:hover:bg-[#1e2430] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium text-left transition-all border border-transparent">
+<span class="flex items-center gap-3">
+<span class="material-symbols-outlined">group</span>
+                                User Management
+                            </span>
+</button>
+</div>
+</div>
+<!-- Forms Container (Right Pane) -->
+<div class="flex-1 overflow-y-auto pr-2 pb-10">
+<!-- Section: EDC Data Extraction -->
+<section class="mb-8">
+<div class="flex items-center justify-between mb-4">
+<div>
+<h3 class="text-lg font-bold text-gray-900 dark:text-white">EDC Data Extraction</h3>
+<p class="text-sm text-gray-500 mt-1">Configure parameters for Engineering Data Collection from melting furnaces.</p>
+</div>
+<span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full dark:bg-blue-900 dark:text-blue-300">Active</span>
+</div>
+<div class="bg-white dark:bg-[#1e2430] rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] dark:shadow-none border border-[#e7ebf3] dark:border-gray-800 p-6">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Field 1 -->
+<div class="col-span-1">
+<label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Extraction Cycle</label>
+<div class="relative">
+<input class="block w-full rounded-lg border-[#cfd7e7] dark:border-gray-700 bg-gray-50 dark:bg-[#151b28] text-gray-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm pl-4 pr-12 py-2.5 transition-shadow" type="number" value="30"/>
+<div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+<span class="text-gray-500 sm:text-sm font-medium">sec</span>
+</div>
+</div>
+<p class="mt-1.5 text-xs text-gray-400">Frequency of data polling from PLC.</p>
+</div>
+<!-- Field 2 -->
+<div class="col-span-1">
+<label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Retry Attempts</label>
+<div class="relative">
+<input class="block w-full rounded-lg border-[#cfd7e7] dark:border-gray-700 bg-gray-50 dark:bg-[#151b28] text-gray-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm px-4 py-2.5 transition-shadow" type="number" value="3"/>
+</div>
+<p class="mt-1.5 text-xs text-gray-400">Max retries on connection failure.</p>
+</div>
+<!-- Field 3 -->
+<div class="col-span-1 md:col-span-2">
+<label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Data Retention Period</label>
+<div class="relative max-w-md">
+<input class="block w-full rounded-lg border-[#cfd7e7] dark:border-gray-700 bg-gray-50 dark:bg-[#151b28] text-gray-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm pl-4 pr-12 py-2.5 transition-shadow" type="number" value="90"/>
+<div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+<span class="text-gray-500 sm:text-sm font-medium">days</span>
+</div>
+</div>
+<p class="mt-1.5 text-xs text-gray-400">Historical data older than this will be archived.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Section: Threshold Config -->
+<section class="mb-8">
+<div class="flex items-center justify-between mb-4">
+<div>
+<h3 class="text-lg font-bold text-gray-900 dark:text-white">Deviation Thresholds</h3>
+<p class="text-sm text-gray-500 mt-1">Set the sensitivity for the Golden Baseline comparison.</p>
+</div>
+</div>
+<div class="bg-white dark:bg-[#1e2430] rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] dark:shadow-none border border-[#e7ebf3] dark:border-gray-800 p-6">
+<div class="space-y-6">
+<div class="flex items-start gap-4 p-4 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800/30">
+<span class="material-symbols-outlined text-orange-600 dark:text-orange-400 mt-0.5">info</span>
+<div>
+<h4 class="text-sm font-bold text-orange-900 dark:text-orange-300">Impact Warning</h4>
+<p class="text-sm text-orange-700 dark:text-orange-400 mt-1">Tightening thresholds may result in increased false positive alerts during transient states.</p>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+<!-- Deviation % -->
+<div>
+<label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Max Deviation Tolerance</label>
+<div class="flex items-center gap-4">
+<div class="relative flex-1">
+<input class="block w-full rounded-lg border-[#cfd7e7] dark:border-gray-700 bg-gray-50 dark:bg-[#151b28] text-gray-900 dark:text-white font-bold text-lg focus:ring-2 focus:ring-primary focus:border-primary pl-4 pr-12 py-3 transition-shadow" type="number" value="15"/>
+<div class="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none">
+<span class="text-gray-500 font-bold">%</span>
+</div>
+</div>
+<!-- Visual Indicator slider style placeholder -->
+<div class="h-2 flex-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[15%]"></div>
+</div>
+</div>
+</div>
+<!-- Duration -->
+<div>
+<label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Trigger Duration</label>
+<div class="relative">
+<input class="block w-full rounded-lg border-[#cfd7e7] dark:border-gray-700 bg-gray-50 dark:bg-[#151b28] text-gray-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-primary font-bold text-lg pl-4 pr-12 py-3 transition-shadow" placeholder="N" type="number" value="10"/>
+<div class="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none">
+<span class="text-gray-500 font-medium">seconds</span>
+</div>
+</div>
+<p class="mt-1.5 text-xs text-gray-400">Deviation must persist for this duration to trigger an alert.</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Section: Notifications -->
+<section class="mb-20"> <!-- Extra margin for scrolling space -->
+<div class="flex items-center justify-between mb-4">
+<div>
+<h3 class="text-lg font-bold text-gray-900 dark:text-white">Notification Channels</h3>
+<p class="text-sm text-gray-500 mt-1">Manage where the system sends critical deviation alerts.</p>
+</div>
+</div>
+<div class="bg-white dark:bg-[#1e2430] rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.04)] dark:shadow-none border border-[#e7ebf3] dark:border-gray-800 divide-y divide-[#e7ebf3] dark:divide-gray-800">
+<!-- Email Toggle -->
+<div class="p-5 flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="size-10 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">mail</span>
+</div>
+<div>
+<h4 class="text-sm font-bold text-gray-900 dark:text-white">Email Notifications</h4>
+<p class="text-xs text-gray-500 mt-0.5">Send daily reports and critical alerts to registered emails.</p>
+</div>
+</div>
+<!-- Cyan Switch -->
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox" value=""/>
+<div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-accent-cyan"></div>
+</label>
+</div>
+<!-- Enterprise WeChat Toggle -->
+<div class="p-5 flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="size-10 rounded-full bg-green-50 dark:bg-green-900/20 flex items-center justify-center text-green-600">
+<span class="material-symbols-outlined">chat</span>
+</div>
+<div>
+<h4 class="text-sm font-bold text-gray-900 dark:text-white">Enterprise WeChat</h4>
+<p class="text-xs text-gray-500 mt-0.5">Push real-time notifications to the engineering group chat.</p>
+</div>
+</div>
+<!-- Cyan Switch (Active State Demo) -->
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox" value=""/>
+<div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-accent-cyan"></div>
+</label>
+</div>
+<!-- SMS Toggle (Disabled) -->
+<div class="p-5 flex items-center justify-between opacity-60">
+<div class="flex items-center gap-4">
+<div class="size-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-500">
+<span class="material-symbols-outlined">sms</span>
+</div>
+<div>
+<h4 class="text-sm font-bold text-gray-900 dark:text-white">SMS Alerts</h4>
+<p class="text-xs text-gray-500 mt-0.5">Direct SMS to plant manager (Requires Gateway Config).</p>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-not-allowed">
+<input class="sr-only peer" disabled="" type="checkbox" value=""/>
+<div class="w-11 h-6 bg-gray-200 rounded-full peer dark:bg-gray-700 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 dark:border-gray-600"></div>
+</label>
+</div>
+</div>
+</section>
+<!-- Action Bar -->
+<div class="sticky bottom-0 bg-white/90 dark:bg-[#101622]/90 backdrop-blur-sm border-t border-[#e7ebf3] dark:border-gray-800 p-4 -mx-4 -mb-10 flex justify-end gap-3 z-10">
+<button class="px-6 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-semibold text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Discard Changes</button>
+<button class="px-6 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-semibold text-sm shadow-lg shadow-primary/30 transition-all">Save Configuration</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

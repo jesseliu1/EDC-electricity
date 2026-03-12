@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>偏差收件箱 Deviation Inbox - AI Master Smelter</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0047AB", // Deep Blue
+                        "secondary": "#00A3A3", // Cyan
+                        "industrial-gray": "#E5E7EB",
+                        "industrial-bg": "#F3F4F6",
+                        "deep-blue": "#1E293B",
+                        "border-light": "#D1D5DB",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "mono": ["JetBrains Mono", "monospace"],
+                    },
+                    borderRadius: {"DEFAULT": "2px", "lg": "4px"},
+                },
+            },
+        }
+    </script>
+<style type="text/tailwindcss">
+        @layer base {
+            body { @apply text-deep-blue bg-industrial-bg; }
+        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #F3F4F6; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+        .grid-pattern {
+            background-image: radial-gradient(#CBD5E1 0.5px, transparent 0.5px);
+            background-size: 20px 20px;
+        }
+        .card-shadow {
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            border: 1px solid #E2E8F0;
+        }
+        .table-dense th, .table-dense td {
+            padding: 0.5rem 0.75rem;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body class="font-display overflow-hidden h-screen w-full flex">
+<aside class="w-[240px] min-w-[240px] flex flex-col bg-white border-r border-border-light text-deep-blue h-full z-20 shadow-sm">
+<div class="h-16 flex flex-col justify-center px-5 border-b border-industrial-gray bg-slate-50/30">
+<h1 class="text-primary text-xs font-bold tracking-widest uppercase">AI MASTER SMELTER</h1>
+<p class="text-slate-400 text-[9px] font-mono mt-0.5">INTEL-MELT v2.4.0</p>
+</div>
+<nav class="flex-1 flex flex-col gap-1 p-3 overflow-y-auto">
+<a class="flex items-center gap-3 px-3 py-2 rounded-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors group" href="#">
+<span class="material-symbols-outlined text-[20px] text-slate-400 group-hover:text-primary">grid_view</span>
+<span class="text-xs font-medium">概览 Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-sm bg-primary/5 text-primary border border-primary/10 transition-colors shadow-sm" href="#">
+<span class="material-symbols-outlined text-[20px]">inbox</span>
+<span class="text-xs font-bold">偏差收件箱 Inbox</span>
+<span class="ml-auto bg-primary text-white text-[10px] font-bold px-1.5 rounded-full shadow-sm">12</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors group" href="#">
+<span class="material-symbols-outlined text-[20px] text-slate-400 group-hover:text-primary">query_stats</span>
+<span class="text-xs font-medium">实时分析 Monitoring</span>
+</a>
+<div class="h-px bg-slate-100 my-2 mx-2"></div>
+<p class="px-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">智慧熔炼</p>
+<a class="flex items-center gap-3 px-3 py-2 rounded-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors group" href="#">
+<span class="material-symbols-outlined text-[20px] text-slate-400 group-hover:text-primary">account_tree</span>
+<span class="text-xs font-medium">聚类模型 Clusters</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors group" href="#">
+<span class="material-symbols-outlined text-[20px] text-slate-400 group-hover:text-primary">history</span>
+<span class="text-xs font-medium">熔炼历史 Logs</span>
+</a>
+</nav>
+<div class="p-4 border-t border-industrial-gray bg-slate-50/50">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-white flex items-center justify-center border border-slate-200 shadow-sm text-primary">
+<span class="text-[10px] font-bold">CN</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[11px] font-bold text-deep-blue">工艺工程师</span>
+<span class="text-[9px] text-slate-400">Node-04 Manager</span>
+</div>
+</div>
+</div>
+</aside>
+<main class="flex-1 flex flex-col h-full overflow-hidden bg-white">
+<header class="h-16 min-h-[64px] bg-white border-b border-border-light flex items-center justify-between px-6 z-10 shrink-0">
+<div class="flex flex-col">
+<div class="flex items-center gap-2 text-[10px] text-slate-400 font-medium uppercase tracking-tighter">
+<span>炉区 A-02</span>
+<span class="material-symbols-outlined text-[12px]">chevron_right</span>
+<span>Cluster Analysis</span>
+</div>
+<h2 class="text-deep-blue text-lg font-bold tracking-tight">偏差收件箱 <span class="text-slate-400 font-light ml-1">Deviation Inbox</span></h2>
+</div>
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-2 px-3 py-1.5 border border-border-light bg-slate-50 rounded">
+<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+<span class="text-[10px] font-bold text-slate-600 font-mono tracking-tighter uppercase">Live Stream</span>
+</div>
+<div class="h-6 w-px bg-border-light mx-1"></div>
+<button class="bg-white hover:bg-slate-50 border border-border-light text-slate-600 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all uppercase tracking-tight shadow-sm">
+<span class="material-symbols-outlined text-sm">settings</span>
+                设置
+            </button>
+<button class="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded flex items-center gap-2 text-xs font-bold transition-all uppercase tracking-tight shadow-sm hover:shadow">
+<span class="material-symbols-outlined text-sm">sync</span>
+                刷新数据
+            </button>
+</div>
+</header>
+<div class="h-14 min-h-[56px] bg-slate-50/50 border-b border-border-light flex items-center px-4 gap-3 z-10 shrink-0 overflow-x-auto">
+<div class="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase mr-2 shrink-0">
+<span class="material-symbols-outlined text-[16px]">filter_list</span>
+            筛选
+        </div>
+<div class="flex items-center gap-2 bg-white border border-border-light rounded px-2 py-1 shadow-sm hover:border-primary/30 transition-colors cursor-pointer group shrink-0">
+<span class="text-[10px] text-slate-500 font-medium uppercase">时间范围</span>
+<span class="text-[11px] font-bold text-deep-blue">最近 24 小时</span>
+<span class="material-symbols-outlined text-[14px] text-slate-400 group-hover:text-primary">expand_more</span>
+</div>
+<div class="flex items-center gap-2 bg-white border border-border-light rounded px-2 py-1 shadow-sm hover:border-primary/30 transition-colors cursor-pointer group shrink-0">
+<span class="text-[10px] text-slate-500 font-medium uppercase">设备 ID</span>
+<span class="text-[11px] font-bold text-deep-blue">全部设备</span>
+<span class="material-symbols-outlined text-[14px] text-slate-400 group-hover:text-primary">expand_more</span>
+</div>
+<div class="flex items-center gap-2 bg-white border border-border-light rounded px-2 py-1 shadow-sm hover:border-primary/30 transition-colors cursor-pointer group shrink-0">
+<span class="text-[10px] text-slate-500 font-medium uppercase">偏差等级</span>
+<div class="flex gap-1">
+<span class="px-1 bg-red-100 text-red-700 text-[9px] font-bold rounded-sm">A</span>
+<span class="px-1 bg-amber-100 text-amber-700 text-[9px] font-bold rounded-sm">B</span>
+</div>
+<span class="material-symbols-outlined text-[14px] text-slate-400 group-hover:text-primary">expand_more</span>
+</div>
+<div class="flex items-center gap-2 bg-white border border-border-light rounded px-2 py-1 shadow-sm hover:border-primary/30 transition-colors cursor-pointer group shrink-0">
+<span class="text-[10px] text-slate-500 font-medium uppercase">知识卡命中</span>
+<span class="text-[11px] font-bold text-deep-blue">不限</span>
+<span class="material-symbols-outlined text-[14px] text-slate-400 group-hover:text-primary">expand_more</span>
+</div>
+<div class="h-6 w-px bg-border-light mx-1 shrink-0"></div>
+<div class="relative shrink-0">
+<span class="material-symbols-outlined absolute left-2 top-1.5 text-slate-400 text-[16px]">search</span>
+<input class="bg-white border border-border-light text-deep-blue text-xs rounded pl-7 pr-3 py-1.5 focus:ring-1 focus:ring-primary focus:border-primary placeholder-slate-400 shadow-sm w-40" placeholder="Cluster 编号..." type="text"/>
+</div>
+</div>
+<div class="flex flex-1 overflow-hidden">
+<div class="w-[640px] flex flex-col border-r border-border-light bg-white h-full relative z-0">
+<div class="flex-1 overflow-auto">
+<table class="w-full text-left table-dense border-collapse">
+<thead class="bg-slate-50 sticky top-0 z-10 shadow-sm">
+<tr class="text-[9px] font-bold text-slate-500 uppercase tracking-wide border-b border-border-light">
+<th class="border-r border-slate-100">时间 Time</th>
+<th class="border-r border-slate-100">偏差 Dev%</th>
+<th class="border-r border-slate-100">持续 Dur</th>
+<th class="border-r border-slate-100">Cluster</th>
+<th class="border-r border-slate-100">相似 Sim</th>
+<th class="border-r border-slate-100 w-32">波形 Sparkline</th>
+<th class="border-r border-slate-100">状态 Status</th>
+<th class="text-center">操作</th>
+</tr>
+</thead>
+<tbody class="text-[11px] divide-y divide-border-light font-mono">
+<tr class="bg-primary/5 border-l-4 border-l-primary cursor-pointer hover:bg-primary/10 transition-colors">
+<td class="text-deep-blue font-bold">10:23:45</td>
+<td class="text-red-600 font-bold">+4.25%</td>
+<td class="text-slate-500">5m</td>
+<td class="text-primary font-bold">CL-8X92</td>
+<td class="text-emerald-600 font-bold">98.2%</td>
+<td class="py-1">
+<div class="h-6 w-24 bg-white border border-slate-200 rounded-sm overflow-hidden">
+<img alt="sparkline" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAucL4hFwy7OyINkW3oKfDL6ytz4TFLJlt__MEOL1uI7BAHZ_monZsqoFQ7_pUecvoEQ9qFzeoxWUayywvx1Vn5VVWgQc3HoUZUI5hcblI7LbCLgkYX25rLSmhumF1xeyc8QyvhUf0qYUKkSHwhWJcgl2DNSF1cOaXd6hYOT05HMUM1oSEotyY-ADmT778HsO8f0V92tJLx3ceIG1sbIMoKYAsqGVNfmXlOwupnGAMp8ueR7ANVp5S5d6uW8eKuF5NTkay70rFZLosF"/>
+</div>
+</td>
+<td>
+<span class="px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[9px] font-bold uppercase">未命名</span>
+</td>
+<td class="text-center">
+<a class="text-primary font-bold hover:underline text-[10px] uppercase" href="#">查看</a>
+</td>
+</tr>
+<tr class="border-l-4 border-l-transparent hover:bg-slate-50 transition-colors cursor-pointer">
+<td class="text-deep-blue">10:45:12</td>
+<td class="text-amber-600 font-bold">-1.12%</td>
+<td class="text-slate-500">2m</td>
+<td class="text-slate-600">CL-2B11</td>
+<td class="text-emerald-600 font-bold">91.5%</td>
+<td class="py-1">
+<div class="h-6 w-24 bg-white border border-slate-200 rounded-sm overflow-hidden grayscale opacity-70">
+<img alt="sparkline" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC4l1GGaeVVdGB7RujtYtfUyEnfz5sxbedhQWRJpGN39L0deRhS-na-ZCD3OcO8hS3HjvAhf7xLGXSBzxV6s1jv97ysh6Jzo49704hqkvYJ83kAf4IHtxnvZxiWNGbGmF_7sF16dqF3Co_p9JqkfqUUlDY5RxQnF9ADC35TkQ0XZO6dqL58CKpuFYbKQ7hWhZnz9RAq42dZqS2eLmEsE8YkhbMI2YlCWE7hjZQ_OX7JZoBDosT8UjU-ZwEE3AgmpO4qSgsXCiRYYWS9"/>
+</div>
+</td>
+<td>
+<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[9px] font-bold uppercase">白名单</span>
+</td>
+<td class="text-center">
+<a class="text-slate-400 hover:text-primary font-bold hover:underline text-[10px] uppercase" href="#">查看</a>
+</td>
+</tr>
+<tr class="border-l-4 border-l-transparent hover:bg-slate-50 transition-colors cursor-pointer">
+<td class="text-deep-blue">11:10:05</td>
+<td class="text-red-600 font-bold">+3.80%</td>
+<td class="text-slate-500">8m</td>
+<td class="text-primary font-bold">CL-8X92</td>
+<td class="text-emerald-600 font-bold">96.4%</td>
+<td class="py-1">
+<div class="h-6 w-24 bg-white border border-slate-200 rounded-sm overflow-hidden grayscale opacity-70">
+<img alt="sparkline" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBHZ_qt_29-3zzATyPhRb5u9pgQ6bE0sMz6_R8cTfeYv3iHiBQERAfoJye98SiGZW3ztu7X3chG7jclm1tKOKVtqFzTM0jE0oNcYb_P2c18x2njy2en4cv_yOdQA2caQQYnK_hfg1c20JcUbk8kBXJxWJ0c6scxsIV5OvdFSk730jIH8osdkzIIDYa-wrGc3sVqTCUSkX8mL_bgz5cDWG81DiwLFIbO8lZ1QaC_t9_kWJTlfRrZqIa0vH3fr9rT87tdFltlb0OmYSLW"/>
+</div>
+</td>
+<td>
+<span class="px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[9px] font-bold uppercase">未命名</span>
+</td>
+<td class="text-center">
+<a class="text-slate-400 hover:text-primary font-bold hover:underline text-[10px] uppercase" href="#">查看</a>
+</td>
+</tr>
+<tr class="border-l-4 border-l-transparent hover:bg-slate-50 transition-colors cursor-pointer">
+<td class="text-deep-blue">11:22:15</td>
+<td class="text-red-600 font-bold">+5.10%</td>
+<td class="text-slate-500">12m</td>
+<td class="text-slate-600">CL-9A01</td>
+<td class="text-emerald-600 font-bold">88.2%</td>
+<td class="py-1">
+<div class="h-6 w-24 bg-white border border-slate-200 rounded-sm overflow-hidden grayscale opacity-70">
+<img alt="sparkline" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAucL4hFwy7OyINkW3oKfDL6ytz4TFLJlt__MEOL1uI7BAHZ_monZsqoFQ7_pUecvoEQ9qFzeoxWUayywvx1Vn5VVWgQc3HoUZUI5hcblI7LbCLgkYX25rLSmhumF1xeyc8QyvhUf0qYUKkSHwhWJcgl2DNSF1cOaXd6hYOT05HMUM1oSEotyY-ADmT778HsO8f0V92tJLx3ceIG1sbIMoKYAsqGVNfmXlOwupnGAMp8ueR7ANVp5S5d6uW8eKuF5NTkay70rFZLosF"/>
+</div>
+</td>
+<td>
+<span class="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[9px] font-bold uppercase">红名单</span>
+</td>
+<td class="text-center">
+<a class="text-slate-400 hover:text-primary font-bold hover:underline text-[10px] uppercase" href="#">查看</a>
+</td>
+</tr>
+<tr class="border-l-4 border-l-transparent hover:bg-slate-50 transition-colors cursor-pointer">
+<td class="text-deep-blue">12:05:45</td>
+<td class="text-amber-600 font-bold">-2.05%</td>
+<td class="text-slate-500">3m</td>
+<td class="text-slate-600">CL-2B11</td>
+<td class="text-emerald-600 font-bold">99.1%</td>
+<td class="py-1">
+<div class="h-6 w-24 bg-white border border-slate-200 rounded-sm overflow-hidden grayscale opacity-70">
+<img alt="sparkline" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC4l1GGaeVVdGB7RujtYtfUyEnfz5sxbedhQWRJpGN39L0deRhS-na-ZCD3OcO8hS3HjvAhf7xLGXSBzxV6s1jv97ysh6Jzo49704hqkvYJ83kAf4IHtxnvZxiWNGbGmF_7sF16dqF3Co_p9JqkfqUUlDY5RxQnF9ADC35TkQ0XZO6dqL58CKpuFYbKQ7hWhZnz9RAq42dZqS2eLmEsE8YkhbMI2YlCWE7hjZQ_OX7JZoBDosT8UjU-ZwEE3AgmpO4qSgsXCiRYYWS9"/>
+</div>
+</td>
+<td>
+<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[9px] font-bold uppercase">白名单</span>
+</td>
+<td class="text-center">
+<a class="text-slate-400 hover:text-primary font-bold hover:underline text-[10px] uppercase" href="#">查看</a>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="h-10 border-t border-border-light bg-slate-50 flex items-center justify-between px-4 text-[10px] text-slate-500 font-medium">
+<span>显示 1-5 / 共 12 条记录</span>
+<div class="flex gap-2">
+<button class="hover:text-primary disabled:opacity-50" disabled="">上一页</button>
+<button class="hover:text-primary">下一页</button>
+</div>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto bg-industrial-bg relative">
+<div class="absolute inset-0 grid-pattern opacity-50 pointer-events-none"></div>
+<div class="p-6 max-w-4xl mx-auto space-y-6">
+<div class="bg-white border border-border-light rounded-sm shadow-sm p-6 relative">
+<div class="absolute top-0 left-0 w-1 h-full bg-primary rounded-l-sm"></div>
+<div class="flex justify-between items-start mb-6">
+<div>
+<div class="flex items-center gap-3 mb-2">
+<h2 class="text-xl font-bold text-deep-blue tracking-tight">CLUSTER #CL-8X92</h2>
+<span class="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-slate-200">出现 15 次</span>
+<span class="bg-amber-50 text-amber-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-amber-100">Pending Review</span>
+</div>
+<p class="text-xs text-slate-400 font-mono">First Seen: 2023-10-24 08:30 • Last Seen: 10 mins ago</p>
+</div>
+<div class="flex items-center gap-2">
+<button class="flex flex-col items-center justify-center w-20 h-14 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded transition-all group">
+<span class="material-symbols-outlined text-xl mb-0.5 group-hover:scale-110 transition-transform">verified</span>
+<span class="text-[9px] font-bold uppercase">标记正常</span>
+</button>
+<button class="flex flex-col items-center justify-center w-20 h-14 border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 rounded transition-all group">
+<span class="material-symbols-outlined text-xl mb-0.5 group-hover:scale-110 transition-transform">report</span>
+<span class="text-[9px] font-bold uppercase">标记异常</span>
+</button>
+<button class="flex flex-col items-center justify-center w-20 h-14 border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 rounded transition-all group shadow-sm">
+<span class="material-symbols-outlined text-xl mb-0.5 group-hover:scale-110 transition-transform">help</span>
+<span class="text-[9px] font-bold uppercase">暂不确定</span>
+</button>
+</div>
+</div>
+<div class="bg-slate-50 p-4 rounded border border-border-light">
+<label class="block text-[10px] font-bold text-slate-400 uppercase mb-2">聚类特征命名 Feature Labeling</label>
+<div class="relative">
+<input class="w-full bg-white border border-slate-300 rounded px-4 py-3 text-sm font-medium text-deep-blue shadow-sm focus:ring-2 focus:ring-primary focus:border-primary transition-all placeholder-slate-400" placeholder="请为该特征命名（如：加料回温慢 / 电压波动异常）..." type="text" value="电极支数异常分析 - 待确认"/>
+<button class="absolute right-2 top-2 bg-primary text-white px-3 py-1 rounded text-[10px] font-bold uppercase hover:bg-primary/90">保存命名</button>
+</div>
+</div>
+</div>
+<div class="bg-white border border-border-light rounded-sm shadow-sm overflow-hidden flex flex-col min-h-[320px]">
+<div class="px-5 py-3 border-b border-border-light flex justify-between items-center bg-slate-50/30">
+<h3 class="text-xs font-bold text-deep-blue flex items-center gap-2 uppercase tracking-tight">
+<span class="material-symbols-outlined text-secondary text-[18px]">query_stats</span>
+                            聚类中心波形分析 Cluster Centroid Waveform
+                        </h3>
+<div class="flex gap-2 text-[10px] font-medium text-slate-500">
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-primary"></span> 聚类中心</span>
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-slate-300"></span> 样本范围</span>
+</div>
+</div>
+<div class="flex-1 relative bg-white group">
+<div class="absolute inset-0 opacity-[0.05]" style="background-image: linear-gradient(#000 1px, transparent 1px), linear-gradient(90deg, #000 1px, transparent 1px); background-size: 40px 40px;"></div>
+<div class="absolute top-4 right-4 z-20 bg-primary/10 border border-primary/20 text-primary px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 backdrop-blur-sm">
+<span class="material-symbols-outlined text-[14px]">my_location</span>
+                            Cluster Centroid
+                        </div>
+<div class="absolute inset-0 z-0 p-4">
+<img alt="Waveform" class="w-full h-full object-cover opacity-20 grayscale" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCa3p1oSKgLytoYrMR97cOWtjE6sGSA3xRiYXd6Y8tl1-GwVEfWOTkWu2ZotV649dh4TBTfx37JLEdeL3dgu41CBF6mHPwygyZ7heR4W1b3QCYdkabgoYhQwXNS6-r7rdjydl-XaauyPvXLyrxCJcyOXB8nVUfAVW24B3h75oM-WniZNXpAhyYu4Qrtb22JXcaJlH9KKcypA2TtwC7D_-XW3K59_aM-HM4tZnzdLS9c0fefTP0QP3pU2DzpXJKaDKjt51UyiMlL16XS"/>
+</div>
+<svg class="absolute inset-0 w-full h-full z-10 pointer-events-none p-4" preserveAspectRatio="none" viewBox="0 0 1000 300">
+<path d="M0 150 Q 250 180, 500 50 T 1000 150 L 1000 250 Q 750 280, 500 150 T 0 250 Z" fill="rgba(0, 71, 171, 0.03)"></path>
+<path d="M0 200 Q 250 220, 500 80 T 1000 200" fill="none" stroke="#0047AB" stroke-linecap="round" stroke-width="3"></path>
+<circle cx="500" cy="80" fill="#ffffff" r="4" stroke="#0047AB" stroke-width="2"></circle>
+</svg>
+<div class="absolute top-[25%] left-[50%] -translate-x-1/2 flex flex-col items-center z-30 pointer-events-none">
+<div class="bg-deep-blue text-white p-2 rounded-sm text-[10px] font-mono leading-tight shadow-xl border border-white/20">
+<p class="font-bold text-secondary mb-0.5">Peak Deviation</p>
+<p>Δ +14.2%</p>
+</div>
+<div class="w-px h-8 bg-primary border-l border-dashed border-white/50"></div>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-6">
+<div class="bg-white p-4 border border-border-light rounded-sm shadow-sm">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-slate-400 text-[18px]">functions</span>
+<span class="text-[10px] font-bold text-slate-500 uppercase">平均偏差 Avg. Deviation</span>
+</div>
+<p class="text-2xl font-mono font-bold text-deep-blue">+4.20%</p>
+<div class="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
+<div class="bg-red-500 h-full w-[70%]"></div>
+</div>
+</div>
+<div class="bg-white p-4 border border-border-light rounded-sm shadow-sm">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-slate-400 text-[18px]">schedule</span>
+<span class="text-[10px] font-bold text-slate-500 uppercase">平均持续 Avg. Duration</span>
+</div>
+<p class="text-2xl font-mono font-bold text-deep-blue">6.5 <span class="text-sm text-slate-400 font-sans font-normal">min</span></p>
+<div class="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
+<div class="bg-primary h-full w-[45%]"></div>
+</div>
+</div>
+<div class="bg-white p-4 border border-border-light rounded-sm shadow-sm">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-slate-400 text-[18px]">lightbulb</span>
+<span class="text-[10px] font-bold text-slate-500 uppercase">知识卡匹配 Knowledge</span>
+</div>
+<p class="text-2xl font-bold text-deep-blue">High</p>
+<p class="text-[10px] text-slate-400 mt-1">Matched 3 similar patterns in history</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+
+</body></html>

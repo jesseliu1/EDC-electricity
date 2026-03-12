@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>系统架构与留存 - AI老师傅·智慧熔炼偏差分析</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;family=Noto+Sans+SC:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0f172a", // Darker industrial primary
+                        "primary-accent": "#1152d4", // Active blue
+                        "background-light": "#f3f4f6",
+                        "background-dark": "#101622",
+                        "surface-light": "#ffffff",
+                        "surface-dark": "#1a2234",
+                        "border-light": "#e2e8f0",
+                        "border-dark": "#2d3748",
+                        "text-main-light": "#1e293b",
+                        "text-main-dark": "#e2e8f0",
+                        "text-secondary-light": "#64748b",
+                        "text-secondary-dark": "#94a3b8",
+                        "accent-success": "#10b981",
+                        "accent-danger": "#ef4444",
+                        "accent-cyan": "#06b6d4",
+                        "accent-cyan-hover": "#0891b2",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "Noto Sans SC", "sans-serif"],
+                        "body": ["Inter", "Noto Sans SC", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem",
+                        "lg": "0.75rem",
+                        "xl": "1rem", // Approx 16px, close to 12px requested
+                        "industrial": "0.75rem", // 12px
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 10px rgba(0, 0, 0, 0.03)',
+                        'card': '0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.1)',
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', 'Noto Sans SC', sans-serif;
+        }::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        .flow-line::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 100%;
+            width: 2rem;height: 2px;
+            background-color: #cbd5e1;
+            transform: translateY(-50%);
+            z-index: 0;
+        }
+        .flow-line:last-child::after {
+            display: none;
+        }.hide-scroll::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scroll {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-text-main-light dark:text-text-main-dark h-screen overflow-hidden flex text-sm">
+<aside class="w-64 bg-surface-dark text-gray-300 flex flex-col flex-shrink-0 shadow-xl z-20">
+<div class="h-16 flex items-center gap-3 px-6 border-b border-gray-700/50">
+<div class="flex items-center justify-center size-8 rounded-lg bg-primary-accent text-white">
+<span class="material-symbols-outlined text-xl">ssid_chart</span>
+</div>
+<h1 class="text-base font-bold text-white tracking-wide">AI老师傅</h1>
+</div>
+<nav class="flex-1 overflow-y-auto py-6 px-3 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors" href="#">
+<span class="material-symbols-outlined text-xl">dashboard</span>
+<span>总览 Dashboard</span>
+</a>
+<div class="space-y-1 pt-2">
+<div class="px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">监控与分析</div>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors" href="#">
+<span class="material-symbols-outlined text-xl">monitor_heart</span>
+<span>实时监控</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary-accent text-white shadow-md transition-colors" href="#">
+<span class="material-symbols-outlined text-xl">history</span>
+<span>历史报表</span>
+</a>
+<div class="pl-11 pr-3 space-y-1">
+<a class="block py-1.5 text-xs text-white/90 hover:text-white" href="#">日报与审计</a>
+<a class="block py-1.5 text-xs text-primary-accent font-bold" href="#">系统架构与留存</a>
+</div>
+</div>
+<div class="space-y-1 pt-4">
+<div class="px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">设备管理</div>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors" href="#">
+<span class="material-symbols-outlined text-xl">precision_manufacturing</span>
+<span>设备台账</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors" href="#">
+<span class="material-symbols-outlined text-xl">settings</span>
+<span>系统设置</span>
+</a>
+</div>
+</nav>
+<div class="p-4 border-t border-gray-700/50">
+<div class="flex items-center gap-3">
+<div class="size-8 rounded-full bg-gray-600 bg-cover bg-center" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuC2JtzPU3N_h8agTlWiMlJN58eNz04U1U_PzL8l748YfPVT-NzjgmHcRfJtIe_kxyOCiHiFlkFjuwXmjkZ-ZVf64MSLX5yp2XMUeN2T6VEXBEy3MEUNDCQEN7obpT248h-9Bj-x0Bes638gGXQwxScTRGVKTQDf22-hnjHoOZKPjg7tM220nf600myowOZGumcxRPE7jyaQEhCup8fC81qA-BPvCTLFEjac9Bq_heyjrwyiQb5gkRI30jkbVRHTkMuoNUZ6vMlgkrNc");'></div>
+<div class="flex flex-col">
+<span class="text-xs font-medium text-white">Admin User</span>
+<span class="text-[10px] text-gray-500">系统管理员</span>
+</div>
+</div>
+</div>
+</aside>
+<div class="flex-1 flex flex-col h-full overflow-hidden relative">
+<header class="h-16 bg-surface-light border-b border-border-light flex items-center justify-between px-6 flex-shrink-0 z-10">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 bg-background-light px-3 py-1.5 rounded-md border border-border-light">
+<span class="material-symbols-outlined text-gray-500 text-lg">factory</span>
+<select class="bg-transparent border-none p-0 text-sm font-medium focus:ring-0 text-gray-700">
+<option>第一铸造厂区</option>
+<option>第二精炼厂区</option>
+</select>
+</div>
+<div class="h-4 w-px bg-gray-300"></div>
+<div class="flex items-center gap-2">
+<label class="text-xs text-gray-500">产线:</label>
+<select class="bg-surface-light border-border-light rounded text-xs py-1 pl-2 pr-8 focus:ring-primary-accent focus:border-primary-accent">
+<option>熔炼 A 线</option>
+<option>熔炼 B 线</option>
+</select>
+</div>
+<div class="flex items-center gap-2">
+<label class="text-xs text-gray-500">设备:</label>
+<select class="bg-surface-light border-border-light rounded text-xs py-1 pl-2 pr-8 focus:ring-primary-accent focus:border-primary-accent">
+<option>全部设备</option>
+<option>炉 #1024</option>
+<option>炉 #1025</option>
+</select>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<button class="p-2 text-gray-500 hover:text-primary-accent hover:bg-gray-100 rounded-full transition-colors">
+<span class="material-symbols-outlined">help</span>
+</button>
+<button class="p-2 text-gray-500 hover:text-primary-accent hover:bg-gray-100 rounded-full transition-colors relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-2 right-2 size-2 bg-red-500 rounded-full border-2 border-white"></span>
+</button>
+</div>
+</header>
+<main class="flex-1 overflow-y-auto p-6 lg:p-8 bg-[#f8fafc]">
+<div class="max-w-[1600px] mx-auto flex flex-col h-full">
+<div class="mb-6 pb-6 border-b border-border-light">
+<nav class="flex items-center text-xs text-gray-500 mb-2">
+<a class="hover:text-primary-accent" href="#">首页</a>
+<span class="material-symbols-outlined text-[10px] mx-1">chevron_right</span>
+<a class="hover:text-primary-accent" href="#">监控与分析</a>
+<span class="material-symbols-outlined text-[10px] mx-1">chevron_right</span>
+<a class="hover:text-primary-accent" href="#">日报与审计</a>
+<span class="material-symbols-outlined text-[10px] mx-1">chevron_right</span>
+<span class="text-gray-800 font-medium">系统架构与留存</span>
+</nav>
+<div class="flex items-end justify-between">
+<div>
+<h1 class="text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
+                                系统架构与数据留存 
+                                <span class="text-lg font-light text-gray-400">Architecture &amp; Retention</span>
+</h1>
+<p class="text-gray-500 mt-1 max-w-3xl">可视化展示生产数据从边缘采集到决策生成的闭环链路，管理全生命周期留存策略。</p>
+</div>
+<div class="flex gap-3">
+<button class="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-industrial text-gray-700 hover:bg-gray-50 transition-shadow shadow-sm font-medium">
+<span class="material-symbols-outlined text-lg">refresh</span>
+                                刷新数据
+                            </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-industrial hover:bg-slate-800 transition-shadow shadow-sm font-medium">
+<span class="material-symbols-outlined text-lg">download</span>
+                                导出配置
+                            </button>
+</div>
+</div>
+</div>
+<div class="flex flex-col xl:flex-row gap-6 items-start h-full">
+<div class="flex-1 w-full xl:w-2/3 flex flex-col gap-6">
+<section class="bg-surface-light rounded-xl shadow-card border border-border-light p-6 overflow-hidden">
+<div class="flex items-center justify-between mb-8">
+<h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary-accent">account_tree</span>
+                                    数据全链路流转图
+                                </h3>
+<div class="flex items-center gap-2 text-xs">
+<span class="flex items-center gap-1"><span class="size-2 rounded-full bg-green-500"></span> 正常</span>
+<span class="flex items-center gap-1 text-gray-400">|</span>
+<span class="flex items-center gap-1"><span class="size-2 rounded-full bg-gray-300"></span> 离线</span>
+</div>
+</div>
+<div class="relative overflow-x-auto pb-4 hide-scroll">
+<div class="flex items-stretch min-w-[900px] px-2">
+<div class="flex-1 min-w-[120px] relative flow-line group">
+<div class="h-full p-4 rounded-lg border border-gray-200 bg-gray-50 group-hover:border-primary-accent group-hover:bg-blue-50/30 transition-all flex flex-col items-center text-center gap-3 z-10 relative">
+<div class="size-10 rounded-lg bg-white border border-gray-200 shadow-sm flex items-center justify-center text-gray-600 group-hover:text-primary-accent group-hover:border-primary-accent transition-colors">
+<span class="material-symbols-outlined">router</span>
+</div>
+<div>
+<h4 class="font-bold text-gray-900">EDC 边缘采集</h4>
+<p class="text-[10px] text-gray-500 leading-tight mt-1">高频采样<br/>本地仅保留3天</p>
+</div>
+<div class="mt-auto pt-2">
+<span class="inline-flex size-2 rounded-full bg-green-500 animate-pulse"></span>
+</div>
+</div>
+</div>
+<div class="w-8 flex-shrink-0"></div>
+<div class="flex-1 min-w-[120px] relative flow-line group">
+<div class="h-full p-4 rounded-lg border border-gray-200 bg-gray-50 group-hover:border-primary-accent group-hover:bg-blue-50/30 transition-all flex flex-col items-center text-center gap-3 z-10 relative">
+<div class="size-10 rounded-lg bg-white border border-gray-200 shadow-sm flex items-center justify-center text-gray-600 group-hover:text-primary-accent transition-colors">
+<span class="material-symbols-outlined">sync_lock</span>
+</div>
+<div>
+<h4 class="font-bold text-gray-900">定时抽取</h4>
+<p class="text-[10px] text-gray-500 leading-tight mt-1">自动化同步任务<br/>Interval: 5m</p>
+</div>
+</div>
+</div>
+<div class="w-8 flex-shrink-0"></div>
+<div class="flex-1 min-w-[120px] relative flow-line group">
+<div class="h-full p-4 rounded-lg border-2 border-primary-accent/20 bg-primary-accent/5 flex flex-col items-center text-center gap-3 z-10 relative shadow-soft">
+<div class="absolute -top-2 -right-2 bg-primary-accent text-white text-[10px] font-bold px-1.5 py-0.5 rounded">Core</div>
+<div class="size-10 rounded-lg bg-white border border-primary-accent shadow-sm flex items-center justify-center text-primary-accent">
+<span class="material-symbols-outlined">database</span>
+</div>
+<div>
+<h4 class="font-bold text-gray-900">中心审计库</h4>
+<p class="text-[10px] text-gray-600 leading-tight mt-1 font-medium">核心对象存储<br/>留存365天(可配置)</p>
+</div>
+</div>
+</div>
+<div class="w-8 flex-shrink-0"></div>
+<div class="flex-1 min-w-[120px] relative flow-line group">
+<div class="h-full p-4 rounded-lg border border-gray-200 bg-gray-50 group-hover:border-primary-accent group-hover:bg-blue-50/30 transition-all flex flex-col items-center text-center gap-3 z-10 relative">
+<div class="size-10 rounded-lg bg-white border border-gray-200 shadow-sm flex items-center justify-center text-gray-600 group-hover:text-primary-accent transition-colors">
+<span class="material-symbols-outlined">model_training</span>
+</div>
+<div>
+<h4 class="font-bold text-gray-900">偏差分析引擎</h4>
+<p class="text-[10px] text-gray-500 leading-tight mt-1">AI深度特征匹配<br/>Version 2.4</p>
+</div>
+</div>
+</div>
+<div class="w-8 flex-shrink-0"></div>
+<div class="flex-1 min-w-[120px] relative flow-line group">
+<div class="h-full p-4 rounded-lg border border-gray-200 bg-gray-50 group-hover:border-primary-accent group-hover:bg-blue-50/30 transition-all flex flex-col items-center text-center gap-3 z-10 relative">
+<div class="size-10 rounded-lg bg-white border border-gray-200 shadow-sm flex items-center justify-center text-gray-600 group-hover:text-primary-accent transition-colors">
+<span class="material-symbols-outlined">auto_stories</span>
+</div>
+<div>
+<h4 class="font-bold text-gray-900">知识卡库</h4>
+<p class="text-[10px] text-gray-500 leading-tight mt-1">专家经验关联<br/>K-Base Link</p>
+</div>
+</div>
+</div>
+<div class="w-8 flex-shrink-0"></div>
+<div class="flex-1 min-w-[120px] relative flow-line group">
+<div class="h-full p-4 rounded-lg border border-gray-200 bg-gray-50 group-hover:border-primary-accent group-hover:bg-blue-50/30 transition-all flex flex-col items-center text-center gap-3 z-10 relative">
+<div class="size-10 rounded-lg bg-white border border-gray-200 shadow-sm flex items-center justify-center text-gray-600 group-hover:text-primary-accent transition-colors">
+<span class="material-symbols-outlined">assignment_turned_in</span>
+</div>
+<div>
+<h4 class="font-bold text-gray-900">纠偏任务单</h4>
+<p class="text-[10px] text-gray-500 leading-tight mt-1">闭环工单下发<br/>Action Required</p>
+</div>
+</div>
+</div>
+<div class="w-8 flex-shrink-0"></div>
+<div class="flex-1 min-w-[120px] relative group">
+<div class="h-full p-4 rounded-lg border border-gray-200 bg-gray-50 group-hover:border-primary-accent group-hover:bg-blue-50/30 transition-all flex flex-col items-center text-center gap-3 z-10 relative">
+<div class="size-10 rounded-lg bg-white border border-gray-200 shadow-sm flex items-center justify-center text-gray-600 group-hover:text-primary-accent transition-colors">
+<span class="material-symbols-outlined">picture_as_pdf</span>
+</div>
+<div>
+<h4 class="font-bold text-gray-900">日报 PDF</h4>
+<p class="text-[10px] text-gray-500 leading-tight mt-1">审计报告<br/>自动生成</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<div class="bg-blue-50 border-l-4 border-primary-accent rounded-r-xl p-5 flex items-start gap-4 shadow-sm">
+<div class="p-2 bg-blue-100 rounded-full text-primary-accent shrink-0">
+<span class="material-symbols-outlined text-xl">info</span>
+</div>
+<div class="flex flex-col md:flex-row md:items-center gap-6 w-full">
+<div>
+<h4 class="font-bold text-gray-900 text-sm mb-1">留存策略须知</h4>
+<p class="text-xs text-gray-600">请确保本地存储空间充足，以免数据被提前轮替。</p>
+</div>
+<div class="flex-1 flex flex-col sm:flex-row gap-4">
+<div class="flex items-center gap-2 bg-white px-3 py-2 rounded border border-blue-100 shadow-sm">
+<span class="material-symbols-outlined text-gray-500 text-lg">sd_storage</span>
+<div class="text-xs">
+<span class="font-bold text-gray-800">边缘:</span>
+<span class="text-gray-600">原始数据回放窗口 3 天</span>
+</div>
+</div>
+<div class="flex items-center gap-2 bg-white px-3 py-2 rounded border border-blue-100 shadow-sm">
+<span class="material-symbols-outlined text-gray-500 text-lg">cloud_done</span>
+<div class="text-xs">
+<span class="font-bold text-gray-800">中心:</span>
+<span class="text-gray-600">长期审计留存 365天+ (符合合规)</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="w-full xl:w-1/3 flex flex-col">
+<section class="bg-surface-light rounded-xl shadow-card border border-border-light p-6 h-full flex flex-col">
+<div class="flex items-center justify-between mb-6">
+<h3 class="text-lg font-bold text-gray-800">同步健康状态</h3>
+<div class="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded flex items-center gap-1">
+<span class="size-2 bg-green-500 rounded-full animate-pulse"></span> Running
+                                </div>
+</div>
+<div class="flex-1 flex flex-col gap-4">
+<div class="p-4 rounded-lg bg-gray-50 border border-gray-100 flex justify-between items-center">
+<div class="flex items-center gap-3">
+<div class="size-8 rounded bg-white shadow-sm flex items-center justify-center text-gray-400">
+<span class="material-symbols-outlined text-lg">schedule</span>
+</div>
+<span class="text-gray-600 font-medium">上次同步时间</span>
+</div>
+<span class="font-mono font-bold text-gray-900">10:45:22</span>
+</div>
+<div class="p-4 rounded-lg bg-gray-50 border border-gray-100 flex justify-between items-center">
+<div class="flex items-center gap-3">
+<div class="size-8 rounded bg-white shadow-sm flex items-center justify-center text-gray-400">
+<span class="material-symbols-outlined text-lg">network_check</span>
+</div>
+<span class="text-gray-600 font-medium">同步延迟</span>
+</div>
+<span class="font-mono font-bold text-green-600">45 ms</span>
+</div>
+<div class="p-4 rounded-lg bg-gray-50 border border-gray-100 flex justify-between items-center">
+<div class="flex items-center gap-3">
+<div class="size-8 rounded bg-white shadow-sm flex items-center justify-center text-gray-400">
+<span class="material-symbols-outlined text-lg">error_outline</span>
+</div>
+<span class="text-gray-600 font-medium">失败次数 (24h)</span>
+</div>
+<span class="font-mono font-bold text-gray-900">0</span>
+</div>
+<div class="p-4 rounded-lg bg-gray-50 border border-gray-100 flex flex-col gap-2">
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-3">
+<div class="size-8 rounded bg-white shadow-sm flex items-center justify-center text-gray-400">
+<span class="material-symbols-outlined text-lg">folder_zip</span>
+</div>
+<span class="text-gray-600 font-medium">今日归档数据量</span>
+</div>
+<span class="font-mono font-bold text-gray-900">2.4 GB</span>
+</div>
+<div class="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+<div class="bg-primary-accent h-1.5 rounded-full" style="width: 35%"></div>
+</div>
+<div class="flex justify-between text-[10px] text-gray-400">
+<span>Current: 35%</span>
+<span>Quota: 1TB</span>
+</div>
+</div>
+</div>
+<div class="mt-8 pt-6 border-t border-gray-100">
+<button class="w-full py-3 px-4 bg-accent-cyan hover:bg-accent-cyan-hover text-white rounded-lg font-bold shadow-lg shadow-accent-cyan/20 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">sync</span>
+                                    立即重试同步
+                                </button>
+<p class="text-center text-xs text-gray-400 mt-3">上次手动触发: 2天前 by Admin</p>
+</div>
+</section>
+</div>
+</div>
+<div class="mt-auto py-6 flex justify-center text-xs text-gray-400 gap-4">
+<span>Server: CN-East-2</span>
+<span>•</span>
+<span>Latency: 12ms</span>
+<span>•</span>
+<span>Version 2.4.1 (Build 20231024)</span>
+</div>
+</div>
+</main>
+</div>
+
+</body></html>

@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>炉次详情深度分析 Heat Detail Analysis - AI老师傅</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#1152d4",
+                        "primary-dark": "#0d42af",
+                        "background-light": "#f8fafc","background-dark": "#0f172a",
+                        "surface-light": "#ffffff",
+                        "surface-dark": "#1e293b",
+                        "industrial-gray": "#e2e8f0",
+                        "industrial-border": "#cbd5e1",
+                        "cyan-bright": "#06b6d4",
+                        "voltage-purple": "#8b5cf6",
+                        "alert-red": "#ef4444",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {"DEFAULT": "0.375rem", "lg": "0.75rem", "xl": "1rem", "full": "9999px"},
+                    boxShadow: {
+                        "industrial": "0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)",
+                        "glow-cyan": "0 0 15px rgba(6, 182, 212, 0.2)",
+                        "glow-purple": "0 0 15px rgba(139, 92, 246, 0.2)",
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .sidebar-item-active {
+            background-color: #1e293b;
+            color: #ffffff;
+            position: relative;
+        }
+        .sidebar-item-active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background-color: #06b6d4;
+            border-top-right-radius: 4px;
+            border-bottom-right-radius: 4px;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-800 dark:text-slate-100 font-display h-screen flex overflow-hidden">
+<aside class="w-64 bg-slate-900 text-slate-400 flex flex-col flex-shrink-0 z-20 shadow-xl transition-all duration-300">
+<div class="h-16 flex items-center gap-3 px-5 border-b border-slate-800 bg-slate-950">
+<div class="flex h-8 w-8 items-center justify-center rounded bg-primary text-white shadow-glow-cyan flex-shrink-0">
+<span class="material-symbols-outlined text-[20px]">analytics</span>
+</div>
+<div class="flex flex-col">
+<span class="text-sm font-bold text-white tracking-wide">AI老师傅·智慧熔炼</span>
+<span class="text-[10px] text-slate-500 font-mono">V 2.5.0 PRO</span>
+</div>
+</div>
+<nav class="flex-1 overflow-y-auto py-6 space-y-1">
+<div class="px-4 mb-2 text-[10px] uppercase font-bold text-slate-600 tracking-wider">Overview</div>
+<a class="flex items-center gap-3 px-5 py-2.5 text-sm font-medium hover:bg-slate-800 hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">dashboard</span>
+                全局概览 Dashboard
+            </a>
+<a class="flex items-center gap-3 px-5 py-2.5 text-sm font-medium hover:bg-slate-800 hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">monitor_heart</span>
+                实时监控 Monitoring
+            </a>
+<div class="px-4 mt-6 mb-2 text-[10px] uppercase font-bold text-slate-600 tracking-wider">Analysis</div>
+<a class="sidebar-item-active flex items-center gap-3 px-5 py-2.5 text-sm font-medium transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px] text-cyan-400">difference</span>
+                偏差分析 Deviation
+            </a>
+<a class="flex items-center gap-3 px-5 py-2.5 text-sm font-medium hover:bg-slate-800 hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">history</span>
+                历史炉次 History
+            </a>
+<a class="flex items-center gap-3 px-5 py-2.5 text-sm font-medium hover:bg-slate-800 hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">library_books</span>
+                知识库 Knowledge
+            </a>
+<div class="px-4 mt-6 mb-2 text-[10px] uppercase font-bold text-slate-600 tracking-wider">System</div>
+<a class="flex items-center gap-3 px-5 py-2.5 text-sm font-medium hover:bg-slate-800 hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">settings</span>
+                系统设置 Settings
+            </a>
+</nav>
+<div class="p-4 border-t border-slate-800 bg-slate-900/50">
+<button class="flex items-center gap-3 w-full group">
+<div class="h-9 w-9 rounded-full bg-cover bg-center border border-slate-600" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBrtVoz5rjn2M-e709HUk7Gb3TjCIuwLvMkBFpKNoNh-whocnR8-lnVSeIEGmfzeMCQy_31fjvXIG59VN0sOz6GTrsxN5mE-RQJbYmUUvHe_7EdvqGb7FgGIO4qlVSuKCYd8m2GkpxkBokItSiAOMZhqpheqlQdut-KsDF9otLzfVsO0-5tUsmqKdFWe6KC2QK3l13prgjuWu00ZUD6zdJ0hNYxRC_zxTMcLXtfCeQdELkvu4enIRIuDTdT3-Pg_FdPDusncs5IoaG3');"></div>
+<div class="flex flex-col items-start">
+<span class="text-sm font-medium text-slate-300 group-hover:text-white transition-colors">李工程师</span>
+<span class="text-xs text-slate-600">高级工艺专家</span>
+</div>
+<span class="material-symbols-outlined ml-auto text-slate-600 group-hover:text-white transition-colors">expand_more</span>
+</button>
+</div>
+</aside>
+<div class="flex-1 flex flex-col min-w-0 bg-[#f8fafc] dark:bg-background-dark overflow-hidden">
+<header class="h-16 bg-surface-light dark:bg-surface-dark border-b border-industrial-border dark:border-slate-700 flex items-center justify-between px-6 z-10 shadow-sm">
+<div class="flex items-center gap-4">
+<button class="text-slate-400 hover:text-primary lg:hidden">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<div class="hidden md:flex items-center gap-2 pl-2">
+<div class="flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-industrial-gray dark:border-slate-700 rounded text-sm text-slate-700 dark:text-slate-300 cursor-pointer hover:border-primary transition-colors group">
+<span class="material-symbols-outlined text-[18px] text-slate-400 group-hover:text-primary">factory</span>
+<span class="font-medium">第一炼钢厂 Plant A</span>
+<span class="material-symbols-outlined text-[16px] text-slate-400">arrow_drop_down</span>
+</div>
+<div class="w-2 h-px bg-gray-300 dark:bg-gray-600"></div>
+<div class="flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-slate-800 border border-industrial-gray dark:border-slate-700 rounded text-sm text-slate-700 dark:text-slate-300 cursor-pointer hover:border-primary transition-colors group">
+<span class="material-symbols-outlined text-[18px] text-slate-400 group-hover:text-primary">hub</span>
+<span class="font-medium">2号产线 Line 2</span>
+<span class="material-symbols-outlined text-[16px] text-slate-400">arrow_drop_down</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-5">
+<div class="flex items-center bg-gray-50 dark:bg-slate-800 rounded-md border border-industrial-gray dark:border-slate-700 px-3 py-1.5 w-64">
+<span class="material-symbols-outlined text-slate-400 text-[20px]">search</span>
+<input class="bg-transparent border-none text-sm text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:ring-0 w-full p-0 ml-2" placeholder="输入炉次号或ID搜索..." type="text"/>
+</div>
+<div class="relative">
+<span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-alert-red rounded-full border-2 border-white dark:border-slate-800"></span>
+<button class="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+<span class="material-symbols-outlined text-[24px]">notifications</span>
+</button>
+</div>
+</div>
+</header>
+<main class="flex-1 overflow-y-auto p-6 lg:p-8 scroll-smooth">
+<div class="max-w-[1600px] mx-auto flex flex-col gap-6">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-gray-200 dark:border-gray-700 pb-6">
+<div class="flex flex-col gap-1">
+<nav class="flex items-center gap-2 text-xs font-medium text-slate-500 mb-2">
+<a class="hover:text-primary transition-colors" href="#">首页</a>
+<span class="material-symbols-outlined text-[10px]">chevron_right</span>
+<a class="hover:text-primary transition-colors" href="#">偏差分析</a>
+<span class="material-symbols-outlined text-[10px]">chevron_right</span>
+<span class="text-slate-900 dark:text-white font-semibold">详情</span>
+</nav>
+<h1 class="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                            炉次详情深度分析 <span class="text-lg font-normal text-slate-400 font-mono tracking-tight">Detail Analysis</span>
+</h1>
+<p class="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                            基于AI专家模型深度解析熔炼参数，识别偏差根因并提供处置证据。
+                        </p>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-xs text-slate-400">上次更新: 10分钟前</span>
+<button class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-medium rounded shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 hover:text-primary hover:border-primary transition-all group">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary">print</span>
+                            打印分析报告
+                        </button>
+</div>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark rounded-lg border border-industrial-gray dark:border-slate-700 p-5 shadow-industrial flex flex-wrap lg:flex-nowrap items-center justify-between gap-4">
+<div class="flex items-center gap-8 flex-wrap">
+<div class="flex flex-col gap-1">
+<span class="text-[10px] uppercase text-slate-400 font-bold tracking-wider">炉次编号 Heat No.</span>
+<div class="flex items-center gap-2">
+<span class="text-xl font-bold font-mono text-slate-900 dark:text-white tracking-tight">HT-20231024-002</span>
+<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800">待纠偏</span>
+</div>
+</div>
+<div class="w-px h-10 bg-gray-200 dark:bg-slate-700"></div>
+<div class="flex flex-col gap-1">
+<span class="text-[10px] uppercase text-slate-400 font-bold tracking-wider">日期 Date</span>
+<span class="text-sm font-medium text-slate-700 dark:text-slate-300 font-mono">2023-10-24 10:15</span>
+</div>
+<div class="w-px h-10 bg-gray-200 dark:bg-slate-700"></div>
+<div class="flex flex-col gap-1">
+<span class="text-[10px] uppercase text-slate-400 font-bold tracking-wider">熔炼时长 Duration</span>
+<span class="text-sm font-medium font-mono text-slate-700 dark:text-slate-300">45m 30s</span>
+</div>
+<div class="w-px h-10 bg-gray-200 dark:bg-slate-700"></div>
+<div class="flex flex-col gap-1">
+<span class="text-[10px] uppercase text-slate-400 font-bold tracking-wider">基线版本 Baseline</span>
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-green-600">verified</span>
+<span class="text-sm font-bold text-slate-700 dark:text-slate-300">V2.4 (Golden)</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-8">
+<div class="flex flex-col items-end">
+<span class="text-[10px] uppercase text-slate-400 font-bold tracking-wider">综合偏差 Deviation</span>
+<span class="text-2xl font-bold font-mono text-alert-red tracking-tight">18.2%</span>
+</div>
+<div class="flex flex-col items-end min-w-[100px]">
+<span class="text-[10px] uppercase text-slate-400 font-bold tracking-wider">AI 置信度 Confidence</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-cyan-bright animate-pulse">psychology</span>
+<span class="text-2xl font-bold font-mono text-cyan-bright tracking-tight">92%</span>
+</div>
+</div>
+</div>
+</div>
+<div class="flex flex-col xl:flex-row gap-6 h-full flex-1">
+<div class="xl:w-2/3 flex flex-col gap-6">
+<div class="flex-1 bg-surface-light dark:bg-surface-dark rounded-lg border border-industrial-gray dark:border-slate-700 p-6 shadow-industrial flex flex-col min-h-[480px]">
+<div class="flex justify-between items-start mb-6">
+<div>
+<h3 class="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-sm bg-cyan-bright"></span>
+                                        功率与电压叠加分析 Power &amp; Voltage Overlay
+                                    </h3>
+<p class="text-xs text-slate-500 mt-1.5 ml-4.5">Comparing Current Heat (Cyan) vs. Golden Baseline (Gray Dashed) with Voltage Overlay</p>
+</div>
+<div class="flex items-center bg-gray-50 dark:bg-slate-800 rounded-md border border-gray-200 dark:border-slate-700 p-1">
+<button class="p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded text-slate-500 hover:text-primary transition-colors" title="Zoom In"><span class="material-symbols-outlined text-[18px]">add</span></button>
+<button class="p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded text-slate-500 hover:text-primary transition-colors" title="Zoom Out"><span class="material-symbols-outlined text-[18px]">remove</span></button>
+<div class="w-px h-4 bg-gray-300 dark:bg-slate-600 mx-1"></div>
+<button class="p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded text-slate-500 hover:text-primary transition-colors" title="Reset"><span class="material-symbols-outlined text-[18px]">restart_alt</span></button>
+</div>
+</div>
+<div class="relative w-full flex-1 border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 rounded-md overflow-hidden">
+<div class="absolute left-3 top-4 bottom-8 flex flex-col justify-between text-[10px] text-slate-400 font-mono pointer-events-none z-10">
+<span>300 kW</span><span>250 kW</span><span>200 kW</span><span>150 kW</span><span>100 kW</span><span>50 kW</span><span>0 kW</span>
+</div>
+<div class="absolute right-3 top-4 bottom-8 flex flex-col justify-between text-[10px] text-slate-400 font-mono text-right pointer-events-none z-10">
+<span class="text-voltage-purple font-bold">480 V</span>
+<span>400 V</span><span>320 V</span><span>240 V</span><span>160 V</span><span>80 V</span><span>0 V</span>
+</div>
+<svg class="w-full h-full absolute inset-0 pt-4 pb-8 pl-12 pr-12" preserveAspectRatio="none" viewBox="0 0 1000 400">
+<g class="stroke-gray-200 dark:stroke-slate-800" stroke-dasharray="4,4" stroke-width="1">
+<line x1="0" x2="1000" y1="50" y2="50"></line>
+<line x1="0" x2="1000" y1="110" y2="110"></line>
+<line x1="0" x2="1000" y1="170" y2="170"></line>
+<line x1="0" x2="1000" y1="230" y2="230"></line>
+<line x1="0" x2="1000" y1="290" y2="290"></line>
+<line x1="0" x2="1000" y1="350" y2="350"></line>
+</g>
+<path d="M600,100 L750,80 L750,250 L600,220 Z" fill="rgba(239, 68, 68, 0.1)" stroke="none"></path>
+<path d="M0,350 C100,350 150,200 200,180 S300,150 400,150 S500,100 600,100 S800,90 900,90 S1000,85" fill="none" opacity="0.6" stroke="#94a3b8" stroke-dasharray="6,4" stroke-width="2"></path>
+<path d="M0,350 C100,345 150,210 200,190 S300,160 400,155 S500,110 600,130 S700,120 750,110 S900,95 1000,90" fill="none" filter="drop-shadow(0 0 4px rgba(6,182,212,0.3))" stroke="#06b6d4" stroke-width="3"></path>
+<path d="M0,380 L100,360 L150,355 L200,350 L300,340 L350,320 L400,300 L500,290 L600,280 L700,275 L800,270 L900,265 L1000,260" fill="none" stroke="#8b5cf6" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"></path>
+<foreignObject height="30" width="90" x="420" y="270">
+<div class="px-2 py-0.5 bg-violet-100 dark:bg-violet-900/40 border border-violet-200 dark:border-violet-700 text-violet-700 dark:text-violet-300 rounded text-[10px] font-bold backdrop-blur-sm shadow-sm flex items-center justify-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
+                                            Voltage (V)
+                                        </div>
+</foreignObject>
+<line opacity="0.6" stroke="#ef4444" stroke-dasharray="2,2" stroke-width="1" x1="600" x2="600" y1="0" y2="400"></line>
+<line opacity="0.6" stroke="#ef4444" stroke-dasharray="2,2" stroke-width="1" x1="750" x2="750" y1="0" y2="400"></line>
+<foreignObject height="40" width="120" x="610" y="50">
+<div class="px-2 py-1 bg-red-500/10 border border-red-500/20 text-red-600 rounded text-[10px] font-bold backdrop-blur-sm">
+                                            Deviation &gt; 15%
+                                        </div>
+</foreignObject>
+</svg>
+<div class="absolute left-12 right-12 bottom-2 flex justify-between text-[10px] text-slate-400 font-mono pointer-events-none">
+<span>00:00</span><span>05:00</span><span>10:00</span><span>15:00</span><span>20:00</span><span>25:00</span><span>30:00</span><span>35:00</span><span>40:00</span><span>45:00</span>
+</div>
+</div>
+<div class="flex items-center justify-center gap-8 mt-5 text-xs text-slate-600 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800 pt-3">
+<div class="flex items-center gap-2">
+<span class="w-5 h-1 bg-cyan-bright rounded-full"></span>
+<span class="font-medium">当前炉次 Current Heat (kW)</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-5 h-1 bg-voltage-purple rounded-full shadow-glow-purple"></span>
+<span class="font-bold text-voltage-purple">当前电压 Current Voltage (V)</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-5 h-0.5 bg-slate-400 border-t border-dashed border-slate-400"></span>
+<span class="font-medium">黄金基线 Golden Baseline</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-3 h-3 bg-red-500/20 border border-red-500/30 rounded-sm"></span>
+<span class="font-medium text-red-600 dark:text-red-400">偏差区间 Deviation Zone</span>
+</div>
+</div>
+</div>
+<div class="h-[200px] bg-surface-light dark:bg-surface-dark rounded-lg border border-industrial-gray dark:border-slate-700 p-5 shadow-industrial">
+<div class="flex justify-between items-center mb-2">
+<h3 class="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wide">
+                                    偏差累计趋势 Cumulative Deviation Trend
+                                </h3>
+<div class="flex items-center gap-2 text-[10px]">
+<span class="flex items-center gap-1 text-orange-600 dark:text-orange-400 font-medium bg-orange-50 dark:bg-orange-900/20 px-2 py-0.5 rounded border border-orange-200 dark:border-orange-800">
+<span class="material-symbols-outlined text-[12px]">warning</span>
+                                        Trigger Point: 13.5%
+                                    </span>
+</div>
+</div>
+<div class="relative w-full h-[120px] border-t border-gray-100 dark:border-slate-800 pt-2">
+<svg class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 1000 140">
+<line stroke="#cbd5e1" stroke-width="1" x1="0" x2="1000" y1="120" y2="120"></line>
+<path d="M0,120 L200,115 L400,110 L500,100 L580,80 L600,40 L650,20 L700,30 L750,50 L850,90 L1000,110 L1000,120 Z" fill="url(#gradient-deviation)" opacity="0.6"></path>
+<path d="M0,120 L200,115 L400,110 L500,100 L580,80 L600,40 L650,20 L700,30 L750,50 L850,90 L1000,110" fill="none" stroke="#ef4444" stroke-width="2"></path>
+<g>
+<circle cx="600" cy="40" fill="#ef4444" r="3"></circle>
+<text fill="#ef4444" font-size="10" font-weight="bold" text-anchor="middle" x="600" y="25">Start 25:10</text>
+<line opacity="0.5" stroke="#ef4444" stroke-dasharray="2,2" stroke-width="1" x1="600" x2="600" y1="40" y2="140"></line>
+</g>
+<g>
+<circle cx="750" cy="50" fill="#10b981" r="3"></circle>
+<text fill="#10b981" font-size="10" font-weight="bold" text-anchor="middle" x="750" y="35">End 31:45</text>
+<line opacity="0.5" stroke="#10b981" stroke-dasharray="2,2" stroke-width="1" x1="750" x2="750" y1="50" y2="140"></line>
+</g>
+<defs>
+<linearGradient id="gradient-deviation" x1="0" x2="0" y1="0" y2="1">
+<stop offset="0%" stop-color="#ef4444" stop-opacity="0.5"></stop>
+<stop offset="100%" stop-color="#ef4444" stop-opacity="0"></stop>
+</linearGradient>
+</defs>
+</svg>
+</div>
+</div>
+</div>
+<div class="xl:w-1/3 flex flex-col gap-6">
+<div class="bg-surface-light dark:bg-surface-dark rounded-lg border border-cyan-500/30 dark:border-cyan-500/30 p-0 shadow-lg flex flex-col h-full overflow-hidden relative">
+<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-400 to-blue-600"></div>
+<div class="p-5 border-b border-gray-100 dark:border-slate-800 bg-cyan-50/30 dark:bg-cyan-900/10">
+<div class="flex items-center gap-3 mb-1">
+<div class="p-1.5 bg-gradient-to-br from-cyan-400 to-blue-600 rounded text-white shadow-glow-cyan">
+<span class="material-symbols-outlined text-[20px]">auto_fix_high</span>
+</div>
+<h3 class="text-lg font-bold text-slate-800 dark:text-white">AI 智能诊断</h3>
+</div>
+<p class="text-xs text-slate-500 ml-10">Matching Knowledge Base ID: <span class="font-mono text-primary font-medium">KB-ELEC-042</span></p>
+</div>
+<div class="p-6 flex-1 flex flex-col gap-6 overflow-y-auto max-h-[600px] xl:max-h-none">
+<div>
+<h4 class="text-xs font-bold uppercase text-slate-400 tracking-wider mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">search</span> 疑似原因 Root Cause
+                                    </h4>
+<div class="bg-red-50 dark:bg-red-900/10 border-l-4 border-red-500 p-3 rounded-r-md">
+<p class="text-sm font-bold text-slate-800 dark:text-slate-200">电极老化导致电阻异常升高</p>
+<p class="text-xs text-slate-500 mt-1">Electrode Aging Anomaly detected. Resistance spike correlates with historic failure patterns.</p>
+</div>
+</div>
+<div>
+<h4 class="text-xs font-bold uppercase text-slate-400 tracking-wider mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">lightbulb</span> 建议处置 Recommendation
+                                    </h4>
+<div class="bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800 p-4 rounded-md shadow-sm">
+<ul class="space-y-3">
+<li class="flex items-start gap-3">
+<span class="flex-shrink-0 w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-800 text-blue-600 dark:text-blue-300 flex items-center justify-center text-xs font-bold shadow-sm">1</span>
+<span class="text-sm text-slate-700 dark:text-slate-300">
+                                                    调增功率 <strong class="text-blue-600 dark:text-blue-400">+5%</strong> 以补偿热损耗
+                                                </span>
+</li>
+<li class="flex items-start gap-3">
+<span class="flex-shrink-0 w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-800 text-blue-600 dark:text-blue-300 flex items-center justify-center text-xs font-bold shadow-sm">2</span>
+<span class="text-sm text-slate-700 dark:text-slate-300">
+                                                    延长精炼时间 <strong class="text-blue-600 dark:text-blue-400">10分钟</strong>
+</span>
+</li>
+</ul>
+</div>
+</div>
+<div>
+<h4 class="text-xs font-bold uppercase text-slate-400 tracking-wider mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">link</span> 证据链接 Evidence
+                                    </h4>
+<a class="block p-3 rounded border border-gray-200 dark:border-slate-700 hover:border-primary hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all group" href="#">
+<div class="flex justify-between items-center">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-primary">insert_chart</span>
+<div>
+<div class="text-xs font-bold text-slate-700 dark:text-slate-200 group-hover:text-primary">相似历史炉次 #HT-20220815</div>
+<div class="text-[10px] text-slate-500">Correlation: 94.5%</div>
+</div>
+</div>
+<span class="material-symbols-outlined text-[16px] text-slate-300 group-hover:text-primary">open_in_new</span>
+</div>
+</a>
+</div>
+</div>
+<div class="p-5 border-t border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50 flex flex-col gap-3">
+<button class="w-full py-3 bg-cyan-bright hover:bg-cyan-600 text-white rounded font-bold shadow-lg shadow-cyan-500/30 transition-all transform active:scale-[0.98] flex items-center justify-center gap-2 group">
+<span class="material-symbols-outlined group-hover:animate-spin">settings_suggest</span>
+                                    生成纠偏任务单 Generate Task
+                                </button>
+<button class="w-full py-2 bg-white dark:bg-surface-dark border border-gray-300 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded font-medium text-sm transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]">inbox</span>
+                                    加入偏差收件箱 Add to Inbox
+                                </button>
+</div>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark rounded-lg border border-industrial-gray dark:border-slate-700 p-5 shadow-industrial">
+<h4 class="text-xs font-bold uppercase text-slate-500 mb-4 tracking-wider">关键参数快照 Key Parameters</h4>
+<div class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+<div class="flex justify-between py-1.5 border-b border-gray-100 dark:border-slate-800">
+<span class="text-slate-500">Start Temp</span>
+<span class="font-mono font-medium text-slate-900 dark:text-white">1240°C</span>
+</div>
+<div class="flex justify-between py-1.5 border-b border-gray-100 dark:border-slate-800">
+<span class="text-slate-500">End Temp</span>
+<span class="font-mono font-medium text-slate-900 dark:text-white">1420°C</span>
+</div>
+<div class="flex justify-between py-1.5 border-b border-gray-100 dark:border-slate-800">
+<span class="text-slate-500">Peak Power</span>
+<span class="font-mono font-medium text-slate-900 dark:text-white">245 kW</span>
+</div>
+<div class="flex justify-between py-1.5 border-b border-gray-100 dark:border-slate-800">
+<span class="text-slate-500">Avg Voltage</span>
+<span class="font-mono font-bold text-voltage-purple">380 V</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+
+</body></html>

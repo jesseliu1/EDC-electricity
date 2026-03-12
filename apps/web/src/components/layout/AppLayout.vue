@@ -25,7 +25,7 @@ const handleCloseMobileMenu = () => {
 </script>
 
 <template>
-  <div class="h-screen flex overflow-hidden bg-bg-page font-display">
+  <div class="h-screen flex overflow-hidden bg-background-light font-display">
     <!-- 桌面端侧边栏 -->
     <div class="hidden lg:block">
       <AppSidebar :collapsed="sidebarCollapsed" @toggle="handleToggleSidebar" />

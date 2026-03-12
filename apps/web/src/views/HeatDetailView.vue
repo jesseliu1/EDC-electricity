@@ -3,20 +3,12 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  ElButton,
-  ElCard,
   ElDatePicker,
-  ElEmpty,
-  ElInput,
   ElMessage,
   ElMessageBox,
-  ElTabPane,
-  ElTabs,
   ElTimeline,
-  ElTimelineItem,
-  ElTag
+  ElTimelineItem
 } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -25,6 +17,8 @@ import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/compon
 import type { EChartsOption } from 'echarts'
 import dayjs from 'dayjs'
 import { useHeatStore } from '@/stores/heat'
+import PageHeader from '@/components/common/PageHeader.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
 
@@ -49,7 +43,7 @@ const selectedComparison = computed(() => {
   if (!current.value) return null
   if (current.value.baselineComparisons.length === 0) return null
   return (
-    current.value.baselineComparisons.find(item => item.baseline.id === activeBaselineId.value) ||
+    current.value.baselineComparisons.find((item) => item.baseline.id === activeBaselineId.value) ||
     current.value.baselineComparisons[0]
   )
 })
@@ -71,7 +65,7 @@ const statusText = computed(() => {
 const compareOption = computed<EChartsOption>(() => {
   if (!current.value) return {}
 
-  const labels = current.value.powerCurve.map(point => dayjs(point.timestamp).format('HH:mm'))
+  const labels = current.value.powerCurve.map((point) => dayjs(point.timestamp).format('HH:mm'))
 
   return {
     grid: { left: 50, right: 20, top: 32, bottom: 30 },
@@ -96,33 +90,31 @@ const compareOption = computed<EChartsOption>(() => {
         smooth: true,
         showSymbol: false,
         lineStyle: { width: 2, type: 'dashed', color: '#67C23A' },
-        data: (selectedComparison.value?.baseline.power_curve || current.value.baselinePowerCurve).map(
-          point => point.value
-        )
+        data: (
+          selectedComparison.value?.baseline.power_curve || current.value.baselinePowerCurve
+        ).map((point) => point.value)
       },
       {
         name: t('dashboard.chart.currentProduction'),
         type: 'line',
         smooth: true,
         showSymbol: false,
-        lineStyle: { width: 2, color: '#409EFF' },
+        lineStyle: { width: 2, color: '#1152d4' }, // Primary blue
         markArea: {
-          itemStyle: { color: 'rgba(245, 108, 108, 0.18)' },
-          data: (selectedComparison.value?.deviation_ranges || current.value.deviationRanges).map(range => {
-            const start = dayjs(range.start).format('HH:mm')
-            const end = dayjs(range.end).format('HH:mm')
-            return [{ xAxis: start }, { xAxis: end }]
-          })
+          itemStyle: { color: 'rgba(245, 108, 108, 0.12)' }, // Lighter red area for deviation
+          data: (selectedComparison.value?.deviation_ranges || current.value.deviationRanges).map(
+            (range) => {
+              const start = dayjs(range.start).format('HH:mm')
+              const end = dayjs(range.end).format('HH:mm')
+              return [{ xAxis: start }, { xAxis: end }]
+            }
+          )
         },
-        data: current.value.powerCurve.map(point => point.value)
+        data: current.value.powerCurve.map((point) => point.value)
       }
     ]
   }
 })
-
-function handleBack() {
-  router.push('/heats')
-}
 
 function handleCreateTask() {
   ElMessage.info(t('heat.createTaskHint'))
@@ -205,16 +197,12 @@ async function saveTiming() {
   if (!heatId.value || !timingDraft.value) return
   let adjustSubsequent = false
   try {
-    await ElMessageBox.confirm(
-      t('heat.adjustSubsequentConfirm'),
-      t('common.confirm'),
-      {
-        distinguishCancelAndClose: true,
-        confirmButtonText: t('heat.adjustSubsequentYes'),
-        cancelButtonText: t('heat.adjustSubsequentNo'),
-        type: 'warning'
-      }
-    )
+    await ElMessageBox.confirm(t('heat.adjustSubsequentConfirm'), t('common.confirm'), {
+      distinguishCancelAndClose: true,
+      confirmButtonText: t('heat.adjustSubsequentYes'),
+      cancelButtonText: t('heat.adjustSubsequentNo'),
+      type: 'warning'
+    })
     adjustSubsequent = true
   } catch {
     adjustSubsequent = false
@@ -259,254 +247,251 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between gap-4 flex-wrap">
-      <div>
-        <div class="text-sm text-gray-500">
-          {{ t('heat.detailTitle') }}
-        </div>
-        <div class="mt-1 flex items-center gap-3">
-          <h1 class="text-2xl font-bold text-gray-900">
-            {{ current?.base.heatNo || '--' }}
-          </h1>
-          <el-tag :type="statusTagType">
-            {{ statusText }}
-          </el-tag>
-        </div>
-      </div>
-      <div class="flex items-center gap-2">
-        <el-button @click="handleBack">
-          {{ t('common.back') }}
-        </el-button>
-        <el-button
-          type="primary"
-          :icon="Plus"
-          @click="handleCreateTask"
-        >
-          {{ t('heat.createTask') }}
-        </el-button>
-        <el-button type="success" @click="handleCreateBaselineFromHeat">
-          {{ t('heat.createBaselineFromHeat') }}
-        </el-button>
-        <el-button
+  <div class="flex flex-col gap-6">
+    <!-- 页面头部 -->
+    <PageHeader
+      :title="current?.base.heatNo || '--'"
+      :subtitle="`ID: ${heatId}`"
+      :description="current?.base.description || 'Furnace-A01'"
+    >
+      <template #actions>
+        <StatusBadge :type="statusTagType" class="mr-2">
+          {{ statusText }}
+        </StatusBadge>
+        <button
           v-if="current?.base.cutStatus === 'major_issue' || current?.base.cutStatus === 'blocked'"
-          type="warning"
+          class="flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-100 transition-colors"
           @click="handleResumeCutting"
         >
+          <span class="material-symbols-outlined text-[18px]">play_arrow</span>
           {{ t('heat.resumeCutting') }}
-        </el-button>
-      </div>
-    </div>
+        </button>
+        <button
+          class="flex items-center gap-2 bg-white border border-green-500 text-green-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-50 transition-colors"
+          @click="handleCreateBaselineFromHeat"
+        >
+          <span class="material-symbols-outlined text-[18px]">bookmark_add</span>
+          {{ t('heat.createBaselineFromHeat') }}
+        </button>
+        <button
+          class="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
+          @click="handleCreateTask"
+        >
+          <span class="material-symbols-outlined text-[18px]">assignment</span>
+          {{ t('heat.createTask') }}
+        </button>
+      </template>
+    </PageHeader>
 
     <div
       v-if="current"
-      class="grid grid-cols-1 gap-4 xl:grid-cols-3"
+      class="grid grid-cols-1 gap-6 xl:grid-cols-3"
     >
-      <el-card class="xl:col-span-2">
-        <template #header>
-          <div class="space-y-3">
-            <span>{{ t('heat.compareWithBaseline') }}</span>
-            <el-tabs v-model="activeBaselineId" type="border-card">
-              <el-tab-pane
-                v-for="item in current.baselineComparisons"
-                :key="item.baseline.id"
-                :name="item.baseline.id"
-                :label="item.baseline.name"
-              />
-            </el-tabs>
-            <div class="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-              <el-button
-                size="small"
-                :type="selectBoundary === 'start' ? 'primary' : 'default'"
-                @click="selectBoundary = 'start'"
-              >
-                {{ t('heat.pickBaselineStart') }}
-              </el-button>
-              <el-button
-                size="small"
-                :type="selectBoundary === 'end' ? 'primary' : 'default'"
-                @click="selectBoundary = 'end'"
-              >
-                {{ t('heat.pickBaselineEnd') }}
-              </el-button>
-              <el-button size="small" @click="resetBaselineRange">
-                {{ t('heat.resetBaselineRange') }}
-              </el-button>
-              <span>
-                {{ t('heat.selectedBaselineRange') }}:
-                {{ baselineStartTs ? dayjs(baselineStartTs).format('HH:mm:ss') : '--' }}
-                ~
-                {{ baselineEndTs ? dayjs(baselineEndTs).format('HH:mm:ss') : '--' }}
-              </span>
+      <!-- 左侧：图表区 -->
+      <div class="xl:col-span-2 space-y-6">
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
+          <div class="flex flex-col lg:flex-row justify-between lg:items-center mb-4 gap-4">
+            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <span class="material-symbols-outlined text-primary text-[20px]">ssid_chart</span>
+              {{ t('heat.compareWithBaseline') }}
+            </h3>
+            <div class="flex items-center gap-3">
+              <!-- 嵌入 ElTabs -->
+              <el-tabs v-model="activeBaselineId" class="-mb-[15px] mr-2">
+                <el-tab-pane
+                  v-for="item in current.baselineComparisons"
+                  :key="item.baseline.id"
+                  :name="item.baseline.id"
+                  :label="item.baseline.name"
+                />
+              </el-tabs>
             </div>
           </div>
-        </template>
-        <v-chart
-          :option="compareOption"
-          autoresize
-          class="h-80"
-          @click="handleChartPickClick"
-        />
-      </el-card>
-
-      <el-card>
-        <template #header>
-          <span>{{ t('heat.detailSummary') }}</span>
-        </template>
-        <div class="space-y-3 text-sm text-gray-700">
-          <div>
-            <span class="text-gray-500">{{ t('heat.description') }}:</span>
-            <template v-if="!editingDescription">
-              <span class="ml-2 font-medium">{{ current.base.description || t('common.noDescription') }}</span>
-              <el-button
-                type="primary"
-                link
-                class="ml-2"
-                @click="startEditDescription"
-              >
-                {{ t('common.edit') }}
-              </el-button>
-            </template>
-            <template v-else>
-              <el-input
-                v-model="descriptionDraft"
-                class="ml-2 inline-block w-64"
-                size="small"
-                @keyup.enter="saveDescription"
-              />
-              <el-button
-                type="primary"
-                link
-                class="ml-1"
-                @click="saveDescription"
-              >
-                {{ t('common.save') }}
-              </el-button>
-              <el-button
-                link
-                class="ml-1"
-                @click="editingDescription = false"
-              >
-                {{ t('common.cancel') }}
-              </el-button>
-            </template>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('heat.startTime') }}:</span>
-            <template v-if="!editingTiming">
-              <span class="ml-2 font-medium">{{ current.base.startTime }}</span>
-            </template>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('heat.endTime') }}:</span>
-            <template v-if="!editingTiming">
-              <span class="ml-2 font-medium">{{ current.base.endTime }}</span>
-              <el-button type="primary" link class="ml-2" @click="startEditTiming">
-                {{ t('heat.editTiming') }}
-              </el-button>
-            </template>
-            <template v-else>
-              <el-date-picker
-                v-model="timingDraft"
-                type="datetimerange"
-                :range-separator="t('heat.to')"
-                :start-placeholder="t('heat.startTime')"
-                :end-placeholder="t('heat.endTime')"
-              />
-              <el-button type="primary" link class="ml-2" @click="saveTiming">
-                {{ t('common.save') }}
-              </el-button>
-              <el-button link class="ml-1" @click="editingTiming = false">
-                {{ t('common.cancel') }}
-              </el-button>
-            </template>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('heat.cutStatus') }}:</span>
-            <span class="ml-2 font-medium">{{ t(`heat.cutStatus${current.base.cutStatus}`) }}</span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('heat.timeOffsetPercent') }}:</span>
-            <span class="ml-2 font-medium">
-              {{ current.base.timeOffsetPercent === null ? '--' : `${current.base.timeOffsetPercent}%` }}
-            </span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('heat.mismatchDurationMinutes') }}:</span>
-            <span class="ml-2 font-medium">
-              {{
-                current.base.mismatchDurationMinutes === null
-                  ? '--'
-                  : `${current.base.mismatchDurationMinutes} min`
-              }}
-            </span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('heat.scheduleTagLabel') }}:</span>
-            <span class="ml-2 font-medium">{{ t(`heat.scheduleTag.${current.base.scheduleTag}`) }}</span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('heat.cutReasonLabel') }}:</span>
-            <span class="ml-2 font-medium">{{ t(`heat.cutReason.${current.base.cutReason || 'unknown'}`) }}</span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('heat.temperature') }}:</span>
-            <span class="ml-2 font-medium">{{ current.base.temperature ?? '--' }}</span>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('heat.baselineName') }}:</span>
-            <span class="ml-2 font-medium">{{ selectedComparison?.baseline.name || '--' }}</span>
+          <v-chart
+            :option="compareOption"
+            autoresize
+            class="h-80"
+            @click="handleChartPickClick"
+          />
+          <div class="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-border-light text-sm">
+            <button
+              class="px-3 py-1.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors font-medium border border-slate-200"
+              :class="{ 'bg-primary border-primary text-white hover:bg-primary-dark': selectBoundary === 'start' }"
+              @click="selectBoundary = 'start'"
+            >
+              {{ t('heat.pickBaselineStart') }}
+            </button>
+            <button
+              class="px-3 py-1.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors font-medium border border-slate-200"
+              :class="{ 'bg-primary border-primary text-white hover:bg-primary-dark': selectBoundary === 'end' }"
+              @click="selectBoundary = 'end'"
+            >
+              {{ t('heat.pickBaselineEnd') }}
+            </button>
+            <button class="px-3 py-1.5 rounded text-slate-500 hover:text-slate-700 underline" @click="resetBaselineRange">
+               清除选择
+            </button>
+            <div class="ml-auto font-mono text-slate-500 bg-slate-50 px-3 py-1.5 rounded border border-border-light">
+              <span class="text-xs text-slate-400 mr-2 uppercase">Selected Range:</span>
+              {{ baselineStartTs ? dayjs(baselineStartTs).format('HH:mm:ss') : '--' }}
+              ~
+              {{ baselineEndTs ? dayjs(baselineEndTs).format('HH:mm:ss') : '--' }}
+            </div>
           </div>
         </div>
-      </el-card>
-    </div>
 
-    <el-card v-if="current">
-      <template #header>
-        <span>{{ t('heat.abnormalRanges') }}</span>
-      </template>
-      <div
-        v-if="(selectedComparison?.deviation_ranges || current.deviationRanges).length > 0"
-        class="space-y-2 text-sm"
-      >
-        <div
-          v-for="(range, idx) in selectedComparison?.deviation_ranges || current.deviationRanges"
-          :key="`${range.start}-${range.end}`"
-          class="rounded-md border border-red-200 bg-red-50 p-3"
-        >
-          <span class="font-medium">{{ t('heat.range') }} {{ idx + 1 }}:</span>
-          <span class="ml-2">
-            {{ dayjs(range.start).format('HH:mm:ss') }} - {{ dayjs(range.end).format('HH:mm:ss') }}
-          </span>
-          <span class="ml-2 text-red-600">({{ range.deviation }}%)</span>
+        <!-- 异常区间 -->
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
+           <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light">
+              <span class="material-symbols-outlined text-red-500 text-[20px]">warning</span>
+              {{ t('heat.abnormalRanges') }}
+            </h3>
+          <div
+            v-if="(selectedComparison?.deviation_ranges || current.deviationRanges).length > 0"
+            class="space-y-3"
+          >
+            <div
+              v-for="(range, idx) in selectedComparison?.deviation_ranges || current.deviationRanges"
+              :key="`${range.start}-${range.end}`"
+              class="rounded-lg border border-red-200 bg-red-50 p-4 flex items-center justify-between"
+            >
+              <div class="flex items-center gap-3">
+                <span class="w-6 h-6 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-xs font-bold">{{ idx + 1 }}</span>
+                <span class="font-mono text-sm text-red-900">
+                  {{ dayjs(range.start).format('HH:mm:ss') }} <span class="text-red-300 mx-2">to</span> {{ dayjs(range.end).format('HH:mm:ss') }}
+                </span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-red-500 uppercase tracking-widest font-semibold">Deviation</span>
+                <span class="text-lg font-bold text-red-600">{{ range.deviation }}%</span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="py-8 flex flex-col items-center justify-center">
+            <span class="material-symbols-outlined text-slate-300 text-4xl">check_circle</span>
+            <p class="text-sm text-slate-500 mt-2 font-medium">无明显偏差区间</p>
+          </div>
         </div>
       </div>
-      <el-empty
-        v-else
-        :description="t('common.noData')"
-      />
-    </el-card>
 
-    <el-card v-if="current">
-      <template #header>
-        <span>{{ t('heat.cuttingTimeline') }}</span>
-      </template>
-      <el-timeline>
-        <el-timeline-item
-          v-for="item in current.cuttingTimeline"
-          :key="`${item.event_type}-${item.timestamp}`"
-          :timestamp="dayjs(item.timestamp).format('YYYY-MM-DD HH:mm:ss')"
-          placement="top"
-        >
-          <div class="text-sm font-medium text-gray-800">{{ item.title }}</div>
-          <div class="text-xs text-gray-500 mt-1">{{ item.detail }}</div>
-        </el-timeline-item>
-      </el-timeline>
-    </el-card>
+      <!-- 右侧：详情 + 轴线 -->
+      <div class="space-y-6">
+        <!-- 详情卡片 -->
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
+          <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light">
+              <span class="material-symbols-outlined text-primary text-[20px]">feed</span>
+              {{ t('heat.detailSummary') }}
+          </h3>
+          <div class="space-y-4 text-sm text-slate-700">
+            <div class="flex flex-col gap-1 border-b border-slate-50 pb-3">
+              <div class="flex justify-between items-center">
+                <span class="text-slate-500">{{ t('heat.description') }}</span>
+                <button v-if="!editingDescription" @click="startEditDescription" class="text-primary hover:underline flex items-center gap-1 text-xs">
+                  <span class="material-symbols-outlined text-[14px]">edit</span> {{ t('common.edit') }}
+                </button>
+              </div>
+              <template v-if="!editingDescription">
+                <span class="font-semibold text-slate-800">{{ current.base.description || t('common.noDescription') }}</span>
+              </template>
+              <template v-else>
+                 <div class="flex gap-2 w-full mt-1">
+                  <input
+                    v-model="descriptionDraft"
+                    class="flex-1 bg-slate-50 border border-border-light rounded px-2 py-1 text-sm outline-none focus:border-primary"
+                    @keyup.enter="saveDescription"
+                  />
+                  <button class="bg-primary text-white px-3 rounded text-xs font-bold" @click="saveDescription">Save</button>
+                  <button class="text-slate-400 text-xs hover:text-slate-600" @click="editingDescription = false">Cancel</button>
+                 </div>
+              </template>
+            </div>
 
-    <el-empty
-      v-else
-      :description="t('common.loading')"
-    />
+            <div class="flex flex-col gap-1 border-b border-slate-50 pb-3">
+               <div class="flex justify-between items-center">
+                <span class="text-slate-500">时序与切割分析</span>
+                <button v-if="!editingTiming" @click="startEditTiming" class="text-primary hover:underline flex items-center gap-1 text-xs">
+                  <span class="material-symbols-outlined text-[14px]">edit</span> {{ t('heat.editTiming') }}
+                </button>
+              </div>
+              <template v-if="!editingTiming">
+                <div class="flex flex-col gap-1 mt-1 text-xs font-mono bg-slate-50 p-2 rounded">
+                  <div class="flex justify-between">
+                    <span class="text-slate-400 font-sans">Start</span>
+                    <span>{{ current.base.startTime }}</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400 font-sans">End</span>
+                    <span>{{ current.base.endTime }}</span>
+                  </div>
+                </div>
+              </template>
+              <template v-else>
+                 <div class="mt-2 flex flex-col gap-2">
+                    <el-date-picker
+                      v-model="timingDraft"
+                      type="datetimerange"
+                      :range-separator="t('heat.to')"
+                      :start-placeholder="t('heat.startTime')"
+                      :end-placeholder="t('heat.endTime')"
+                      class="!w-full"
+                    />
+                    <div class="flex justify-end gap-2">
+                      <button class="text-slate-400 text-xs hover:text-slate-600" @click="editingTiming = false">Cancel</button>
+                      <button class="bg-primary text-white px-3 py-1 rounded text-xs font-bold" @click="saveTiming">Save Settings</button>
+                    </div>
+                 </div>
+              </template>
+            </div>
+
+            <div class="flex justify-between items-center py-1">
+              <span class="text-slate-500">{{ t('heat.cutStatus') }}</span>
+              <span class="font-semibold">{{ t(`heat.cutStatus${current.base.cutStatus}`) }}</span>
+            </div>
+            <div class="flex justify-between items-center py-1">
+              <span class="text-slate-500">{{ t('heat.cutReasonLabel') }}</span>
+              <span class="font-semibold">{{ t(`heat.cutReason.${current.base.cutReason || 'unknown'}`) }}</span>
+            </div>
+            <div class="flex justify-between items-center py-1">
+              <span class="text-slate-500">{{ t('heat.mismatchDurationMinutes') }}</span>
+              <span class="font-semibold text-orange-600">{{ current.base.mismatchDurationMinutes === null ? '--' : `${current.base.mismatchDurationMinutes}m` }}</span>
+            </div>
+            <div class="flex justify-between items-center py-1">
+              <span class="text-slate-500">{{ t('heat.temperature') }}</span>
+              <span class="font-semibold">{{ current.base.temperature ?? '--' }}</span>
+            </div>
+            <div class="flex justify-between items-center py-1">
+              <span class="text-slate-500">{{ t('heat.baselineName') }}</span>
+              <span class="font-semibold break-all text-right max-w-[60%]">{{ selectedComparison?.baseline.name || '--' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 生产流程轴线 -->
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
+           <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light">
+              <span class="material-symbols-outlined text-primary text-[20px]">timeline</span>
+              {{ t('heat.cuttingTimeline') }}
+          </h3>
+          <el-timeline class="pl-1 pt-2">
+            <el-timeline-item
+              v-for="(item, index) in current.cuttingTimeline"
+              :key="`${item.event_type}-${item.timestamp}`"
+              :timestamp="dayjs(item.timestamp).format('HH:mm:ss')"
+              placement="top"
+              :color="index === current.cuttingTimeline.length - 1 ? '#1152d4' : '#e2e8f0'"
+            >
+              <div class="font-semibold text-sm text-slate-800 tracking-tight">{{ item.title }}</div>
+              <div class="text-xs text-slate-500 mt-1">{{ item.detail }}</div>
+            </el-timeline-item>
+          </el-timeline>
+        </div>
+      </div>
+    </div>
+
+    <!-- 空状态 -->
+    <div v-else class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card">
+      <span class="material-symbols-outlined text-slate-300 text-5xl">pending</span>
+      <p class="text-sm text-slate-400 mt-3">{{ t('common.loading') }}</p>
+    </div>
   </div>
 </template>

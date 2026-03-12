@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>纠偏任务单 Action Orders</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style type="text/tailwindcss">
+        :root {
+            --deep-blue: #1e293b;
+            --bright-cyan: #06b6d4;
+            --background: #f8fafc;
+            --surface: #ffffff;
+            --border: #e2e8f0;
+        }
+        @layer base {
+            body {
+                @apply bg-[var(--background)] font-sans text-slate-800;
+            }
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#1e293b",
+                        "accent": "#06b6d4",
+                        "surface": "#ffffff",
+                        "bg-light": "#f8fafc",
+                        "border-color": "#e2e8f0",
+                    },
+                    borderRadius: {
+                        'card': '12px',
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="flex items-center justify-center min-h-screen overflow-hidden">
+<div class="w-[1440px] h-[900px] bg-bg-light shadow-2xl flex flex-col border border-border-color overflow-hidden">
+<header class="h-16 flex items-center justify-between px-6 bg-white border-b border-border-color text-primary shrink-0 z-50">
+<div class="flex items-center gap-3">
+<div class="size-8 bg-accent rounded-lg flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px] text-white">bolt</span>
+</div>
+<h2 class="text-lg font-bold tracking-tight text-primary">AI老师傅 · 智慧熔炼偏差分析</h2>
+</div>
+<div class="flex items-center gap-8">
+<nav class="flex items-center gap-6 text-sm font-medium">
+<a class="text-slate-500 hover:text-primary transition-colors" href="#">仪表盘</a>
+<a class="text-slate-500 hover:text-primary transition-colors" href="#">偏差分析</a>
+<a class="text-accent border-b-2 border-accent pb-1" href="#">纠偏任务单</a>
+<a class="text-slate-500 hover:text-primary transition-colors" href="#">黄金基线</a>
+</nav>
+<div class="flex items-center gap-3 border-l border-slate-200 pl-6">
+<button class="size-9 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-100 hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</button>
+<div class="flex items-center gap-2">
+<div class="size-8 rounded-full bg-accent flex items-center justify-center text-xs font-bold text-white">ZH</div>
+<span class="text-sm font-medium text-slate-700">张工艺师</span>
+</div>
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<aside class="w-[240px] bg-surface border-r border-border-color flex flex-col shrink-0">
+<div class="p-4 border-b border-border-color">
+<button class="w-full flex items-center justify-center gap-2 bg-accent hover:bg-cyan-600 text-white font-semibold py-2.5 rounded-card transition-all shadow-sm">
+<span class="material-symbols-outlined text-[18px]">add</span>
+<span class="text-sm">新建纠偏任务</span>
+</button>
+</div>
+<nav class="flex-1 overflow-y-auto p-2 space-y-1">
+<div class="px-3 py-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider">视图</div>
+<a class="flex items-center gap-3 px-3 py-2 rounded-card bg-slate-100 text-primary font-medium" href="#">
+<span class="material-symbols-outlined text-[20px]">assignment</span>
+<span class="text-sm">所有任务</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-card text-slate-500 hover:bg-slate-50 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">star</span>
+<span class="text-sm">星标关注</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-card text-slate-500 hover:bg-slate-50 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">history</span>
+<span class="text-sm">历史回溯</span>
+</a>
+<div class="pt-4 px-3 py-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider">分类</div>
+<a class="flex items-center gap-3 px-3 py-2 rounded-card text-slate-500 hover:bg-slate-50 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px] text-orange-400">thermostat</span>
+<span class="text-sm">温度波动</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-card text-slate-500 hover:bg-slate-50 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px] text-blue-400">science</span>
+<span class="text-sm">成分异常</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-card text-slate-500 hover:bg-slate-50 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px] text-purple-400">speed</span>
+<span class="text-sm">节拍延迟</span>
+</a>
+</nav>
+<div class="p-4 bg-slate-50 border-t border-border-color">
+<div class="flex items-center gap-3 text-xs text-slate-500">
+<span class="material-symbols-outlined text-[16px]">info</span>
+<span>系统状态: 运行正常</span>
+</div>
+</div>
+</aside>
+<main class="flex-1 flex flex-col overflow-hidden">
+<div class="h-14 border-b border-border-color bg-surface flex items-center justify-between px-6 shrink-0">
+<div class="flex gap-4">
+<button class="px-4 py-1.5 rounded-full text-sm font-bold bg-primary text-white">全部 (24)</button>
+<button class="px-4 py-1.5 rounded-full text-sm font-medium text-slate-600 hover:bg-slate-100 flex items-center gap-1.5">
+<span class="size-2 rounded-full bg-blue-500"></span>新建 (5)
+                        </button>
+<button class="px-4 py-1.5 rounded-full text-sm font-medium text-slate-600 hover:bg-slate-100 flex items-center gap-1.5">
+<span class="size-2 rounded-full bg-accent"></span>进行中 (8)
+                        </button>
+<button class="px-4 py-1.5 rounded-full text-sm font-medium text-slate-600 hover:bg-slate-100 flex items-center gap-1.5">
+<span class="size-2 rounded-full bg-emerald-500"></span>已完成 (9)
+                        </button>
+<button class="px-4 py-1.5 rounded-full text-sm font-medium text-slate-600 hover:bg-slate-100 flex items-center gap-1.5">
+<span class="size-2 rounded-full bg-red-500"></span>已驳回 (2)
+                        </button>
+</div>
+<div class="flex items-center gap-2">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-2.5 top-1.5 text-slate-400 text-[18px]">search</span>
+<input class="pl-9 pr-4 py-1.5 border border-border-color rounded-lg text-xs w-64 focus:ring-1 focus:ring-accent focus:border-accent outline-none" placeholder="搜索订单号/任务描述..." type="text"/>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-12 flex-1 overflow-hidden">
+<div class="col-span-4 border-r border-border-color flex flex-col overflow-hidden bg-slate-50/50">
+<div class="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
+<div class="bg-surface p-4 rounded-card border-2 border-accent shadow-md cursor-pointer transition-all">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] font-mono font-bold text-accent px-1.5 py-0.5 bg-cyan-50 rounded">AO-202310-092</span>
+<span class="text-[10px] text-slate-400">12分钟前</span>
+</div>
+<h4 class="font-bold text-slate-900 text-sm mb-3">#3 熔炼炉：成分异常纠偏 (添加剂B)</h4>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="size-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold">李</div>
+<span class="text-xs text-slate-500">李长河</span>
+</div>
+<span class="px-2 py-0.5 bg-cyan-100 text-cyan-700 text-[10px] font-bold rounded">进行中</span>
+</div>
+</div>
+<div class="bg-surface p-4 rounded-card border border-border-color hover:border-accent/30 shadow-sm cursor-pointer transition-all">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] font-mono font-bold text-slate-400 px-1.5 py-0.5 bg-slate-100 rounded">AO-202310-091</span>
+<span class="text-[10px] text-slate-400">1小时前</span>
+</div>
+<h4 class="font-bold text-slate-900 text-sm mb-3">#1 熔炼炉：温度上升过快预警</h4>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="size-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold">王</div>
+<span class="text-xs text-slate-500">王志强</span>
+</div>
+<span class="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded">新建</span>
+</div>
+</div>
+<div class="bg-surface p-4 rounded-card border border-border-color hover:border-accent/30 shadow-sm cursor-pointer transition-all">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] font-mono font-bold text-slate-400 px-1.5 py-0.5 bg-slate-100 rounded">AO-202310-089</span>
+<span class="text-[10px] text-slate-400">4小时前</span>
+</div>
+<h4 class="font-bold text-slate-900 text-sm mb-3">#2 熔炼炉：出炉流量波动分析</h4>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="size-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold">系</div>
+<span class="text-xs text-slate-500">系统自动</span>
+</div>
+<span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded">已完成</span>
+</div>
+</div>
+</div>
+</div>
+<div class="col-span-8 flex flex-col overflow-hidden bg-surface">
+<div class="p-6 border-b border-border-color">
+<div class="flex justify-between items-start mb-4">
+<div>
+<div class="flex items-center gap-3 mb-1">
+<h1 class="text-xl font-bold text-primary">#3 熔炼炉：成分异常纠偏 (添加剂B)</h1>
+<span class="bg-cyan-100 text-cyan-700 px-3 py-1 rounded-full text-xs font-bold">进行中</span>
+</div>
+<p class="text-sm text-slate-500">任务编号: AO-202310-092 · 发现时间: 2023-10-25 14:32:10</p>
+</div>
+<div class="flex gap-2">
+<button class="px-4 py-2 border border-border-color rounded-card text-sm font-medium hover:bg-slate-50">转交任务</button>
+<button class="px-4 py-2 bg-red-50 text-red-600 border border-red-100 rounded-card text-sm font-medium hover:bg-red-100">驳回申请</button>
+</div>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto p-8 space-y-6 no-scrollbar">
+<div class="grid grid-cols-2 gap-6">
+<div class="bg-cyan-50 border border-cyan-200 rounded-card p-6 text-slate-800 relative overflow-hidden">
+<div class="absolute top-0 right-0 p-4 opacity-5">
+<span class="material-symbols-outlined text-[100px] text-primary">psychology</span>
+</div>
+<h3 class="flex items-center gap-2 font-bold mb-4 text-primary">
+<span class="material-symbols-outlined text-[20px] text-accent">auto_awesome</span>
+                                        AI 纠偏建议动作
+                                    </h3>
+<ul class="space-y-3 text-sm text-slate-600">
+<li class="flex items-start gap-2">
+<span class="text-accent font-bold">01.</span>
+<span>补投 <strong class="text-primary">添加剂B (锰系) 12.5kg</strong>，建议投料温度 1420℃ ± 10℃。</span>
+</li>
+<li class="flex items-start gap-2">
+<span class="text-accent font-bold">02.</span>
+<span>调整搅拌器功率至 <strong class="text-primary">85% (320rpm)</strong>，保持 5 分钟以确保均匀度。</span>
+</li>
+<li class="flex items-start gap-2">
+<span class="text-accent font-bold">03.</span>
+<span>建议在补投后 <strong class="text-primary">12分钟</strong> 启动第 4 次取样复测。</span>
+</li>
+</ul>
+<div class="mt-6 pt-4 border-t border-cyan-200 flex justify-between items-center text-[11px] text-slate-500 uppercase tracking-widest">
+<span>置信度: 98.4%</span>
+<span>算法版本: V4.2.1-GOLD</span>
+</div>
+</div>
+<div class="bg-bg-light border border-border-color rounded-card p-5">
+<div class="flex justify-between items-center mb-4">
+<h3 class="font-bold text-slate-800 text-sm">偏差分析证据</h3>
+<a class="text-accent text-xs font-bold hover:underline flex items-center gap-1" href="#">
+                                            查看全图 <span class="material-symbols-outlined text-[14px]">open_in_new</span>
+</a>
+</div>
+<div class="aspect-video bg-white rounded-lg border border-border-color flex flex-col p-4">
+<div class="flex-1 flex items-end gap-1 px-4 border-l border-b border-slate-200">
+<div class="w-full h-[60%] bg-slate-100"></div>
+<div class="w-full h-[75%] bg-slate-100"></div>
+<div class="w-full h-[70%] bg-slate-100"></div>
+<div class="w-full h-[40%] bg-red-400 relative">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-bold text-red-600">-12.5%</div>
+</div>
+<div class="w-full h-[65%] bg-slate-100"></div>
+<div class="w-full h-[80%] bg-slate-100"></div>
+</div>
+<div class="flex justify-between mt-2 text-[10px] text-slate-400">
+<span>T-30m</span>
+<span>当前时刻 (T0)</span>
+<span>T+30m</span>
+</div>
+</div>
+<p class="text-[11px] text-slate-500 mt-3 leading-relaxed">基于黄金基线对比，锰元素浓度在 T2 采样点出现非正常下滑，偏离基线 12.5%。</p>
+</div>
+</div>
+<div class="bg-surface border border-border-color rounded-card overflow-hidden">
+<div class="px-6 py-4 bg-slate-50 border-b border-border-color flex justify-between items-center">
+<h3 class="font-bold text-slate-800 text-sm">执行回填记录</h3>
+<span class="text-[11px] text-slate-400">* 必填项，完成后请提交</span>
+</div>
+<div class="p-6 space-y-5">
+<div>
+<label class="block text-xs font-bold text-slate-500 mb-2 uppercase">实际执行情况描述</label>
+<textarea class="w-full bg-slate-50 border border-border-color rounded-lg p-3 text-sm focus:ring-1 focus:ring-accent outline-none" placeholder="请详细记录操作过程，如有特殊情况请注明..." rows="4"></textarea>
+</div>
+<div class="grid grid-cols-2 gap-6">
+<div>
+<label class="block text-xs font-bold text-slate-500 mb-2 uppercase">关键参数确认</label>
+<div class="space-y-3">
+<div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-border-color">
+<span class="text-xs text-slate-600">添加剂B 投料量 (kg)</span>
+<input class="w-20 bg-white border border-border-color rounded px-2 py-1 text-xs text-right font-mono font-bold" type="number" value="12.5"/>
+</div>
+<div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-border-color">
+<span class="text-xs text-slate-600">搅拌时长 (min)</span>
+<input class="w-20 bg-white border border-border-color rounded px-2 py-1 text-xs text-right font-mono font-bold" type="number" value="5"/>
+</div>
+</div>
+</div>
+<div>
+<label class="block text-xs font-bold text-slate-500 mb-2 uppercase">佐证资料上传</label>
+<div class="border-2 border-dashed border-border-color rounded-lg h-[92px] flex flex-col items-center justify-center text-slate-400 hover:text-accent hover:border-accent cursor-pointer transition-colors bg-slate-50">
+<span class="material-symbols-outlined text-[24px]">cloud_upload</span>
+<span class="text-[10px] mt-1">点击或拖拽上传现场照片</span>
+</div>
+</div>
+</div>
+</div>
+<div class="px-6 py-4 bg-slate-50 border-t border-border-color flex justify-end gap-3">
+<button class="px-6 py-2 border border-border-color rounded-card text-sm font-medium bg-white hover:bg-slate-100">暂存草稿</button>
+<button class="px-8 py-2 bg-accent hover:bg-cyan-600 text-white rounded-card text-sm font-bold shadow-lg shadow-cyan-500/20 flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">send</span>
+                                        确认提交
+                                    </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</div>
+
+</body></html>

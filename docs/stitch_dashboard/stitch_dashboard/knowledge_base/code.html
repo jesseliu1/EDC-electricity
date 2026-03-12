@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>纠偏知识卡资产管理 - AI老师傅智慧熔炼平台</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#1152d4",
+                        "primary-dark": "#0a3aa0",
+                        "accent": "#06b6d4",
+                        "background-light": "#f6f6f8",
+                        "background-dark": "#101622",
+                        "slate-850": "#161e2c",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem", 
+                        "lg": "0.75rem","xl": "0.75rem","2xl": "1rem",
+                        "full": "9999px"
+                    },
+                    boxShadow: {
+                        "industrial": "0 1px 2px 0 rgba(0, 0, 0, 0.05), 0 1px 1px 0 rgba(0, 0, 0, 0.03)",
+                        "card-hover": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)"
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .icon-filled {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #334155; 
+        }.industrial-input {
+            @apply block w-full rounded-md border-slate-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm bg-slate-50 border-gray-200 text-slate-700;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 flex h-screen overflow-hidden">
+<aside class="w-[240px] flex-none bg-slate-900 text-white flex flex-col z-30 border-r border-slate-800">
+<div class="h-16 flex items-center gap-3 px-5 border-b border-slate-800 bg-slate-950">
+<div class="w-7 h-7 text-white">
+<svg class="w-full h-full" fill="none" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path d="M42.4379 44C42.4379 44 36.0744 33.9038 41.1692 24C46.8624 12.9336 42.2078 4 42.2078 4L7.01134 4C7.01134 4 11.6577 12.932 5.96912 23.9969C0.876273 33.9029 7.27094 44 7.27094 44L42.4379 44Z" fill="currentColor"></path>
+</svg>
+</div>
+<h1 class="text-base font-bold tracking-tight">AI老师傅</h1>
+</div>
+<nav class="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
+<div class="text-xs font-bold text-slate-500 uppercase tracking-wider px-3 mb-2">工作台</div>
+<a class="flex items-center gap-3 px-3 py-2 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 rounded-md transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">dashboard</span>
+                总览 Dashboard
+            </a>
+<div class="text-xs font-bold text-slate-500 uppercase tracking-wider px-3 mt-6 mb-2">监控与分析</div>
+<a class="flex items-center gap-3 px-3 py-2 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 rounded-md transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">monitoring</span>
+                实时偏差监控
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-sm font-medium text-white bg-primary rounded-md shadow-lg shadow-blue-900/20" href="#">
+<span class="material-symbols-outlined text-[20px] icon-filled">library_books</span>
+                知识库
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 rounded-md transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">history</span>
+                历史回溯
+            </a>
+<div class="text-xs font-bold text-slate-500 uppercase tracking-wider px-3 mt-6 mb-2">系统管理</div>
+<a class="flex items-center gap-3 px-3 py-2 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 rounded-md transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]">settings</span>
+                参数配置
+            </a>
+</nav>
+<div class="p-4 border-t border-slate-800 bg-slate-950">
+<div class="flex items-center gap-3">
+<div class="bg-center bg-no-repeat bg-cover rounded-full size-8 ring-2 ring-slate-700" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuBS3znkEll3ZevJ-wgI776RhtDGTxcUWTm6Lmv4QKlm9YCmqa5tOC_lhjg-yO76-q4s4nAqQ1PuG3OFJjY547rIPvvhap1ULmAOOs2J2eZoffpOEOmKuLcWwVfbuG9YYkdhFY7KDk_hmQhaIDzE7NxqqbCWkoZYX4OQ21KK9D59OOQxJzrTq6EHhs1dM67WpcRaNrc9k_meYxvrQGvEpZQWqhUNZZ40vSDdyvxclBl2OnCJQJcOXgZv9iH5slgaR4zyLy8IDvMZ6kI1");'></div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-medium text-white truncate">工程师·张工</p>
+<p class="text-xs text-slate-500 truncate">工艺部 - 资深专家</p>
+</div>
+</div>
+</div>
+</aside>
+<div class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark">
+<header class="flex-none h-16 bg-white dark:bg-slate-850 border-b border-slate-200 dark:border-slate-800 px-6 flex items-center justify-between z-20 shadow-sm">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
+<button class="px-3 py-1.5 rounded-md bg-white dark:bg-slate-700 shadow-sm text-xs font-semibold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600">A厂区</button>
+<button class="px-3 py-1.5 rounded-md hover:bg-white dark:hover:bg-slate-700 text-xs font-medium text-slate-500 dark:text-slate-400 transition-colors">B厂区</button>
+</div>
+<div class="h-6 w-px bg-slate-200 dark:bg-slate-700"></div>
+<div class="flex items-center gap-3">
+<div class="relative">
+<select class="appearance-none bg-transparent pl-3 pr-8 py-1 text-sm font-medium text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer">
+<option>1号产线 (Special Steel)</option>
+<option>2号产线 (Normal Steel)</option>
+</select>
+<span class="material-symbols-outlined absolute right-0 top-1.5 text-[18px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+<span class="text-slate-300">/</span>
+<div class="relative">
+<select class="appearance-none bg-transparent pl-3 pr-8 py-1 text-sm font-medium text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer">
+<option>设备: EAF-3</option>
+<option>设备: EAF-1</option>
+<option>设备: LF-2</option>
+</select>
+<span class="material-symbols-outlined absolute right-0 top-1.5 text-[18px] text-slate-400 pointer-events-none">expand_more</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-slate-400 hover:text-primary transition-colors">
+<span class="material-symbols-outlined">help</span>
+</button>
+<button class="p-2 text-slate-400 hover:text-primary transition-colors relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white dark:ring-slate-850"></span>
+</button>
+</div>
+</header>
+<main class="flex-1 flex flex-col min-h-0 overflow-hidden">
+<div class="flex-none px-6 py-5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850 z-10">
+<div class="flex flex-col gap-1 mb-4">
+<nav class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+<a class="hover:text-primary" href="#">首页</a>
+<span class="material-symbols-outlined text-[12px]">chevron_right</span>
+<a class="hover:text-primary" href="#">监控与分析</a>
+<span class="material-symbols-outlined text-[12px]">chevron_right</span>
+<span class="text-slate-900 dark:text-slate-200 font-medium">纠偏知识卡</span>
+</nav>
+</div>
+<div class="flex items-end justify-between gap-6">
+<div>
+<h1 class="text-2xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-3">
+                            纠偏知识卡 Knowledge Base
+                            <span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800">专家审核版</span>
+</h1>
+<p class="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-3xl">
+                            沉淀老师傅经验模型，构建可审核、可追溯的智能纠偏专家资产库。
+                        </p>
+</div>
+<div class="flex items-center gap-3">
+<button class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium transition-colors">
+<span class="material-symbols-outlined text-[18px]">refresh</span>
+                            刷新数据
+                        </button>
+<button class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium transition-colors">
+<span class="material-symbols-outlined text-[18px]">download</span>
+                            导出
+                        </button>
+<button class="flex items-center gap-2 bg-primary hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-md shadow-blue-500/20 transition-all active:scale-95">
+<span class="material-symbols-outlined text-[20px]">add</span>
+                            新增知识卡
+                        </button>
+</div>
+</div>
+</div>
+<div class="flex-1 flex overflow-hidden p-6 gap-6">
+<div class="w-[35%] flex flex-col bg-white dark:bg-slate-850 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+<div class="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+<div class="relative">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</span>
+<input class="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all" placeholder="搜索标题、类型或编号..." type="text"/>
+</div>
+<div class="flex gap-2 mt-3 overflow-x-auto pb-1 scrollbar-hide">
+<button class="px-2.5 py-1 rounded bg-slate-800 text-white text-xs font-medium whitespace-nowrap">全部</button>
+<button class="px-2.5 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 text-xs hover:border-primary hover:text-primary whitespace-nowrap">已生效</button>
+<button class="px-2.5 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 text-xs hover:border-primary hover:text-primary whitespace-nowrap">待审核</button>
+<button class="px-2.5 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 text-xs hover:border-primary hover:text-primary whitespace-nowrap">已停用</button>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50/30 dark:bg-transparent">
+<div class="group p-4 rounded-lg bg-white dark:bg-slate-800 border border-primary ring-1 ring-primary/20 shadow-md cursor-pointer transition-all relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
+<div class="flex justify-between items-start mb-2">
+<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 text-primary dark:bg-blue-900 dark:text-blue-200">能量补足</span>
+<span class="flex items-center gap-1 text-[10px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full dark:bg-emerald-900/30 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 已生效
+                                </span>
+</div>
+<h3 class="text-sm font-bold text-slate-900 dark:text-white mb-1">熔化期供电优化策略 #012</h3>
+<p class="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mb-3">针对废钢未完全熔化且温升速率低的情况。</p>
+<div class="flex items-center justify-between border-t border-slate-100 dark:border-slate-700 pt-2">
+<div class="flex items-center gap-2 text-xs text-slate-500">
+<span class="material-symbols-outlined text-[14px]">tune</span>
+<span>相似度阈值 &gt; 92%</span>
+</div>
+<span class="text-xs font-mono text-slate-400">V2.1</span>
+</div>
+</div>
+<div class="group p-4 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-primary/50 hover:shadow-md cursor-pointer transition-all relative overflow-hidden">
+<div class="flex justify-between items-start mb-2">
+<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">渣层处理</span>
+<span class="flex items-center gap-1 text-[10px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full dark:bg-amber-900/30 dark:text-amber-400 border border-amber-100 dark:border-amber-800">
+<span class="material-symbols-outlined text-[12px]">hourglass_top</span> 待审核
+                                </span>
+</div>
+<h3 class="text-sm font-bold text-slate-900 dark:text-white mb-1">低碱度炉渣调整方案</h3>
+<p class="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mb-3">流动性差导致的脱磷效率低问题处理。</p>
+<div class="flex items-center justify-between border-t border-slate-100 dark:border-slate-700 pt-2">
+<div class="flex items-center gap-2 text-xs text-slate-500">
+<span class="material-symbols-outlined text-[14px]">tune</span>
+<span>相似度阈值 &gt; 85%</span>
+</div>
+<span class="text-xs font-mono text-slate-400">V1.0 Draft</span>
+</div>
+</div>
+<div class="group p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 hover:border-slate-300 cursor-pointer transition-all opacity-75 hover:opacity-100">
+<div class="flex justify-between items-start mb-2">
+<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400">合金微调</span>
+<span class="flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full dark:bg-slate-700 dark:text-slate-400">
+<span class="material-symbols-outlined text-[12px]">block</span> 已停用
+                                </span>
+</div>
+<h3 class="text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">老式高碳锰铁配比</h3>
+<p class="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 mb-3">适用于旧工艺标准，现已废弃。</p>
+<div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-700 pt-2">
+<div class="flex items-center gap-2 text-xs text-slate-500">
+<span class="material-symbols-outlined text-[14px]">tune</span>
+<span>相似度阈值 &gt; 90%</span>
+</div>
+<span class="text-xs font-mono text-slate-400">V1.5</span>
+</div>
+</div>
+</div>
+<div class="p-3 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
+                        共 24 个知识卡资产
+                    </div>
+</div>
+<div class="w-[65%] bg-white dark:bg-slate-850 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-full">
+<div class="flex-1 overflow-y-auto p-8 custom-scrollbar">
+<div class="flex justify-between items-start mb-8">
+<div>
+<div class="flex items-center gap-2 text-xs text-slate-500 mb-2">
+<span class="font-mono">ID: KBC-2024-012</span>
+<span class="w-1 h-1 rounded-full bg-slate-300"></span>
+<span>最后更新: 2023-10-24 14:30</span>
+</div>
+<div class="relative group">
+<label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">症状标题</label>
+<input class="block w-full text-xl font-bold text-slate-900 dark:text-white border-0 border-b-2 border-transparent hover:border-slate-200 focus:border-primary focus:ring-0 bg-transparent px-0 transition-colors" type="text" value="熔化期供电优化策略 - 二次侧电压提升"/>
+<span class="material-symbols-outlined absolute right-0 top-6 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity text-[18px]">edit</span>
+</div>
+</div>
+<div class="flex flex-col items-end gap-2">
+<span class="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800 text-sm font-bold flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    已生效 Active
+                                </span>
+</div>
+</div>
+<form class="space-y-8">
+<section>
+<div class="flex items-center gap-2 mb-4 pb-2 border-b border-slate-100 dark:border-slate-800">
+<span class="material-symbols-outlined text-primary text-[20px]">settings_input_component</span>
+<h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">适用条件 (Trigger Conditions)</h3>
+</div>
+<div class="grid grid-cols-12 gap-4">
+<div class="col-span-4">
+<label class="block text-xs font-medium text-slate-500 mb-1">适用设备</label>
+<select class="industrial-input dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300">
+<option>EAF-3 (超高功率电弧炉)</option>
+<option>ALL (全厂通用)</option>
+</select>
+</div>
+<div class="col-span-4">
+<label class="block text-xs font-medium text-slate-500 mb-1">工况类型</label>
+<select class="industrial-input dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300">
+<option>熔化期 (Melting Phase)</option>
+<option>精炼期 (Refining Phase)</option>
+</select>
+</div>
+<div class="col-span-4">
+<label class="block text-xs font-medium text-slate-500 mb-1">参数阈值</label>
+<div class="flex items-center gap-2">
+<span class="text-xs text-slate-400">TempRate</span>
+<input class="industrial-input dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 font-mono text-right" placeholder="Value" type="text" value="&lt; 2.5"/>
+<span class="text-xs text-slate-400">℃/min</span>
+</div>
+</div>
+<div class="col-span-12">
+<label class="block text-xs font-medium text-slate-500 mb-1">条件描述补充</label>
+<textarea class="industrial-input dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 text-xs" rows="2">废钢加入后15分钟内，且炉壁温度传感器T3未检测到异常高温。</textarea>
+</div>
+</div>
+</section>
+<section>
+<div class="flex items-center gap-2 mb-4 pb-2 border-b border-slate-100 dark:border-slate-800">
+<span class="material-symbols-outlined text-primary text-[20px]">format_list_numbered</span>
+<h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">处置步骤 (Action Plan)</h3>
+</div>
+<div class="space-y-3">
+<div class="flex gap-3 items-start group">
+<span class="flex-none w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 text-xs font-bold flex items-center justify-center mt-0.5">1</span>
+<div class="flex-1">
+<input class="block w-full text-sm font-medium text-slate-900 dark:text-white bg-transparent border-0 border-b border-slate-200 dark:border-slate-700 focus:ring-0 focus:border-primary p-0 pb-1" type="text" value="提升二次侧电压至 650V"/>
+<p class="text-xs text-slate-400 mt-1">操作员需确认电极调节系统处于自动模式。</p>
+</div>
+<button class="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+<div class="flex gap-3 items-start group">
+<span class="flex-none w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 text-xs font-bold flex items-center justify-center mt-0.5">2</span>
+<div class="flex-1">
+<input class="block w-full text-sm font-medium text-slate-900 dark:text-white bg-transparent border-0 border-b border-slate-200 dark:border-slate-700 focus:ring-0 focus:border-primary p-0 pb-1" type="text" value="延长供电时长 +5 min"/>
+<p class="text-xs text-slate-400 mt-1">监控变压器油温变化。</p>
+</div>
+<button class="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+<button class="flex items-center gap-1 text-xs text-primary font-semibold hover:underline mt-2 pl-9" type="button">
+<span class="material-symbols-outlined text-[16px]">add</span> 添加步骤
+                                    </button>
+</div>
+</section>
+<section>
+<div class="grid grid-cols-2 gap-6">
+<div>
+<div class="flex items-center gap-2 mb-3">
+<span class="material-symbols-outlined text-orange-500 text-[18px]">verified_user</span>
+<h3 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase">验证点 (Validation)</h3>
+</div>
+<div class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
+<div class="flex items-start gap-2 mb-2">
+<input checked="" class="mt-1 rounded border-slate-300 text-primary focus:ring-primary" disabled="" type="checkbox"/>
+<span class="text-xs text-slate-600 dark:text-slate-400">执行后3分钟内，温升速率需恢复至 &gt;3.0℃/min</span>
+</div>
+<div class="flex items-start gap-2">
+<input checked="" class="mt-1 rounded border-slate-300 text-primary focus:ring-primary" disabled="" type="checkbox"/>
+<span class="text-xs text-slate-600 dark:text-slate-400">电弧声音平稳，无剧烈波动</span>
+</div>
+</div>
+</div>
+<div>
+<div class="flex items-center gap-2 mb-3">
+<span class="material-symbols-outlined text-red-500 text-[18px]">warning</span>
+<h3 class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase">风险与回退 (Risk &amp; Rollback)</h3>
+</div>
+<div class="bg-red-50 dark:bg-red-900/10 rounded-lg p-3 border border-red-100 dark:border-red-900/30">
+<p class="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+<span class="font-bold text-red-700 dark:text-red-400">风险：</span>若炉壁温度急剧升高(&gt;1700℃)，可能损坏耐火材料。<br/>
+<span class="font-bold text-red-700 dark:text-red-400">回退：</span>立即切断电源，切换至低电压档位(450V)，启动紧急冷却水循环。
+                                            </p>
+</div>
+</div>
+</div>
+</section>
+<section>
+<div class="flex items-center justify-between mb-4 pb-2 border-b border-slate-100 dark:border-slate-800">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">analytics</span>
+<h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">参考证据 (Evidence)</h3>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-xs font-medium text-slate-500">相似度阈值配置:</span>
+<input class="w-24 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-primary" type="range" value="92"/>
+<span class="text-xs font-bold text-primary">92%</span>
+</div>
+</div>
+<div class="bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-4 relative overflow-hidden h-48 flex flex-col justify-center items-center">
+<div class="absolute inset-0 opacity-10 bg-[radial-gradient(#1152d4_1px,transparent_1px)] [background-size:12px_12px]"></div>
+<div class="w-full h-full flex items-end justify-between gap-1 px-4 pb-4">
+<div class="w-full h-32 flex items-end gap-1">
+<div class="w-[5%] bg-blue-300/50 h-[30%] rounded-t-sm"></div>
+<div class="w-[5%] bg-blue-300/50 h-[40%] rounded-t-sm"></div>
+<div class="w-[5%] bg-blue-300/50 h-[35%] rounded-t-sm"></div>
+<div class="w-[5%] bg-blue-300/50 h-[50%] rounded-t-sm"></div>
+<div class="w-[5%] bg-blue-300/50 h-[60%] rounded-t-sm"></div>
+<div class="w-[5%] bg-blue-500 h-[80%] rounded-t-sm shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div> 
+<div class="w-[5%] bg-green-400 h-[70%] rounded-t-sm"></div> 
+<div class="w-[5%] bg-green-400 h-[75%] rounded-t-sm"></div>
+<div class="w-[5%] bg-green-400 h-[85%] rounded-t-sm"></div>
+<div class="w-[5%] bg-green-400 h-[90%] rounded-t-sm"></div>
+<div class="w-[5%] bg-blue-300/50 h-[88%] rounded-t-sm"></div>
+<div class="w-[5%] bg-blue-300/50 h-[85%] rounded-t-sm"></div>
+<div class="w-[5%] bg-blue-300/50 h-[80%] rounded-t-sm"></div>
+</div>
+</div>
+<div class="absolute top-3 left-4 text-xs font-mono text-slate-500 bg-white/80 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                                        历史炉次 #EAF-3-1024 验证数据
+                                    </div>
+</div>
+</section>
+</form>
+</div>
+<div class="flex-none p-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-b-xl flex items-center justify-between">
+<div class="flex items-center gap-6 text-xs text-slate-500">
+<div class="flex flex-col">
+<span class="text-slate-400 uppercase text-[10px]">创建人 Creator</span>
+<span class="font-medium text-slate-700 dark:text-slate-300">王老师傅</span>
+</div>
+<div class="flex flex-col">
+<span class="text-slate-400 uppercase text-[10px]">审核人 Auditor</span>
+<span class="font-medium text-slate-700 dark:text-slate-300">李总工</span>
+</div>
+<div class="flex flex-col">
+<span class="text-slate-400 uppercase text-[10px]">生效时间 Effective</span>
+<span class="font-medium text-slate-700 dark:text-slate-300">2023-10-25</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2">
+<span class="text-xs font-medium text-slate-600 dark:text-slate-400">停用/启用</span>
+<button class="relative inline-flex h-6 w-11 items-center rounded-full bg-primary transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2">
+<span class="inline-block h-4 w-4 transform translate-x-6 rounded-full bg-white transition-transform"></span>
+</button>
+</div>
+<div class="h-8 w-px bg-slate-200 dark:bg-slate-700"></div>
+<button class="px-5 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-bold rounded-lg hover:shadow-lg hover:-translate-y-0.5 transition-all flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">check_circle</span>
+                                提交审核
+                            </button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+
+</body></html>

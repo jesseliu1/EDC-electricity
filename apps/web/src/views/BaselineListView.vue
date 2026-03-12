@@ -2,8 +2,8 @@
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { ElButton, ElRadioGroup, ElRadioButton, ElEmpty, ElMessage, ElDialog } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { ElMessage, ElDialog } from 'element-plus'
+import PageHeader from '@/components/common/PageHeader.vue'
 import BaselineCard from '@/components/baseline/BaselineCard.vue'
 import BaselineWizard from '@/components/baseline/BaselineWizard.vue'
 import { useBaselineStore } from '@/stores/baseline'
@@ -23,9 +23,14 @@ const wizardPrefill = ref<{
 
 type BaselineFilter = 'all' | BaselineStatus
 
-async function handleFilterChange(value: string | number | boolean | undefined) {
-  if (value === undefined) return
-  const filter = value as BaselineFilter
+const filters: { key: BaselineFilter; label: string }[] = [
+  { key: 'all', label: '全部范围' },
+  { key: 'published', label: '已发布' },
+  { key: 'draft', label: '草稿' },
+  { key: 'disabled', label: '已停用' },
+]
+
+async function handleFilterChange(filter: BaselineFilter) {
   await baselineStore.setFilter(filter)
 }
 
@@ -52,10 +57,9 @@ function handlePrefillFromRoute() {
     sourceHeatId,
     selectedStartTime,
     selectedEndTime,
-    name
+    name,
   }
   wizardVisible.value = true
-
   void router.replace({ path: '/baselines' })
 }
 
@@ -96,13 +100,15 @@ async function handleWizardSubmit(payload: {
       source_heat_id: payload.sourceHeatId,
       selected_start_time: payload.selectedStartTime,
       selected_end_time: payload.selectedEndTime,
-      tolerance_percent: payload.tolerancePercent
+      tolerance_percent: payload.tolerancePercent,
     },
     payload.mode
   )
   wizardVisible.value = false
   ElMessage.success(
-    payload.mode === 'publish' ? t('baseline.publishSuccess') : t('baseline.saveDraftSuccess')
+    payload.mode === 'publish'
+      ? t('baseline.publishSuccess')
+      : t('baseline.saveDraftSuccess')
   )
 }
 
@@ -113,45 +119,84 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-bold text-gray-900">
-        {{ t('baseline.title') }}
-      </h1>
-      <el-button
-        type="primary"
-        :icon="Plus"
-        @click="handleCreate"
-      >
-        {{ t('baseline.createBaseline') }}
-      </el-button>
-    </div>
-
-    <div class="rounded-xl border border-gray-200 bg-white p-4">
-      <div class="flex items-center justify-between gap-4 flex-wrap">
-        <div class="text-sm text-gray-500">
-          {{ t('baseline.status') }}
-        </div>
-        <el-radio-group
-          :model-value="baselineStore.currentFilter"
-          @change="handleFilterChange"
+  <div class="flex flex-col gap-6">
+    <!-- 页面头部 -->
+    <PageHeader
+      :title="t('baseline.title')"
+      subtitle="Baseline Library"
+      description="沉淀与管理经过专家验证的最佳熔炼曲线，作为系统偏差分析的对比基准。"
+    >
+      <template #actions>
+        <button
+          class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
         >
-          <el-radio-button label="all">
-            {{ t('common.viewAll') }}
-          </el-radio-button>
-          <el-radio-button label="published">
-            {{ t('baseline.statusPublished') }}
-          </el-radio-button>
-          <el-radio-button label="draft">
-            {{ t('baseline.statusDraft') }}
-          </el-radio-button>
-          <el-radio-button label="disabled">
-            {{ t('baseline.statusDisabled') }}
-          </el-radio-button>
-        </el-radio-group>
+          <span class="material-symbols-outlined text-[18px]">sync</span>
+          刷新数据
+        </button>
+        <button
+          class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+        >
+          <span class="material-symbols-outlined text-[18px]">download</span>
+          导出
+        </button>
+        <button
+          class="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
+          @click="handleCreate"
+        >
+          <span class="material-symbols-outlined text-[18px]">add</span>
+          {{ t('baseline.createBaseline') }}
+        </button>
+      </template>
+    </PageHeader>
+
+    <!-- 筛选区 -->
+    <div
+      class="bg-white rounded-xl border border-border-light shadow-card p-5"
+    >
+      <div class="flex items-center gap-6">
+        <span
+          class="material-symbols-outlined text-slate-400 text-[20px]"
+          >filter_list</span
+        >
+        <span class="text-sm text-slate-500 font-medium">基线列表</span>
+        <span class="text-xs text-slate-400"
+          >共 {{ baselineStore.filteredList.length }} 条记录</span
+        >
+        <div class="flex-1" />
+        <!-- 筛选按钮组 -->
+        <div class="flex bg-slate-100 p-1 rounded-lg">
+          <button
+            v-for="f in filters"
+            :key="f.key"
+            :class="[
+              'px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200',
+              baselineStore.currentFilter === f.key
+                ? 'bg-white text-primary shadow-sm font-bold'
+                : 'text-slate-500 hover:text-slate-700',
+            ]"
+            @click="handleFilterChange(f.key)"
+          >
+            {{ f.label }}
+          </button>
+        </div>
+        <!-- 搜索 -->
+        <div
+          class="flex items-center bg-slate-100 rounded-lg px-3 py-1.5 w-48 border border-transparent focus-within:border-primary/30 transition-all"
+        >
+          <span
+            class="material-symbols-outlined text-slate-400 text-[18px]"
+            >search</span
+          >
+          <input
+            type="text"
+            class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 ml-2 p-0"
+            placeholder="搜索名称..."
+          />
+        </div>
       </div>
     </div>
 
+    <!-- 基线卡片列表 -->
     <div
       v-if="baselineStore.filteredList.length > 0"
       class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
@@ -167,13 +212,18 @@ onMounted(() => {
       />
     </div>
 
+    <!-- 空状态 -->
     <div
       v-else
-      class="rounded-xl border border-dashed border-gray-300 bg-white py-16"
+      class="rounded-xl border border-dashed border-border-light bg-white py-16 flex flex-col items-center justify-center"
     >
-      <el-empty :description="t('common.noData')" />
+      <span class="material-symbols-outlined text-slate-300 text-5xl"
+        >library_books</span
+      >
+      <p class="text-sm text-slate-400 mt-3">{{ t('common.noData') }}</p>
     </div>
 
+    <!-- 创建基线对话框 -->
     <ElDialog
       v-model="wizardVisible"
       :title="t('baseline.createBaseline')"

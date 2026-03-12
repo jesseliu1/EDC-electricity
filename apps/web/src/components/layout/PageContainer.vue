@@ -19,10 +19,10 @@ withDefaults(defineProps<Props>(), {
 
 <template>
   <div
-    class="flex-1 overflow-y-auto bg-bg-page"
-    :class="noPadding ? '' : 'p-6'"
+    class="flex-1 overflow-y-auto bg-background-light"
+    :class="noPadding ? '' : 'p-6 lg:p-8'"
   >
-    <div :class="maxWidth ? 'max-w-[1600px] mx-auto' : ''">
+    <div :class="maxWidth ? 'max-w-[1600px] mx-auto flex flex-col gap-6' : ''">
       <slot />
     </div>
   </div>
