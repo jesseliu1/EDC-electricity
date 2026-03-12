@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import {
   ElButton,
   ElCard,
+  ElDatePicker,
   ElDialog,
   ElEmpty,
   ElForm,
@@ -14,26 +15,24 @@ import {
   ElOption,
   ElRadio,
   ElSelect,
-  ElSteps,
   ElStep,
-  ElDatePicker
+  ElSteps
 } from 'element-plus'
 import { FullScreen } from '@element-plus/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
-import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { DataZoomComponent, GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
 import dayjs from 'dayjs'
 import { useBaselineDefinitionStore } from '@/stores/baselineDefinition'
 
-use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
+use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent])
 
-interface HeatPoint {
+interface MetricCurvePoint {
   timestamp: number
-  power: number
-  voltage: number
+  values: Record<string, number>
 }
 
 interface HeatCandidate {
@@ -67,13 +66,14 @@ interface Emits {
   (e: 'submit', payload: WizardSubmitPayload): void
 }
 
-const emit = defineEmits<Emits>()
 const props = withDefaults(defineProps<Props>(), {
   initialSourceHeatId: '',
   initialSelectedStartTime: '',
   initialSelectedEndTime: '',
   initialName: ''
 })
+
+const emit = defineEmits<Emits>()
 const { t } = useI18n()
 const baselineDefinitionStore = useBaselineDefinitionStore()
 
@@ -81,6 +81,8 @@ const activeStep = ref(0)
 const selectedHeatId = ref('')
 const selectingBoundary = ref<'start' | 'end'>('start')
 const fullscreenVisible = ref(false)
+const fullCurvePoints = ref<MetricCurvePoint[]>([])
+const heatCandidates = ref<HeatCandidate[]>([])
 
 const formData = ref({
   name: '',
@@ -89,50 +91,106 @@ const formData = ref({
   tolerancePercent: 15
 })
 
-const fullCurvePoints = ref<HeatPoint[]>([])
+const selectedStart = ref<number | null>(null)
+const selectedEnd = ref<number | null>(null)
 
-const heatCandidates = ref<HeatCandidate[]>([])
+const selectedDefinition = computed(() =>
+  baselineDefinitionStore.list.find(item => item.id === formData.value.definitionId) || null
+)
 
 const selectedHeat = computed(() =>
   heatCandidates.value.find(item => item.id === selectedHeatId.value) || null
 )
 
-const selectedStart = ref<number | null>(null)
-const selectedEnd = ref<number | null>(null)
+function metricSeed(metricId: string) {
+  return metricId.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
+}
 
-const selectedStartDate = ref<Date | null>(null)
-const selectedEndDate = ref<Date | null>(null)
+function getMetricBase(unit: string, seed: number) {
+  if (unit === 'kW') return 420 + (seed % 20)
+  if (unit === 'V') return 382 + (seed % 8)
+  if (unit === '°C') return 1455 + (seed % 18)
+  if (unit === 'MPa') return Number((0.85 + (seed % 10) * 0.02).toFixed(2))
+  return 100 + (seed % 30)
+}
 
-watch(() => selectedStart.value, (val) => {
-  selectedStartDate.value = val ? new Date(val) : null
-})
+function getMetricAmplitude(unit: string, seed: number) {
+  if (unit === 'kW') return 28 + (seed % 6)
+  if (unit === 'V') return 6 + (seed % 3)
+  if (unit === '°C') return 18 + (seed % 5)
+  if (unit === 'MPa') return Number((0.08 + (seed % 4) * 0.01).toFixed(2))
+  return 12
+}
 
-watch(() => selectedEnd.value, (val) => {
-  selectedEndDate.value = val ? new Date(val) : null
-})
+function createCurvePoints() {
+  const metrics = selectedDefinition.value?.metrics || []
+  const rangeStart = dayjs().subtract(24, 'hour').startOf('hour')
+  const totalPoints = 576
 
-watch(selectedStartDate, (val) => {
-  const ts = val ? dayjs(val).valueOf() : null
-  if (ts !== selectedStart.value) {
-    selectedStart.value = ts
-    normalizeRange()
+  fullCurvePoints.value = Array.from({ length: totalPoints + 1 }).map((_, index) => {
+    const timestamp = rangeStart.add(index * 5, 'minute').valueOf()
+    const values = metrics.reduce<Record<string, number>>((accumulator, metric) => {
+      const seed = metricSeed(metric.id)
+      const base = getMetricBase(metric.unit, seed)
+      const amplitude = getMetricAmplitude(metric.unit, seed)
+      const phase = seed / 17
+      const periodic = Math.sin(index / (14 + (seed % 7)) + phase)
+      const microFluctuation = Math.cos(index / (11 + (seed % 5)) + phase / 2)
+      const rawValue = base + periodic * amplitude + microFluctuation * amplitude * 0.18
+
+      accumulator[metric.id] = Number(rawValue.toFixed(metric.unit === 'MPa' ? 2 : 1))
+      return accumulator
+    }, {})
+
+    return { timestamp, values }
+  })
+
+  const candidateSeed = [
+    { id: 'heat-101', heatNo: 'H20260312-101', offsetHours: 3, durationMinutes: 38 },
+    { id: 'heat-102', heatNo: 'H20260312-102', offsetHours: 16, durationMinutes: 42 },
+    { id: 'heat-103', heatNo: 'H20260313-103', offsetHours: 28, durationMinutes: 35 },
+    { id: 'heat-104', heatNo: 'H20260313-104', offsetHours: 40, durationMinutes: 31 }
+  ]
+
+  heatCandidates.value = candidateSeed.map(item => {
+    const start = rangeStart.add(item.offsetHours, 'hour')
+    const end = start.add(item.durationMinutes, 'minute')
+    return {
+      id: item.id,
+      heatNo: item.heatNo,
+      date: start.format('YYYY-MM-DD HH:mm:ss'),
+      startTime: start.valueOf(),
+      endTime: end.valueOf()
+    }
+  })
+
+  if (props.initialSourceHeatId) {
+    const exists = heatCandidates.value.some(item => item.id === props.initialSourceHeatId)
+    if (!exists) {
+      const start = props.initialSelectedStartTime
+        ? dayjs(props.initialSelectedStartTime)
+        : rangeStart.add(20, 'hour')
+      const end = props.initialSelectedEndTime
+        ? dayjs(props.initialSelectedEndTime)
+        : start.add(35, 'minute')
+
+      heatCandidates.value.unshift({
+        id: props.initialSourceHeatId,
+        heatNo: props.initialName || `H-PREFILL-${props.initialSourceHeatId}`,
+        date: start.format('YYYY-MM-DD HH:mm:ss'),
+        startTime: start.valueOf(),
+        endTime: end.valueOf()
+      })
+    }
   }
-})
-
-watch(selectedEndDate, (val) => {
-  const ts = val ? dayjs(val).valueOf() : null
-  if (ts !== selectedEnd.value) {
-    selectedEnd.value = ts
-    normalizeRange()
-  }
-})
+}
 
 function normalizeRange() {
   if (!selectedStart.value || !selectedEnd.value) return
   if (selectedStart.value > selectedEnd.value) {
-    const temp = selectedStart.value
+    const start = selectedStart.value
     selectedStart.value = selectedEnd.value
-    selectedEnd.value = temp
+    selectedEnd.value = start
   }
 }
 
@@ -142,60 +200,19 @@ function resetRangeByHeat() {
     selectedEnd.value = null
     return
   }
-  selectedStart.value = selectedHeat.value.startTime || null
-  selectedEnd.value = selectedHeat.value.endTime || null
+
+  selectedStart.value = selectedHeat.value.startTime
+  selectedEnd.value = selectedHeat.value.endTime
 }
 
-const compareOption = computed<EChartsOption>(() => {
-  if (fullCurvePoints.value.length === 0) return {}
-
-  const labels = fullCurvePoints.value.map(point => dayjs(point.timestamp).format('HH:mm:ss'))
-  const rangeStart = selectedStart.value ? dayjs(selectedStart.value).format('HH:mm:ss') : null
-  const rangeEnd = selectedEnd.value ? dayjs(selectedEnd.value).format('HH:mm:ss') : null
-
-  return {
-    grid: { left: 50, right: 20, top: 40, bottom: 40 },
-    tooltip: { trigger: 'axis' },
-    legend: {
-      data: [t('baseline.wizard.currentHeatPower'), t('baseline.wizard.currentHeatVoltage')],
-      top: 0
-    },
-    xAxis: { type: 'category', data: labels },
-    yAxis: [
-      { type: 'value', name: 'kW' },
-      { type: 'value', name: 'V' }
-    ],
-    series: [
-      {
-        name: t('baseline.wizard.currentHeatPower'),
-        type: 'line' as const,
-        smooth: true,
-        showSymbol: false,
-        lineStyle: { color: '#409EFF', width: 2 },
-        data: fullCurvePoints.value.map(point => point.power),
-        markArea:
-          rangeStart && rangeEnd
-            ? {
-                itemStyle: { color: 'rgba(64, 158, 255, 0.15)' },
-                data: [[{ xAxis: rangeStart }, { xAxis: rangeEnd }]]
-              }
-            : undefined
-      },
-      {
-        name: t('baseline.wizard.currentHeatVoltage'),
-        type: 'line' as const,
-        smooth: true,
-        showSymbol: false,
-        yAxisIndex: 1,
-        lineStyle: { color: '#67C23A', width: 2, type: 'dashed' as const },
-        data: fullCurvePoints.value.map(point => point.voltage)
-      }
-    ]
-  }
-})
+function handleSelectHeat(id: string) {
+  selectedHeatId.value = id
+  selectingBoundary.value = 'start'
+  resetRangeByHeat()
+}
 
 function handleChartClick(params: { dataIndex?: number }) {
-  if (params.dataIndex === undefined || fullCurvePoints.value.length === 0) return
+  if (params.dataIndex === undefined) return
   const point = fullCurvePoints.value[params.dataIndex]
   if (!point) return
 
@@ -206,6 +223,7 @@ function handleChartClick(params: { dataIndex?: number }) {
     selectedEnd.value = point.timestamp
     selectingBoundary.value = 'start'
   }
+
   normalizeRange()
 }
 
@@ -219,43 +237,119 @@ function adjustBoundary(boundary: 'start' | 'end', deltaSecond: number) {
   normalizeRange()
 }
 
-const summaryStats = computed(() => {
-  if (!selectedStart.value || !selectedEnd.value) {
-    return { avg: 0, peak: 0, durationSecond: 0 }
-  }
-  const selected = fullCurvePoints.value.filter(
-    point => point.timestamp >= selectedStart.value! && point.timestamp <= selectedEnd.value!
-  )
-  if (selected.length === 0) {
-    return { avg: 0, peak: 0, durationSecond: 0 }
-  }
-  const values = selected.map(point => point.power)
-  const avg = values.reduce((acc, value) => acc + value, 0) / values.length
-  const peak = Math.max(...values)
+const chartOption = computed<EChartsOption>(() => {
+  const definition = selectedDefinition.value
+  if (!definition || fullCurvePoints.value.length === 0) return {}
+
+  const metrics = [...definition.metrics].sort((left, right) => left.sortOrder - right.sortOrder)
+  const units = Array.from(new Set(metrics.map(metric => metric.unit)))
+  const yAxis = units.map((unit, index) => ({
+    type: 'value' as const,
+    name: unit,
+    position: index % 2 === 0 ? 'left' as const : 'right' as const,
+    offset: index > 1 ? Math.floor((index - 1) / 2) * 56 : 0,
+    axisLabel: { color: '#64748b' },
+    nameTextStyle: { color: '#64748b' },
+    splitLine: index === 0 ? { lineStyle: { color: '#e2e8f0' } } : { show: false }
+  }))
+
   return {
-    avg: Number(avg.toFixed(1)),
-    peak,
+    animation: false,
+    grid: { left: 56, right: 72, top: 48, bottom: 86 },
+    tooltip: {
+      trigger: 'axis',
+      valueFormatter: value => (typeof value === 'number' ? value.toFixed(2).replace(/\.00$/, '') : `${value || ''}`)
+    },
+    legend: {
+      top: 0,
+      data: metrics.map(metric => metric.name)
+    },
+    dataZoom: [
+      { type: 'inside', moveOnMouseMove: true, zoomOnMouseWheel: true },
+      { type: 'slider', height: 28, bottom: 24 }
+    ],
+    xAxis: {
+      type: 'time',
+      axisLabel: {
+        color: '#64748b',
+        formatter: (value: number) => dayjs(value).format('MM-DD HH:mm')
+      }
+    },
+    yAxis,
+    series: metrics.map((metric, index) => ({
+      name: metric.name,
+      type: 'line' as const,
+      smooth: true,
+      showSymbol: false,
+      yAxisIndex: units.indexOf(metric.unit),
+      lineStyle: { width: index === 0 ? 2.5 : 2, color: metric.color },
+      itemStyle: { color: metric.color },
+      markArea:
+        index === 0 && selectedStart.value && selectedEnd.value
+          ? {
+              itemStyle: { color: 'rgba(17, 82, 212, 0.12)' },
+              data: [[{ xAxis: selectedStart.value }, { xAxis: selectedEnd.value }]]
+            }
+          : undefined,
+      data: fullCurvePoints.value.map(point => [point.timestamp, point.values[metric.id]])
+    }))
+  }
+})
+
+const summaryStats = computed(() => {
+  const definition = selectedDefinition.value
+  const primaryMetric = definition?.metrics[0]
+  if (!primaryMetric || !selectedStart.value || !selectedEnd.value) {
+    return {
+      label: '--',
+      avg: 0,
+      peak: 0,
+      durationSecond: 0
+    }
+  }
+
+  const selectedPoints = fullCurvePoints.value
+    .filter(point => point.timestamp >= selectedStart.value! && point.timestamp <= selectedEnd.value!)
+    .map(point => point.values[primaryMetric.id])
+    .filter(value => value !== undefined)
+
+  if (selectedPoints.length === 0) {
+    return {
+      label: `${primaryMetric.name} (${primaryMetric.unit})`,
+      avg: 0,
+      peak: 0,
+      durationSecond: 0
+    }
+  }
+
+  const avg = selectedPoints.reduce((sum, value) => sum + value, 0) / selectedPoints.length
+
+  return {
+    label: `${primaryMetric.name} (${primaryMetric.unit})`,
+    avg: Number(avg.toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)),
+    peak: Number(Math.max(...selectedPoints).toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)),
     durationSecond: Math.floor((selectedEnd.value - selectedStart.value) / 1000)
   }
 })
 
 function nextStep() {
-  if (activeStep.value === 0 && !selectedHeatId.value) {
-    ElMessage.warning(t('baseline.wizard.selectHeatRequired'))
-    return
-  }
-  if (activeStep.value === 0 && (!selectedStart.value || !selectedEnd.value)) {
-    ElMessage.warning(t('baseline.wizard.pointRangeRequired'))
-    return
-  }
-  if (activeStep.value === 1 && !formData.value.name.trim()) {
+  if (activeStep.value === 0 && !formData.value.name.trim()) {
     ElMessage.warning(t('baseline.wizard.nameRequired'))
     return
   }
-  if (activeStep.value === 1 && !formData.value.definitionId) {
+  if (activeStep.value === 0 && !formData.value.definitionId) {
     ElMessage.warning(t('baseline.wizard.definitionRequired'))
     return
   }
+  if (activeStep.value === 1 && !selectedHeatId.value) {
+    ElMessage.warning(t('baseline.wizard.selectHeatRequired'))
+    return
+  }
+  if (activeStep.value === 1 && (!selectedStart.value || !selectedEnd.value)) {
+    ElMessage.warning(t('baseline.wizard.pointRangeRequired'))
+    return
+  }
+
   if (activeStep.value < 2) {
     activeStep.value += 1
   }
@@ -285,105 +379,53 @@ function submit(mode: 'draft' | 'publish') {
   })
 }
 
-function handleSelectHeat(id: string) {
-  selectedHeatId.value = id
-  selectingBoundary.value = 'start'
-  resetRangeByHeat()
-}
-
-function ensurePrefillHeatCandidate() {
-  if (!props.initialSourceHeatId) return
-  const exists = heatCandidates.value.some(item => item.id === props.initialSourceHeatId)
-  if (exists) return
-
-  const start = props.initialSelectedStartTime ? dayjs(props.initialSelectedStartTime) : dayjs().subtract(1, 'hour')
-  const points = Array.from({ length: 360 }).map((_, index) => {
-    const ts = start.add(index * 10, 'second').valueOf()
-    return {
-      timestamp: ts,
-      power: Number((425 + Math.sin(index / 16) * 22 + (index % 4)).toFixed(1)),
-      voltage: Number((381 + Math.cos(index / 21) * 5).toFixed(1))
+watch(
+  () => formData.value.definitionId,
+  () => {
+    createCurvePoints()
+    if (!selectedHeatId.value && heatCandidates.value[0]) {
+      selectedHeatId.value = heatCandidates.value[0].id
     }
-  })
+    if (props.initialSelectedStartTime && props.initialSelectedEndTime) {
+      selectedStart.value = dayjs(props.initialSelectedStartTime).valueOf()
+      selectedEnd.value = dayjs(props.initialSelectedEndTime).valueOf()
+      normalizeRange()
+    } else if (!selectedStart.value || !selectedEnd.value) {
+      resetRangeByHeat()
+    }
+  }
+)
 
-  heatCandidates.value.unshift({
-    id: props.initialSourceHeatId,
-    heatNo: props.initialName || `H-PREFILL-${props.initialSourceHeatId}`,
-    date: dayjs(points[0]?.timestamp || Date.now()).format('YYYY-MM-DD HH:mm:ss'),
-    startTime: points[0]?.timestamp || Date.now(),
-    endTime: points[points.length - 1]?.timestamp || Date.now()
-  })
-}
-
-function applyPrefillRange() {
-  if (!props.initialSelectedStartTime || !props.initialSelectedEndTime) return
-  selectedStart.value = dayjs(props.initialSelectedStartTime).valueOf()
-  selectedEnd.value = dayjs(props.initialSelectedEndTime).valueOf()
-  normalizeRange()
-}
+watch(selectedHeatId, () => {
+  if (activeStep.value === 1) {
+    resetRangeByHeat()
+  }
+})
 
 onMounted(async () => {
-  const now = dayjs()
-  let curveStart = dayjs().hour(6).minute(0).second(0).millisecond(0)
-  if (now.isBefore(curveStart)) {
-    curveStart = now.startOf('day')
-  }
-  const stepSeconds = 10
-  const totalSeconds = Math.max(0, now.diff(curveStart, 'second'))
-  const totalPoints = Math.max(1, Math.floor(totalSeconds / stepSeconds))
-  fullCurvePoints.value = Array.from({ length: totalPoints + 1 }).map((_, index) => {
-    const ts = curveStart.add(index * stepSeconds, 'second').valueOf()
-    return {
-      timestamp: ts,
-      power: Number((418 + Math.sin(index / 18) * 26 + (index % 6)).toFixed(1)),
-      voltage: Number((382 + Math.cos(index / 22) * 6).toFixed(1))
-    }
-  })
-
-  const candidateSeed = [
-    { id: 'heat-101', heatNo: 'H20260223-101', offsetMinutes: 90, durationMinutes: 30 },
-    { id: 'heat-102', heatNo: 'H20260223-102', offsetMinutes: 210, durationMinutes: 28 },
-    { id: 'heat-103', heatNo: 'H20260223-103', offsetMinutes: 360, durationMinutes: 32 }
-  ]
-  heatCandidates.value = candidateSeed.map(item => {
-    let start = curveStart.add(item.offsetMinutes, 'minute')
-    if (start.isAfter(now)) {
-      start = now.subtract(item.durationMinutes, 'minute')
-    }
-    let end = start.add(item.durationMinutes, 'minute')
-    if (end.isAfter(now)) {
-      end = now
-    }
-    return {
-      id: item.id,
-      heatNo: item.heatNo,
-      date: start.format('YYYY-MM-DD HH:mm:ss'),
-      startTime: start.valueOf(),
-      endTime: end.valueOf()
-    }
-  })
-
-  ensurePrefillHeatCandidate()
-
   await baselineDefinitionStore.fetchList('active')
+
   const firstDefinition = baselineDefinitionStore.list[0]
   if (!formData.value.definitionId && firstDefinition) {
     formData.value.definitionId = firstDefinition.id
   }
-  if (props.initialName) {
-    formData.value.name = props.initialName
-  }
+
+  formData.value.name = props.initialName || ''
 
   if (props.initialSourceHeatId) {
     selectedHeatId.value = props.initialSourceHeatId
   }
+
+  createCurvePoints()
 
   if (!selectedHeatId.value && heatCandidates.value[0]) {
     selectedHeatId.value = heatCandidates.value[0].id
   }
 
   if (props.initialSelectedStartTime && props.initialSelectedEndTime) {
-    applyPrefillRange()
+    selectedStart.value = dayjs(props.initialSelectedStartTime).valueOf()
+    selectedEnd.value = dayjs(props.initialSelectedEndTime).valueOf()
+    normalizeRange()
   } else {
     resetRangeByHeat()
   }
@@ -392,13 +434,101 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-6">
-    <el-steps :active="activeStep" finish-status="success">
+    <el-steps
+      :active="activeStep + 1"
+      finish-status="success"
+    >
       <el-step :title="t('baseline.wizard.step1')" />
       <el-step :title="t('baseline.wizard.step2')" />
       <el-step :title="t('baseline.wizard.step3')" />
     </el-steps>
 
-    <div v-if="activeStep === 0" class="space-y-4">
+    <div
+      v-if="activeStep === 0"
+      class="space-y-4"
+    >
+      <el-card>
+        <el-form label-position="top">
+          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <el-form-item :label="t('baseline.name')">
+              <el-input
+                v-model="formData.name"
+                :placeholder="t('baseline.wizard.namePlaceholder')"
+              />
+            </el-form-item>
+            <el-form-item :label="t('baseline.wizard.definition')">
+              <el-select
+                v-model="formData.definitionId"
+                class="w-full"
+                :placeholder="t('baseline.wizard.definitionPlaceholder')"
+              >
+                <el-option
+                  v-for="item in baselineDefinitionStore.list"
+                  :key="item.id"
+                  :label="item.definitionName"
+                  :value="item.id"
+                />
+              </el-select>
+            </el-form-item>
+          </div>
+
+          <div class="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_220px]">
+            <el-form-item :label="t('baseline.wizard.description')">
+              <el-input
+                v-model="formData.description"
+                type="textarea"
+                :rows="4"
+                :placeholder="t('baseline.wizard.descriptionPlaceholder')"
+              />
+            </el-form-item>
+            <el-form-item :label="t('baseline.tolerance')">
+              <el-input-number
+                v-model="formData.tolerancePercent"
+                class="w-full"
+                :min="0"
+                :max="100"
+                :step="0.5"
+              />
+            </el-form-item>
+          </div>
+        </el-form>
+      </el-card>
+
+      <el-card v-if="selectedDefinition">
+        <template #header>
+          <div class="flex items-center justify-between">
+            <span>{{ selectedDefinition.definitionName }}</span>
+            <span class="text-xs text-slate-500">
+              {{ selectedDefinition.metrics.length }} 条曲线 · {{ selectedDefinition.expectedDurationMinutes }} 分钟
+            </span>
+          </div>
+        </template>
+
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div
+            v-for="metric in selectedDefinition.metrics"
+            :key="metric.id"
+            class="rounded-lg border border-border-light bg-slate-50 p-3"
+          >
+            <div class="flex items-center gap-2 text-sm font-semibold text-slate-800">
+              <span
+                class="h-2.5 w-2.5 rounded-full"
+                :style="{ backgroundColor: metric.color }"
+              />
+              {{ metric.name }}
+            </div>
+            <div class="mt-1 text-xs text-slate-500">
+              {{ metric.unit }}
+            </div>
+          </div>
+        </div>
+      </el-card>
+    </div>
+
+    <div
+      v-if="activeStep === 1"
+      class="space-y-4"
+    >
       <el-card>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <label
@@ -407,10 +537,18 @@ onMounted(async () => {
             class="cursor-pointer rounded-lg border p-4 transition hover:border-primary"
             :class="selectedHeatId === item.id ? 'border-primary bg-blue-50' : 'border-gray-200'"
           >
-            <el-radio :model-value="selectedHeatId" :value="item.id" @change="handleSelectHeat(item.id)">
+            <el-radio
+              :model-value="selectedHeatId"
+              :value="item.id"
+              @change="handleSelectHeat(item.id)"
+            >
               {{ item.heatNo }}
             </el-radio>
             <div class="mt-2 text-xs text-gray-500">{{ item.date }}</div>
+            <div class="mt-1 text-xs text-slate-400">
+              {{ dayjs(item.startTime).format('MM-DD HH:mm:ss') }} ~
+              {{ dayjs(item.endTime).format('MM-DD HH:mm:ss') }}
+            </div>
           </label>
         </div>
       </el-card>
@@ -418,20 +556,38 @@ onMounted(async () => {
       <el-card>
         <template #header>
           <div class="flex items-center justify-between">
-            <span>{{ t('baseline.wizard.chartPickTitle') }}</span>
-            <el-button :icon="FullScreen" @click="fullscreenVisible = true">
+            <div>
+              <div>{{ t('baseline.wizard.chartPickTitle') }}</div>
+              <div class="mt-1 text-xs text-slate-500">
+                {{ selectedDefinition?.definitionName || '--' }} · {{ t('baseline.wizard.pickHint') }}
+              </div>
+            </div>
+            <el-button
+              :icon="FullScreen"
+              @click="fullscreenVisible = true"
+            >
               {{ t('baseline.wizard.fullscreen') }}
             </el-button>
           </div>
         </template>
 
-        <div v-if="fullCurvePoints.length > 0" class="space-y-4">
-          <v-chart :option="compareOption" autoresize class="h-80" @click="handleChartClick" />
+        <div
+          v-if="selectedDefinition && fullCurvePoints.length > 0"
+          class="space-y-4"
+        >
+          <v-chart
+            :option="chartOption"
+            autoresize
+            class="h-[420px]"
+            @click="handleChartClick"
+          />
 
-          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div class="grid grid-cols-1 gap-4 xl:grid-cols-[220px_1fr]">
             <div class="space-y-2">
-              <div class="text-sm text-gray-500">{{ t('baseline.wizard.pointRange') }}</div>
-              <div class="flex items-center gap-2">
+              <div class="text-sm text-gray-500">
+                {{ t('baseline.wizard.pointRange') }}
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
                 <el-button
                   :type="selectingBoundary === 'start' ? 'primary' : 'default'"
                   @click="selectingBoundary = 'start'"
@@ -445,99 +601,93 @@ onMounted(async () => {
                   {{ t('baseline.wizard.pickEnd') }}
                 </el-button>
               </div>
-              <div class="text-xs text-gray-500">
-                {{ t('baseline.wizard.pickHint') }}
-              </div>
             </div>
 
-            <div class="grid grid-cols-1 gap-3">
+            <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
               <el-form-item :label="t('baseline.wizard.rangeStart')">
                 <div class="flex w-full items-center gap-2">
                   <el-date-picker
-                    v-model="selectedStartDate"
+                    v-model="selectedStart"
                     type="datetime"
+                    value-format="x"
                     format="YYYY-MM-DD HH:mm:ss"
                     class="w-full"
                   />
-                  <el-button @click="adjustBoundary('start', -1)">-1s</el-button>
-                  <el-button @click="adjustBoundary('start', 1)">+1s</el-button>
+                  <el-button @click="adjustBoundary('start', -1)">
+                    -1s
+                  </el-button>
+                  <el-button @click="adjustBoundary('start', 1)">
+                    +1s
+                  </el-button>
                 </div>
               </el-form-item>
               <el-form-item :label="t('baseline.wizard.rangeEnd')">
                 <div class="flex w-full items-center gap-2">
                   <el-date-picker
-                    v-model="selectedEndDate"
+                    v-model="selectedEnd"
                     type="datetime"
+                    value-format="x"
                     format="YYYY-MM-DD HH:mm:ss"
                     class="w-full"
                   />
-                  <el-button @click="adjustBoundary('end', -1)">-1s</el-button>
-                  <el-button @click="adjustBoundary('end', 1)">+1s</el-button>
+                  <el-button @click="adjustBoundary('end', -1)">
+                    -1s
+                  </el-button>
+                  <el-button @click="adjustBoundary('end', 1)">
+                    +1s
+                  </el-button>
                 </div>
               </el-form-item>
             </div>
           </div>
         </div>
-        <el-empty v-else :description="t('common.noData')" />
+        <el-empty
+          v-else
+          :description="t('common.noData')"
+        />
       </el-card>
 
       <el-card>
-        <div class="grid grid-cols-3 gap-4 text-sm">
+        <div class="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
           <div class="rounded-lg bg-gray-50 p-3">
-            <div class="text-gray-500">{{ t('baseline.wizard.avgPower') }}</div>
-            <div class="mt-1 text-lg font-semibold">{{ summaryStats.avg }} kW</div>
+            <div class="text-gray-500">
+              {{ summaryStats.label }}
+            </div>
+            <div class="mt-1 text-lg font-semibold">
+              {{ summaryStats.avg }}
+            </div>
           </div>
           <div class="rounded-lg bg-gray-50 p-3">
-            <div class="text-gray-500">{{ t('baseline.wizard.peakPower') }}</div>
-            <div class="mt-1 text-lg font-semibold">{{ summaryStats.peak }} kW</div>
+            <div class="text-gray-500">
+              {{ t('baseline.wizard.peakPower') }}
+            </div>
+            <div class="mt-1 text-lg font-semibold">
+              {{ summaryStats.peak }}
+            </div>
           </div>
           <div class="rounded-lg bg-gray-50 p-3">
-            <div class="text-gray-500">{{ t('baseline.wizard.selectedDuration') }}</div>
-            <div class="mt-1 text-lg font-semibold">{{ summaryStats.durationSecond }}s</div>
+            <div class="text-gray-500">
+              {{ t('baseline.wizard.selectedDuration') }}
+            </div>
+            <div class="mt-1 text-lg font-semibold">
+              {{ summaryStats.durationSecond }}s
+            </div>
           </div>
         </div>
       </el-card>
     </div>
 
-    <div v-if="activeStep === 1" class="space-y-4">
-      <el-card>
-        <el-form label-position="top">
-          <el-form-item :label="t('baseline.name')">
-            <el-input v-model="formData.name" :placeholder="t('baseline.wizard.namePlaceholder')" />
-          </el-form-item>
-          <el-form-item :label="t('baseline.wizard.definition')">
-            <el-select
-              v-model="formData.definitionId"
-              class="w-full"
-              :placeholder="t('baseline.wizard.definitionPlaceholder')"
-            >
-              <el-option
-                v-for="item in baselineDefinitionStore.list"
-                :key="item.id"
-                :label="item.definitionName"
-                :value="item.id"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="t('baseline.tolerance')">
-            <el-input-number v-model="formData.tolerancePercent" :min="0" :max="100" :step="0.5" />
-          </el-form-item>
-          <el-form-item :label="t('baseline.wizard.description')">
-            <el-input
-              v-model="formData.description"
-              type="textarea"
-              :rows="4"
-              :placeholder="t('baseline.wizard.descriptionPlaceholder')"
-            />
-          </el-form-item>
-        </el-form>
-      </el-card>
-    </div>
-
-    <div v-if="activeStep === 2" class="space-y-4">
+    <div
+      v-if="activeStep === 2"
+      class="space-y-4"
+    >
       <el-card>
         <div class="space-y-2 text-sm text-gray-700">
           <div><span class="text-gray-500">{{ t('baseline.name') }}:</span> {{ formData.name }}</div>
+          <div>
+            <span class="text-gray-500">{{ t('baseline.wizard.definition') }}:</span>
+            {{ selectedDefinition?.definitionName || '--' }}
+          </div>
           <div>
             <span class="text-gray-500">{{ t('baseline.selectHeat') }}:</span>
             {{ selectedHeat?.heatNo || '--' }}
@@ -549,12 +699,6 @@ onMounted(async () => {
             {{ selectedEnd ? dayjs(selectedEnd).format('YYYY-MM-DD HH:mm:ss') : '--' }}
           </div>
           <div>
-            <span class="text-gray-500">{{ t('baseline.wizard.definition') }}:</span>
-            {{
-              baselineDefinitionStore.list.find(item => item.id === formData.definitionId)?.definitionName || '--'
-            }}
-          </div>
-          <div>
             <span class="text-gray-500">{{ t('baseline.tolerance') }}:</span>
             {{ formData.tolerancePercent }}%
           </div>
@@ -564,31 +708,98 @@ onMounted(async () => {
           </div>
         </div>
       </el-card>
+
       <div class="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-700">
         {{ t('baseline.wizard.confirmHint') }}
       </div>
     </div>
 
     <div class="flex items-center justify-between">
-      <el-button @click="emit('cancel')">{{ t('common.cancel') }}</el-button>
+      <el-button @click="emit('cancel')">
+        {{ t('common.cancel') }}
+      </el-button>
       <div class="flex items-center gap-2">
-        <el-button v-if="activeStep > 0" @click="prevStep">{{ t('common.back') }}</el-button>
-        <el-button v-if="activeStep < 2" type="primary" @click="nextStep">
+        <el-button
+          v-if="activeStep > 0"
+          @click="prevStep"
+        >
+          {{ t('common.back') }}
+        </el-button>
+        <el-button
+          v-if="activeStep < 2"
+          type="primary"
+          @click="nextStep"
+        >
           {{ t('common.next') }}
         </el-button>
         <template v-else>
-          <el-button @click="submit('draft')">{{ t('baseline.wizard.saveDraft') }}</el-button>
-          <el-button type="primary" @click="submit('publish')">{{ t('baseline.publish') }}</el-button>
+          <el-button @click="submit('draft')">
+            {{ t('baseline.wizard.saveDraft') }}
+          </el-button>
+          <el-button
+            type="primary"
+            @click="submit('publish')"
+          >
+            {{ t('baseline.publish') }}
+          </el-button>
         </template>
       </div>
     </div>
 
-    <el-dialog v-model="fullscreenVisible" :title="t('baseline.wizard.fullscreenTitle')" fullscreen>
-      <div class="h-[78vh]">
-        <v-chart :option="compareOption" autoresize class="h-full" @click="handleChartClick" />
+    <el-dialog
+      v-model="fullscreenVisible"
+      :title="t('baseline.wizard.fullscreenTitle')"
+      fullscreen
+    >
+      <div class="flex h-[78vh] flex-col gap-4">
+        <v-chart
+          :option="chartOption"
+          autoresize
+          class="h-full min-h-0"
+          @click="handleChartClick"
+        />
+
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <el-form-item :label="t('baseline.wizard.rangeStart')">
+            <div class="flex w-full items-center gap-2">
+              <el-date-picker
+                v-model="selectedStart"
+                type="datetime"
+                value-format="x"
+                format="YYYY-MM-DD HH:mm:ss"
+                class="w-full"
+              />
+              <el-button @click="adjustBoundary('start', -1)">
+                -1s
+              </el-button>
+              <el-button @click="adjustBoundary('start', 1)">
+                +1s
+              </el-button>
+            </div>
+          </el-form-item>
+          <el-form-item :label="t('baseline.wizard.rangeEnd')">
+            <div class="flex w-full items-center gap-2">
+              <el-date-picker
+                v-model="selectedEnd"
+                type="datetime"
+                value-format="x"
+                format="YYYY-MM-DD HH:mm:ss"
+                class="w-full"
+              />
+              <el-button @click="adjustBoundary('end', -1)">
+                -1s
+              </el-button>
+              <el-button @click="adjustBoundary('end', 1)">
+                +1s
+              </el-button>
+            </div>
+          </el-form-item>
+        </div>
       </div>
       <template #footer>
-        <el-button @click="fullscreenVisible = false">{{ t('common.confirm') }}</el-button>
+        <el-button @click="fullscreenVisible = false">
+          {{ t('common.confirm') }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
