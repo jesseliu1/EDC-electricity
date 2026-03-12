@@ -140,6 +140,7 @@ onMounted(() => {
           导出
         </button>
         <button
+          data-testid="baseline-create-button"
           class="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
           @click="handleCreate"
         >
@@ -230,6 +231,7 @@ onMounted(() => {
       width="900px"
       destroy-on-close
       append-to-body
+      data-testid="baseline-wizard-dialog"
     >
       <BaselineWizard
         :initial-source-heat-id="wizardPrefill?.sourceHeatId"

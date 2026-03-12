@@ -48,6 +48,7 @@ const manualAdjustStart = ref<number | null>(null)
 const manualAdjustEnd = ref<number | null>(null)
 const manualAdjustRange = ref<[number, number]>([0, 0])
 const manualAdjustBoundary = ref<'start' | 'end'>('start')
+let syncingManualAdjustState = false
 
 const selectedComparison = computed(() => {
   if (!current.value) return null
@@ -205,29 +206,54 @@ const manualAdjustOption = computed<EChartsOption>(() => {
   }
 })
 
-function normalizeManualAdjustRange() {
+function normalizeManualAdjustBounds(start: number, end: number): [number, number] {
+  return start <= end ? [start, end] : [end, start]
+}
+
+function syncRangeFromBounds() {
   if (!manualAdjustStart.value || !manualAdjustEnd.value) return
-  if (manualAdjustStart.value > manualAdjustEnd.value) {
-    const start = manualAdjustStart.value
-    manualAdjustStart.value = manualAdjustEnd.value
-    manualAdjustEnd.value = start
+
+  const [nextStart, nextEnd] = normalizeManualAdjustBounds(
+    manualAdjustStart.value,
+    manualAdjustEnd.value
+  )
+
+  syncingManualAdjustState = true
+  if (manualAdjustStart.value !== nextStart) {
+    manualAdjustStart.value = nextStart
   }
-  manualAdjustRange.value = [manualAdjustStart.value, manualAdjustEnd.value]
+  if (manualAdjustEnd.value !== nextEnd) {
+    manualAdjustEnd.value = nextEnd
+  }
+  if (
+    manualAdjustRange.value[0] !== nextStart ||
+    manualAdjustRange.value[1] !== nextEnd
+  ) {
+    manualAdjustRange.value = [nextStart, nextEnd]
+  }
+  syncingManualAdjustState = false
 }
 
 watch(manualAdjustRange, value => {
-  if (!value || value.length !== 2) return
-  if (manualAdjustStart.value !== value[0]) {
-    manualAdjustStart.value = value[0]
+  if (syncingManualAdjustState || !value || value.length !== 2) return
+
+  const [nextStart, nextEnd] = normalizeManualAdjustBounds(value[0], value[1])
+  syncingManualAdjustState = true
+  if (manualAdjustStart.value !== nextStart) {
+    manualAdjustStart.value = nextStart
   }
-  if (manualAdjustEnd.value !== value[1]) {
-    manualAdjustEnd.value = value[1]
+  if (manualAdjustEnd.value !== nextEnd) {
+    manualAdjustEnd.value = nextEnd
   }
-  normalizeManualAdjustRange()
+  if (manualAdjustRange.value[0] !== nextStart || manualAdjustRange.value[1] !== nextEnd) {
+    manualAdjustRange.value = [nextStart, nextEnd]
+  }
+  syncingManualAdjustState = false
 })
 
 watch([manualAdjustStart, manualAdjustEnd], () => {
-  normalizeManualAdjustRange()
+  if (syncingManualAdjustState || !manualAdjustStart.value || !manualAdjustEnd.value) return
+  syncRangeFromBounds()
 })
 
 function handleCreateTask() {
@@ -238,7 +264,7 @@ function openManualAdjust() {
   if (!current.value) return
   manualAdjustStart.value = dayjs(current.value.base.startTime).valueOf()
   manualAdjustEnd.value = dayjs(current.value.base.endTime).valueOf()
-  normalizeManualAdjustRange()
+  syncRangeFromBounds()
   manualAdjustBoundary.value = 'start'
   manualAdjustVisible.value = true
 }
@@ -256,7 +282,7 @@ function handleManualAdjustChartClick(params: { dataIndex?: number }) {
     manualAdjustBoundary.value = 'start'
   }
 
-  normalizeManualAdjustRange()
+  syncRangeFromBounds()
 }
 
 async function saveManualAdjust() {
@@ -327,7 +353,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
+  <div
+    class="flex flex-col gap-6"
+    data-testid="heat-detail-page"
+  >
     <PageHeader
       :title="current?.base.heatNo || '--'"
       :subtitle="`ID: ${heatId}`"
@@ -349,6 +378,7 @@ onMounted(() => {
           {{ t('heat.resumeCutting') }}
         </button>
         <button
+          data-testid="heat-manual-adjust-button"
           class="flex items-center gap-2 bg-white border border-green-500 text-green-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-50 transition-colors"
           @click="openManualAdjust"
         >
@@ -559,6 +589,7 @@ onMounted(() => {
       :fullscreen="manualAdjustFullscreen"
       width="1100px"
       append-to-body
+      data-testid="manual-adjust-dialog"
     >
       <div class="space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
@@ -579,6 +610,7 @@ onMounted(() => {
               {{ t('heat.pickBaselineEnd') }}
             </button>
             <button
+              data-testid="manual-adjust-fullscreen-toggle"
               class="rounded-lg border border-border-light px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-primary/30 hover:text-primary"
               @click="manualAdjustFullscreen = !manualAdjustFullscreen"
             >
@@ -633,6 +665,7 @@ onMounted(() => {
             </el-button>
             <el-button
               type="primary"
+              data-testid="manual-adjust-save"
               @click="saveManualAdjust"
             >
               {{ t('common.save') }}

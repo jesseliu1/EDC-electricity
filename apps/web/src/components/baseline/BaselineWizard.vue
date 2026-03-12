@@ -433,7 +433,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div
+    class="space-y-6"
+    data-testid="baseline-wizard"
+  >
     <el-steps
       :active="activeStep + 1"
       finish-status="success"
@@ -454,6 +457,7 @@ onMounted(async () => {
               <el-input
                 v-model="formData.name"
                 :placeholder="t('baseline.wizard.namePlaceholder')"
+                data-testid="baseline-wizard-name-input"
               />
             </el-form-item>
             <el-form-item :label="t('baseline.wizard.definition')">
@@ -461,6 +465,7 @@ onMounted(async () => {
                 v-model="formData.definitionId"
                 class="w-full"
                 :placeholder="t('baseline.wizard.definitionPlaceholder')"
+                data-testid="baseline-wizard-definition-select"
               >
                 <el-option
                   v-for="item in baselineDefinitionStore.list"
@@ -564,6 +569,7 @@ onMounted(async () => {
             </div>
             <el-button
               :icon="FullScreen"
+              data-testid="baseline-wizard-fullscreen-button"
               @click="fullscreenVisible = true"
             >
               {{ t('baseline.wizard.fullscreen') }}
@@ -612,6 +618,7 @@ onMounted(async () => {
                     value-format="x"
                     format="YYYY-MM-DD HH:mm:ss"
                     class="w-full"
+                    data-testid="baseline-wizard-range-start"
                   />
                   <el-button @click="adjustBoundary('start', -1)">
                     -1s
@@ -629,6 +636,7 @@ onMounted(async () => {
                     value-format="x"
                     format="YYYY-MM-DD HH:mm:ss"
                     class="w-full"
+                    data-testid="baseline-wizard-range-end"
                   />
                   <el-button @click="adjustBoundary('end', -1)">
                     -1s
@@ -721,6 +729,7 @@ onMounted(async () => {
       <div class="flex items-center gap-2">
         <el-button
           v-if="activeStep > 0"
+          data-testid="baseline-wizard-back"
           @click="prevStep"
         >
           {{ t('common.back') }}
@@ -728,6 +737,7 @@ onMounted(async () => {
         <el-button
           v-if="activeStep < 2"
           type="primary"
+          data-testid="baseline-wizard-next"
           @click="nextStep"
         >
           {{ t('common.next') }}
@@ -738,6 +748,7 @@ onMounted(async () => {
           </el-button>
           <el-button
             type="primary"
+            data-testid="baseline-wizard-publish"
             @click="submit('publish')"
           >
             {{ t('baseline.publish') }}
@@ -750,6 +761,7 @@ onMounted(async () => {
       v-model="fullscreenVisible"
       :title="t('baseline.wizard.fullscreenTitle')"
       fullscreen
+      data-testid="baseline-wizard-fullscreen-dialog"
     >
       <div class="flex h-[78vh] flex-col gap-4">
         <v-chart

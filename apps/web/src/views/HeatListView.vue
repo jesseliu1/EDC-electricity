@@ -259,6 +259,7 @@ onMounted(() => {
               :key="item.id"
             >
               <tr
+                :data-testid="`heat-row-${item.id}`"
                 class="border-b border-border-light hover:bg-slate-50 transition-colors cursor-pointer group"
                 @click="handleViewDetail(item.id)"
               >
@@ -298,6 +299,7 @@ onMounted(() => {
                 <td class="px-6 py-4">
                   <div class="flex items-center justify-end gap-2">
                     <button
+                      data-testid="heat-row-expand"
                       class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border-light text-slate-500 transition-colors hover:border-primary/30 hover:text-primary"
                       @click.stop="toggleExpand(item.id)"
                     >
@@ -321,7 +323,10 @@ onMounted(() => {
                   class="px-6 py-5"
                   colspan="6"
                 >
-                  <div class="rounded-xl border border-border-light bg-white p-5 shadow-subtle">
+                  <div
+                    class="rounded-xl border border-border-light bg-white p-5 shadow-subtle"
+                    data-testid="heat-expanded-panel"
+                  >
                     <div class="grid grid-cols-1 gap-5 xl:grid-cols-[1.3fr_1fr]">
                       <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <div class="rounded-xl border border-border-light bg-slate-50 p-4">
@@ -422,6 +427,7 @@ onMounted(() => {
 
                     <div class="mt-5 flex justify-end">
                       <button
+                        data-testid="heat-view-report-button"
                         class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark"
                         @click.stop="handleViewDetail(item.id)"
                       >

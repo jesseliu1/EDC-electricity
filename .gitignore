@@ -36,6 +36,8 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+apps/web/test-results/
+apps/web/playwright-report/
 
 # SQLite database
 *.db
