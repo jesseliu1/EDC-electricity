@@ -25,10 +25,17 @@
   - [x] 基线向导创建并发布
   - [x] 炉次列表展开并跳转详情
   - [x] 炉次详情手动调整弹窗打开并保存
+- [x] 自动化覆盖继续扩展到主要页面
+  - [x] Dashboard 快捷入口与侧边导航烟测
+  - [x] 基线定义创建与指标管理
+  - [x] 任务列表跳转详情并完成任务
+  - [x] 报表列表/详情与收件箱跳转
+  - [x] 设置页 EDC、阈值、报表时间、切割配置保存
 - [x] 联调缺陷修复
   - [x] 修复 `HeatDetailView` 手动调整区间 watcher 互相写值导致的递归更新错误
   - [x] 为关键交互补充稳定 `data-testid` 锚点，降低 E2E 脆弱性
-- [x] 验证通过：`pnpm --dir apps/web build`、`pnpm --dir apps/web test`、`pnpm --dir apps/web test:e2e`、`pnpm --dir apps/web lint`（仅剩历史 warning）
+  - [x] 修复 `SettingsView` 中表单内原生按钮未声明 `type="button"` 导致的意外 submit 导航
+- [x] 验证通过：`pnpm --dir apps/web build`、`pnpm --dir apps/web test`、`pnpm --dir apps/web test:e2e`（8 条全部通过）、`pnpm --dir apps/web lint`（仅剩历史 warning）
 
 ### 2026-03-12（UI 联调问题修复）
 
