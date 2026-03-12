@@ -48,6 +48,17 @@
 - [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe`（15 条全部通过）
 - [x] 验证通过：`apps/server/.venv/Scripts/ruff.exe check tests`
 
+### 2026-03-12（后端错误分支测试扩展）
+
+- [x] 新增 API 错误分支与边界场景测试
+  - [x] Dashboard 非法参数返回 422
+  - [x] 基线定义启停非法状态转换、缺失指标 404
+  - [x] 基线实例非法发布/停用/校验失败路径
+  - [x] 任务完成/取消/编辑的非法状态转换
+  - [x] 设置页参数校验与非法 scope_mode 返回
+  - [x] 炉次不存在与非法查询参数返回
+- [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe`（21 条全部通过）
+
 ### 2026-03-12（UI 联调问题修复）
 
 - [x] 新建基线向导联调修复
