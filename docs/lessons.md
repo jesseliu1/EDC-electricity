@@ -90,4 +90,18 @@
 - **适用场景**: 需要把本地验证迁移到 GitHub Actions、GitLab CI 等云端执行环境的项目。
 - **相关文档**: docs/testing.md
 
+### 2026-03-12 云端 Codex：不要把 Windows 专用脚本当成默认入口
+
+- **错误模式**: 只提供 `.ps1` 检查脚本，会让 Codex cloud 或 Linux runner 无法直接复用现有回归入口，必须临时拼接命令。
+- **正确做法**: 为统一验证链路同时提供 Windows 和 Bash 两种入口，保证本地、GitHub Actions、Codex cloud 都能执行同一套检查。
+- **适用场景**: Windows 本地开发、Linux 云端执行、需要把测试任务下放给 Codex cloud 的仓库。
+- **相关文档**: docs/testing.md
+
+### 2026-03-12 Bash 回归：浏览器测试容易被代理环境污染
+
+- **错误模式**: 在 Bash 环境直接运行 Playwright 时继承了本机 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` 的 `socks5` 配置，导致浏览器协议初始化失败，即使项目本身并不依赖外网。
+- **正确做法**: 对本地浏览器回归脚本显式清理代理环境变量，避免代理设置影响无外网依赖的 E2E 测试。
+- **适用场景**: Git Bash、本地代理/VPN 环境、Codex cloud 或 Linux runner 中执行 Playwright 回归。
+- **相关文档**: docs/testing.md
+
 <!-- 后续错误记录将添加在此处 -->

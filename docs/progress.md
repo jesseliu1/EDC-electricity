@@ -72,6 +72,9 @@
   - [x] 前端云端执行 lint/build/unit/e2e
   - [x] 后端云端执行 tests lint/pytest
   - [x] Playwright 失败产物自动归档
+- [x] 新增 Linux / Codex cloud 检查脚本 `scripts/check-all.sh`
+  - [x] 与 Windows 版一键检查保持相同回归口径
+  - [x] `docs/testing.md` 补充 Codex cloud setup script 与执行方式
 
 ### 2026-03-12（UI 联调问题修复）
 
