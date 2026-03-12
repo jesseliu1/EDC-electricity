@@ -48,7 +48,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
+  <div
+    class="flex flex-col gap-6"
+    data-testid="task-list-page"
+  >
     <!-- 页面头部 -->
     <PageHeader
       :title="t('task.title')"
@@ -104,6 +107,7 @@ onMounted(() => {
         <div
           v-for="item in taskStore.list"
           :key="item.id"
+          :data-testid="`task-row-${item.id}`"
           class="border-b border-border-light last:border-0 p-5 hover:bg-slate-50 transition-colors cursor-pointer group flex items-center justify-between gap-4"
           @click="handleViewDetail(item.id)"
         >

@@ -256,13 +256,21 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div
+    class="space-y-6"
+    data-testid="baseline-definition-page"
+  >
     <!-- 标题栏 -->
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold text-gray-900">
         {{ t('baselineDefinition.title') }}
       </h1>
-      <el-button type="primary" :icon="Plus" @click="handleCreate">
+      <el-button
+        type="primary"
+        :icon="Plus"
+        data-testid="baseline-definition-create-button"
+        @click="handleCreate"
+      >
         {{ t('baselineDefinition.createDefinition') }}
       </el-button>
     </div>
@@ -297,6 +305,7 @@ onMounted(() => {
         :key="item.id"
         shadow="hover"
         class="relative"
+        :data-testid="`baseline-definition-card-${item.id}`"
       >
         <template #header>
           <div class="flex items-center justify-between">
@@ -347,7 +356,11 @@ onMounted(() => {
           <el-button size="small" :icon="Edit" @click="handleEdit(item)">
             {{ t('common.edit') }}
           </el-button>
-          <el-button size="small" @click="openMetricManager(item.id)">
+          <el-button
+            size="small"
+            :data-testid="`baseline-definition-manage-metrics-${item.id}`"
+            @click="openMetricManager(item.id)"
+          >
             {{ t('baselineDefinition.manageMetrics') }}
           </el-button>
           <div class="flex-1" />
@@ -403,6 +416,7 @@ onMounted(() => {
       width="560px"
       destroy-on-close
       append-to-body
+      data-testid="baseline-definition-dialog"
     >
       <el-form label-width="120px" label-position="right">
         <el-form-item :label="t('baselineDefinition.definitionName')" required>
@@ -411,6 +425,7 @@ onMounted(() => {
             :placeholder="t('baselineDefinition.namePlaceholder')"
             maxlength="100"
             show-word-limit
+            data-testid="baseline-definition-name-input"
           />
         </el-form-item>
         <el-form-item :label="t('baselineDefinition.description')">
@@ -435,7 +450,13 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" @click="handleSubmit">{{ t('common.confirm') }}</el-button>
+        <el-button
+          type="primary"
+          data-testid="baseline-definition-submit"
+          @click="handleSubmit"
+        >
+          {{ t('common.confirm') }}
+        </el-button>
       </template>
     </ElDialog>
 
@@ -446,6 +467,7 @@ onMounted(() => {
       width="680px"
       destroy-on-close
       append-to-body
+      data-testid="baseline-definition-metric-dialog"
     >
       <template v-if="metricDefinitionItem">
         <p class="text-sm text-gray-500 mb-4">
@@ -508,15 +530,23 @@ onMounted(() => {
               size="small"
               :placeholder="t('baselineDefinition.metricName')"
               class="w-32"
+              data-testid="baseline-definition-metric-name-input"
             />
             <el-input
               v-model="newMetricForm.unit"
               size="small"
               :placeholder="t('baselineDefinition.metricUnit')"
               class="w-24"
+              data-testid="baseline-definition-metric-unit-input"
             />
             <el-color-picker v-model="newMetricForm.color" size="small" />
-            <el-button size="small" type="primary" :icon="Plus" @click="handleAddMetric">
+            <el-button
+              size="small"
+              type="primary"
+              :icon="Plus"
+              data-testid="baseline-definition-add-metric"
+              @click="handleAddMetric"
+            >
               {{ t('common.create') }}
             </el-button>
           </div>

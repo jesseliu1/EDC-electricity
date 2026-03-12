@@ -36,8 +36,6 @@ async function saveReport() {
   ElMessage.success(t('common.success'))
 }
 
-/* eslint-disable @typescript-eslint/no-unused-vars -- saveReport 在模板中通过 tolerance 区域调用 */
-
 async function saveCutting() {
   await settingStore.saveCutting()
   ElMessage.success(t('common.success'))
@@ -49,7 +47,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
+  <div
+    class="flex flex-col gap-6"
+    data-testid="settings-page"
+  >
     <!-- 页面头部 -->
     <PageHeader
       :title="t('settings.title')"
@@ -112,12 +113,16 @@ onMounted(() => {
           </el-form>
           <div class="flex justify-end gap-3 mt-4">
             <button
+              type="button"
+              data-testid="settings-test-edc"
               class="px-4 py-2 bg-white border border-border-light text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
               @click="testEdc"
             >
               {{ t('settings.testConnection') }}
             </button>
             <button
+              type="button"
+              data-testid="settings-save-edc"
               class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
               @click="saveEdc"
             >
@@ -152,6 +157,8 @@ onMounted(() => {
                     :max="23"
                   />
                   <button
+                    type="button"
+                    data-testid="settings-save-report-time"
                     class="px-4 py-1.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
                     @click="saveReport"
                   >
@@ -170,11 +177,14 @@ onMounted(() => {
           </el-form>
           <div class="flex justify-end gap-3 mt-4">
             <button
+              type="button"
               class="px-4 py-2 bg-white border border-border-light text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
             >
               取消修改
             </button>
             <button
+              type="button"
+              data-testid="settings-save-tolerance"
               class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
               @click="saveTolerance"
             >
@@ -225,6 +235,8 @@ onMounted(() => {
           </el-form>
           <div class="flex justify-end mt-4">
             <button
+              type="button"
+              data-testid="settings-save-cutting"
               class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
               @click="saveCutting"
             >

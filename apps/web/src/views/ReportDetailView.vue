@@ -25,7 +25,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
+  <div
+    class="flex flex-col gap-6"
+    data-testid="report-detail-page"
+  >
     <PageHeader
       :title="`${t('report.dailyReport')} - ${reportDate}`"
       subtitle="Data compiled from 00:00 to 23:59"

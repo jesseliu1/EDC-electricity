@@ -113,7 +113,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
+  <div
+    class="flex flex-col gap-6"
+    data-testid="dashboard-page"
+  >
     <!-- 统计卡片 -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
       <StatCard
@@ -134,6 +137,7 @@ onMounted(() => {
       <button
         v-for="link in quickLinks"
         :key="link.label"
+        :data-testid="`dashboard-quick-link-${link.route.replace('/', '') || 'home'}`"
         class="relative flex flex-col items-center gap-3 py-5 px-3 bg-white rounded-xl border border-border-light shadow-subtle hover:shadow-card hover:border-primary/20 transition-all duration-200 group cursor-pointer"
         @click="navigateTo(link.route)"
       >

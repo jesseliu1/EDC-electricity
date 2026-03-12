@@ -63,7 +63,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
+  <div
+    class="flex flex-col gap-6"
+    data-testid="task-detail-page"
+  >
     <PageHeader
       :title="`${t('task.title')} - ${task?.taskNo || '--'}`"
       :subtitle="`ID: ${taskId}`"
@@ -108,6 +111,7 @@ onMounted(() => {
             <textarea
               v-model="form.causeAnalysis"
               rows="4"
+              data-testid="task-cause-analysis"
               class="w-full px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y text-sm bg-slate-50"
               placeholder="请输入问题原因分析..."
             />
@@ -117,6 +121,7 @@ onMounted(() => {
             <textarea
               v-model="form.improvement"
               rows="4"
+              data-testid="task-improvement"
               class="w-full px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y text-sm bg-slate-50"
               placeholder="请输入改善措施建议..."
             />
@@ -126,6 +131,7 @@ onMounted(() => {
             <textarea
               v-model="form.prevention"
               rows="4"
+              data-testid="task-prevention"
               class="w-full px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y text-sm bg-slate-50"
               placeholder="请输入预防再发措施..."
             />
@@ -134,12 +140,14 @@ onMounted(() => {
 
         <div class="flex justify-end gap-3 mt-8 pt-6 border-t border-border-light">
           <button
+            data-testid="task-save-button"
             class="px-5 py-2.5 bg-white border border-border-light text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
             @click="handleSave"
           >
             {{ t('common.save') }}
           </button>
           <button
+            data-testid="task-submit-button"
             class="px-5 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors flex items-center gap-2 shadow-sm"
             @click="handleComplete"
           >

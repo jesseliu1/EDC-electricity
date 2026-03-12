@@ -20,7 +20,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
+  <div
+    class="flex flex-col gap-6"
+    data-testid="report-list-page"
+  >
     <!-- 页面头部 -->
     <PageHeader
       :title="t('report.title')"
@@ -49,6 +52,7 @@ onMounted(() => {
         <div
           v-for="item in reportStore.list"
           :key="item.date"
+          :data-testid="`report-row-${item.date}`"
           class="border-b border-border-light last:border-0 p-5 hover:bg-slate-50 transition-colors cursor-pointer group flex items-center justify-between gap-4"
           @click="handleView(item.date)"
         >

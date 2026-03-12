@@ -23,7 +23,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
+  <div
+    class="flex flex-col gap-6"
+    data-testid="inbox-page"
+  >
     <PageHeader
       :title="t('inbox.title')"
       description="Require immediate attention and analysis for process deviations."
@@ -48,6 +51,7 @@ onMounted(async () => {
         <div
           v-for="item in inboxItems"
           :key="item.id"
+          :data-testid="`inbox-row-${item.id}`"
           class="flex items-center justify-between p-6 hover:bg-slate-50 transition-colors group cursor-pointer border-l-4 border-l-transparent hover:border-l-red-500"
           @click="handleView(item.id)"
         >
