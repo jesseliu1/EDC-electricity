@@ -37,6 +37,17 @@
   - [x] 修复 `SettingsView` 中表单内原生按钮未声明 `type="button"` 导致的意外 submit 导航
 - [x] 验证通过：`pnpm --dir apps/web build`、`pnpm --dir apps/web test`、`pnpm --dir apps/web test:e2e`（8 条全部通过）、`pnpm --dir apps/web lint`（仅剩历史 warning）
 
+### 2026-03-12（后端 API 测试补齐）
+
+- [x] 后端 pytest 覆盖扩展到缺失模块
+  - [x] 新增 Dashboard 接口回归测试
+  - [x] 新增基线定义 CRUD / 指标管理回归测试
+  - [x] 新增基线实例创建 / 发布 / 停用 / 删除回归测试
+- [x] 测试稳定性补强
+  - [x] 为后端全局 in-memory store 增加自动重置 fixture，避免测试顺序互相污染
+- [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe`（15 条全部通过）
+- [x] 验证通过：`apps/server/.venv/Scripts/ruff.exe check tests`
+
 ### 2026-03-12（UI 联调问题修复）
 
 - [x] 新建基线向导联调修复
