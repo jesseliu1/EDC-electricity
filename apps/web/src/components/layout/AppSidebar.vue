@@ -11,12 +11,6 @@ withDefaults(defineProps<Props>(), {
   collapsed: false,
 })
 
-interface Emits {
-  (e: 'toggle'): void
-}
-
-const emit = defineEmits<Emits>()
-
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
@@ -50,6 +44,18 @@ const menuGroups = computed<MenuGroup[]>(() => [
     title: t('nav.groupMonitor', '监控与分析'),
     items: [
       {
+        path: '/baseline-definitions',
+        name: 'BaselineDefinitions',
+        icon: 'grid_on',
+        label: t('nav.baselineDefinitions'),
+      },
+      {
+        path: '/baselines',
+        name: 'Baselines',
+        icon: 'library_books',
+        label: t('nav.baselines'),
+      },
+      {
         path: '/heats',
         name: 'Heats',
         icon: 'dataset',
@@ -66,18 +72,6 @@ const menuGroups = computed<MenuGroup[]>(() => [
         name: 'Tasks',
         icon: 'assignment',
         label: t('nav.tasks'),
-      },
-      {
-        path: '/baselines',
-        name: 'Baselines',
-        icon: 'library_books',
-        label: t('nav.baselines'),
-      },
-      {
-        path: '/baseline-definitions',
-        name: 'BaselineDefinitions',
-        icon: 'grid_on',
-        label: t('nav.baselineDefinitions'),
       },
       {
         path: '/reports',
@@ -123,11 +117,12 @@ const handleNavigate = (path: string) => {
         <div
           class="shrink-0 w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary"
         >
-          <span class="material-symbols-outlined text-[20px]"
-            >precision_manufacturing</span
-          >
+          <span class="material-symbols-outlined text-[20px]">precision_manufacturing</span>
         </div>
-        <div v-show="!collapsed" class="flex flex-col min-w-0">
+        <div
+          v-show="!collapsed"
+          class="flex flex-col min-w-0"
+        >
           <h1
             class="text-sm font-bold text-slate-900 leading-none tracking-tight"
           >
@@ -148,7 +143,10 @@ const handleNavigate = (path: string) => {
         :class="gIdx > 0 ? 'mt-4' : ''"
       >
         <!-- 分组分隔线 -->
-        <div v-if="gIdx > 0" class="h-px bg-border-light mx-2 mb-3" />
+        <div
+          v-if="gIdx > 0"
+          class="h-px bg-border-light mx-2 mb-3"
+        />
         <!-- 分组标题 -->
         <p
           v-show="!collapsed"
@@ -158,7 +156,10 @@ const handleNavigate = (path: string) => {
         </p>
         <!-- 菜单项 -->
         <ul class="flex flex-col gap-1">
-          <li v-for="item in group.items" :key="item.path">
+          <li
+            v-for="item in group.items"
+            :key="item.path"
+          >
             <button
               class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative"
               :class="[
@@ -182,9 +183,11 @@ const handleNavigate = (path: string) => {
                     ? 'font-variation-settings: \'FILL\' 1'
                     : ''
                 "
-                >{{ item.icon }}</span
-              >
-              <span v-show="!collapsed" class="text-sm truncate">{{
+              >{{ item.icon }}</span>
+              <span
+                v-show="!collapsed"
+                class="text-sm truncate"
+              >{{
                 item.label
               }}</span>
             </button>
@@ -203,15 +206,21 @@ const handleNavigate = (path: string) => {
         >
           WG
         </div>
-        <div v-show="!collapsed" class="flex flex-col min-w-0">
-          <p class="text-sm font-bold text-slate-900 truncate">王工程师</p>
-          <p class="text-xs text-slate-500 truncate">高级工艺主管</p>
+        <div
+          v-show="!collapsed"
+          class="flex flex-col min-w-0"
+        >
+          <p class="text-sm font-bold text-slate-900 truncate">
+            王工程师
+          </p>
+          <p class="text-xs text-slate-500 truncate">
+            高级工艺主管
+          </p>
         </div>
         <span
           v-show="!collapsed"
           class="material-symbols-outlined text-slate-400 ml-auto text-lg"
-          >expand_more</span
-        >
+        >expand_more</span>
       </div>
     </div>
   </aside>

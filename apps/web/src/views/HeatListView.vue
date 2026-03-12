@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import dayjs from 'dayjs'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ElDatePicker, ElPagination } from 'element-plus'
@@ -7,16 +8,18 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useHeatStore } from '@/stores/heat'
 import type { HeatStatus } from '@/api/heat'
+import type { HeatItem } from '@/stores/heat'
 
 const { t } = useI18n()
 const router = useRouter()
 const heatStore = useHeatStore()
+const expandedHeatId = ref('')
+
 const blockedCount = computed(
   () => heatStore.list.filter((item) => item.cutStatus === 'blocked').length
 )
 const majorIssueCount = computed(
-  () =>
-    heatStore.list.filter((item) => item.cutStatus === 'major_issue').length
+  () => heatStore.list.filter((item) => item.cutStatus === 'major_issue').length
 )
 
 type StatusFilter = 'all' | HeatStatus
@@ -25,7 +28,7 @@ const statusFilters: { key: StatusFilter; label: string }[] = [
   { key: 'all', label: '全部状态' },
   { key: 'normal', label: '正常' },
   { key: 'abnormal', label: '异常' },
-  { key: 'pending', label: '待处理' },
+  { key: 'pending', label: '待处理' }
 ]
 
 function statusBadgeType(status: HeatStatus) {
@@ -47,16 +50,77 @@ function getDeviationClass(val: number | null): string {
   return 'text-slate-600'
 }
 
+function getDeviationBarClass(value: number | null) {
+  if (value === null) return 'w-0'
+  if (value > 10) return 'bg-red-400 w-full'
+  if (value > 7) return 'bg-orange-400 w-4/5'
+  if (value > 5) return 'bg-orange-300 w-3/5'
+  if (value > 2) return 'bg-primary w-2/5'
+  return 'bg-primary w-1/4'
+}
+
+function buildSeries(seed: string, base: number, amplitude: number) {
+  const signature = seed.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
+  return Array.from({ length: 24 }).map((_, index) => {
+    const phase = signature / 29
+    const wave = Math.sin(index / 3.2 + phase)
+    const jitter = Math.cos(index / 5.1 + phase / 2)
+    return Number((base + wave * amplitude + jitter * amplitude * 0.25).toFixed(1))
+  })
+}
+
+function buildSparklinePath(values: number[]) {
+  if (values.length === 0) return ''
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const width = 240
+  const height = 72
+  const stepX = width / Math.max(values.length - 1, 1)
+  const range = max - min || 1
+
+  return values
+    .map((value, index) => {
+      const x = Number((index * stepX).toFixed(2))
+      const y = Number((height - ((value - min) / range) * (height - 10) - 5).toFixed(2))
+      return `${index === 0 ? 'M' : 'L'}${x},${y}`
+    })
+    .join(' ')
+}
+
+function getPreviewPower(item: HeatItem) {
+  return buildSeries(item.id, 430 + (item.deviationPercent || 0), 22)
+}
+
+function getPreviewTemperature(item: HeatItem) {
+  return buildSeries(`${item.id}-temp`, item.temperature || 1450, 12)
+}
+
+function getPeakPower(item: HeatItem) {
+  return Number(Math.max(...getPreviewPower(item)).toFixed(1))
+}
+
+function getDurationMinutes(item: HeatItem) {
+  const start = dayjs(item.startTime)
+  const end = dayjs(item.endTime)
+  return Math.max(end.diff(start, 'minute'), 0)
+}
+
 function handleStatusChange(value: StatusFilter) {
+  expandedHeatId.value = ''
   void heatStore.setStatus(value)
 }
 
 function handleDateRangeChange(value: [Date, Date] | null) {
+  expandedHeatId.value = ''
   void heatStore.setDateRange(value)
 }
 
 function handleViewDetail(id: string) {
   router.push(`/heats/${id}`)
+}
+
+function toggleExpand(id: string) {
+  expandedHeatId.value = expandedHeatId.value === id ? '' : id
 }
 
 onMounted(() => {
@@ -66,7 +130,6 @@ onMounted(() => {
 
 <template>
   <div class="flex flex-col gap-6">
-    <!-- 页面头部 -->
     <PageHeader
       :title="t('heat.title')"
       subtitle="Heat Browser"
@@ -89,10 +152,8 @@ onMounted(() => {
       </template>
     </PageHeader>
 
-    <!-- 筛选区 -->
     <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
       <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 items-end">
-        <!-- 时间范围 -->
         <div class="space-y-1.5">
           <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
             <span class="material-symbols-outlined text-[16px]">calendar_month</span>
@@ -109,27 +170,32 @@ onMounted(() => {
             @update:model-value="handleDateRangeChange"
           />
         </div>
-        <!-- 设备 ID -->
         <div class="space-y-1.5">
           <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
             <span class="material-symbols-outlined text-[16px]">precision_manufacturing</span>
             设备 ID (局部)
           </label>
           <div class="flex items-center bg-slate-100 rounded-lg px-3 py-2 border border-transparent focus-within:border-primary/30 transition-all">
-            <input type="text" class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 p-0" placeholder="筛选特定炉台..." />
+            <input
+              type="text"
+              class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 p-0"
+              placeholder="筛选特定炉台..."
+            >
           </div>
         </div>
-        <!-- 合金号 -->
         <div class="space-y-1.5">
           <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
             <span class="material-symbols-outlined text-[16px]">grid_view</span>
             合金号
           </label>
           <div class="flex items-center bg-slate-100 rounded-lg px-3 py-2 border border-transparent focus-within:border-primary/30 transition-all">
-            <input type="text" class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 p-0" placeholder="例如: Al-Si10Mg" />
+            <input
+              type="text"
+              class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 p-0"
+              placeholder="例如: Al-Si10Mg"
+            >
           </div>
         </div>
-        <!-- 状态筛选 -->
         <div class="space-y-1.5">
           <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
             <span class="material-symbols-outlined text-[16px]">search</span>
@@ -143,7 +209,7 @@ onMounted(() => {
                 'flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition-all duration-200 text-center',
                 heatStore.filters.status === f.key
                   ? 'bg-white text-primary shadow-sm font-bold'
-                  : 'text-slate-500 hover:text-slate-700',
+                  : 'text-slate-500 hover:text-slate-700'
               ]"
               @click="handleStatusChange(f.key)"
             >
@@ -154,7 +220,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 告警条 -->
     <div
       v-if="majorIssueCount > 0 || blockedCount > 0"
       class="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl p-4 text-sm text-orange-700"
@@ -163,66 +228,214 @@ onMounted(() => {
       {{ t('heat.cuttingAlert', { major: majorIssueCount, blocked: blockedCount }) }}
     </div>
 
-    <!-- 炉次表格 -->
     <div class="bg-white rounded-xl border border-border-light shadow-card overflow-hidden">
       <div v-if="heatStore.list.length > 0">
         <table class="w-full">
           <thead class="sticky top-0 z-10 bg-slate-50/80 backdrop-blur-sm">
             <tr class="border-b border-border-light">
-              <th class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-6 py-3">序号</th>
-              <th class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">{{ t('heat.heatNo') }}</th>
-              <th class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">时间 / 设备</th>
-              <th class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">黄金基线偏离度</th>
-              <th class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">{{ t('heat.status') }}</th>
-              <th class="text-right text-xs font-semibold text-slate-400 uppercase tracking-wider px-6 py-3">操作</th>
+              <th class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-6 py-3">
+                序号
+              </th>
+              <th class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">
+                {{ t('heat.heatNo') }}
+              </th>
+              <th class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">
+                时间 / 设备
+              </th>
+              <th class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">
+                黄金基线偏离度
+              </th>
+              <th class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">
+                {{ t('heat.status') }}
+              </th>
+              <th class="text-right text-xs font-semibold text-slate-400 uppercase tracking-wider px-6 py-3">
+                操作
+              </th>
             </tr>
           </thead>
           <tbody>
-            <tr
+            <template
               v-for="(item, idx) in heatStore.list"
               :key="item.id"
-              class="border-b border-border-light last:border-0 hover:bg-slate-50 transition-colors cursor-pointer group"
-              @click="handleViewDetail(item.id)"
             >
-              <td class="px-6 py-4">
-                <span class="text-sm font-bold text-slate-500">{{ String(idx + 1).padStart(2, '0') }}</span>
-              </td>
-              <td class="px-4 py-4">
-                <span class="text-sm font-semibold text-primary">{{ item.heatNo }}</span>
-              </td>
-              <td class="px-4 py-4">
-                <div class="text-sm text-slate-700">{{ item.startTime }}</div>
-                <div class="text-xs text-slate-400">{{ item.description || 'Furnace-A01' }}</div>
-              </td>
-              <td class="px-4 py-4">
-                <div class="flex items-center gap-2">
-                  <span class="text-xs text-slate-400">偏离度</span>
-                  <span :class="['text-sm', getDeviationClass(item.deviationPercent)]">
-                    {{ item.deviationPercent !== null ? `${item.deviationPercent}%` : '--' }}
-                  </span>
-                </div>
-                <!-- 偏差进度条 -->
-                <div class="w-20 h-1 bg-slate-200 rounded-full mt-1">
-                  <div
-                    class="h-1 rounded-full transition-all"
-                    :class="item.deviationPercent !== null && item.deviationPercent > 10 ? 'bg-red-400' : item.deviationPercent !== null && item.deviationPercent > 5 ? 'bg-orange-400' : 'bg-primary'"
-                    :style="{ width: `${Math.min((item.deviationPercent || 0) * 10, 100)}%` }"
-                  />
-                </div>
-              </td>
-              <td class="px-4 py-4">
-                <StatusBadge :type="statusBadgeType(item.status)">
-                  {{ statusText(item.status) }}
-                </StatusBadge>
-              </td>
-              <td class="px-6 py-4 text-right">
-                <span class="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors text-[20px]">chevron_right</span>
-              </td>
-            </tr>
+              <tr
+                class="border-b border-border-light hover:bg-slate-50 transition-colors cursor-pointer group"
+                @click="handleViewDetail(item.id)"
+              >
+                <td class="px-6 py-4">
+                  <span class="text-sm font-bold text-slate-500">{{ String(idx + 1).padStart(2, '0') }}</span>
+                </td>
+                <td class="px-4 py-4">
+                  <span class="text-sm font-semibold text-primary">{{ item.heatNo }}</span>
+                </td>
+                <td class="px-4 py-4">
+                  <div class="text-sm text-slate-700">
+                    {{ item.startTime }}
+                  </div>
+                  <div class="text-xs text-slate-400">
+                    {{ item.description || 'Furnace-A01' }}
+                  </div>
+                </td>
+                <td class="px-4 py-4">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs text-slate-400">偏离度</span>
+                    <span :class="['text-sm', getDeviationClass(item.deviationPercent)]">
+                      {{ item.deviationPercent !== null ? `${item.deviationPercent}%` : '--' }}
+                    </span>
+                  </div>
+                  <div class="w-20 h-1 bg-slate-200 rounded-full mt-1 overflow-hidden">
+                    <div
+                      class="h-1 rounded-full transition-all"
+                      :class="getDeviationBarClass(item.deviationPercent)"
+                    />
+                  </div>
+                </td>
+                <td class="px-4 py-4">
+                  <StatusBadge :type="statusBadgeType(item.status)">
+                    {{ statusText(item.status) }}
+                  </StatusBadge>
+                </td>
+                <td class="px-6 py-4">
+                  <div class="flex items-center justify-end gap-2">
+                    <button
+                      class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border-light text-slate-500 transition-colors hover:border-primary/30 hover:text-primary"
+                      @click.stop="toggleExpand(item.id)"
+                    >
+                      <span
+                        class="material-symbols-outlined text-[20px] transition-transform"
+                        :class="expandedHeatId === item.id ? 'rotate-180' : ''"
+                      >
+                        expand_more
+                      </span>
+                    </button>
+                    <span class="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors text-[20px]">chevron_right</span>
+                  </div>
+                </td>
+              </tr>
+
+              <tr
+                v-if="expandedHeatId === item.id"
+                class="bg-slate-50/70"
+              >
+                <td
+                  class="px-6 py-5"
+                  colspan="6"
+                >
+                  <div class="rounded-xl border border-border-light bg-white p-5 shadow-subtle">
+                    <div class="grid grid-cols-1 gap-5 xl:grid-cols-[1.3fr_1fr]">
+                      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div class="rounded-xl border border-border-light bg-slate-50 p-4">
+                          <div class="flex items-center justify-between">
+                            <div class="text-sm font-semibold text-slate-800">
+                              功率微缩曲线
+                            </div>
+                            <div class="text-xs text-slate-500">
+                              Peak {{ getPeakPower(item) }} kW
+                            </div>
+                          </div>
+                          <svg
+                            viewBox="0 0 240 72"
+                            class="mt-3 h-[72px] w-full"
+                          >
+                            <path
+                              :d="buildSparklinePath(getPreviewPower(item))"
+                              fill="none"
+                              stroke="#1152d4"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2.5"
+                            />
+                          </svg>
+                        </div>
+
+                        <div class="rounded-xl border border-border-light bg-slate-50 p-4">
+                          <div class="flex items-center justify-between">
+                            <div class="text-sm font-semibold text-slate-800">
+                              温度微缩曲线
+                            </div>
+                            <div class="text-xs text-slate-500">
+                              {{ item.temperature || '--' }} °C
+                            </div>
+                          </div>
+                          <svg
+                            viewBox="0 0 240 72"
+                            class="mt-3 h-[72px] w-full"
+                          >
+                            <path
+                              :d="buildSparklinePath(getPreviewTemperature(item))"
+                              fill="none"
+                              stroke="#f97316"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2.5"
+                            />
+                          </svg>
+                        </div>
+                      </div>
+
+                      <div class="grid grid-cols-2 gap-4">
+                        <div class="rounded-xl border border-border-light bg-slate-50 p-4">
+                          <div class="text-xs uppercase tracking-wider text-slate-400">
+                            峰值功率
+                          </div>
+                          <div class="mt-2 text-2xl font-bold text-slate-900">
+                            {{ getPeakPower(item) }}
+                          </div>
+                          <div class="mt-1 text-xs text-slate-500">
+                            kW
+                          </div>
+                        </div>
+                        <div class="rounded-xl border border-border-light bg-slate-50 p-4">
+                          <div class="text-xs uppercase tracking-wider text-slate-400">
+                            熔炼时长
+                          </div>
+                          <div class="mt-2 text-2xl font-bold text-slate-900">
+                            {{ getDurationMinutes(item) }}
+                          </div>
+                          <div class="mt-1 text-xs text-slate-500">
+                            分钟
+                          </div>
+                        </div>
+                        <div class="rounded-xl border border-border-light bg-slate-50 p-4">
+                          <div class="text-xs uppercase tracking-wider text-slate-400">
+                            平均偏差
+                          </div>
+                          <div class="mt-2 text-2xl font-bold text-slate-900">
+                            {{ item.avgDeviationPercent !== null ? `${item.avgDeviationPercent}%` : '--' }}
+                          </div>
+                          <div class="mt-1 text-xs text-slate-500">
+                            与黄金基线对比
+                          </div>
+                        </div>
+                        <div class="rounded-xl border border-border-light bg-slate-50 p-4">
+                          <div class="text-xs uppercase tracking-wider text-slate-400">
+                            切割状态
+                          </div>
+                          <div class="mt-3">
+                            <StatusBadge :type="statusBadgeType(item.status)">
+                              {{ statusText(item.status) }}
+                            </StatusBadge>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="mt-5 flex justify-end">
+                      <button
+                        class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark"
+                        @click.stop="handleViewDetail(item.id)"
+                      >
+                        <span class="material-symbols-outlined text-[18px]">description</span>
+                        查看完整报告
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
 
-        <!-- 分页 -->
         <div class="px-6 py-4 border-t border-border-light flex justify-end">
           <el-pagination
             background
@@ -237,10 +450,14 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 空状态 -->
-      <div v-else class="py-16 flex flex-col items-center justify-center">
+      <div
+        v-else
+        class="py-16 flex flex-col items-center justify-center"
+      >
         <span class="material-symbols-outlined text-slate-300 text-5xl">dataset</span>
-        <p class="text-sm text-slate-400 mt-3">{{ t('common.noData') }}</p>
+        <p class="text-sm text-slate-400 mt-3">
+          {{ t('common.noData') }}
+        </p>
       </div>
     </div>
   </div>

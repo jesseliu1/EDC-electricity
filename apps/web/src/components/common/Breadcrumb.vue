@@ -1,4 +1,8 @@
 <script setup lang="ts">
+defineOptions({
+  name: 'AppBreadcrumb'
+})
+
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -37,10 +41,19 @@ const handleNavigate = (path: string | undefined) => {
 </script>
 
 <template>
-  <nav class="flex items-center gap-1.5 text-sm" aria-label="Breadcrumb">
-    <template v-for="(item, idx) in breadcrumbs" :key="idx">
+  <nav
+    class="flex items-center gap-1.5 text-sm"
+    aria-label="Breadcrumb"
+  >
+    <template
+      v-for="(item, idx) in breadcrumbs"
+      :key="idx"
+    >
       <!-- 分隔符 -->
-      <span v-if="idx > 0" class="material-symbols-outlined text-slate-300 text-[16px]">
+      <span
+        v-if="idx > 0"
+        class="material-symbols-outlined text-slate-300 text-[16px]"
+      >
         chevron_right
       </span>
       <!-- 面包屑项 -->
@@ -49,10 +62,16 @@ const handleNavigate = (path: string | undefined) => {
         class="text-slate-500 hover:text-primary transition-colors font-medium flex items-center gap-1"
         @click="handleNavigate(item.path)"
       >
-        <span v-if="idx === 0" class="material-symbols-outlined text-[16px]">home</span>
+        <span
+          v-if="idx === 0"
+          class="material-symbols-outlined text-[16px]"
+        >home</span>
         {{ item.label }}
       </button>
-      <span v-else class="text-slate-700 font-medium">
+      <span
+        v-else
+        class="text-slate-700 font-medium"
+      >
         {{ item.label }}
       </span>
     </template>
