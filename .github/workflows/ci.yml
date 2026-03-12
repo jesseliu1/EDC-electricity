@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - "codex/**"
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web Checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+
+      - name: Install web dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Lint web
+        run: pnpm lint
+
+      - name: Build web
+        run: pnpm build
+
+      - name: Run web unit tests
+        run: pnpm test
+
+      - name: Run web e2e tests
+        run: pnpm test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  server:
+    name: Server Checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install server dependencies
+        run: uv sync --all-extras
+
+      - name: Lint server tests
+        run: uv run ruff check tests
+
+      - name: Run server tests
+        run: uv run pytest
+
+  ci:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    needs:
+      - web
+      - server
+    steps:
+      - name: Mark CI complete
+        run: echo "All CI jobs passed."
