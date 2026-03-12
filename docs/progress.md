@@ -59,6 +59,20 @@
   - [x] 炉次不存在与非法查询参数返回
 - [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe`（21 条全部通过）
 
+### 2026-03-12（测试工程化收口）
+
+- [x] 新增仓库级一键检查脚本 `scripts/check-all.ps1`
+  - [x] 串联前端 lint/build/unit/e2e
+  - [x] 串联后端 tests lint/pytest
+  - [x] 支持 `-SkipE2E` 快速检查
+- [x] 新增 `docs/testing.md`
+  - [x] 记录当前测试覆盖范围
+  - [x] 记录一键执行方式与维护约定
+- [x] 新增 GitHub Actions 工作流 `.github/workflows/ci.yml`
+  - [x] 前端云端执行 lint/build/unit/e2e
+  - [x] 后端云端执行 tests lint/pytest
+  - [x] Playwright 失败产物自动归档
+
 ### 2026-03-12（UI 联调问题修复）
 
 - [x] 新建基线向导联调修复
