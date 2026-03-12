@@ -16,6 +16,20 @@
 
 ## 已完成
 
+### 2026-03-12（前端自动化测试接入）
+
+- [x] Web 端接入 Playwright 浏览器级自动化测试
+  - [x] 新增 `@playwright/test`、`playwright.config.ts` 与 `test:e2e` 脚本
+  - [x] 浏览器安装与本地启动配置完成，可直接运行 `pnpm --dir apps/web test:e2e`
+- [x] 首批关键 UI 回归用例落地
+  - [x] 基线向导创建并发布
+  - [x] 炉次列表展开并跳转详情
+  - [x] 炉次详情手动调整弹窗打开并保存
+- [x] 联调缺陷修复
+  - [x] 修复 `HeatDetailView` 手动调整区间 watcher 互相写值导致的递归更新错误
+  - [x] 为关键交互补充稳定 `data-testid` 锚点，降低 E2E 脆弱性
+- [x] 验证通过：`pnpm --dir apps/web build`、`pnpm --dir apps/web test`、`pnpm --dir apps/web test:e2e`、`pnpm --dir apps/web lint`（仅剩历史 warning）
+
 ### 2026-03-12（UI 联调问题修复）
 
 - [x] 新建基线向导联调修复
