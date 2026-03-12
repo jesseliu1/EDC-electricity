@@ -30,10 +30,20 @@
 .\scripts\check-all.ps1
 ```
 
+Linux / macOS / Codex cloud 可运行：
+
+```bash
+./scripts/check-all.sh
+```
+
 如果只想跳过前端 E2E：
 
 ```powershell
 .\scripts\check-all.ps1 -SkipE2E
+```
+
+```bash
+./scripts/check-all.sh --skip-e2e
 ```
 
 ## 云端 CI
@@ -84,9 +94,41 @@ git push -u origin master
 
 如果后续使用功能分支，可直接推送对应分支并发起 PR，CI 会自动运行。
 
+## Codex Cloud
+
+如果要把测试任务交给 Codex cloud，建议为仓库环境配置以下 setup script：
+
+```bash
+set -e
+
+corepack enable
+corepack prepare pnpm@10 --activate
+
+cd apps/web
+pnpm install --frozen-lockfile
+pnpm exec playwright install --with-deps chromium
+
+cd ../server
+python -m pip install --upgrade pip
+python -m pip install uv
+uv sync --all-extras
+```
+
+环境准备完成后，Codex cloud 可直接执行：
+
+```bash
+./scripts/check-all.sh
+```
+
+如果只想先做快速回归，可执行：
+
+```bash
+./scripts/check-all.sh --skip-e2e
+```
+
 ## 维护约定
 
 - 新增页面主流程时，优先补 Playwright 用例
 - 新增 API 时，至少补成功路径和一组 400/404/422 边界路径
 - 使用全局 in-memory store 的后端模块，测试必须保证状态隔离
-- 云端 CI 与本地 `.\scripts\check-all.ps1` 保持同一套检查口径，新增测试时两边都要同步
+- 云端 CI 与本地 `.\scripts\check-all.ps1` / `./scripts/check-all.sh` 保持同一套检查口径，新增测试时两边都要同步
