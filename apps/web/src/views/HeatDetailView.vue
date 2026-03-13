@@ -43,10 +43,13 @@ interface ManualAdjustPoint {
   value: number
 }
 
-interface ManualAdjustContextPoint {
-  timestamp: number
-  currentValue: number
-  baselineValue: number | null
+interface ManualAdjustMetricContext {
+  metric_key: string
+  metric_name: string
+  unit: string
+  color: string
+  currentSeries: ManualAdjustPoint[]
+  baselineSeries: ManualAdjustPoint[]
 }
 
 interface PointerEventPayload {
@@ -288,41 +291,55 @@ const manualAdjustContext = computed(() => {
       min: 0,
       max: 0,
       stepMs: 60 * 1000,
-      points: [] as ManualAdjustContextPoint[],
+      metrics: [] as ManualAdjustMetricContext[],
       baselineFilled: false,
     }
   }
 
-  const primaryMetric = primaryComparisonMetric.value
+  const metricCurves =
+    comparisonMetricCurves.value.length > 0
+      ? comparisonMetricCurves.value
+      : [primaryComparisonMetric.value]
   const contextStart = dayjs(current.value.base.startTime).startOf('day').valueOf()
   const rawContextEnd = dayjs(current.value.base.startTime).endOf('day').valueOf()
-  const stepMs = inferCurveStepMs([primaryMetric.current_curve, primaryMetric.baseline_curve])
+  const stepMs = inferCurveStepMs(
+    metricCurves.flatMap((metric) => [metric.current_curve, metric.baseline_curve])
+  )
   const alignedContextEnd =
     contextStart + Math.floor((rawContextEnd - contextStart) / stepMs) * stepMs
-  const currentSeries = buildManualAdjustSeries(
-    primaryMetric.current_curve,
-    contextStart,
-    alignedContextEnd,
-    stepMs
-  )
-  const baselineSeries = buildManualAdjustSeries(
-    primaryMetric.baseline_curve,
-    contextStart,
-    alignedContextEnd,
-    stepMs
-  )
-  const points = currentSeries.map((point, index) => ({
-    timestamp: point.timestamp,
-    currentValue: point.value,
-    baselineValue: baselineSeries[index]?.value ?? null,
+  const metrics = metricCurves.map((metric) => ({
+    metric_key: metric.metric_key,
+    metric_name: metric.metric_name,
+    unit: metric.unit,
+    color: metric.color,
+    currentSeries: buildManualAdjustSeries(
+      metric.current_curve,
+      contextStart,
+      alignedContextEnd,
+      stepMs
+    ),
+    baselineSeries: buildManualAdjustSeries(
+      metric.baseline_curve,
+      contextStart,
+      alignedContextEnd,
+      stepMs
+    ),
   }))
 
   return {
-    min: points[0]?.timestamp || contextStart,
-    max: points[points.length - 1]?.timestamp || alignedContextEnd,
+    min: metrics[0]?.currentSeries[0]?.timestamp || contextStart,
+    max:
+      metrics[0]?.currentSeries[metrics[0].currentSeries.length - 1]?.timestamp ||
+      alignedContextEnd,
     stepMs,
-    points,
-    baselineFilled: points.length > 0 && points.every((point) => point.baselineValue !== null),
+    metrics,
+    baselineFilled:
+      metrics.length > 0 &&
+      metrics.every(
+        (metric) =>
+          metric.currentSeries.length > 0 &&
+          metric.currentSeries.length === metric.baselineSeries.length
+      ),
   }
 })
 
@@ -338,25 +355,28 @@ const manualAdjustSelectionProbe = computed(() => ({
       ? Math.floor((manualAdjustContext.value.max - manualAdjustContext.value.min) / (60 * 1000))
       : 0,
   baselineFilled: manualAdjustContext.value.baselineFilled ? 'true' : 'false',
+  seriesCount: manualAdjustContext.value.metrics.length * 2,
 }))
 
 const manualAdjustOption = computed<EChartsOption>(() => {
-  if (!current.value || manualAdjustContext.value.points.length === 0) return {}
-  const primaryMetric = primaryComparisonMetric.value
+  if (!current.value || manualAdjustContext.value.metrics.length === 0) return {}
+  const metricContexts = manualAdjustContext.value.metrics
+  const units = Array.from(new Set(metricContexts.map((metric) => metric.unit)))
 
   return {
     animation: false,
-    grid: { left: 56, right: 24, top: 38, bottom: 86 },
+    grid: { left: 56, right: 72, top: 40, bottom: 86 },
     tooltip: {
       trigger: 'axis',
       valueFormatter: (value) =>
-        typeof value === 'number'
-          ? value.toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)
-          : `${value || ''}`,
+        typeof value === 'number' ? value.toFixed(2).replace(/\.00$/, '') : `${value || ''}`,
     },
     legend: {
       top: 0,
-      data: [t('dashboard.chart.goldenBaseline'), t('dashboard.chart.currentProduction')],
+      data: metricContexts.flatMap((metric) => [
+        `${metric.metric_name}-${t('dashboard.chart.goldenBaseline')}`,
+        `${metric.metric_name}-${t('dashboard.chart.currentProduction')}`,
+      ]),
     },
     dataZoom: [
       {
@@ -380,41 +400,41 @@ const manualAdjustOption = computed<EChartsOption>(() => {
         formatter: (value: number) => dayjs(value).format('HH:mm:ss'),
       },
     },
-    yAxis: {
+    yAxis: units.map((unit, index) => ({
       type: 'value',
-      name: `${primaryMetric.metric_name} (${primaryMetric.unit})`,
-    },
-    series: [
+      name: unit,
+      position: index % 2 === 0 ? 'left' : 'right',
+      offset: index > 1 ? Math.floor((index - 1) / 2) * 56 : 0,
+      splitLine: index === 0 ? { lineStyle: { color: '#e2e8f0' } } : { show: false },
+    })),
+    series: metricContexts.flatMap((metric, index) => [
       {
-        name: t('dashboard.chart.goldenBaseline'),
+        name: `${metric.metric_name}-${t('dashboard.chart.goldenBaseline')}`,
         type: 'line',
         smooth: true,
         showSymbol: false,
-        lineStyle: { width: 2, type: 'dashed', color: '#67C23A' },
-        data: manualAdjustContext.value.points.map((point) => [
-          point.timestamp,
-          point.baselineValue,
-        ]),
+        yAxisIndex: units.indexOf(metric.unit),
+        lineStyle: { width: 2, type: 'dashed', color: metric.color },
+        data: metric.baselineSeries.map((point) => [point.timestamp, point.value]),
       },
       {
-        name: t('dashboard.chart.currentProduction'),
+        name: `${metric.metric_name}-${t('dashboard.chart.currentProduction')}`,
         type: 'line',
         smooth: true,
         showSymbol: false,
-        lineStyle: { width: 2, color: '#1152d4' },
+        yAxisIndex: units.indexOf(metric.unit),
+        lineStyle: { width: index === 0 ? 2.5 : 2, color: metric.color },
+        areaStyle: index === 0 ? { color: metric.color, opacity: 0.05 } : undefined,
         markArea:
-          manualAdjustStart.value && manualAdjustEnd.value
+          index === 0 && manualAdjustStart.value && manualAdjustEnd.value
             ? {
                 itemStyle: { color: 'rgba(17, 82, 212, 0.12)' },
                 data: [[{ xAxis: manualAdjustStart.value }, { xAxis: manualAdjustEnd.value }]],
               }
             : undefined,
-        data: manualAdjustContext.value.points.map((point) => [
-          point.timestamp,
-          point.currentValue,
-        ]),
+        data: metric.currentSeries.map((point) => [point.timestamp, point.value]),
       },
-    ],
+    ]),
   }
 })
 
@@ -444,16 +464,14 @@ function clearManualAdjustPointerState() {
 }
 
 function selectNearestManualAdjustPoint(targetTimestamp: number) {
-  const point = manualAdjustContext.value.points.reduce<ManualAdjustContextPoint | null>(
-    (closestPoint, currentPoint) => {
-      if (!closestPoint) return currentPoint
-      return Math.abs(currentPoint.timestamp - targetTimestamp) <
-        Math.abs(closestPoint.timestamp - targetTimestamp)
-        ? currentPoint
-        : closestPoint
-    },
-    null
-  )
+  const primarySeries = manualAdjustContext.value.metrics[0]?.currentSeries || []
+  const point = primarySeries.reduce<ManualAdjustPoint | null>((closestPoint, currentPoint) => {
+    if (!closestPoint) return currentPoint
+    return Math.abs(currentPoint.timestamp - targetTimestamp) <
+      Math.abs(closestPoint.timestamp - targetTimestamp)
+      ? currentPoint
+      : closestPoint
+  }, null)
 
   if (!point) return
 
@@ -731,7 +749,8 @@ onMounted(() => {
             data-testid="heat-abnormal-range-list"
           >
             <div
-              v-for="(range, idx) in selectedComparison?.deviation_ranges || current.deviationRanges"
+              v-for="(range, idx) in selectedComparison?.deviation_ranges ||
+                current.deviationRanges"
               :key="`${range.start}-${range.end}`"
               class="rounded-lg border border-red-200 bg-red-50 p-4 flex items-center justify-between"
               data-testid="heat-abnormal-range-item"
@@ -946,7 +965,7 @@ onMounted(() => {
 
         <div
           data-testid="manual-adjust-chart"
-          data-reference-series="2"
+          :data-series-count="manualAdjustSelectionProbe.seriesCount"
           :data-range-start="manualAdjustSelectionProbe.start ?? ''"
           :data-range-end="manualAdjustSelectionProbe.end ?? ''"
           :data-baseline-filled="manualAdjustSelectionProbe.baselineFilled"
