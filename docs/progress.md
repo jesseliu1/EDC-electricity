@@ -65,6 +65,11 @@
   - [x] 串联前端 lint/build/unit/e2e
   - [x] 串联后端 tests lint/pytest
   - [x] 支持 `-SkipE2E` 快速检查
+- [x] 新增多语言回归检查
+  - [x] 新增 `scripts/check-i18n-locales.mjs`，校验 locale key 结构一致性
+  - [x] 新增占位符一致性校验，避免 `{count}` 等变量漂移
+  - [x] 接入 `apps/web` 的 `pnpm test:i18n`
+  - [x] 接入 `check-all.ps1`、`check-all.sh` 与 GitHub Actions
 - [x] 新增 `docs/testing.md`
   - [x] 记录当前测试覆盖范围
   - [x] 记录一键执行方式与维护约定

@@ -6,6 +6,9 @@
 
 - `pnpm --dir apps/web test`
   - Vitest 组件/设计令牌单测
+- `pnpm --dir apps/web test:i18n`
+  - 多语言 key 结构一致性检查
+  - 多语言占位符（如 `{count}`）一致性检查
 - `pnpm --dir apps/web test:e2e`
   - Playwright 浏览器回归
   - 覆盖 Dashboard、基线定义、基线向导、炉次列表、炉次详情手动调整、任务、报表、收件箱、系统设置
@@ -61,6 +64,7 @@ Linux / macOS / Codex cloud 可运行：
 ### 前端
 
 - `pnpm lint`
+- `pnpm test:i18n`
 - `pnpm build`
 - `pnpm test`
 - `pnpm test:e2e`
@@ -129,6 +133,7 @@ uv sync --all-extras
 ## 维护约定
 
 - 新增页面主流程时，优先补 Playwright 用例
+- 新增或修改国际化文案 key、占位符时，必须保证 `pnpm --dir apps/web test:i18n` 通过
 - 新增 API 时，至少补成功路径和一组 400/404/422 边界路径
 - 使用全局 in-memory store 的后端模块，测试必须保证状态隔离
 - 云端 CI 与本地 `.\scripts\check-all.ps1` / `./scripts/check-all.sh` 保持同一套检查口径，新增测试时两边都要同步
