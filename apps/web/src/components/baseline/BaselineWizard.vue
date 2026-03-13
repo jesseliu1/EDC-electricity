@@ -951,19 +951,10 @@ onMounted(async () => {
       fullscreen
       data-testid="baseline-wizard-fullscreen-dialog"
     >
-      <div class="flex h-[78vh] flex-col gap-4">
-        <div>
-          <div class="text-lg font-semibold text-slate-900">
-            {{ t('baseline.wizard.chartPickTitle') }}
-          </div>
-          <div class="mt-1 text-sm text-slate-500">
-            {{ selectedDefinition?.definitionName || '--' }} · {{ t('baseline.wizard.pickHint') }}
-          </div>
-        </div>
-
-        <div class="flex min-h-0 flex-1 flex-col gap-4">
+      <div class="flex h-[80vh] flex-col gap-6">
+        <div class="min-h-0 flex-[1_1_0%]">
           <div
-            class="min-h-0 flex-1"
+            class="h-full"
             data-testid="baseline-wizard-fullscreen-chart"
           >
             <v-chart
@@ -978,76 +969,112 @@ onMounted(async () => {
               @zr:globalout="clearPointerState('fullscreen')"
             />
           </div>
+        </div>
 
-          <div class="grid grid-cols-1 gap-4 xl:grid-cols-[220px_1fr]">
-            <div
-              class="space-y-2"
-              data-testid="baseline-wizard-fullscreen-point-range-panel"
-            >
-              <div class="text-sm text-gray-500">
+        <div class="grid grid-cols-1 gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+          <div
+            class="space-y-4 rounded-2xl bg-slate-50 p-5"
+            data-testid="baseline-wizard-fullscreen-point-range-panel"
+          >
+            <div>
+              <div class="text-sm font-medium text-slate-600">
                 {{ t('baseline.wizard.pointRange') }}
               </div>
-              <div class="flex flex-wrap items-center gap-2">
-                <el-button
-                  :type="selectingBoundary === 'start' ? 'primary' : 'default'"
-                  data-testid="baseline-wizard-fullscreen-pick-start"
-                  @click="selectingBoundary = 'start'"
-                >
-                  {{ t('baseline.wizard.pickStart') }}
-                </el-button>
-                <el-button
-                  :type="selectingBoundary === 'end' ? 'primary' : 'default'"
-                  data-testid="baseline-wizard-fullscreen-pick-end"
-                  @click="selectingBoundary = 'end'"
-                >
-                  {{ t('baseline.wizard.pickEnd') }}
-                </el-button>
-              </div>
+              <p class="mt-2 text-sm text-slate-500">
+                {{ t('baseline.wizard.pickHint') }}
+              </p>
             </div>
 
-            <div class="grid grid-cols-1 gap-4">
-              <el-form-item
-                :label="t('baseline.wizard.rangeStart')"
-                data-testid="baseline-wizard-fullscreen-start-form-item"
+            <div class="flex flex-wrap items-center gap-3">
+              <el-button
+                :type="selectingBoundary === 'start' ? 'primary' : 'default'"
+                data-testid="baseline-wizard-fullscreen-pick-start"
+                @click="selectingBoundary = 'start'"
               >
-                <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
-                  <el-date-picker
-                    v-model="selectedStart"
-                    type="datetime"
-                    value-format="x"
-                    format="YYYY-MM-DD HH:mm:ss"
-                    class="w-full"
-                    data-testid="baseline-wizard-fullscreen-range-start"
-                  />
-                  <el-button @click="adjustBoundary('start', -1)">
-                    -1s
-                  </el-button>
-                  <el-button @click="adjustBoundary('start', 1)">
-                    +1s
-                  </el-button>
-                </div>
-              </el-form-item>
-              <el-form-item
-                :label="t('baseline.wizard.rangeEnd')"
-                data-testid="baseline-wizard-fullscreen-end-form-item"
+                {{ t('baseline.wizard.pickStart') }}
+              </el-button>
+              <el-button
+                :type="selectingBoundary === 'end' ? 'primary' : 'default'"
+                data-testid="baseline-wizard-fullscreen-pick-end"
+                @click="selectingBoundary = 'end'"
               >
-                <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
-                  <el-date-picker
-                    v-model="selectedEnd"
-                    type="datetime"
-                    value-format="x"
-                    format="YYYY-MM-DD HH:mm:ss"
-                    class="w-full"
-                    data-testid="baseline-wizard-fullscreen-range-end"
-                  />
-                  <el-button @click="adjustBoundary('end', -1)">
-                    -1s
-                  </el-button>
-                  <el-button @click="adjustBoundary('end', 1)">
-                    +1s
-                  </el-button>
-                </div>
-              </el-form-item>
+                {{ t('baseline.wizard.pickEnd') }}
+              </el-button>
+            </div>
+          </div>
+
+          <div class="space-y-4 rounded-2xl bg-slate-50 p-5">
+            <div
+              class="grid grid-cols-1 items-center gap-3 xl:grid-cols-[96px_minmax(0,1fr)_auto_auto]"
+              data-testid="baseline-wizard-fullscreen-start-form-item"
+            >
+              <div class="text-sm font-medium text-slate-600">
+                {{ t('baseline.wizard.rangeStart') }}
+              </div>
+              <el-date-picker
+                v-model="selectedStart"
+                type="datetime"
+                value-format="x"
+                format="YYYY-MM-DD HH:mm:ss"
+                class="w-full"
+                data-testid="baseline-wizard-fullscreen-range-start"
+              />
+              <el-button @click="adjustBoundary('start', -1)">
+                -1s
+              </el-button>
+              <el-button @click="adjustBoundary('start', 1)">
+                +1s
+              </el-button>
+            </div>
+
+            <div
+              class="grid grid-cols-1 items-center gap-3 xl:grid-cols-[96px_minmax(0,1fr)_auto_auto]"
+              data-testid="baseline-wizard-fullscreen-end-form-item"
+            >
+              <div class="text-sm font-medium text-slate-600">
+                {{ t('baseline.wizard.rangeEnd') }}
+              </div>
+              <el-date-picker
+                v-model="selectedEnd"
+                type="datetime"
+                value-format="x"
+                format="YYYY-MM-DD HH:mm:ss"
+                class="w-full"
+                data-testid="baseline-wizard-fullscreen-range-end"
+              />
+              <el-button @click="adjustBoundary('end', -1)">
+                -1s
+              </el-button>
+              <el-button @click="adjustBoundary('end', 1)">
+                +1s
+              </el-button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div class="rounded-2xl bg-slate-50 p-5">
+            <div class="text-sm text-slate-500">
+              {{ summaryStats.label }}
+            </div>
+            <div class="mt-3 text-3xl font-semibold text-slate-900">
+              {{ summaryStats.avg }}
+            </div>
+          </div>
+          <div class="rounded-2xl bg-slate-50 p-5">
+            <div class="text-sm text-slate-500">
+              {{ t('baseline.wizard.peakPower') }}
+            </div>
+            <div class="mt-3 text-3xl font-semibold text-slate-900">
+              {{ summaryStats.peak }}{{ summaryStats.unit ? ` ${summaryStats.unit}` : '' }}
+            </div>
+          </div>
+          <div class="rounded-2xl bg-slate-50 p-5">
+            <div class="text-sm text-slate-500">
+              {{ t('baseline.wizard.selectedDuration') }}
+            </div>
+            <div class="mt-3 text-3xl font-semibold text-slate-900">
+              {{ formatDuration(summaryStats.durationSecond) }}
             </div>
           </div>
         </div>
