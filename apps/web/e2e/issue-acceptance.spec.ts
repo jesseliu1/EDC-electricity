@@ -16,6 +16,52 @@ function buildCurvePoints(startIso: string, count: number, stepMinutes: number, 
   }))
 }
 
+async function clickChartAt(page: Page, testId: string, xRatio: number, yRatio: number) {
+  const canvas = page.getByTestId(testId).locator('canvas').first()
+  const box = await canvas.boundingBox()
+  expect(box).not.toBeNull()
+
+  await page.mouse.click(
+    (box?.x || 0) + (box?.width || 0) * xRatio,
+    (box?.y || 0) + (box?.height || 0) * yRatio
+  )
+}
+
+async function dragChartAt(
+  page: Page,
+  testId: string,
+  from: { xRatio: number; yRatio: number },
+  to: { xRatio: number; yRatio: number }
+) {
+  const canvas = page.getByTestId(testId).locator('canvas').first()
+  const box = await canvas.boundingBox()
+  expect(box).not.toBeNull()
+
+  await page.mouse.move(
+    (box?.x || 0) + (box?.width || 0) * from.xRatio,
+    (box?.y || 0) + (box?.height || 0) * from.yRatio
+  )
+  await page.mouse.down()
+  await page.mouse.move(
+    (box?.x || 0) + (box?.width || 0) * to.xRatio,
+    (box?.y || 0) + (box?.height || 0) * to.yRatio,
+    { steps: 12 }
+  )
+  await page.mouse.up()
+}
+
+async function wheelChartAt(page: Page, testId: string, xRatio: number, yRatio: number, deltaY: number) {
+  const canvas = page.getByTestId(testId).locator('canvas').first()
+  const box = await canvas.boundingBox()
+  expect(box).not.toBeNull()
+
+  await page.mouse.move(
+    (box?.x || 0) + (box?.width || 0) * xRatio,
+    (box?.y || 0) + (box?.height || 0) * yRatio
+  )
+  await page.mouse.wheel(0, deltaY)
+}
+
 async function mockDashboardRanges(page: Page) {
   await page.route('**/api/dashboard/realtime?duration=*', async route => {
     const url = new URL(route.request().url())
@@ -308,7 +354,7 @@ test.describe('EDC issue acceptance checks', () => {
     await expect.poll(() => durations.filter(item => item === '24h').length).toBeGreaterThan(0)
   })
 
-  test('baseline wizard shows fullscreen pick controls and readable range summary', async ({ page }) => {
+  test('baseline wizard keeps chart picking, zoom dragging, and fullscreen state in sync', async ({ page }) => {
     await page.goto('baselines')
     await page.getByTestId('baseline-create-button').click()
     await page.getByTestId('baseline-wizard-name-input').fill('Issue 验收基线')
@@ -326,11 +372,47 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(page.getByText(/\d+\s?kW/).first()).toBeVisible()
     await expect(page.getByText(/天 .*小时 .*分钟 .*秒/)).toBeVisible()
 
+    const selectionState = page.getByTestId('baseline-wizard-selection-state')
+    const originalStart = await selectionState.getAttribute('data-start')
+    const originalEnd = await selectionState.getAttribute('data-end')
+
+    await page.getByTestId('baseline-wizard-pick-start').click()
+    await clickChartAt(page, 'baseline-wizard-chart', 0.2, 0.35)
+    await expect(selectionState).toHaveAttribute('data-boundary', 'end')
+    await expect.poll(async () => await selectionState.getAttribute('data-start')).not.toBe(originalStart)
+
+    await page.getByTestId('baseline-wizard-pick-end').click()
+    await clickChartAt(page, 'baseline-wizard-chart', 0.72, 0.35)
+    await expect(selectionState).toHaveAttribute('data-boundary', 'start')
+    await expect.poll(async () => await selectionState.getAttribute('data-end')).not.toBe(originalEnd)
+
+    const startAfterPick = await selectionState.getAttribute('data-start')
+    const endAfterPick = await selectionState.getAttribute('data-end')
+    await wheelChartAt(page, 'baseline-wizard-chart', 0.5, 0.4, -600)
+    await expect.poll(async () => Number(await selectionState.getAttribute('data-zoom-start'))).toBeGreaterThan(0)
+    await expect.poll(async () => Number(await selectionState.getAttribute('data-zoom-end'))).toBeLessThan(100)
+
+    const zoomStartBeforeDrag = Number(await selectionState.getAttribute('data-zoom-start'))
+    await dragChartAt(page, 'baseline-wizard-chart', { xRatio: 0.7, yRatio: 0.38 }, { xRatio: 0.56, yRatio: 0.38 })
+    await expect.poll(async () => Number(await selectionState.getAttribute('data-zoom-start'))).not.toBe(zoomStartBeforeDrag)
+    await expect(selectionState).toHaveAttribute('data-start', startAfterPick || '')
+    await expect(selectionState).toHaveAttribute('data-end', endAfterPick || '')
+
     await page.getByTestId('baseline-wizard-fullscreen-button').click()
     const dialog = page.getByTestId('baseline-wizard-fullscreen-dialog')
     await expect(dialog).toBeVisible()
+    await expect(dialog.getByText(/图上选点/)).toBeVisible()
     await expect(dialog.getByRole('button', { name: '选起点' })).toBeVisible()
     await expect(dialog.getByRole('button', { name: '选终点' })).toBeVisible()
+    await expect(dialog.getByText(/选点区间/)).toBeVisible()
+    await expect(dialog.getByTestId('baseline-wizard-fullscreen-start-form-item')).toBeVisible()
+    await expect(dialog.getByTestId('baseline-wizard-fullscreen-end-form-item')).toBeVisible()
+    await expect(selectionState).toHaveAttribute('data-fullscreen', 'true')
+
+    const endBeforeFullscreenPick = await selectionState.getAttribute('data-end')
+    await dialog.getByTestId('baseline-wizard-fullscreen-pick-end').click()
+    await clickChartAt(page, 'baseline-wizard-fullscreen-chart', 0.82, 0.35)
+    await expect.poll(async () => await selectionState.getAttribute('data-end')).not.toBe(endBeforeFullscreenPick)
   })
 
   test('heat detail renders multi-metric comparison, abnormal ranges, consistent status, and manual adjust references', async ({ page }) => {

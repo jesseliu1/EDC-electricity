@@ -24,7 +24,7 @@ import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { DataZoomComponent, GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { EChartsOption } from 'echarts'
+import type { ECharts, EChartsOption } from 'echarts'
 import dayjs from 'dayjs'
 import { useBaselineDefinitionStore } from '@/stores/baselineDefinition'
 
@@ -66,6 +66,30 @@ interface Emits {
   (e: 'submit', payload: WizardSubmitPayload): void
 }
 
+type ChartSurface = 'inline' | 'fullscreen'
+
+interface PointerEventPayload {
+  offsetX: number
+  offsetY: number
+}
+
+interface PointerState {
+  startX: number
+  startY: number
+  dragging: boolean
+}
+
+interface DataZoomPayload {
+  start?: number
+  end?: number
+  batch?: Array<{
+    start?: number
+    end?: number
+  }>
+}
+
+type ExposedChart = ECharts | { value?: ECharts | undefined }
+
 const props = withDefaults(defineProps<Props>(), {
   initialSourceHeatId: '',
   initialSelectedStartTime: '',
@@ -83,6 +107,9 @@ const selectingBoundary = ref<'start' | 'end'>('start')
 const fullscreenVisible = ref(false)
 const fullCurvePoints = ref<MetricCurvePoint[]>([])
 const heatCandidates = ref<HeatCandidate[]>([])
+const inlineChartRef = ref<InstanceType<typeof VChart> | null>(null)
+const fullscreenChartRef = ref<InstanceType<typeof VChart> | null>(null)
+const zoomWindow = ref({ start: 0, end: 100 })
 
 const formData = ref({
   name: '',
@@ -93,6 +120,8 @@ const formData = ref({
 
 const selectedStart = ref<number | null>(null)
 const selectedEnd = ref<number | null>(null)
+const pointerStates: Partial<Record<ChartSurface, PointerState>> = {}
+const pointerDragThreshold = 6
 
 const selectedDefinition = computed(() =>
   baselineDefinitionStore.list.find(item => item.id === formData.value.definitionId) || null
@@ -101,6 +130,15 @@ const selectedDefinition = computed(() =>
 const selectedHeat = computed(() =>
   heatCandidates.value.find(item => item.id === selectedHeatId.value) || null
 )
+
+const selectionProbe = computed(() => ({
+  boundary: selectingBoundary.value,
+  start: normalizedTimestamp(selectedStart.value),
+  end: normalizedTimestamp(selectedEnd.value),
+  zoomStart: zoomWindow.value.start,
+  zoomEnd: zoomWindow.value.end,
+  fullscreen: fullscreenVisible.value ? 'true' : 'false'
+}))
 
 function metricSeed(metricId: string) {
   return metricId.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
@@ -144,6 +182,7 @@ function createCurvePoints() {
 
     return { timestamp, values }
   })
+  zoomWindow.value = { start: 0, end: 100 }
 
   const candidateSeed = [
     { id: 'heat-101', heatNo: 'H20260312-101', offsetHours: 3, durationMinutes: 38 },
@@ -185,13 +224,25 @@ function createCurvePoints() {
   }
 }
 
+function normalizedTimestamp(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === '') return null
+  const timestamp = Number(value)
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
 function normalizeRange() {
-  if (!selectedStart.value || !selectedEnd.value) return
-  if (selectedStart.value > selectedEnd.value) {
-    const start = selectedStart.value
-    selectedStart.value = selectedEnd.value
+  const start = normalizedTimestamp(selectedStart.value)
+  const end = normalizedTimestamp(selectedEnd.value)
+  if (start === null || end === null) return
+
+  if (start > end) {
+    selectedStart.value = end
     selectedEnd.value = start
+    return
   }
+
+  selectedStart.value = start
+  selectedEnd.value = end
 }
 
 function resetRangeByHeat() {
@@ -211,9 +262,14 @@ function handleSelectHeat(id: string) {
   resetRangeByHeat()
 }
 
-function handleChartClick(params: { dataIndex?: number }) {
-  if (params.dataIndex === undefined) return
-  const point = fullCurvePoints.value[params.dataIndex]
+function selectNearestPoint(targetTimestamp: number) {
+  const point = fullCurvePoints.value.reduce<MetricCurvePoint | null>((closestPoint, currentPoint) => {
+    if (!closestPoint) return currentPoint
+    return Math.abs(currentPoint.timestamp - targetTimestamp) < Math.abs(closestPoint.timestamp - targetTimestamp)
+      ? currentPoint
+      : closestPoint
+  }, null)
+
   if (!point) return
 
   if (selectingBoundary.value === 'start') {
@@ -227,12 +283,74 @@ function handleChartClick(params: { dataIndex?: number }) {
   normalizeRange()
 }
 
-function adjustBoundary(boundary: 'start' | 'end', deltaSecond: number) {
-  if (boundary === 'start' && selectedStart.value) {
-    selectedStart.value += deltaSecond * 1000
+function clearPointerState(surface: ChartSurface) {
+  delete pointerStates[surface]
+}
+
+function resolveChartInstance(surface: ChartSurface) {
+  const chartRef = (surface === 'inline'
+    ? inlineChartRef.value?.chart
+    : fullscreenChartRef.value?.chart) as ExposedChart | undefined
+  if (!chartRef) return null
+  if ('containPixel' in chartRef && 'convertFromPixel' in chartRef) {
+    return chartRef
   }
-  if (boundary === 'end' && selectedEnd.value) {
-    selectedEnd.value += deltaSecond * 1000
+  if ('value' in chartRef) {
+    return chartRef.value ?? null
+  }
+  return null
+}
+
+function handleChartPointerSelect(surface: ChartSurface, event: PointerEventPayload) {
+  const instance = resolveChartInstance(surface)
+  if (!instance) return
+
+  const pixel: [number, number] = [event.offsetX, event.offsetY]
+  if (!instance.containPixel({ gridIndex: 0 }, pixel)) return
+
+  const converted = instance.convertFromPixel({ gridIndex: 0 }, pixel)
+  const timestamp = Number(Array.isArray(converted) ? converted[0] : converted)
+  if (!Number.isFinite(timestamp)) return
+
+  selectNearestPoint(timestamp)
+}
+
+function handleChartPointerDown(surface: ChartSurface, event: PointerEventPayload) {
+  pointerStates[surface] = {
+    startX: event.offsetX,
+    startY: event.offsetY,
+    dragging: false
+  }
+}
+
+function handleChartPointerMove(surface: ChartSurface, event: PointerEventPayload) {
+  const state = pointerStates[surface]
+  if (!state) return
+
+  if (
+    Math.abs(event.offsetX - state.startX) > pointerDragThreshold ||
+    Math.abs(event.offsetY - state.startY) > pointerDragThreshold
+  ) {
+    state.dragging = true
+  }
+}
+
+function handleChartPointerClick(surface: ChartSurface, event: PointerEventPayload) {
+  const state = pointerStates[surface]
+  clearPointerState(surface)
+  if (!state || state.dragging) return
+  handleChartPointerSelect(surface, event)
+}
+
+function adjustBoundary(boundary: 'start' | 'end', deltaSecond: number) {
+  const start = normalizedTimestamp(selectedStart.value)
+  const end = normalizedTimestamp(selectedEnd.value)
+
+  if (boundary === 'start' && start !== null) {
+    selectedStart.value = start + deltaSecond * 1000
+  }
+  if (boundary === 'end' && end !== null) {
+    selectedEnd.value = end + deltaSecond * 1000
   }
   normalizeRange()
 }
@@ -246,9 +364,20 @@ function formatDuration(durationSecond: number) {
   return `${days}天 ${hours}小时 ${minutes}分钟 ${seconds}秒`
 }
 
+function handleChartDataZoom(payload: DataZoomPayload) {
+  const latest = payload.batch?.[0] || payload
+  zoomWindow.value = {
+    start: latest.start ?? zoomWindow.value.start,
+    end: latest.end ?? zoomWindow.value.end
+  }
+}
+
 const chartOption = computed<EChartsOption>(() => {
   const definition = selectedDefinition.value
   if (!definition || fullCurvePoints.value.length === 0) return {}
+
+  const rangeStart = normalizedTimestamp(selectedStart.value)
+  const rangeEnd = normalizedTimestamp(selectedEnd.value)
 
   const metrics = [...definition.metrics].sort((left, right) => left.sortOrder - right.sortOrder)
   const units = Array.from(new Set(metrics.map(metric => metric.unit)))
@@ -274,8 +403,20 @@ const chartOption = computed<EChartsOption>(() => {
       data: metrics.map(metric => metric.name)
     },
     dataZoom: [
-      { type: 'inside', moveOnMouseMove: true, zoomOnMouseWheel: true },
-      { type: 'slider', height: 28, bottom: 24 }
+      {
+        type: 'inside',
+        moveOnMouseMove: true,
+        zoomOnMouseWheel: true,
+        start: zoomWindow.value.start,
+        end: zoomWindow.value.end
+      },
+      {
+        type: 'slider',
+        height: 28,
+        bottom: 24,
+        start: zoomWindow.value.start,
+        end: zoomWindow.value.end
+      }
     ],
     xAxis: {
       type: 'time',
@@ -294,10 +435,10 @@ const chartOption = computed<EChartsOption>(() => {
       lineStyle: { width: index === 0 ? 2.5 : 2, color: metric.color },
       itemStyle: { color: metric.color },
       markArea:
-        index === 0 && selectedStart.value && selectedEnd.value
+        index === 0 && rangeStart !== null && rangeEnd !== null
           ? {
               itemStyle: { color: 'rgba(17, 82, 212, 0.12)' },
-              data: [[{ xAxis: selectedStart.value }, { xAxis: selectedEnd.value }]]
+              data: [[{ xAxis: rangeStart }, { xAxis: rangeEnd }]]
             }
           : undefined,
       data: fullCurvePoints.value.map(point => [point.timestamp, point.values[metric.id]])
@@ -308,7 +449,10 @@ const chartOption = computed<EChartsOption>(() => {
 const summaryStats = computed(() => {
   const definition = selectedDefinition.value
   const primaryMetric = definition?.metrics[0]
-  if (!primaryMetric || !selectedStart.value || !selectedEnd.value) {
+  const rangeStart = normalizedTimestamp(selectedStart.value)
+  const rangeEnd = normalizedTimestamp(selectedEnd.value)
+
+  if (!primaryMetric || rangeStart === null || rangeEnd === null) {
     return {
       label: '--',
       avg: 0,
@@ -319,7 +463,7 @@ const summaryStats = computed(() => {
   }
 
   const selectedPoints = fullCurvePoints.value
-    .filter(point => point.timestamp >= selectedStart.value! && point.timestamp <= selectedEnd.value!)
+    .filter(point => point.timestamp >= rangeStart && point.timestamp <= rangeEnd)
     .map(point => point.values[primaryMetric.id])
     .filter(value => value !== undefined)
 
@@ -339,7 +483,7 @@ const summaryStats = computed(() => {
     label: `${primaryMetric.name} (${primaryMetric.unit})`,
     avg: Number(avg.toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)),
     peak: Number(Math.max(...selectedPoints).toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)),
-    durationSecond: Math.floor((selectedEnd.value - selectedStart.value) / 1000),
+    durationSecond: Math.floor((rangeEnd - rangeStart) / 1000),
     unit: primaryMetric.unit
   }
 })
@@ -379,13 +523,16 @@ function submit(mode: 'draft' | 'publish') {
     return
   }
 
+  const rangeStart = normalizedTimestamp(selectedStart.value)
+  const rangeEnd = normalizedTimestamp(selectedEnd.value)
+
   emit('submit', {
     name: formData.value.name.trim(),
     description: formData.value.description.trim(),
     definitionId: formData.value.definitionId,
     sourceHeatId: selectedHeatId.value,
-    selectedStartTime: selectedStart.value ? dayjs(selectedStart.value).toISOString() : undefined,
-    selectedEndTime: selectedEnd.value ? dayjs(selectedEnd.value).toISOString() : undefined,
+    selectedStartTime: rangeStart !== null ? dayjs(rangeStart).toISOString() : undefined,
+    selectedEndTime: rangeEnd !== null ? dayjs(rangeEnd).toISOString() : undefined,
     tolerancePercent: formData.value.tolerancePercent,
     mode
   })
@@ -449,6 +596,17 @@ onMounted(async () => {
     class="space-y-6"
     data-testid="baseline-wizard"
   >
+    <div
+      class="sr-only"
+      data-testid="baseline-wizard-selection-state"
+      :data-boundary="selectionProbe.boundary"
+      :data-start="selectionProbe.start ?? ''"
+      :data-end="selectionProbe.end ?? ''"
+      :data-zoom-start="selectionProbe.zoomStart"
+      :data-zoom-end="selectionProbe.zoomEnd"
+      :data-fullscreen="selectionProbe.fullscreen"
+    />
+
     <el-steps
       :active="activeStep + 1"
       finish-status="success"
@@ -593,27 +751,39 @@ onMounted(async () => {
           v-if="selectedDefinition && fullCurvePoints.length > 0"
           class="space-y-4"
         >
-          <v-chart
-            :option="chartOption"
-            autoresize
-            class="h-[420px]"
-            @click="handleChartClick"
-          />
+          <div data-testid="baseline-wizard-chart">
+            <v-chart
+              ref="inlineChartRef"
+              :option="chartOption"
+              autoresize
+              class="h-[420px]"
+              @datazoom="handleChartDataZoom"
+              @zr:mousedown="handleChartPointerDown('inline', $event)"
+              @zr:mousemove="handleChartPointerMove('inline', $event)"
+              @zr:click="handleChartPointerClick('inline', $event)"
+              @zr:globalout="clearPointerState('inline')"
+            />
+          </div>
 
           <div class="grid grid-cols-1 gap-4 xl:grid-cols-[220px_1fr]">
-            <div class="space-y-2">
+            <div
+              class="space-y-2"
+              data-testid="baseline-wizard-point-range-panel"
+            >
               <div class="text-sm text-gray-500">
                 {{ t('baseline.wizard.pointRange') }}
               </div>
               <div class="flex flex-wrap items-center gap-2">
                 <el-button
                   :type="selectingBoundary === 'start' ? 'primary' : 'default'"
+                  data-testid="baseline-wizard-pick-start"
                   @click="selectingBoundary = 'start'"
                 >
                   {{ t('baseline.wizard.pickStart') }}
                 </el-button>
                 <el-button
                   :type="selectingBoundary === 'end' ? 'primary' : 'default'"
+                  data-testid="baseline-wizard-pick-end"
                   @click="selectingBoundary = 'end'"
                 >
                   {{ t('baseline.wizard.pickEnd') }}
@@ -782,69 +952,104 @@ onMounted(async () => {
       data-testid="baseline-wizard-fullscreen-dialog"
     >
       <div class="flex h-[78vh] flex-col gap-4">
-        <div class="flex flex-wrap items-center gap-2">
-          <el-button
-            :type="selectingBoundary === 'start' ? 'primary' : 'default'"
-            @click="selectingBoundary = 'start'"
-          >
-            {{ t('baseline.wizard.pickStart') }}
-          </el-button>
-          <el-button
-            :type="selectingBoundary === 'end' ? 'primary' : 'default'"
-            @click="selectingBoundary = 'end'"
-          >
-            {{ t('baseline.wizard.pickEnd') }}
-          </el-button>
+        <div>
+          <div class="text-lg font-semibold text-slate-900">
+            {{ t('baseline.wizard.chartPickTitle') }}
+          </div>
+          <div class="mt-1 text-sm text-slate-500">
+            {{ selectedDefinition?.definitionName || '--' }} · {{ t('baseline.wizard.pickHint') }}
+          </div>
         </div>
 
-        <v-chart
-          :option="chartOption"
-          autoresize
-          class="h-full min-h-0"
-          @click="handleChartClick"
-        />
+        <div class="flex min-h-0 flex-1 flex-col gap-4">
+          <div
+            class="min-h-0 flex-1"
+            data-testid="baseline-wizard-fullscreen-chart"
+          >
+            <v-chart
+              ref="fullscreenChartRef"
+              :option="chartOption"
+              autoresize
+              class="h-full"
+              @datazoom="handleChartDataZoom"
+              @zr:mousedown="handleChartPointerDown('fullscreen', $event)"
+              @zr:mousemove="handleChartPointerMove('fullscreen', $event)"
+              @zr:click="handleChartPointerClick('fullscreen', $event)"
+              @zr:globalout="clearPointerState('fullscreen')"
+            />
+          </div>
 
-        <div class="grid grid-cols-1 gap-4">
-          <el-form-item
-            :label="t('baseline.wizard.rangeStart')"
-            data-testid="baseline-wizard-fullscreen-start-form-item"
-          >
-            <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
-              <el-date-picker
-                v-model="selectedStart"
-                type="datetime"
-                value-format="x"
-                format="YYYY-MM-DD HH:mm:ss"
-                class="w-full"
-              />
-              <el-button @click="adjustBoundary('start', -1)">
-                -1s
-              </el-button>
-              <el-button @click="adjustBoundary('start', 1)">
-                +1s
-              </el-button>
+          <div class="grid grid-cols-1 gap-4 xl:grid-cols-[220px_1fr]">
+            <div
+              class="space-y-2"
+              data-testid="baseline-wizard-fullscreen-point-range-panel"
+            >
+              <div class="text-sm text-gray-500">
+                {{ t('baseline.wizard.pointRange') }}
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <el-button
+                  :type="selectingBoundary === 'start' ? 'primary' : 'default'"
+                  data-testid="baseline-wizard-fullscreen-pick-start"
+                  @click="selectingBoundary = 'start'"
+                >
+                  {{ t('baseline.wizard.pickStart') }}
+                </el-button>
+                <el-button
+                  :type="selectingBoundary === 'end' ? 'primary' : 'default'"
+                  data-testid="baseline-wizard-fullscreen-pick-end"
+                  @click="selectingBoundary = 'end'"
+                >
+                  {{ t('baseline.wizard.pickEnd') }}
+                </el-button>
+              </div>
             </div>
-          </el-form-item>
-          <el-form-item
-            :label="t('baseline.wizard.rangeEnd')"
-            data-testid="baseline-wizard-fullscreen-end-form-item"
-          >
-            <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
-              <el-date-picker
-                v-model="selectedEnd"
-                type="datetime"
-                value-format="x"
-                format="YYYY-MM-DD HH:mm:ss"
-                class="w-full"
-              />
-              <el-button @click="adjustBoundary('end', -1)">
-                -1s
-              </el-button>
-              <el-button @click="adjustBoundary('end', 1)">
-                +1s
-              </el-button>
+
+            <div class="grid grid-cols-1 gap-4">
+              <el-form-item
+                :label="t('baseline.wizard.rangeStart')"
+                data-testid="baseline-wizard-fullscreen-start-form-item"
+              >
+                <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
+                  <el-date-picker
+                    v-model="selectedStart"
+                    type="datetime"
+                    value-format="x"
+                    format="YYYY-MM-DD HH:mm:ss"
+                    class="w-full"
+                    data-testid="baseline-wizard-fullscreen-range-start"
+                  />
+                  <el-button @click="adjustBoundary('start', -1)">
+                    -1s
+                  </el-button>
+                  <el-button @click="adjustBoundary('start', 1)">
+                    +1s
+                  </el-button>
+                </div>
+              </el-form-item>
+              <el-form-item
+                :label="t('baseline.wizard.rangeEnd')"
+                data-testid="baseline-wizard-fullscreen-end-form-item"
+              >
+                <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
+                  <el-date-picker
+                    v-model="selectedEnd"
+                    type="datetime"
+                    value-format="x"
+                    format="YYYY-MM-DD HH:mm:ss"
+                    class="w-full"
+                    data-testid="baseline-wizard-fullscreen-range-end"
+                  />
+                  <el-button @click="adjustBoundary('end', -1)">
+                    -1s
+                  </el-button>
+                  <el-button @click="adjustBoundary('end', 1)">
+                    +1s
+                  </el-button>
+                </div>
+              </el-form-item>
             </div>
-          </el-form-item>
+          </div>
         </div>
       </div>
       <template #footer>

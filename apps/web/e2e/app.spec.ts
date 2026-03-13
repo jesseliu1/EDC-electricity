@@ -9,9 +9,13 @@ test.describe('EDC web smoke flows', () => {
 
     await expect(page.getByTestId('baseline-wizard')).toBeVisible()
     await expect(page.getByText('设置基线')).toBeVisible()
+    await expect(page.getByText(/条曲线 ·/)).toBeVisible()
 
     await page.getByTestId('baseline-wizard-name-input').fill('E2E 基线回归样例')
     await page.getByTestId('baseline-wizard-next').click()
+    await expect(page.getByTestId('baseline-wizard-point-range-panel')).toBeVisible()
+    await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute('data-start', /.+/)
+    await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute('data-end', /.+/)
     await page.getByTestId('baseline-wizard-next').click()
     await expect(page.getByTestId('baseline-wizard-publish')).toBeVisible()
     await page.getByTestId('baseline-wizard-publish').click()
