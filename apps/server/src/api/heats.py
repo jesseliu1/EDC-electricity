@@ -17,6 +17,7 @@ from ..schemas import (
     HeatAnalyzeResponse,
     HeatCompareResponse,
     HeatListResponse,
+    MetricCompareSeries,
     HeatResponse,
     HeatResumeCuttingRequest,
     HeatUpdate,
@@ -81,6 +82,95 @@ def _curve_points(
         value = base + amp * ((idx + int(phase)) % 10) / 10
         points.append(CurvePoint(timestamp=ts, value=round(value, 3)))
     return points
+
+
+def _build_metric_curve_series(
+    *,
+    start_time: datetime,
+    minutes: int,
+    baseline_id: str,
+    power_curve: list[CurvePoint],
+    voltage_curve: list[CurvePoint],
+) -> list[MetricCompareSeries]:
+    """构造炉次详情多指标对比曲线。"""
+    baseline_index = 0 if baseline_id == "baseline-001" else 1
+    metric_specs: list[dict[str, Any]] = [
+        {
+            "metric_key": "power",
+            "metric_name": "功率",
+            "unit": "kW",
+            "color": "#409EFF",
+            "baseline_curve": _curve_points(
+                start_time, minutes, 435 + baseline_index * 5, 24 + baseline_index * 3, 2.0 + baseline_index
+            ),
+            "current_curve": power_curve,
+        },
+        {
+            "metric_key": "voltage",
+            "metric_name": "电压",
+            "unit": "V",
+            "color": "#67C23A",
+            "baseline_curve": _curve_points(
+                start_time, minutes, 380 + baseline_index * 2, 5 + baseline_index, 1.0 + baseline_index
+            ),
+            "current_curve": voltage_curve,
+        },
+        {
+            "metric_key": "temperature",
+            "metric_name": "炉温",
+            "unit": "°C",
+            "color": "#E6A23C",
+            "baseline_curve": _curve_points(
+                start_time, minutes, 1460 + baseline_index * 12, 18 + baseline_index * 2, 2.5 + baseline_index
+            ),
+            "current_curve": _curve_points(
+                start_time, minutes, 1452 + baseline_index * 8, 22 + baseline_index * 3, 2.1 + baseline_index
+            ),
+        },
+    ]
+    if baseline_id == "baseline-002":
+        metric_specs.append(
+            {
+                "metric_key": "pressure",
+                "metric_name": "炉压",
+                "unit": "MPa",
+                "color": "#F56C6C",
+                "baseline_curve": _curve_points(start_time, minutes, 0.82, 0.12, 1.6),
+                "current_curve": _curve_points(start_time, minutes, 0.79, 0.18, 1.2),
+            }
+        )
+
+    return [
+        MetricCompareSeries(
+            metric_key=spec["metric_key"],
+            metric_name=spec["metric_name"],
+            unit=spec["unit"],
+            color=spec["color"],
+            baseline_curve=spec["baseline_curve"],
+            current_curve=spec["current_curve"],
+        )
+        for spec in metric_specs
+    ]
+
+
+def _ensure_deviation_ranges(
+    item: dict[str, Any], deviation_ranges: list[DeviationRange]
+) -> list[DeviationRange]:
+    """异常炉次至少返回一段可展示的异常区间。"""
+    if deviation_ranges or item.get("status") != "abnormal":
+        return deviation_ranges
+
+    power_curve = item["power_curve"]
+    mid_index = max(len(power_curve) // 2, 1)
+    start_point = power_curve[max(mid_index - 5, 0)]
+    end_point = power_curve[min(mid_index + 4, len(power_curve) - 1)]
+    return [
+        DeviationRange(
+            start=int(start_point.timestamp),
+            end=int(end_point.timestamp),
+            deviation=round(float(item.get("deviation_percent") or 12.0), 2),
+        )
+    ]
 
 
 def _seed_heats() -> dict[str, dict[str, Any]]:
@@ -495,6 +585,15 @@ async def get_cutting_timeline(heat_id: str) -> CuttingTimelineResponse:
                 detail=f"阻断原因：{item.get('cut_reason') or 'unknown'}",
             )
         )
+    elif item.get("status") == "abnormal":
+        events.append(
+            CuttingTimelineEvent(
+                timestamp=start_time + timedelta(minutes=3),
+                event_type="abnormal",
+                title="判定异常",
+                detail=f"异常原因：{item.get('cut_reason') or 'unknown'}",
+            )
+        )
     else:
         events.append(
             CuttingTimelineEvent(
@@ -524,20 +623,15 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     baseline_ids = item.get("baseline_ids", [])
     baseline_compares: list[BaselineCompareItem] = []
     for idx, baseline_id in enumerate(baseline_ids):
-        baseline_curve_points = _curve_points(
-            item["start_time"],
-            46,
-            435 + idx * 5,
-            24 + idx * 3,
-            phase=2.0 + idx,
+        metric_curves = _build_metric_curve_series(
+            start_time=item["start_time"],
+            minutes=46,
+            baseline_id=baseline_id,
+            power_curve=item["power_curve"],
+            voltage_curve=item["voltage_curve"],
         )
-        baseline_voltage_curve_points = _curve_points(
-            item["start_time"],
-            46,
-            380 + idx * 2,
-            5 + idx,
-            phase=1.0 + idx,
-        )
+        baseline_curve_points = metric_curves[0].baseline_curve
+        baseline_voltage_curve_points = metric_curves[1].baseline_curve
 
         baseline_curve = [
             (float(point.timestamp), float(point.value)) for point in baseline_curve_points
@@ -559,6 +653,7 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
             )
             for item_range in result["abnormal_ranges"]
         ]
+        deviation_ranges = _ensure_deviation_ranges(item, deviation_ranges)
 
         baseline_compares.append(
             BaselineCompareItem(
@@ -569,6 +664,7 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
                     voltage_curve=baseline_voltage_curve_points,
                     tolerance_percent=15.0,
                 ),
+                metric_curves=metric_curves,
                 deviation_ranges=deviation_ranges,
                 max_deviation=result["max_deviation"],
                 avg_deviation=result["avg_deviation"],

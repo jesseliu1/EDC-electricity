@@ -8,6 +8,7 @@ import type {
   DeviationRange,
   HeatCompareResponse,
   HeatListQuery,
+  MetricCompareSeries,
   HeatResponseItem,
   HeatStatus,
   HeatWithCurveResponse
@@ -144,6 +145,57 @@ function mockDetail(id: string): HeatDetail {
     timestamp: start.add(i, 'minute').valueOf(),
     value: Number((380 + Math.cos(i / 9) * 7).toFixed(1))
   }))
+  const temperatureCurve = Array.from({ length: 60 }).map((_, i) => ({
+    timestamp: start.add(i, 'minute').valueOf(),
+    value: Number((1460 + Math.sin(i / 10) * 18).toFixed(1))
+  }))
+  const pressureCurve = Array.from({ length: 60 }).map((_, i) => ({
+    timestamp: start.add(i, 'minute').valueOf(),
+    value: Number((0.82 + Math.cos(i / 8) * 0.08).toFixed(2))
+  }))
+
+  const buildMetricCurves = (baselineId: string): MetricCompareSeries[] => {
+    const baselineIndex = baselineId === 'baseline-001' ? 0 : 1
+    const metricCurves: MetricCompareSeries[] = [
+      {
+        metric_key: 'power',
+        metric_name: '功率',
+        unit: 'kW',
+        color: '#409EFF',
+        baseline_curve: baselinePowerCurve.map(item => ({ ...item, value: Number((item.value + baselineIndex * 8).toFixed(1)) })),
+        current_curve: powerCurve
+      },
+      {
+        metric_key: 'voltage',
+        metric_name: '电压',
+        unit: 'V',
+        color: '#67C23A',
+        baseline_curve: voltageCurve.map(item => ({ ...item, value: Number((item.value + baselineIndex * 2).toFixed(1)) })),
+        current_curve: voltageCurve
+      },
+      {
+        metric_key: 'temperature',
+        metric_name: '炉温',
+        unit: '°C',
+        color: '#E6A23C',
+        baseline_curve: temperatureCurve.map(item => ({ ...item, value: Number((item.value + 6 + baselineIndex * 12).toFixed(1)) })),
+        current_curve: temperatureCurve
+      }
+    ]
+
+    if (baselineId === 'baseline-002') {
+      metricCurves.push({
+        metric_key: 'pressure',
+        metric_name: '炉压',
+        unit: 'MPa',
+        color: '#F56C6C',
+        baseline_curve: pressureCurve.map(item => ({ ...item, value: Number((item.value + 0.04).toFixed(2)) })),
+        current_curve: pressureCurve
+      })
+    }
+
+    return metricCurves
+  }
 
   const safeRange = (startIndex: number, endIndex: number, deviation: number): DeviationRange => {
     const startPoint = powerCurve[startIndex]
@@ -171,6 +223,7 @@ function mockDetail(id: string): HeatDetail {
           voltage_curve: voltageCurve,
           tolerance_percent: 15
         },
+        metric_curves: buildMetricCurves('baseline-001'),
         deviation_ranges: [
           safeRange(18, 25, 16.4)
         ],
@@ -185,6 +238,7 @@ function mockDetail(id: string): HeatDetail {
           voltage_curve: voltageCurve,
           tolerance_percent: 15
         },
+        metric_curves: buildMetricCurves('baseline-002'),
         deviation_ranges: [
           safeRange(32, 40, 14.2)
         ],
@@ -227,11 +281,12 @@ function mapDetail(
   compare: HeatCompareResponse,
   timeline: CuttingTimelineEvent[]
 ): HeatDetail {
-  const comparisons = compare.baselines ||
+  const comparisons: BaselineCompareItem[] = compare.baselines ||
     (compare.baseline
       ? [
           {
             baseline: compare.baseline,
+            metric_curves: [],
             deviation_ranges: compare.deviation_ranges,
             max_deviation: compare.max_deviation,
             avg_deviation: compare.avg_deviation

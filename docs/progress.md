@@ -16,6 +16,29 @@
 
 ## 已完成
 
+### 2026-03-13（UI 验收问题第一轮收口）
+
+- [x] 联调 issue 台账沉淀
+  - [x] `docs/ui_issues.md` 记录 11 条问题，并补充复现步骤、期望结果、测试方法
+  - [x] 已为本轮完成项补充“已修复待验收”状态，保留待继续优化项
+- [x] Dashboard / 基线向导 / 炉次详情第一轮修复
+  - [x] Dashboard 实时曲线范围切换增强，后端 mock 按不同时间范围返回不同点位密度
+  - [x] 基线向导起止时间布局改为更易读的纵向输入区
+  - [x] 基线向导全屏选点恢复“选起点 / 选终点”按钮
+  - [x] 基线向导统计卡补充峰值单位与天/小时/分钟/秒时长格式
+  - [x] 炉次详情与基线对比改为多指标双组曲线展示
+  - [x] 异常炉次缺失异常区间时补充可展示区间，避免顶部异常但列表为空
+  - [x] 手动调整弹窗移除错误的基线选点按钮，并改为图表点击自动更新最近边界
+  - [x] 手动调整图补充黄金基线 / 当前生产双曲线参考
+  - [x] 异常炉次时间轴最终结论改为与顶部状态一致
+- [x] 验证通过
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web test`
+  - [x] `pnpm --dir apps/web test:e2e`
+  - [x] `apps/server/.venv/Scripts/pytest.exe`
+  - [x] `apps/server/.venv/Scripts/ruff.exe check tests`
+
 ### 2026-03-12（前端自动化测试接入）
 
 - [x] Web 端接入 Playwright 浏览器级自动化测试

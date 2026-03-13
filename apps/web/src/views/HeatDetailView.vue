@@ -47,7 +47,6 @@ const manualAdjustFullscreen = ref(false)
 const manualAdjustStart = ref<number | null>(null)
 const manualAdjustEnd = ref<number | null>(null)
 const manualAdjustRange = ref<[number, number]>([0, 0])
-const manualAdjustBoundary = ref<'start' | 'end'>('start')
 let syncingManualAdjustState = false
 
 const selectedComparison = computed(() => {
@@ -57,6 +56,35 @@ const selectedComparison = computed(() => {
     current.value.baselineComparisons.find(item => item.baseline.id === activeBaselineId.value) ||
     current.value.baselineComparisons[0]
   )
+})
+
+const comparisonMetricCurves = computed(() => selectedComparison.value?.metric_curves || [])
+
+const primaryComparisonMetric = computed<{
+  metric_key: string
+  metric_name: string
+  unit: string
+  color: string
+  baseline_curve: { timestamp: number; value: number }[]
+  current_curve: { timestamp: number; value: number }[]
+}>(() => {
+  const fallbackMetric = {
+    metric_key: 'power',
+    metric_name: t('dashboard.chart.power'),
+    unit: 'kW',
+    color: '#409EFF',
+    baseline_curve: current.value?.baselinePowerCurve || [],
+    current_curve: current.value?.powerCurve || []
+  }
+  if (comparisonMetricCurves.value.length > 0) {
+    return (
+      comparisonMetricCurves.value.find(item => item.metric_key === 'power') ||
+      comparisonMetricCurves.value[0] ||
+      fallbackMetric
+    )
+  }
+
+  return fallbackMetric
 })
 
 const statusTagType = computed(() => {
@@ -75,51 +103,69 @@ const statusText = computed(() => {
 
 const compareOption = computed<EChartsOption>(() => {
   if (!current.value) return {}
-
-  const labels = current.value.powerCurve.map(point => dayjs(point.timestamp).format('HH:mm'))
+  const metricCurves = comparisonMetricCurves.value.length > 0
+    ? comparisonMetricCurves.value
+    : [primaryComparisonMetric.value]
+  const units = Array.from(new Set(metricCurves.map(item => item.unit)))
+  const firstCurrentCurve = metricCurves[0]?.current_curve || current.value.powerCurve
+  const deviationRanges = selectedComparison.value?.deviation_ranges || current.value.deviationRanges
 
   return {
-    grid: { left: 50, right: 20, top: 32, bottom: 30 },
+    animation: false,
+    grid: { left: 56, right: 72, top: 40, bottom: 32 },
     tooltip: { trigger: 'axis' },
     legend: {
-      data: [t('dashboard.chart.goldenBaseline'), t('dashboard.chart.currentProduction')],
+      data: metricCurves.flatMap(item => [
+        `${item.metric_name}-${t('dashboard.chart.goldenBaseline')}`,
+        `${item.metric_name}-${t('dashboard.chart.currentProduction')}`
+      ]),
       top: 0
     },
     xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: labels
+      type: 'time',
+      axisLabel: {
+        formatter: (value: number) => dayjs(value).format('HH:mm')
+      }
     },
-    yAxis: {
+    yAxis: units.map((unit, index) => ({
       type: 'value',
-      name: `${t('dashboard.chart.power')} (kW)`
-    },
-    series: [
+      name: unit,
+      position: index % 2 === 0 ? 'left' : 'right',
+      offset: index > 1 ? Math.floor((index - 1) / 2) * 56 : 0,
+      splitLine: index === 0 ? { lineStyle: { color: '#e2e8f0' } } : { show: false }
+    })),
+    series: metricCurves.flatMap((metric, index) => [
       {
-        name: t('dashboard.chart.goldenBaseline'),
+        name: `${metric.metric_name}-${t('dashboard.chart.goldenBaseline')}`,
         type: 'line',
         smooth: true,
         showSymbol: false,
-        lineStyle: { width: 2, type: 'dashed', color: '#67C23A' },
-        data: (selectedComparison.value?.baseline.power_curve || current.value.baselinePowerCurve).map(point => point.value)
+        yAxisIndex: units.indexOf(metric.unit),
+        lineStyle: { width: 2, type: 'dashed', color: metric.color },
+        data: metric.baseline_curve.map(point => [point.timestamp, point.value])
       },
       {
-        name: t('dashboard.chart.currentProduction'),
+        name: `${metric.metric_name}-${t('dashboard.chart.currentProduction')}`,
         type: 'line',
         smooth: true,
         showSymbol: false,
-        lineStyle: { width: 2, color: '#1152d4' },
-        markArea: {
-          itemStyle: { color: 'rgba(245, 108, 108, 0.12)' },
-          data: (selectedComparison.value?.deviation_ranges || current.value.deviationRanges).map(range => {
-            const start = dayjs(range.start).format('HH:mm')
-            const end = dayjs(range.end).format('HH:mm')
-            return [{ xAxis: start }, { xAxis: end }]
-          })
-        },
-        data: current.value.powerCurve.map(point => point.value)
+        yAxisIndex: units.indexOf(metric.unit),
+        lineStyle: { width: index === 0 ? 2.5 : 2, color: metric.color },
+        areaStyle: index === 0 ? { color: metric.color, opacity: 0.05 } : undefined,
+        markArea:
+          index === 0
+            ? {
+                itemStyle: { color: 'rgba(245, 108, 108, 0.12)' },
+                data: deviationRanges.map(range => [
+                  { xAxis: range.start },
+                  { xAxis: range.end }
+                ])
+              }
+            : undefined,
+        data: metric.current_curve.map(point => [point.timestamp, point.value])
       }
-    ]
+    ]),
+    dataZoom: firstCurrentCurve.length > 120 ? [{ type: 'inside' }] : undefined
   }
 })
 
@@ -128,11 +174,12 @@ const manualAdjustWindow = computed(() => {
     return { min: 0, max: 0, points: [] as ManualAdjustPoint[] }
   }
 
+  const primaryCurrentCurve = primaryComparisonMetric.value.current_curve
   const baseStart = dayjs(current.value.base.startTime)
   const baseEnd = dayjs(current.value.base.endTime)
   const windowStart = baseStart.subtract(5, 'hour')
   const windowEnd = baseEnd.add(5, 'hour')
-  const existingCurve = current.value.powerCurve
+  const existingCurve = primaryCurrentCurve
   const firstValue = existingCurve[0]?.value || 430
   const lastValue = existingCurve[existingCurve.length - 1]?.value || firstValue
   const points: ManualAdjustPoint[] = []
@@ -163,6 +210,11 @@ const manualAdjustWindow = computed(() => {
 
 const manualAdjustOption = computed<EChartsOption>(() => {
   if (!current.value || manualAdjustWindow.value.points.length === 0) return {}
+  const primaryMetric = primaryComparisonMetric.value
+  const baselineWindowSeries = manualAdjustWindow.value.points.map(point => {
+    const matched = primaryMetric.baseline_curve.find(item => item.timestamp === point.timestamp)
+    return [point.timestamp, matched?.value ?? null]
+  })
 
   return {
     animation: false,
@@ -170,7 +222,7 @@ const manualAdjustOption = computed<EChartsOption>(() => {
     tooltip: { trigger: 'axis' },
     legend: {
       top: 0,
-      data: [t('heat.manualAdjustRange')]
+      data: [t('dashboard.chart.goldenBaseline'), t('dashboard.chart.currentProduction')]
     },
     dataZoom: [
       { type: 'inside', moveOnMouseMove: true, zoomOnMouseWheel: true },
@@ -184,11 +236,19 @@ const manualAdjustOption = computed<EChartsOption>(() => {
     },
     yAxis: {
       type: 'value',
-      name: `${t('dashboard.chart.power')} (kW)`
+      name: `${primaryMetric.metric_name} (${primaryMetric.unit})`
     },
     series: [
       {
-        name: t('heat.manualAdjustRange'),
+        name: t('dashboard.chart.goldenBaseline'),
+        type: 'line',
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { width: 2, type: 'dashed', color: '#67C23A' },
+        data: baselineWindowSeries
+      },
+      {
+        name: t('dashboard.chart.currentProduction'),
         type: 'line',
         smooth: true,
         showSymbol: false,
@@ -265,7 +325,6 @@ function openManualAdjust() {
   manualAdjustStart.value = dayjs(current.value.base.startTime).valueOf()
   manualAdjustEnd.value = dayjs(current.value.base.endTime).valueOf()
   syncRangeFromBounds()
-  manualAdjustBoundary.value = 'start'
   manualAdjustVisible.value = true
 }
 
@@ -274,12 +333,17 @@ function handleManualAdjustChartClick(params: { dataIndex?: number }) {
   const point = manualAdjustWindow.value.points[params.dataIndex]
   if (!point) return
 
-  if (manualAdjustBoundary.value === 'start') {
+  if (!manualAdjustStart.value) {
     manualAdjustStart.value = point.timestamp
-    manualAdjustBoundary.value = 'end'
+  } else if (!manualAdjustEnd.value) {
+    manualAdjustEnd.value = point.timestamp
+  } else if (
+    Math.abs(point.timestamp - manualAdjustStart.value) <=
+    Math.abs(point.timestamp - manualAdjustEnd.value)
+  ) {
+    manualAdjustStart.value = point.timestamp
   } else {
     manualAdjustEnd.value = point.timestamp
-    manualAdjustBoundary.value = 'start'
   }
 
   syncRangeFromBounds()
@@ -593,22 +657,15 @@ onMounted(() => {
     >
       <div class="space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="text-sm text-slate-500">
-            {{ t('heat.manualAdjustHint') }}
+          <div class="space-y-1">
+            <div class="text-sm text-slate-500">
+              {{ t('heat.manualAdjustHint') }}
+            </div>
+            <div class="text-xs text-slate-400">
+              点击图表会自动更新离点击位置最近的起点或终点，图表、滑块和时间输入框会同步联动。
+            </div>
           </div>
           <div class="flex items-center gap-2">
-            <button
-              class="rounded-lg border border-border-light px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-primary/30 hover:text-primary"
-              @click="manualAdjustBoundary = 'start'"
-            >
-              {{ t('heat.pickBaselineStart') }}
-            </button>
-            <button
-              class="rounded-lg border border-border-light px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-primary/30 hover:text-primary"
-              @click="manualAdjustBoundary = 'end'"
-            >
-              {{ t('heat.pickBaselineEnd') }}
-            </button>
             <button
               data-testid="manual-adjust-fullscreen-toggle"
               class="rounded-lg border border-border-light px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-primary/30 hover:text-primary"
@@ -638,20 +695,30 @@ onMounted(() => {
         </div>
 
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <el-date-picker
-            v-model="manualAdjustStart"
-            type="datetime"
-            value-format="x"
-            format="YYYY-MM-DD HH:mm:ss"
-            class="!w-full"
-          />
-          <el-date-picker
-            v-model="manualAdjustEnd"
-            type="datetime"
-            value-format="x"
-            format="YYYY-MM-DD HH:mm:ss"
-            class="!w-full"
-          />
+          <div class="space-y-2">
+            <div class="text-sm font-medium text-slate-600">
+              {{ t('heat.startTime') }}
+            </div>
+            <el-date-picker
+              v-model="manualAdjustStart"
+              type="datetime"
+              value-format="x"
+              format="YYYY-MM-DD HH:mm:ss"
+              class="!w-full"
+            />
+          </div>
+          <div class="space-y-2">
+            <div class="text-sm font-medium text-slate-600">
+              {{ t('heat.endTime') }}
+            </div>
+            <el-date-picker
+              v-model="manualAdjustEnd"
+              type="datetime"
+              value-format="x"
+              format="YYYY-MM-DD HH:mm:ss"
+              class="!w-full"
+            />
+          </div>
         </div>
       </div>
       <template #footer>

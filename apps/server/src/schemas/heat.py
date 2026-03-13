@@ -47,6 +47,17 @@ class HeatWithCurve(HeatResponse):
     voltage_curve: list[CurvePoint] = Field(..., description="电压曲线")
 
 
+class MetricCompareSeries(BaseModel):
+    """单个指标的基线/当前炉次对比曲线"""
+
+    metric_key: str = Field(..., description="指标标识")
+    metric_name: str = Field(..., description="指标名称")
+    unit: str = Field(..., description="指标单位")
+    color: str = Field(..., description="指标颜色")
+    baseline_curve: list[CurvePoint] = Field(default_factory=list, description="黄金基线曲线")
+    current_curve: list[CurvePoint] = Field(default_factory=list, description="当前生产曲线")
+
+
 class HeatCompareResponse(BaseModel):
     """炉次与基线对比响应"""
 
@@ -74,6 +85,7 @@ class BaselineCompareItem(BaseModel):
     """单条黄金基线对比结果"""
 
     baseline: BaselineWithCurveSimple = Field(..., description="基线数据")
+    metric_curves: list[MetricCompareSeries] = Field(default_factory=list, description="多指标曲线")
     deviation_ranges: list[DeviationRange] = Field(default_factory=list, description="偏差区间")
     max_deviation: float | None = Field(default=None, description="最大偏差百分比")
     avg_deviation: float | None = Field(default=None, description="平均偏差百分比")

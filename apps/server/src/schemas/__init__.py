@@ -39,6 +39,7 @@ from .heat import (
     HeatResumeCuttingRequest,
     HeatUpdate,
     HeatWithCurve,
+    MetricCompareSeries,
 )
 from .setting import (
     BaselineLengthScopeSettingRequest,
@@ -78,6 +79,7 @@ __all__ = [
     "CurveData",
     # Heat
     "DeviationRange",
+    "MetricCompareSeries",
     "BaselineCompareItem",
     "CuttingTimelineEvent",
     "CuttingTimelineResponse",

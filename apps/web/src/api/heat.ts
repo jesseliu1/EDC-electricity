@@ -51,6 +51,15 @@ export interface BaselineCurveSimple {
   tolerance_percent: number
 }
 
+export interface MetricCompareSeries {
+  metric_key: string
+  metric_name: string
+  unit: string
+  color: string
+  baseline_curve: CurvePoint[]
+  current_curve: CurvePoint[]
+}
+
 export interface DeviationRange {
   start: number
   end: number
@@ -85,6 +94,7 @@ export interface CuttingTimelineResponse {
 
 export interface BaselineCompareItem {
   baseline: BaselineCurveSimple
+  metric_curves: MetricCompareSeries[]
   deviation_ranges: DeviationRange[]
   max_deviation: number | null
   avg_deviation: number | null

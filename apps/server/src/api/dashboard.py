@@ -51,7 +51,13 @@ async def get_realtime_data(
 
     # TODO: 实现真实逻辑，从 EDC API 或数据库获取
     # 生成模拟数据
-    points = 60 if duration == "5m" else 120
+    points_map = {
+        "5m": 60,
+        "1h": 120,
+        "6h": 180,
+        "24h": 288,
+    }
+    points = points_map[duration]
     power_curve = []
     voltage_curve = []
     baseline_power = []
@@ -59,8 +65,8 @@ async def get_realtime_data(
 
     for i in range(points):
         ts = int((start_time + (delta / points) * i).timestamp() * 1000)
-        power_curve.append({"timestamp": ts, "value": 450 + (i % 10) * 5})
-        voltage_curve.append({"timestamp": ts, "value": 380 + (i % 5) * 2})
+        power_curve.append({"timestamp": ts, "value": 450 + ((i + points // 12) % 10) * 5})
+        voltage_curve.append({"timestamp": ts, "value": 380 + ((i + points // 24) % 5) * 2})
         baseline_power.append({"timestamp": ts, "value": 460})
         baseline_voltage.append({"timestamp": ts, "value": 385})
 

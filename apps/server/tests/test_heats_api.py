@@ -43,6 +43,21 @@ async def test_get_heat_curve_and_compare(client) -> None:
     compare_data = compare_resp.json()
     assert "deviation_ranges" in compare_data
     assert compare_data["heat"]["id"] == heat_id
+    assert len(compare_data["baselines"]) > 0
+    assert len(compare_data["baselines"][0]["metric_curves"]) >= 2
+
+
+@pytest.mark.asyncio
+async def test_cutting_timeline_uses_abnormal_outcome_for_abnormal_heat(client) -> None:
+    list_resp = await client.get("/api/heats", params={"status": "abnormal", "page_size": 20})
+    abnormal_items = list_resp.json()["items"]
+    assert abnormal_items
+
+    target_heat = next(item for item in abnormal_items if item["cut_status"] == "normal")
+    timeline_resp = await client.get(f"/api/heats/{target_heat['id']}/cutting-timeline")
+    assert timeline_resp.status_code == 200
+    events = timeline_resp.json()["events"]
+    assert events[-1]["title"] == "判定异常"
 
 
 @pytest.mark.asyncio

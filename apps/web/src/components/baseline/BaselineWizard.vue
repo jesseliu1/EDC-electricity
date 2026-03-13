@@ -237,6 +237,15 @@ function adjustBoundary(boundary: 'start' | 'end', deltaSecond: number) {
   normalizeRange()
 }
 
+function formatDuration(durationSecond: number) {
+  const total = Math.max(durationSecond, 0)
+  const days = Math.floor(total / 86400)
+  const hours = Math.floor((total % 86400) / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  return `${days}天 ${hours}小时 ${minutes}分钟 ${seconds}秒`
+}
+
 const chartOption = computed<EChartsOption>(() => {
   const definition = selectedDefinition.value
   if (!definition || fullCurvePoints.value.length === 0) return {}
@@ -304,7 +313,8 @@ const summaryStats = computed(() => {
       label: '--',
       avg: 0,
       peak: 0,
-      durationSecond: 0
+      durationSecond: 0,
+      unit: ''
     }
   }
 
@@ -318,7 +328,8 @@ const summaryStats = computed(() => {
       label: `${primaryMetric.name} (${primaryMetric.unit})`,
       avg: 0,
       peak: 0,
-      durationSecond: 0
+      durationSecond: 0,
+      unit: primaryMetric.unit
     }
   }
 
@@ -328,7 +339,8 @@ const summaryStats = computed(() => {
     label: `${primaryMetric.name} (${primaryMetric.unit})`,
     avg: Number(avg.toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)),
     peak: Number(Math.max(...selectedPoints).toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)),
-    durationSecond: Math.floor((selectedEnd.value - selectedStart.value) / 1000)
+    durationSecond: Math.floor((selectedEnd.value - selectedStart.value) / 1000),
+    unit: primaryMetric.unit
   }
 })
 
@@ -609,9 +621,9 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div class="grid grid-cols-1 gap-4">
               <el-form-item :label="t('baseline.wizard.rangeStart')">
-                <div class="flex w-full items-center gap-2">
+                <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
                   <el-date-picker
                     v-model="selectedStart"
                     type="datetime"
@@ -629,7 +641,7 @@ onMounted(async () => {
                 </div>
               </el-form-item>
               <el-form-item :label="t('baseline.wizard.rangeEnd')">
-                <div class="flex w-full items-center gap-2">
+                <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
                   <el-date-picker
                     v-model="selectedEnd"
                     type="datetime"
@@ -670,7 +682,7 @@ onMounted(async () => {
               {{ t('baseline.wizard.peakPower') }}
             </div>
             <div class="mt-1 text-lg font-semibold">
-              {{ summaryStats.peak }}
+              {{ summaryStats.peak }}{{ summaryStats.unit ? ` ${summaryStats.unit}` : '' }}
             </div>
           </div>
           <div class="rounded-lg bg-gray-50 p-3">
@@ -678,7 +690,7 @@ onMounted(async () => {
               {{ t('baseline.wizard.selectedDuration') }}
             </div>
             <div class="mt-1 text-lg font-semibold">
-              {{ summaryStats.durationSecond }}s
+              {{ formatDuration(summaryStats.durationSecond) }}
             </div>
           </div>
         </div>
@@ -764,6 +776,21 @@ onMounted(async () => {
       data-testid="baseline-wizard-fullscreen-dialog"
     >
       <div class="flex h-[78vh] flex-col gap-4">
+        <div class="flex flex-wrap items-center gap-2">
+          <el-button
+            :type="selectingBoundary === 'start' ? 'primary' : 'default'"
+            @click="selectingBoundary = 'start'"
+          >
+            {{ t('baseline.wizard.pickStart') }}
+          </el-button>
+          <el-button
+            :type="selectingBoundary === 'end' ? 'primary' : 'default'"
+            @click="selectingBoundary = 'end'"
+          >
+            {{ t('baseline.wizard.pickEnd') }}
+          </el-button>
+        </div>
+
         <v-chart
           :option="chartOption"
           autoresize
@@ -771,9 +798,9 @@ onMounted(async () => {
           @click="handleChartClick"
         />
 
-        <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div class="grid grid-cols-1 gap-4">
           <el-form-item :label="t('baseline.wizard.rangeStart')">
-            <div class="flex w-full items-center gap-2">
+            <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
               <el-date-picker
                 v-model="selectedStart"
                 type="datetime"
@@ -790,7 +817,7 @@ onMounted(async () => {
             </div>
           </el-form-item>
           <el-form-item :label="t('baseline.wizard.rangeEnd')">
-            <div class="flex w-full items-center gap-2">
+            <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
               <el-date-picker
                 v-model="selectedEnd"
                 type="datetime"

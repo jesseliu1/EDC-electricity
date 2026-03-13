@@ -95,7 +95,16 @@ const option = computed<EChartsOption>(() => ({
     boundaryGap: false,
     data: xAxisLabels.value,
     axisLine: { lineStyle: { color: '#e2e8f0' } },
-    axisLabel: { color: '#94a3b8', fontSize: 11 },
+    axisLabel: {
+      color: '#94a3b8',
+      fontSize: 11,
+      interval:
+        props.selectedRange === '24h'
+          ? Math.max(Math.floor(props.power.length / 10), 1)
+          : props.selectedRange === '6h'
+            ? Math.max(Math.floor(props.power.length / 8), 1)
+            : 'auto',
+    },
   },
   yAxis: {
     type: 'value',
@@ -159,7 +168,7 @@ const option = computed<EChartsOption>(() => ({
             {{ t('dashboard.realtimeCurve') }}
           </h3>
           <p class="text-xs text-slate-400 mt-0.5">
-            当前炉次 #H-20231025-08 vs 黄金基线 V3.2
+            当前炉次 #H-20231025-08 vs 黄金基线 V3.2 · {{ t(`dashboard.timeRange.${selectedRange}`) }}
           </p>
         </div>
       </div>
@@ -167,6 +176,7 @@ const option = computed<EChartsOption>(() => ({
         <button
           v-for="range in timeRanges"
           :key="range.key"
+          :data-testid="`dashboard-range-${range.key}`"
           :class="[
             'px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200',
             selectedRange === range.key
