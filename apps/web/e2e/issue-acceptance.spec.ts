@@ -513,15 +513,28 @@ test.describe('EDC issue acceptance checks', () => {
     await page.getByTestId('heat-manual-adjust-button').click()
     const dialog = page.getByTestId('manual-adjust-dialog')
     await expect(dialog).toBeVisible()
+    await expect(dialog.getByTestId('manual-adjust-baseline-tabs')).toBeVisible()
+    await expect(dialog.getByRole('tab', { name: '高功率基线' })).toBeVisible()
     await expect(dialog.getByRole('button', { name: '选基线起点' })).toHaveCount(0)
     await expect(dialog.getByRole('button', { name: '选基线终点' })).toHaveCount(0)
     const chartRoot = dialog.getByTestId('manual-adjust-chart')
     const selectionState = dialog.getByTestId('manual-adjust-selection-state')
     await expect(chartRoot).toHaveAttribute('data-series-count', '8')
     await expect(chartRoot).toHaveAttribute('data-baseline-filled', 'true')
+    await expect
+      .poll(async () => Number(await selectionState.getAttribute('data-zoom-start')))
+      .toBeGreaterThan(0)
+    await expect
+      .poll(async () => Number(await selectionState.getAttribute('data-zoom-end')))
+      .toBeLessThan(100)
     const contextStart = Number(await selectionState.getAttribute('data-context-start'))
     const contextEnd = Number(await selectionState.getAttribute('data-context-end'))
     expect(contextEnd - contextStart).toBeGreaterThan(23 * 60 * 60 * 1000)
+
+    await dialog.getByRole('tab', { name: '标准基线 v2.1' }).click()
+    await expect(chartRoot).toHaveAttribute('data-series-count', '6')
+    await dialog.getByRole('tab', { name: '高功率基线' }).click()
+    await expect(chartRoot).toHaveAttribute('data-series-count', '8')
 
     const startInput = dialog.getByTestId('manual-adjust-start-field').locator('input').first()
     const endInput = dialog.getByTestId('manual-adjust-end-field').locator('input').first()

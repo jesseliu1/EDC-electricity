@@ -358,6 +358,29 @@ const manualAdjustSelectionProbe = computed(() => ({
   seriesCount: manualAdjustContext.value.metrics.length * 2,
 }))
 
+function calculateZoomWindowByRange(start: number, end: number) {
+  const contextStart = manualAdjustContext.value.min
+  const contextEnd = manualAdjustContext.value.max
+  const contextDuration = Math.max(contextEnd - contextStart, 1)
+  const selectedDuration = Math.max(end - start, manualAdjustContext.value.stepMs)
+  const padding = Math.max(selectedDuration * 0.25, 15 * 60 * 1000)
+  const viewportStart = Math.max(start - padding, contextStart)
+  const viewportEnd = Math.min(end + padding, contextEnd)
+
+  return {
+    start: Number((((viewportStart - contextStart) / contextDuration) * 100).toFixed(2)),
+    end: Number((((viewportEnd - contextStart) / contextDuration) * 100).toFixed(2)),
+  }
+}
+
+function syncManualAdjustZoomToCurrentRange() {
+  if (!manualAdjustStart.value || !manualAdjustEnd.value) return
+  manualAdjustZoomWindow.value = calculateZoomWindowByRange(
+    manualAdjustStart.value,
+    manualAdjustEnd.value
+  )
+}
+
 const manualAdjustOption = computed<EChartsOption>(() => {
   if (!current.value || manualAdjustContext.value.metrics.length === 0) return {}
   const metricContexts = manualAdjustContext.value.metrics
@@ -587,8 +610,8 @@ function openManualAdjust() {
   if (!current.value) return
   manualAdjustStart.value = dayjs(current.value.base.startTime).valueOf()
   manualAdjustEnd.value = dayjs(current.value.base.endTime).valueOf()
-  manualAdjustZoomWindow.value = { start: 0, end: 100 }
   syncRangeFromBounds()
+  syncManualAdjustZoomToCurrentRange()
   manualAdjustVisible.value = true
 }
 
@@ -951,6 +974,19 @@ onMounted(() => {
             </div>
           </div>
           <div class="flex items-center gap-2">
+            <el-tabs
+              v-if="current?.baselineComparisons.length"
+              v-model="activeBaselineId"
+              class="-mb-[15px] mr-2"
+              data-testid="manual-adjust-baseline-tabs"
+            >
+              <el-tab-pane
+                v-for="item in current.baselineComparisons"
+                :key="`manual-adjust-${item.baseline.id}`"
+                :name="item.baseline.id"
+                :label="item.baseline.name"
+              />
+            </el-tabs>
             <button
               data-testid="manual-adjust-fullscreen-toggle"
               class="rounded-lg border border-border-light px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-primary/30 hover:text-primary"
