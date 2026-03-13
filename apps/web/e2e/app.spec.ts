@@ -48,7 +48,7 @@ test.describe('EDC web smoke flows', () => {
 
     const dialog = page.getByTestId('manual-adjust-dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('展示当前炉次前后各 5 小时的数据流')).toBeVisible()
+    await expect(dialog.getByText('展示当前炉次所在当天的完整数据流')).toBeVisible()
 
     await page.getByTestId('manual-adjust-save').click()
     await page.getByRole('button', { name: '仅调整当前' }).click()

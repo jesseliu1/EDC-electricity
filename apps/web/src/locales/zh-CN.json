@@ -179,7 +179,7 @@
     "createBaselineFromHeat": "基于当前炉次创建基线",
     "manualAdjust": "手动调整",
     "manualAdjustRange": "手动调整区间",
-    "manualAdjustHint": "展示当前炉次前后各 5 小时的数据流，可通过图表点击、滑块拖拉或时间输入框重新划定炉次起止时间。",
+    "manualAdjustHint": "展示当前炉次所在当天的完整数据流，可通过图表点击、滑块拖拉或时间输入框重新划定炉次起止时间。",
     "exitFullscreen": "退出全屏",
     "createTaskHint": "任务创建入口开发中",
     "cutStatus": "切割状态",

@@ -11,25 +11,65 @@ import {
   ElTabs,
   ElTabPane,
   ElTimeline,
-  ElTimelineItem
+  ElTimelineItem,
 } from 'element-plus'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
-import { DataZoomComponent, GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import {
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  TooltipComponent,
+} from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { EChartsOption } from 'echarts'
+import type { ECharts, EChartsOption } from 'echarts'
 import dayjs from 'dayjs'
 import { useHeatStore } from '@/stores/heat'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
-use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent])
+use([
+  CanvasRenderer,
+  LineChart,
+  GridComponent,
+  LegendComponent,
+  TooltipComponent,
+  DataZoomComponent,
+])
 
 interface ManualAdjustPoint {
   timestamp: number
   value: number
 }
+
+interface ManualAdjustContextPoint {
+  timestamp: number
+  currentValue: number
+  baselineValue: number | null
+}
+
+interface PointerEventPayload {
+  offsetX: number
+  offsetY: number
+}
+
+interface PointerState {
+  startX: number
+  startY: number
+  dragging: boolean
+}
+
+interface DataZoomPayload {
+  start?: number
+  end?: number
+  batch?: Array<{
+    start?: number
+    end?: number
+  }>
+}
+
+type ExposedChart = ECharts | { value?: ECharts | undefined }
 
 const { t } = useI18n()
 const route = useRoute()
@@ -47,13 +87,18 @@ const manualAdjustFullscreen = ref(false)
 const manualAdjustStart = ref<number | null>(null)
 const manualAdjustEnd = ref<number | null>(null)
 const manualAdjustRange = ref<[number, number]>([0, 0])
+const manualAdjustChartRef = ref<InstanceType<typeof VChart> | null>(null)
+const manualAdjustZoomWindow = ref({ start: 0, end: 100 })
 let syncingManualAdjustState = false
+let manualAdjustPointerState: PointerState | null = null
+
+const pointerDragThreshold = 6
 
 const selectedComparison = computed(() => {
   if (!current.value) return null
   if (current.value.baselineComparisons.length === 0) return null
   return (
-    current.value.baselineComparisons.find(item => item.baseline.id === activeBaselineId.value) ||
+    current.value.baselineComparisons.find((item) => item.baseline.id === activeBaselineId.value) ||
     current.value.baselineComparisons[0]
   )
 })
@@ -74,11 +119,11 @@ const primaryComparisonMetric = computed<{
     unit: 'kW',
     color: '#409EFF',
     baseline_curve: current.value?.baselinePowerCurve || [],
-    current_curve: current.value?.powerCurve || []
+    current_curve: current.value?.powerCurve || [],
   }
   if (comparisonMetricCurves.value.length > 0) {
     return (
-      comparisonMetricCurves.value.find(item => item.metric_key === 'power') ||
+      comparisonMetricCurves.value.find((item) => item.metric_key === 'power') ||
       comparisonMetricCurves.value[0] ||
       fallbackMetric
     )
@@ -88,11 +133,70 @@ const primaryComparisonMetric = computed<{
 })
 
 const compareSeriesCount = computed(() => {
-  const metricCurves = comparisonMetricCurves.value.length > 0
-    ? comparisonMetricCurves.value
-    : [primaryComparisonMetric.value]
+  const metricCurves =
+    comparisonMetricCurves.value.length > 0
+      ? comparisonMetricCurves.value
+      : [primaryComparisonMetric.value]
   return metricCurves.length * 2
 })
+
+function normalizedTimestamp(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === '') return null
+  const timestamp = Number(value)
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+function inferCurveStepMs(curves: Array<{ timestamp: number }[]>) {
+  const diffs = curves.flatMap((curve) =>
+    curve.slice(1).reduce<number[]>((accumulator, point, index) => {
+      const previousPoint = curve[index]
+      if (!previousPoint) return accumulator
+
+      const diff = point.timestamp - previousPoint.timestamp
+      if (diff > 0) {
+        accumulator.push(diff)
+      }
+
+      return accumulator
+    }, [])
+  )
+
+  return diffs.length > 0 ? Math.min(...diffs) : 60 * 1000
+}
+
+function wrapIndex(index: number, length: number) {
+  if (length <= 0) return 0
+  const wrapped = index % length
+  return wrapped >= 0 ? wrapped : wrapped + length
+}
+
+function buildManualAdjustSeries(
+  source: ManualAdjustPoint[],
+  contextStart: number,
+  contextEnd: number,
+  stepMs: number
+) {
+  const sorted = [...source].sort((left, right) => left.timestamp - right.timestamp)
+  if (sorted.length === 0) return [] as ManualAdjustPoint[]
+  const firstPoint = sorted[0]
+  if (!firstPoint) return [] as ManualAdjustPoint[]
+
+  const exactValueMap = new Map(sorted.map((point) => [point.timestamp, point.value]))
+  const anchorTimestamp = firstPoint.timestamp
+  const totalPoints = Math.floor((contextEnd - contextStart) / stepMs) + 1
+
+  return Array.from({ length: totalPoints }, (_, index) => {
+    const timestamp = contextStart + index * stepMs
+    const exactValue = exactValueMap.get(timestamp)
+    if (exactValue !== undefined) {
+      return { timestamp, value: exactValue }
+    }
+
+    const relativeIndex = Math.round((timestamp - anchorTimestamp) / stepMs)
+    const sourcePoint = sorted[wrapIndex(relativeIndex, sorted.length)] ?? firstPoint
+    return { timestamp, value: sourcePoint.value }
+  })
+}
 
 const statusTagType = computed(() => {
   if (!current.value) return 'info'
@@ -110,36 +214,38 @@ const statusText = computed(() => {
 
 const compareOption = computed<EChartsOption>(() => {
   if (!current.value) return {}
-  const metricCurves = comparisonMetricCurves.value.length > 0
-    ? comparisonMetricCurves.value
-    : [primaryComparisonMetric.value]
-  const units = Array.from(new Set(metricCurves.map(item => item.unit)))
+  const metricCurves =
+    comparisonMetricCurves.value.length > 0
+      ? comparisonMetricCurves.value
+      : [primaryComparisonMetric.value]
+  const units = Array.from(new Set(metricCurves.map((item) => item.unit)))
   const firstCurrentCurve = metricCurves[0]?.current_curve || current.value.powerCurve
-  const deviationRanges = selectedComparison.value?.deviation_ranges || current.value.deviationRanges
+  const deviationRanges =
+    selectedComparison.value?.deviation_ranges || current.value.deviationRanges
 
   return {
     animation: false,
     grid: { left: 56, right: 72, top: 40, bottom: 32 },
     tooltip: { trigger: 'axis' },
     legend: {
-      data: metricCurves.flatMap(item => [
+      data: metricCurves.flatMap((item) => [
         `${item.metric_name}-${t('dashboard.chart.goldenBaseline')}`,
-        `${item.metric_name}-${t('dashboard.chart.currentProduction')}`
+        `${item.metric_name}-${t('dashboard.chart.currentProduction')}`,
       ]),
-      top: 0
+      top: 0,
     },
     xAxis: {
       type: 'time',
       axisLabel: {
-        formatter: (value: number) => dayjs(value).format('HH:mm')
-      }
+        formatter: (value: number) => dayjs(value).format('HH:mm'),
+      },
     },
     yAxis: units.map((unit, index) => ({
       type: 'value',
       name: unit,
       position: index % 2 === 0 ? 'left' : 'right',
       offset: index > 1 ? Math.floor((index - 1) / 2) * 56 : 0,
-      splitLine: index === 0 ? { lineStyle: { color: '#e2e8f0' } } : { show: false }
+      splitLine: index === 0 ? { lineStyle: { color: '#e2e8f0' } } : { show: false },
     })),
     series: metricCurves.flatMap((metric, index) => [
       {
@@ -149,7 +255,7 @@ const compareOption = computed<EChartsOption>(() => {
         showSymbol: false,
         yAxisIndex: units.indexOf(metric.unit),
         lineStyle: { width: 2, type: 'dashed', color: metric.color },
-        data: metric.baseline_curve.map(point => [point.timestamp, point.value])
+        data: metric.baseline_curve.map((point) => [point.timestamp, point.value]),
       },
       {
         name: `${metric.metric_name}-${t('dashboard.chart.currentProduction')}`,
@@ -163,87 +269,120 @@ const compareOption = computed<EChartsOption>(() => {
           index === 0
             ? {
                 itemStyle: { color: 'rgba(245, 108, 108, 0.12)' },
-                data: deviationRanges.map(range => [
+                data: deviationRanges.map((range) => [
                   { xAxis: range.start },
-                  { xAxis: range.end }
-                ])
+                  { xAxis: range.end },
+                ]),
               }
             : undefined,
-        data: metric.current_curve.map(point => [point.timestamp, point.value])
-      }
+        data: metric.current_curve.map((point) => [point.timestamp, point.value]),
+      },
     ]),
-    dataZoom: firstCurrentCurve.length > 120 ? [{ type: 'inside' }] : undefined
+    dataZoom: firstCurrentCurve.length > 120 ? [{ type: 'inside' }] : undefined,
   }
 })
 
-const manualAdjustWindow = computed(() => {
+const manualAdjustContext = computed(() => {
   if (!current.value) {
-    return { min: 0, max: 0, points: [] as ManualAdjustPoint[] }
-  }
-
-  const primaryCurrentCurve = primaryComparisonMetric.value.current_curve
-  const baseStart = dayjs(current.value.base.startTime)
-  const baseEnd = dayjs(current.value.base.endTime)
-  const windowStart = baseStart.subtract(5, 'hour')
-  const windowEnd = baseEnd.add(5, 'hour')
-  const existingCurve = primaryCurrentCurve
-  const firstValue = existingCurve[0]?.value || 430
-  const lastValue = existingCurve[existingCurve.length - 1]?.value || firstValue
-  const points: ManualAdjustPoint[] = []
-
-  for (let cursor = windowStart.valueOf(); cursor <= windowEnd.valueOf(); cursor += 60 * 1000) {
-    const existingPoint = existingCurve.find(point => point.timestamp === cursor)
-    if (existingPoint) {
-      points.push({ timestamp: cursor, value: existingPoint.value })
-      continue
+    return {
+      min: 0,
+      max: 0,
+      stepMs: 60 * 1000,
+      points: [] as ManualAdjustContextPoint[],
+      baselineFilled: false,
     }
-
-    const progress = (cursor - windowStart.valueOf()) / Math.max(windowEnd.valueOf() - windowStart.valueOf(), 1)
-    const edgeBlend = cursor < baseStart.valueOf() ? firstValue : lastValue
-    const wave = Math.sin(progress * Math.PI * 8) * 12
-    const jitter = Math.cos(progress * Math.PI * 11) * 3
-    points.push({
-      timestamp: cursor,
-      value: Number((edgeBlend + wave + jitter).toFixed(1))
-    })
   }
+
+  const primaryMetric = primaryComparisonMetric.value
+  const contextStart = dayjs(current.value.base.startTime).startOf('day').valueOf()
+  const rawContextEnd = dayjs(current.value.base.startTime).endOf('day').valueOf()
+  const stepMs = inferCurveStepMs([primaryMetric.current_curve, primaryMetric.baseline_curve])
+  const alignedContextEnd =
+    contextStart + Math.floor((rawContextEnd - contextStart) / stepMs) * stepMs
+  const currentSeries = buildManualAdjustSeries(
+    primaryMetric.current_curve,
+    contextStart,
+    alignedContextEnd,
+    stepMs
+  )
+  const baselineSeries = buildManualAdjustSeries(
+    primaryMetric.baseline_curve,
+    contextStart,
+    alignedContextEnd,
+    stepMs
+  )
+  const points = currentSeries.map((point, index) => ({
+    timestamp: point.timestamp,
+    currentValue: point.value,
+    baselineValue: baselineSeries[index]?.value ?? null,
+  }))
 
   return {
-    min: points[0]?.timestamp || 0,
-    max: points[points.length - 1]?.timestamp || 0,
-    points
+    min: points[0]?.timestamp || contextStart,
+    max: points[points.length - 1]?.timestamp || alignedContextEnd,
+    stepMs,
+    points,
+    baselineFilled: points.length > 0 && points.every((point) => point.baselineValue !== null),
   }
 })
 
+const manualAdjustSelectionProbe = computed(() => ({
+  start: normalizedTimestamp(manualAdjustStart.value),
+  end: normalizedTimestamp(manualAdjustEnd.value),
+  zoomStart: manualAdjustZoomWindow.value.start,
+  zoomEnd: manualAdjustZoomWindow.value.end,
+  contextStart: manualAdjustContext.value.min,
+  contextEnd: manualAdjustContext.value.max,
+  contextDurationMinutes:
+    manualAdjustContext.value.max > manualAdjustContext.value.min
+      ? Math.floor((manualAdjustContext.value.max - manualAdjustContext.value.min) / (60 * 1000))
+      : 0,
+  baselineFilled: manualAdjustContext.value.baselineFilled ? 'true' : 'false',
+}))
+
 const manualAdjustOption = computed<EChartsOption>(() => {
-  if (!current.value || manualAdjustWindow.value.points.length === 0) return {}
+  if (!current.value || manualAdjustContext.value.points.length === 0) return {}
   const primaryMetric = primaryComparisonMetric.value
-  const baselineWindowSeries = manualAdjustWindow.value.points.map(point => {
-    const matched = primaryMetric.baseline_curve.find(item => item.timestamp === point.timestamp)
-    return [point.timestamp, matched?.value ?? null]
-  })
 
   return {
     animation: false,
     grid: { left: 56, right: 24, top: 38, bottom: 86 },
-    tooltip: { trigger: 'axis' },
+    tooltip: {
+      trigger: 'axis',
+      valueFormatter: (value) =>
+        typeof value === 'number'
+          ? value.toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)
+          : `${value || ''}`,
+    },
     legend: {
       top: 0,
-      data: [t('dashboard.chart.goldenBaseline'), t('dashboard.chart.currentProduction')]
+      data: [t('dashboard.chart.goldenBaseline'), t('dashboard.chart.currentProduction')],
     },
     dataZoom: [
-      { type: 'inside', moveOnMouseMove: true, zoomOnMouseWheel: true },
-      { type: 'slider', height: 28, bottom: 24 }
+      {
+        type: 'inside',
+        moveOnMouseMove: true,
+        zoomOnMouseWheel: true,
+        start: manualAdjustZoomWindow.value.start,
+        end: manualAdjustZoomWindow.value.end,
+      },
+      {
+        type: 'slider',
+        height: 28,
+        bottom: 24,
+        start: manualAdjustZoomWindow.value.start,
+        end: manualAdjustZoomWindow.value.end,
+      },
     ],
     xAxis: {
       type: 'time',
       axisLabel: {
-        formatter: (value: number) => dayjs(value).format('MM-DD HH:mm')
-      }
+        formatter: (value: number) => dayjs(value).format('HH:mm:ss'),
+      },
     },
     yAxis: {
       type: 'value',
-      name: `${primaryMetric.metric_name} (${primaryMetric.unit})`
+      name: `${primaryMetric.metric_name} (${primaryMetric.unit})`,
     },
     series: [
       {
@@ -252,7 +391,10 @@ const manualAdjustOption = computed<EChartsOption>(() => {
         smooth: true,
         showSymbol: false,
         lineStyle: { width: 2, type: 'dashed', color: '#67C23A' },
-        data: baselineWindowSeries
+        data: manualAdjustContext.value.points.map((point) => [
+          point.timestamp,
+          point.baselineValue,
+        ]),
       },
       {
         name: t('dashboard.chart.currentProduction'),
@@ -264,17 +406,116 @@ const manualAdjustOption = computed<EChartsOption>(() => {
           manualAdjustStart.value && manualAdjustEnd.value
             ? {
                 itemStyle: { color: 'rgba(17, 82, 212, 0.12)' },
-                data: [[{ xAxis: manualAdjustStart.value }, { xAxis: manualAdjustEnd.value }]]
+                data: [[{ xAxis: manualAdjustStart.value }, { xAxis: manualAdjustEnd.value }]],
               }
             : undefined,
-        data: manualAdjustWindow.value.points.map(point => [point.timestamp, point.value])
-      }
-    ]
+        data: manualAdjustContext.value.points.map((point) => [
+          point.timestamp,
+          point.currentValue,
+        ]),
+      },
+    ],
   }
 })
 
 function normalizeManualAdjustBounds(start: number, end: number): [number, number] {
-  return start <= end ? [start, end] : [end, start]
+  const min = manualAdjustContext.value.min
+  const max = manualAdjustContext.value.max
+  const clampedStart = Math.min(Math.max(start, min), max)
+  const clampedEnd = Math.min(Math.max(end, min), max)
+
+  return clampedStart <= clampedEnd ? [clampedStart, clampedEnd] : [clampedEnd, clampedStart]
+}
+
+function resolveManualAdjustChartInstance() {
+  const chartRef = manualAdjustChartRef.value?.chart as ExposedChart | undefined
+  if (!chartRef) return null
+  if ('containPixel' in chartRef && 'convertFromPixel' in chartRef) {
+    return chartRef
+  }
+  if ('value' in chartRef) {
+    return chartRef.value ?? null
+  }
+  return null
+}
+
+function clearManualAdjustPointerState() {
+  manualAdjustPointerState = null
+}
+
+function selectNearestManualAdjustPoint(targetTimestamp: number) {
+  const point = manualAdjustContext.value.points.reduce<ManualAdjustContextPoint | null>(
+    (closestPoint, currentPoint) => {
+      if (!closestPoint) return currentPoint
+      return Math.abs(currentPoint.timestamp - targetTimestamp) <
+        Math.abs(closestPoint.timestamp - targetTimestamp)
+        ? currentPoint
+        : closestPoint
+    },
+    null
+  )
+
+  if (!point) return
+
+  if (!manualAdjustStart.value) {
+    manualAdjustStart.value = point.timestamp
+  } else if (!manualAdjustEnd.value) {
+    manualAdjustEnd.value = point.timestamp
+  } else if (
+    Math.abs(point.timestamp - manualAdjustStart.value) <=
+    Math.abs(point.timestamp - manualAdjustEnd.value)
+  ) {
+    manualAdjustStart.value = point.timestamp
+  } else {
+    manualAdjustEnd.value = point.timestamp
+  }
+
+  syncRangeFromBounds()
+}
+
+function handleManualAdjustPointerDown(event: PointerEventPayload) {
+  manualAdjustPointerState = {
+    startX: event.offsetX,
+    startY: event.offsetY,
+    dragging: false,
+  }
+}
+
+function handleManualAdjustPointerMove(event: PointerEventPayload) {
+  if (!manualAdjustPointerState) return
+
+  if (
+    Math.abs(event.offsetX - manualAdjustPointerState.startX) > pointerDragThreshold ||
+    Math.abs(event.offsetY - manualAdjustPointerState.startY) > pointerDragThreshold
+  ) {
+    manualAdjustPointerState.dragging = true
+  }
+}
+
+function handleManualAdjustPointerClick(event: PointerEventPayload) {
+  const pointerState = manualAdjustPointerState
+  clearManualAdjustPointerState()
+  if (!pointerState || pointerState.dragging) return
+
+  const instance = resolveManualAdjustChartInstance()
+  if (!instance) return
+
+  const pixel: [number, number] = [event.offsetX, event.offsetY]
+  if (!instance.containPixel({ gridIndex: 0 }, pixel)) return
+
+  const converted = instance.convertFromPixel({ gridIndex: 0 }, pixel)
+  const timestamp = Number(Array.isArray(converted) ? converted[0] : converted)
+  if (!Number.isFinite(timestamp)) return
+
+  selectNearestManualAdjustPoint(timestamp)
+}
+
+function handleManualAdjustDataZoom(payload: DataZoomPayload) {
+  const latest = payload.batch?.[0] || payload
+  manualAdjustZoomWindow.value = {
+    start: latest.start ?? manualAdjustZoomWindow.value.start,
+    end: latest.end ?? manualAdjustZoomWindow.value.end,
+  }
 }
 
 function syncRangeFromBounds() {
@@ -292,16 +533,13 @@ function syncRangeFromBounds() {
   if (manualAdjustEnd.value !== nextEnd) {
     manualAdjustEnd.value = nextEnd
   }
-  if (
-    manualAdjustRange.value[0] !== nextStart ||
-    manualAdjustRange.value[1] !== nextEnd
-  ) {
+  if (manualAdjustRange.value[0] !== nextStart || manualAdjustRange.value[1] !== nextEnd) {
     manualAdjustRange.value = [nextStart, nextEnd]
   }
   syncingManualAdjustState = false
 }
 
-watch(manualAdjustRange, value => {
+watch(manualAdjustRange, (value) => {
   if (syncingManualAdjustState || !value || value.length !== 2) return
 
   const [nextStart, nextEnd] = normalizeManualAdjustBounds(value[0], value[1])
@@ -331,29 +569,9 @@ function openManualAdjust() {
   if (!current.value) return
   manualAdjustStart.value = dayjs(current.value.base.startTime).valueOf()
   manualAdjustEnd.value = dayjs(current.value.base.endTime).valueOf()
+  manualAdjustZoomWindow.value = { start: 0, end: 100 }
   syncRangeFromBounds()
   manualAdjustVisible.value = true
-}
-
-function handleManualAdjustChartClick(params: { dataIndex?: number }) {
-  if (params.dataIndex === undefined) return
-  const point = manualAdjustWindow.value.points[params.dataIndex]
-  if (!point) return
-
-  if (!manualAdjustStart.value) {
-    manualAdjustStart.value = point.timestamp
-  } else if (!manualAdjustEnd.value) {
-    manualAdjustEnd.value = point.timestamp
-  } else if (
-    Math.abs(point.timestamp - manualAdjustStart.value) <=
-    Math.abs(point.timestamp - manualAdjustEnd.value)
-  ) {
-    manualAdjustStart.value = point.timestamp
-  } else {
-    manualAdjustEnd.value = point.timestamp
-  }
-
-  syncRangeFromBounds()
 }
 
 async function saveManualAdjust() {
@@ -365,7 +583,7 @@ async function saveManualAdjust() {
       distinguishCancelAndClose: true,
       confirmButtonText: t('heat.adjustSubsequentYes'),
       cancelButtonText: t('heat.adjustSubsequentNo'),
-      type: 'warning'
+      type: 'warning',
     })
     adjustSubsequent = true
   } catch {
@@ -403,7 +621,7 @@ async function handleResumeCutting() {
       confirmButtonText: t('heat.resumeCuttingWithSubsequent'),
       cancelButtonText: t('heat.resumeCuttingOnlyCurrent'),
       distinguishCancelAndClose: true,
-      type: 'warning'
+      type: 'warning',
     })
     adjustSubsequent = true
   } catch {
@@ -501,7 +719,9 @@ onMounted(() => {
         </div>
 
         <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
-          <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light">
+          <h3
+            class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light"
+          >
             <span class="material-symbols-outlined text-red-500 text-[20px]">warning</span>
             {{ t('heat.abnormalRanges') }}
           </h3>
@@ -517,13 +737,21 @@ onMounted(() => {
               data-testid="heat-abnormal-range-item"
             >
               <div class="flex items-center gap-3">
-                <span class="w-6 h-6 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-xs font-bold">{{ idx + 1 }}</span>
+                <span
+                  class="w-6 h-6 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-xs font-bold"
+                >
+                  {{ idx + 1 }}
+                </span>
                 <span class="font-mono text-sm text-red-900">
-                  {{ dayjs(range.start).format('HH:mm:ss') }} <span class="text-red-300 mx-2">to</span> {{ dayjs(range.end).format('HH:mm:ss') }}
+                  {{ dayjs(range.start).format('HH:mm:ss') }}
+                  <span class="text-red-300 mx-2">to</span>
+                  {{ dayjs(range.end).format('HH:mm:ss') }}
                 </span>
               </div>
               <div class="flex items-center gap-2">
-                <span class="text-xs text-red-500 uppercase tracking-widest font-semibold">Deviation</span>
+                <span class="text-xs text-red-500 uppercase tracking-widest font-semibold">
+                  Deviation
+                </span>
                 <span class="text-lg font-bold text-red-600">{{ range.deviation }}%</span>
               </div>
             </div>
@@ -542,7 +770,9 @@ onMounted(() => {
 
       <div class="space-y-6">
         <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
-          <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light">
+          <h3
+            class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light"
+          >
             <span class="material-symbols-outlined text-primary text-[20px]">feed</span>
             {{ t('heat.detailSummary') }}
           </h3>
@@ -555,11 +785,14 @@ onMounted(() => {
                   class="text-primary hover:underline flex items-center gap-1 text-xs"
                   @click="startEditDescription"
                 >
-                  <span class="material-symbols-outlined text-[14px]">edit</span> {{ t('common.edit') }}
+                  <span class="material-symbols-outlined text-[14px]">edit</span>
+                  {{ t('common.edit') }}
                 </button>
               </div>
               <template v-if="!editingDescription">
-                <span class="font-semibold text-slate-800">{{ current.base.description || t('common.noDescription') }}</span>
+                <span class="font-semibold text-slate-800">{{
+                  current.base.description || t('common.noDescription')
+                }}</span>
               </template>
               <template v-else>
                 <div class="flex gap-2 w-full mt-1">
@@ -606,11 +839,17 @@ onMounted(() => {
             </div>
             <div class="flex justify-between items-center py-1">
               <span class="text-slate-500">{{ t('heat.cutReasonLabel') }}</span>
-              <span class="font-semibold">{{ t(`heat.cutReason.${current.base.cutReason || 'unknown'}`) }}</span>
+              <span class="font-semibold">{{
+                t(`heat.cutReason.${current.base.cutReason || 'unknown'}`)
+              }}</span>
             </div>
             <div class="flex justify-between items-center py-1">
               <span class="text-slate-500">{{ t('heat.mismatchDurationMinutes') }}</span>
-              <span class="font-semibold text-orange-600">{{ current.base.mismatchDurationMinutes === null ? '--' : `${current.base.mismatchDurationMinutes}m` }}</span>
+              <span class="font-semibold text-orange-600">{{
+                current.base.mismatchDurationMinutes === null
+                  ? '--'
+                  : `${current.base.mismatchDurationMinutes}m`
+              }}</span>
             </div>
             <div class="flex justify-between items-center py-1">
               <span class="text-slate-500">{{ t('heat.temperature') }}</span>
@@ -618,13 +857,17 @@ onMounted(() => {
             </div>
             <div class="flex justify-between items-center py-1">
               <span class="text-slate-500">{{ t('heat.baselineName') }}</span>
-              <span class="font-semibold break-all text-right max-w-[60%]">{{ selectedComparison?.baseline.name || '--' }}</span>
+              <span class="font-semibold break-all text-right max-w-[60%]">{{
+                selectedComparison?.baseline.name || '--'
+              }}</span>
             </div>
           </div>
         </div>
 
         <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
-          <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light">
+          <h3
+            class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light"
+          >
             <span class="material-symbols-outlined text-primary text-[20px]">timeline</span>
             {{ t('heat.cuttingTimeline') }}
           </h3>
@@ -666,6 +909,18 @@ onMounted(() => {
       append-to-body
       data-testid="manual-adjust-dialog"
     >
+      <div
+        class="sr-only"
+        data-testid="manual-adjust-selection-state"
+        :data-start="manualAdjustSelectionProbe.start ?? ''"
+        :data-end="manualAdjustSelectionProbe.end ?? ''"
+        :data-zoom-start="manualAdjustSelectionProbe.zoomStart"
+        :data-zoom-end="manualAdjustSelectionProbe.zoomEnd"
+        :data-context-start="manualAdjustSelectionProbe.contextStart"
+        :data-context-end="manualAdjustSelectionProbe.contextEnd"
+        :data-context-duration-minutes="manualAdjustSelectionProbe.contextDurationMinutes"
+        :data-baseline-filled="manualAdjustSelectionProbe.baselineFilled"
+      />
       <div class="space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="space-y-1">
@@ -682,29 +937,40 @@ onMounted(() => {
               class="rounded-lg border border-border-light px-3 py-1.5 text-sm text-slate-600 transition-colors hover:border-primary/30 hover:text-primary"
               @click="manualAdjustFullscreen = !manualAdjustFullscreen"
             >
-              {{ manualAdjustFullscreen ? t('heat.exitFullscreen') : t('baseline.wizard.fullscreen') }}
+              {{
+                manualAdjustFullscreen ? t('heat.exitFullscreen') : t('baseline.wizard.fullscreen')
+              }}
             </button>
           </div>
         </div>
 
-        <v-chart
-          :option="manualAdjustOption"
-          autoresize
-          class="h-[460px]"
+        <div
           data-testid="manual-adjust-chart"
           data-reference-series="2"
-          :data-range-start="manualAdjustStart || ''"
-          :data-range-end="manualAdjustEnd || ''"
-          @click="handleManualAdjustChartClick"
-        />
+          :data-range-start="manualAdjustSelectionProbe.start ?? ''"
+          :data-range-end="manualAdjustSelectionProbe.end ?? ''"
+          :data-baseline-filled="manualAdjustSelectionProbe.baselineFilled"
+        >
+          <v-chart
+            ref="manualAdjustChartRef"
+            :option="manualAdjustOption"
+            autoresize
+            class="h-[460px]"
+            @datazoom="handleManualAdjustDataZoom"
+            @zr:mousedown="handleManualAdjustPointerDown($event)"
+            @zr:mousemove="handleManualAdjustPointerMove($event)"
+            @zr:click="handleManualAdjustPointerClick($event)"
+            @zr:globalout="clearManualAdjustPointerState"
+          />
+        </div>
 
         <div class="rounded-xl border border-border-light bg-slate-50 px-5 py-4">
           <el-slider
             v-model="manualAdjustRange"
             range
-            :min="manualAdjustWindow.min"
-            :max="manualAdjustWindow.max"
-            :step="60 * 1000"
+            :min="manualAdjustContext.min"
+            :max="manualAdjustContext.max"
+            :step="manualAdjustContext.stepMs"
             :format-tooltip="(value: number) => dayjs(value).format('MM-DD HH:mm:ss')"
           />
         </div>

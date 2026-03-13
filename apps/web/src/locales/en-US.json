@@ -179,7 +179,7 @@
     "createBaselineFromHeat": "Create Baseline from This Heat",
     "manualAdjust": "Manual Adjust",
     "manualAdjustRange": "Manual Adjustment Range",
-    "manualAdjustHint": "Show 5 hours of data before and after the current heat. Re-define the start and end time by clicking the chart, dragging the slider, or editing the time inputs.",
+    "manualAdjustHint": "Show the full-day data context for the current heat. Re-define the start and end time by clicking the chart, dragging the slider, or editing the time inputs.",
     "exitFullscreen": "Exit Fullscreen",
     "createTaskHint": "Task creation entry is under development",
     "cutStatus": "Cutting Status",
