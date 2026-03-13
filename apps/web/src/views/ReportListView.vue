@@ -61,7 +61,9 @@ onMounted(() => {
               <span class="material-symbols-outlined text-[22px]">description</span>
             </div>
             <div>
-              <p class="text-sm font-bold text-slate-800">{{ item.date }}</p>
+              <p class="text-sm font-bold text-slate-800">
+                {{ item.date }}
+              </p>
               <p class="text-xs text-slate-500 mt-0.5">
                 {{ t('report.totalHeats') }}: {{ item.totalHeats }}
                 · {{ t('report.normalRate') }}:
@@ -80,9 +82,14 @@ onMounted(() => {
       </div>
 
       <!-- 空状态 -->
-      <div v-else class="py-16 flex flex-col items-center justify-center">
+      <div
+        v-else
+        class="py-16 flex flex-col items-center justify-center"
+      >
         <span class="material-symbols-outlined text-slate-300 text-5xl">picture_as_pdf</span>
-        <p class="text-sm text-slate-400 mt-3">{{ t('common.noData') }}</p>
+        <p class="text-sm text-slate-400 mt-3">
+          {{ t('common.noData') }}
+        </p>
       </div>
     </div>
   </div>

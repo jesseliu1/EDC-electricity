@@ -36,7 +36,10 @@ withDefaults(defineProps<Props>(), {
             {{ subtitle }}
           </span>
         </h1>
-        <p v-if="description" class="text-sm text-slate-500 mt-1">
+        <p
+          v-if="description"
+          class="text-sm text-slate-500 mt-1"
+        >
           {{ description }}
         </p>
       </div>

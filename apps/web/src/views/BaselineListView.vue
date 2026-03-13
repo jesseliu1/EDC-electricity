@@ -157,12 +157,9 @@ onMounted(() => {
       <div class="flex items-center gap-6">
         <span
           class="material-symbols-outlined text-slate-400 text-[20px]"
-          >filter_list</span
-        >
+        >filter_list</span>
         <span class="text-sm text-slate-500 font-medium">基线列表</span>
-        <span class="text-xs text-slate-400"
-          >共 {{ baselineStore.filteredList.length }} 条记录</span
-        >
+        <span class="text-xs text-slate-400">共 {{ baselineStore.filteredList.length }} 条记录</span>
         <div class="flex-1" />
         <!-- 筛选按钮组 -->
         <div class="flex bg-slate-100 p-1 rounded-lg">
@@ -186,13 +183,12 @@ onMounted(() => {
         >
           <span
             class="material-symbols-outlined text-slate-400 text-[18px]"
-            >search</span
-          >
+          >search</span>
           <input
             type="text"
             class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 ml-2 p-0"
             placeholder="搜索名称..."
-          />
+          >
         </div>
       </div>
     </div>
@@ -218,10 +214,10 @@ onMounted(() => {
       v-else
       class="rounded-xl border border-dashed border-border-light bg-white py-16 flex flex-col items-center justify-center"
     >
-      <span class="material-symbols-outlined text-slate-300 text-5xl"
-        >library_books</span
-      >
-      <p class="text-sm text-slate-400 mt-3">{{ t('common.noData') }}</p>
+      <span class="material-symbols-outlined text-slate-300 text-5xl">library_books</span>
+      <p class="text-sm text-slate-400 mt-3">
+        {{ t('common.noData') }}
+      </p>
     </div>
 
     <!-- 创建基线对话框 -->

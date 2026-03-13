@@ -70,14 +70,12 @@ const handleToggleSidebar = () => {
       <div
         class="hidden lg:flex items-center bg-slate-100 rounded-lg px-3 py-2 w-64 border border-transparent focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 transition-all"
       >
-        <span class="material-symbols-outlined text-slate-400 text-[20px]"
-          >search</span
-        >
+        <span class="material-symbols-outlined text-slate-400 text-[20px]">search</span>
         <input
           type="text"
           class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 ml-2 p-0 h-auto"
           :placeholder="t('common.searchHeatId', '搜索炉次 ID...')"
-        />
+        >
       </div>
 
       <!-- 工具按钮组 -->

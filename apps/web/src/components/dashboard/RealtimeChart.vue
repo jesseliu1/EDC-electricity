@@ -153,9 +153,7 @@ const option = computed<EChartsOption>(() => ({
   >
     <div class="flex justify-between items-center mb-6">
       <div class="flex items-center gap-3">
-        <span class="material-symbols-outlined text-primary text-[24px]"
-          >ssid_chart</span
-        >
+        <span class="material-symbols-outlined text-primary text-[24px]">ssid_chart</span>
         <div>
           <h3 class="text-base font-bold text-slate-800">
             {{ t('dashboard.realtimeCurve') }}
@@ -183,7 +181,11 @@ const option = computed<EChartsOption>(() => ({
     </div>
 
     <div class="flex-1 min-h-[300px]">
-      <v-chart class="w-full h-full" :option="option" autoresize />
+      <v-chart
+        class="w-full h-full"
+        :option="option"
+        autoresize
+      />
     </div>
   </div>
 </template>

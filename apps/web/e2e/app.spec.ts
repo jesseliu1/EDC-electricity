@@ -13,6 +13,7 @@ test.describe('EDC web smoke flows', () => {
     await page.getByTestId('baseline-wizard-name-input').fill('E2E 基线回归样例')
     await page.getByTestId('baseline-wizard-next').click()
     await page.getByTestId('baseline-wizard-next').click()
+    await expect(page.getByTestId('baseline-wizard-publish')).toBeVisible()
     await page.getByTestId('baseline-wizard-publish').click()
 
     await expect(page.getByRole('heading', { name: 'E2E 基线回归样例' }).first()).toBeVisible()
@@ -41,7 +42,7 @@ test.describe('EDC web smoke flows', () => {
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
     await page.getByRole('button', { name: /手动调整/ }).click()
 
-    const dialog = page.locator('.el-dialog').filter({ hasText: '展示当前炉次前后各 5 小时的数据流' })
+    const dialog = page.getByTestId('manual-adjust-dialog')
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText('展示当前炉次前后各 5 小时的数据流')).toBeVisible()
 

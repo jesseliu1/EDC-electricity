@@ -52,7 +52,9 @@ onMounted(() => {
             <span class="text-sm font-medium text-slate-500">{{ t('report.totalHeats') }}</span>
             <span class="material-symbols-outlined text-slate-200 text-3xl group-hover:text-primary transition-colors">local_fire_department</span>
           </div>
-          <div class="mt-2 text-3xl font-bold text-slate-800">{{ detail.totalHeats }}</div>
+          <div class="mt-2 text-3xl font-bold text-slate-800">
+            {{ detail.totalHeats }}
+          </div>
         </div>
 
         <div class="bg-white rounded-xl border border-border-light shadow-card p-5 relative overflow-hidden group hover:border-border-dark transition-colors">
@@ -60,7 +62,9 @@ onMounted(() => {
             <span class="text-sm font-medium text-slate-500">{{ t('report.normalRate') }}</span>
             <span class="material-symbols-outlined text-slate-200 text-3xl group-hover:text-green-500 transition-colors">check_circle</span>
           </div>
-          <div class="mt-2 text-3xl font-bold text-green-600">{{ detail.normalRate }}%</div>
+          <div class="mt-2 text-3xl font-bold text-green-600">
+            {{ detail.normalRate }}%
+          </div>
         </div>
 
         <div class="bg-white rounded-xl border border-border-light shadow-card p-5 relative overflow-hidden group hover:border-border-dark transition-colors">
@@ -68,7 +72,9 @@ onMounted(() => {
             <span class="text-sm font-medium text-slate-500">{{ t('dashboard.avgDeviation') }}</span>
             <span class="material-symbols-outlined text-slate-200 text-3xl group-hover:text-orange-500 transition-colors">trending_up</span>
           </div>
-          <div class="mt-2 text-3xl font-bold text-slate-800">{{ detail.avgDeviation }}%</div>
+          <div class="mt-2 text-3xl font-bold text-slate-800">
+            {{ detail.avgDeviation }}%
+          </div>
         </div>
 
         <div class="bg-white rounded-xl border border-border-light shadow-card p-5 relative overflow-hidden group hover:border-border-dark transition-colors">
@@ -76,7 +82,9 @@ onMounted(() => {
             <span class="text-sm font-medium text-slate-500">{{ t('task.statusCompleted') }}</span>
             <span class="material-symbols-outlined text-slate-200 text-3xl group-hover:text-primary transition-colors">task_alt</span>
           </div>
-          <div class="mt-2 text-3xl font-bold text-slate-800">{{ detail.completedTasks }}</div>
+          <div class="mt-2 text-3xl font-bold text-slate-800">
+            {{ detail.completedTasks }}
+          </div>
         </div>
       </div>
 
@@ -87,7 +95,10 @@ onMounted(() => {
           {{ t('report.topDeviationHeats') }}
         </h3>
         
-        <div v-if="detail.topDeviations.length > 0" class="divide-y divide-border-light">
+        <div
+          v-if="detail.topDeviations.length > 0"
+          class="divide-y divide-border-light"
+        >
           <div
             v-for="(item, index) in detail.topDeviations"
             :key="item.heatNo"
@@ -98,23 +109,36 @@ onMounted(() => {
               <span class="font-semibold text-slate-800">{{ item.heatNo }}</span>
             </div>
             <div class="flex flex-col items-end gap-1">
-               <span class="font-bold text-red-600 font-mono tracking-tight">{{ item.deviation }}%</span>
-               <div class="w-32 h-1.5 bg-slate-100 rounded-full overflow-hidden flex justify-end">
-                 <div class="h-full bg-red-500 rounded-full" :style="{ width: `${Math.min(item.deviation, 100)}%` }"></div>
-               </div>
+              <span class="font-bold text-red-600 font-mono tracking-tight">{{ item.deviation }}%</span>
+              <div class="w-32 h-1.5 bg-slate-100 rounded-full overflow-hidden flex justify-end">
+                <div
+                  class="h-full bg-red-500 rounded-full"
+                  :style="{ width: `${Math.min(item.deviation, 100)}%` }"
+                />
+              </div>
             </div>
           </div>
         </div>
-        <div v-else class="py-12 flex flex-col items-center justify-center">
+        <div
+          v-else
+          class="py-12 flex flex-col items-center justify-center"
+        >
           <span class="material-symbols-outlined text-slate-300 text-4xl">check_circle</span>
-          <p class="text-sm text-slate-500 mt-2 font-medium">No deviations recorded</p>
+          <p class="text-sm text-slate-500 mt-2 font-medium">
+            No deviations recorded
+          </p>
         </div>
       </div>
     </template>
 
-    <div v-else class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card">
+    <div
+      v-else
+      class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card"
+    >
       <span class="material-symbols-outlined text-slate-300 text-5xl">pending</span>
-      <p class="text-sm text-slate-400 mt-3">{{ t('common.loading') }}</p>
+      <p class="text-sm text-slate-400 mt-3">
+        {{ t('common.loading') }}
+      </p>
     </div>
   </div>
 </template>

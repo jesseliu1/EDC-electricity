@@ -62,7 +62,9 @@ onMounted(() => {
       <!-- 左侧设置分类导航 -->
       <div class="lg:col-span-1">
         <nav class="bg-white rounded-xl border border-border-light shadow-card p-3 space-y-1 sticky top-8">
-          <p class="text-xs font-bold text-slate-400 uppercase tracking-wider px-3 py-2">全局设置</p>
+          <p class="text-xs font-bold text-slate-400 uppercase tracking-wider px-3 py-2">
+            全局设置
+          </p>
           <button class="w-full text-left px-3 py-2.5 rounded-lg bg-primary/10 text-primary text-sm font-bold flex items-center gap-2">
             <span class="material-symbols-outlined text-[18px]">database</span>
             EDC 配置
@@ -76,7 +78,9 @@ onMounted(() => {
             通知管理
           </button>
           <div class="h-px bg-border-light mx-2 my-2" />
-          <p class="text-xs font-bold text-slate-400 uppercase tracking-wider px-3 py-2">系统</p>
+          <p class="text-xs font-bold text-slate-400 uppercase tracking-wider px-3 py-2">
+            系统
+          </p>
           <button class="w-full text-left px-3 py-2.5 rounded-lg text-slate-600 text-sm hover:bg-slate-100 transition-colors flex items-center gap-2">
             <span class="material-symbols-outlined text-[18px]">group</span>
             用户管理
@@ -90,7 +94,9 @@ onMounted(() => {
         <div class="bg-white rounded-xl border border-border-light shadow-card p-6">
           <div class="flex items-center justify-between mb-6">
             <div>
-              <h3 class="text-lg font-bold text-slate-800">EDC 数据提取</h3>
+              <h3 class="text-lg font-bold text-slate-800">
+                EDC 数据提取
+              </h3>
               <p class="text-sm text-slate-500 mt-0.5">
                 配置工程数据采集系统的连接参数
               </p>
@@ -133,14 +139,20 @@ onMounted(() => {
 
         <!-- 偏差阈值 -->
         <div class="bg-white rounded-xl border border-border-light shadow-card p-6">
-          <h3 class="text-lg font-bold text-slate-800 mb-1">偏差阈值</h3>
-          <p class="text-sm text-slate-500 mb-6">设置黄金基线对比的敏感度</p>
+          <h3 class="text-lg font-bold text-slate-800 mb-1">
+            偏差阈值
+          </h3>
+          <p class="text-sm text-slate-500 mb-6">
+            设置黄金基线对比的敏感度
+          </p>
 
           <!-- 警告提示 -->
           <div class="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6 flex items-start gap-3">
             <span class="material-symbols-outlined text-orange-500 text-[20px] mt-0.5">info</span>
             <div>
-              <p class="text-sm font-semibold text-orange-700">Impact Warning</p>
+              <p class="text-sm font-semibold text-orange-700">
+                Impact Warning
+              </p>
               <p class="text-xs text-orange-600 mt-0.5">
                 收紧阈值可能导致过渡态下出现更多的误报。
               </p>
@@ -195,10 +207,17 @@ onMounted(() => {
 
         <!-- 切割配置 -->
         <div class="bg-white rounded-xl border border-border-light shadow-card p-6">
-          <h3 class="text-lg font-bold text-slate-800 mb-1">{{ t('settings.cuttingConfig') }}</h3>
-          <p class="text-sm text-slate-500 mb-6">配置生产切割和排班相关参数</p>
+          <h3 class="text-lg font-bold text-slate-800 mb-1">
+            {{ t('settings.cuttingConfig') }}
+          </h3>
+          <p class="text-sm text-slate-500 mb-6">
+            配置生产切割和排班相关参数
+          </p>
 
-          <el-form label-position="top" class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <el-form
+            label-position="top"
+            class="grid grid-cols-1 gap-4 md:grid-cols-2"
+          >
             <el-form-item :label="t('settings.timeTolerancePercent')">
               <el-input-number
                 v-model="settingStore.data.timeTolerancePercent"
@@ -214,22 +233,40 @@ onMounted(() => {
               />
             </el-form-item>
             <el-form-item :label="t('settings.workStartTime')">
-              <el-input v-model="settingStore.data.workStartTime" placeholder="08:00" />
+              <el-input
+                v-model="settingStore.data.workStartTime"
+                placeholder="08:00"
+              />
             </el-form-item>
             <el-form-item :label="t('settings.workEndTime')">
-              <el-input v-model="settingStore.data.workEndTime" placeholder="18:00" />
+              <el-input
+                v-model="settingStore.data.workEndTime"
+                placeholder="18:00"
+              />
             </el-form-item>
-            <el-form-item :label="t('settings.breakPeriods')" class="md:col-span-2">
+            <el-form-item
+              :label="t('settings.breakPeriods')"
+              class="md:col-span-2"
+            >
               <el-input
                 v-model="settingStore.data.breakPeriods"
                 :placeholder="t('settings.breakPeriodsPlaceholder')"
               />
             </el-form-item>
-            <el-form-item :label="t('settings.baselineLengthScopeMode')" class="md:col-span-2">
+            <el-form-item
+              :label="t('settings.baselineLengthScopeMode')"
+              class="md:col-span-2"
+            >
               <el-radio-group v-model="settingStore.data.baselineLengthScopeMode">
-                <el-radio-button label="definition">{{ t('settings.scopeDefinition') }}</el-radio-button>
-                <el-radio-button label="system">{{ t('settings.scopeSystem') }}</el-radio-button>
-                <el-radio-button label="production_line">{{ t('settings.scopeProductionLine') }}</el-radio-button>
+                <el-radio-button label="definition">
+                  {{ t('settings.scopeDefinition') }}
+                </el-radio-button>
+                <el-radio-button label="system">
+                  {{ t('settings.scopeSystem') }}
+                </el-radio-button>
+                <el-radio-button label="production_line">
+                  {{ t('settings.scopeProductionLine') }}
+                </el-radio-button>
               </el-radio-group>
             </el-form-item>
           </el-form>

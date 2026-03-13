@@ -160,8 +160,7 @@ onMounted(() => {
         </span>
         <span
           class="text-sm font-medium text-slate-700 group-hover:text-primary transition-colors"
-          >{{ link.label }}</span
-        >
+        >{{ link.label }}</span>
       </button>
     </div>
 
@@ -188,9 +187,10 @@ onMounted(() => {
             <div class="flex items-center gap-2">
               <span
                 class="material-symbols-outlined text-orange-500 text-[20px]"
-                >mail</span
-              >
-              <h3 class="text-base font-bold text-slate-800">偏差收件箱预览</h3>
+              >mail</span>
+              <h3 class="text-base font-bold text-slate-800">
+                偏差收件箱预览
+              </h3>
             </div>
           </div>
           <div class="space-y-3">
@@ -198,30 +198,28 @@ onMounted(() => {
               class="p-3 bg-slate-50 rounded-lg border border-border-light hover:border-primary/30 transition-colors cursor-pointer"
             >
               <div class="flex items-center justify-between mb-1">
-                <span class="text-sm font-semibold text-slate-700"
-                  >Cluster #C-882</span
-                >
+                <span class="text-sm font-semibold text-slate-700">Cluster #C-882</span>
                 <span
                   class="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 font-medium"
-                  >未命名</span
-                >
+                >未命名</span>
               </div>
-              <p class="text-xs text-slate-500">出现 5 次 · 相似度 92%</p>
+              <p class="text-xs text-slate-500">
+                出现 5 次 · 相似度 92%
+              </p>
               <div class="h-1 bg-red-400 rounded-full mt-2" />
             </div>
             <div
               class="p-3 bg-slate-50 rounded-lg border border-border-light hover:border-primary/30 transition-colors cursor-pointer"
             >
               <div class="flex items-center justify-between mb-1">
-                <span class="text-sm font-semibold text-slate-700"
-                  >Cluster #C-881</span
-                >
+                <span class="text-sm font-semibold text-slate-700">Cluster #C-881</span>
                 <span
                   class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-600 font-medium"
-                  >已归档</span
-                >
+                >已归档</span>
               </div>
-              <p class="text-xs text-slate-500">出现 3 次 · 相似度 87%</p>
+              <p class="text-xs text-slate-500">
+                出现 3 次 · 相似度 87%
+              </p>
               <div class="h-1 bg-green-400 rounded-full mt-2 w-3/4" />
             </div>
           </div>
@@ -235,40 +233,42 @@ onMounted(() => {
             <div class="flex items-center gap-2">
               <span
                 class="material-symbols-outlined text-primary text-[20px]"
-                >task_alt</span
-              >
-              <h3 class="text-base font-bold text-slate-800">纠偏任务待办</h3>
+              >task_alt</span>
+              <h3 class="text-base font-bold text-slate-800">
+                纠偏任务待办
+              </h3>
             </div>
             <span
               class="w-6 h-6 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center"
-              >3</span
-            >
+            >3</span>
           </div>
           <div class="space-y-3">
             <div class="p-3 bg-slate-50 rounded-lg">
               <p class="text-sm font-semibold text-slate-700 mb-1">
                 供氧参数调整
               </p>
-              <p class="text-xs text-slate-500">机台: 2#炉</p>
+              <p class="text-xs text-slate-500">
+                机台: 2#炉
+              </p>
               <div class="flex items-center justify-between mt-2">
                 <span class="text-xs text-slate-400">李工</span>
                 <span
                   class="text-xs px-2 py-0.5 rounded bg-primary text-white font-medium"
-                  >Dev: +12%</span
-                >
+                >Dev: +12%</span>
               </div>
             </div>
             <div class="p-3 bg-slate-50 rounded-lg">
               <p class="text-sm font-semibold text-slate-700 mb-1">
                 废气阀门检查
               </p>
-              <p class="text-xs text-slate-500">机台: 1#炉</p>
+              <p class="text-xs text-slate-500">
+                机台: 1#炉
+              </p>
               <div class="flex items-center justify-between mt-2">
                 <span class="text-xs text-slate-400">王工</span>
                 <span
                   class="text-xs px-2 py-0.5 rounded bg-orange-500 text-white font-medium"
-                  >Dev: +8%</span
-                >
+                >Dev: +8%</span>
               </div>
             </div>
           </div>

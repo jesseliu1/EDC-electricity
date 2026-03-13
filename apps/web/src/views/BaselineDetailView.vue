@@ -191,7 +191,10 @@ onMounted(async () => {
       :description="baseline?.description || t('common.noDescription')"
     >
       <template #actions>
-        <StatusBadge :type="statusType" class="mr-2">
+        <StatusBadge
+          :type="statusType"
+          class="mr-2"
+        >
           {{ statusLabel }}
         </StatusBadge>
         <button
@@ -274,7 +277,7 @@ onMounted(async () => {
               </span>
               <span class="font-mono text-xs text-slate-600 bg-slate-50 p-2 rounded block">
                 {{ baseline.selectedStartTime ? dayjs(baseline.selectedStartTime).format('YYYY-MM-DD HH:mm:ss') : '--' }}
-                <br /><span class="text-slate-400">to</span><br />
+                <br><span class="text-slate-400">to</span><br>
                 {{ baseline.selectedEndTime ? dayjs(baseline.selectedEndTime).format('YYYY-MM-DD HH:mm:ss') : '--' }}
               </span>
             </div>
@@ -289,11 +292,19 @@ onMounted(async () => {
               {{ t('baseline.detail.versionHistory') }}
             </h3>
           </div>
-          <div v-if="baselineStore.versionHistory.length === 0" class="py-8 flex flex-col items-center justify-center">
-             <span class="material-symbols-outlined text-slate-300 text-4xl">inventory_2</span>
-             <p class="text-sm text-slate-400 mt-2">{{ t('common.noData') }}</p>
+          <div
+            v-if="baselineStore.versionHistory.length === 0"
+            class="py-8 flex flex-col items-center justify-center"
+          >
+            <span class="material-symbols-outlined text-slate-300 text-4xl">inventory_2</span>
+            <p class="text-sm text-slate-400 mt-2">
+              {{ t('common.noData') }}
+            </p>
           </div>
-          <el-timeline v-else class="pl-2">
+          <el-timeline
+            v-else
+            class="pl-2"
+          >
             <el-timeline-item
               v-for="version in baselineStore.versionHistory"
               :key="version.id"
@@ -304,7 +315,10 @@ onMounted(async () => {
               <div class="bg-slate-50 p-3 rounded-lg border border-border-light mt-1">
                 <div class="flex items-center justify-between mb-1">
                   <span class="font-bold text-sm text-slate-800">{{ version.name }}</span>
-                  <StatusBadge :type="version.status === 'published' ? 'success' : version.status === 'draft' ? 'info' : 'danger'" size="sm">
+                  <StatusBadge
+                    :type="version.status === 'published' ? 'success' : version.status === 'draft' ? 'info' : 'danger'"
+                    size="sm"
+                  >
                     {{ version.status === 'published' ? t('baseline.statusPublished') : version.status === 'draft' ? t('baseline.statusDraft') : t('baseline.statusDisabled') }}
                   </StatusBadge>
                 </div>
@@ -319,22 +333,41 @@ onMounted(async () => {
     </div>
 
     <!-- 空状态 -->
-    <div v-else class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card">
+    <div
+      v-else
+      class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card"
+    >
       <span class="material-symbols-outlined text-slate-300 text-5xl">pending</span>
-      <p class="text-sm text-slate-400 mt-3">{{ t('common.loading') }}</p>
+      <p class="text-sm text-slate-400 mt-3">
+        {{ t('common.loading') }}
+      </p>
     </div>
 
     <!-- 编辑对话框 -->
-    <ElDialog v-model="editVisible" :title="t('common.edit')" width="620px" destroy-on-close>
+    <ElDialog
+      v-model="editVisible"
+      :title="t('common.edit')"
+      width="620px"
+      destroy-on-close
+    >
       <el-form label-position="top">
         <el-form-item :label="t('baseline.name')">
           <el-input v-model="editForm.name" />
         </el-form-item>
         <el-form-item :label="t('baseline.wizard.description')">
-          <el-input v-model="editForm.description" type="textarea" :rows="3" />
+          <el-input
+            v-model="editForm.description"
+            type="textarea"
+            :rows="3"
+          />
         </el-form-item>
         <el-form-item :label="t('baseline.tolerance')">
-          <el-input-number v-model="editForm.tolerancePercent" :min="0" :max="100" :step="0.5" />
+          <el-input-number
+            v-model="editForm.tolerancePercent"
+            :min="0"
+            :max="100"
+            :step="0.5"
+          />
         </el-form-item>
         <el-form-item :label="t('baseline.wizard.rangeStart')">
           <el-date-picker
@@ -355,10 +388,16 @@ onMounted(async () => {
       </el-form>
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button class="px-4 py-2 bg-white border border-border-light text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors" @click="editVisible = false">
+          <button
+            class="px-4 py-2 bg-white border border-border-light text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+            @click="editVisible = false"
+          >
             {{ t('common.cancel') }}
           </button>
-          <button class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors" @click="handleSaveEdit">
+          <button
+            class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
+            @click="handleSaveEdit"
+          >
             {{ t('common.save') }}
           </button>
         </div>

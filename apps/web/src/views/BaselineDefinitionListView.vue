@@ -281,7 +281,10 @@ onMounted(() => {
         <div class="text-sm text-gray-500">
           {{ t('baselineDefinition.status') }}
         </div>
-        <el-radio-group :model-value="currentFilter" @change="handleFilterChange">
+        <el-radio-group
+          :model-value="currentFilter"
+          @change="handleFilterChange"
+        >
           <el-radio-button label="all">
             {{ t('common.viewAll') }}
           </el-radio-button>
@@ -313,7 +316,10 @@ onMounted(() => {
               <span class="font-semibold text-gray-900 truncate">
                 {{ item.definitionName }}
               </span>
-              <el-tag :type="statusType(item.status)" size="small">
+              <el-tag
+                :type="statusType(item.status)"
+                size="small"
+              >
                 {{ statusLabel(item.status) }}
               </el-tag>
             </div>
@@ -326,7 +332,11 @@ onMounted(() => {
         </p>
 
         <!-- 基本信息 -->
-        <el-descriptions :column="1" size="small" border>
+        <el-descriptions
+          :column="1"
+          size="small"
+          border
+        >
           <el-descriptions-item :label="t('baselineDefinition.expectedDuration')">
             {{ item.expectedDurationMinutes }} {{ t('baselineDefinition.minutes') }}
           </el-descriptions-item>
@@ -353,7 +363,11 @@ onMounted(() => {
 
         <!-- 操作按钮 -->
         <div class="mt-4 flex items-center gap-2 border-t border-gray-100 pt-3">
-          <el-button size="small" :icon="Edit" @click="handleEdit(item)">
+          <el-button
+            size="small"
+            :icon="Edit"
+            @click="handleEdit(item)"
+          >
             {{ t('common.edit') }}
           </el-button>
           <el-button
@@ -387,7 +401,12 @@ onMounted(() => {
             @confirm="handleDelete(item.id)"
           >
             <template #reference>
-              <el-button size="small" type="danger" text :icon="Delete">
+              <el-button
+                size="small"
+                type="danger"
+                text
+                :icon="Delete"
+              >
                 {{ t('common.delete') }}
               </el-button>
             </template>
@@ -418,8 +437,14 @@ onMounted(() => {
       append-to-body
       data-testid="baseline-definition-dialog"
     >
-      <el-form label-width="120px" label-position="right">
-        <el-form-item :label="t('baselineDefinition.definitionName')" required>
+      <el-form
+        label-width="120px"
+        label-position="right"
+      >
+        <el-form-item
+          :label="t('baselineDefinition.definitionName')"
+          required
+        >
           <el-input
             v-model="definitionForm.definitionName"
             :placeholder="t('baselineDefinition.namePlaceholder')"
@@ -436,7 +461,10 @@ onMounted(() => {
             :placeholder="t('baselineDefinition.descriptionPlaceholder')"
           />
         </el-form-item>
-        <el-form-item :label="t('baselineDefinition.expectedDuration')" required>
+        <el-form-item
+          :label="t('baselineDefinition.expectedDuration')"
+          required
+        >
           <el-input-number
             v-model="definitionForm.expectedDurationMinutes"
             :min="1"
@@ -449,7 +477,9 @@ onMounted(() => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="dialogVisible = false">
+          {{ t('common.cancel') }}
+        </el-button>
         <el-button
           type="primary"
           data-testid="baseline-definition-submit"
@@ -483,12 +513,32 @@ onMounted(() => {
           >
             <template v-if="editingMetricId === metric.id">
               <!-- 编辑模式 -->
-              <el-input v-model="editMetricForm.name" size="small" class="w-28" />
-              <el-input v-model="editMetricForm.unit" size="small" class="w-20" />
-              <el-color-picker v-model="editMetricForm.color" size="small" />
+              <el-input
+                v-model="editMetricForm.name"
+                size="small"
+                class="w-28"
+              />
+              <el-input
+                v-model="editMetricForm.unit"
+                size="small"
+                class="w-20"
+              />
+              <el-color-picker
+                v-model="editMetricForm.color"
+                size="small"
+              />
               <div class="flex-1" />
-              <el-button size="small" :icon="CircleCheck" type="success" @click="saveEditMetric" />
-              <el-button size="small" :icon="CircleClose" @click="cancelEditMetric" />
+              <el-button
+                size="small"
+                :icon="CircleCheck"
+                type="success"
+                @click="saveEditMetric"
+              />
+              <el-button
+                size="small"
+                :icon="CircleClose"
+                @click="cancelEditMetric"
+              />
             </template>
             <template v-else>
               <!-- 显示模式 -->
@@ -497,10 +547,20 @@ onMounted(() => {
                 :style="{ backgroundColor: metric.color }"
               />
               <span class="font-medium text-gray-800">{{ metric.name }}</span>
-              <el-tag size="small" type="info">{{ metric.unit }}</el-tag>
+              <el-tag
+                size="small"
+                type="info"
+              >
+                {{ metric.unit }}
+              </el-tag>
               <span class="text-xs text-gray-400">#{{ metric.sortOrder }}</span>
               <div class="flex-1" />
-              <el-button size="small" text :icon="Edit" @click="startEditMetric(metric)" />
+              <el-button
+                size="small"
+                text
+                :icon="Edit"
+                @click="startEditMetric(metric)"
+              />
               <el-button
                 size="small"
                 text
@@ -539,7 +599,10 @@ onMounted(() => {
               class="w-24"
               data-testid="baseline-definition-metric-unit-input"
             />
-            <el-color-picker v-model="newMetricForm.color" size="small" />
+            <el-color-picker
+              v-model="newMetricForm.color"
+              size="small"
+            />
             <el-button
               size="small"
               type="primary"

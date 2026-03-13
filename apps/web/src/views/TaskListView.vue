@@ -97,7 +97,7 @@ onMounted(() => {
           type="text"
           class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 ml-2 p-0"
           placeholder="搜索订单号/任务描述..."
-        />
+        >
       </div>
     </div>
 
@@ -161,9 +161,14 @@ onMounted(() => {
       </div>
 
       <!-- 空状态 -->
-      <div v-else class="py-16 flex flex-col items-center justify-center">
+      <div
+        v-else
+        class="py-16 flex flex-col items-center justify-center"
+      >
         <span class="material-symbols-outlined text-slate-300 text-5xl">assignment</span>
-        <p class="text-sm text-slate-400 mt-3">{{ t('common.noData') }}</p>
+        <p class="text-sm text-slate-400 mt-3">
+          {{ t('common.noData') }}
+        </p>
       </div>
     </div>
   </div>

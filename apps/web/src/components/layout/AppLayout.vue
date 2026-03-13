@@ -28,7 +28,10 @@ const handleCloseMobileMenu = () => {
   <div class="h-screen flex overflow-hidden bg-background-light font-display">
     <!-- 桌面端侧边栏 -->
     <div class="hidden lg:block">
-      <AppSidebar :collapsed="sidebarCollapsed" @toggle="handleToggleSidebar" />
+      <AppSidebar
+        :collapsed="sidebarCollapsed"
+        @toggle="handleToggleSidebar"
+      />
     </div>
 
     <!-- 移动端侧边栏遮罩 -->
@@ -46,7 +49,10 @@ const handleCloseMobileMenu = () => {
         v-if="mobileMenuOpen"
         class="lg:hidden fixed inset-y-0 left-0 z-50 w-sidebar"
       >
-        <AppSidebar :collapsed="false" @toggle="handleCloseMobileMenu" />
+        <AppSidebar
+          :collapsed="false"
+          @toggle="handleCloseMobileMenu"
+        />
       </div>
     </Transition>
 

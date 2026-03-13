@@ -147,7 +147,7 @@ function handleCommand(command: string) {
         </el-dropdown>
       </div>
 
-        <div class="grid grid-cols-2 gap-4 text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
+      <div class="grid grid-cols-2 gap-4 text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
         <div class="flex flex-col col-span-2">
           <span class="text-xs text-gray-400 mb-1">{{ t('baseline.definitionName') }}</span>
           <span class="font-medium">{{ baseline.definitionName }}</span>

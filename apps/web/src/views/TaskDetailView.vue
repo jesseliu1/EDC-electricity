@@ -82,12 +82,15 @@ onMounted(() => {
       </template>
     </PageHeader>
 
-    <div v-if="task" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div
+      v-if="task"
+      class="grid grid-cols-1 md:grid-cols-2 gap-6"
+    >
       <!-- 任务概览 -->
       <div class="bg-white rounded-xl border border-border-light shadow-card p-5 space-y-4">
         <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light">
-           <span class="material-symbols-outlined text-primary text-[20px]">info</span>
-           任务基本信息
+          <span class="material-symbols-outlined text-primary text-[20px]">info</span>
+          任务基本信息
         </h3>
         <div class="flex justify-between items-center py-1">
           <span class="text-slate-500">{{ t('task.relatedHeat') }}</span>
@@ -101,9 +104,9 @@ onMounted(() => {
 
       <!-- 任务表单 -->
       <div class="bg-white rounded-xl border border-border-light shadow-card p-5 md:col-span-2">
-         <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light">
-           <span class="material-symbols-outlined text-primary text-[20px]">assignment</span>
-           纠偏处理记录
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4 pb-4 border-b border-border-light">
+          <span class="material-symbols-outlined text-primary text-[20px]">assignment</span>
+          纠偏处理记录
         </h3>
         <div class="space-y-6 max-w-4xl">
           <div class="flex flex-col gap-2">
@@ -159,9 +162,14 @@ onMounted(() => {
     </div>
     
     <!-- 空状态 -->
-    <div v-else class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card">
+    <div
+      v-else
+      class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card"
+    >
       <span class="material-symbols-outlined text-slate-300 text-5xl">pending</span>
-      <p class="text-sm text-slate-400 mt-3">{{ t('common.loading') }}</p>
+      <p class="text-sm text-slate-400 mt-3">
+        {{ t('common.loading') }}
+      </p>
     </div>
   </div>
 </template>

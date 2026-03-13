@@ -52,7 +52,10 @@ const trendBadgeClass = computed(() => {
 </script>
 
 <template>
-  <div class="stat-card relative overflow-hidden h-full" data-testid="stat-card">
+  <div
+    class="stat-card relative overflow-hidden h-full"
+    data-testid="stat-card"
+  >
     <!-- 底部彩色指示条 -->
     <div
       :class="['absolute bottom-0 left-0 right-0 h-1 rounded-b-xl', accentColorClass]"
@@ -60,23 +63,30 @@ const trendBadgeClass = computed(() => {
     />
 
     <!-- 右上角装饰图标 -->
-    <div class="absolute top-4 right-4" data-testid="decorative-icon">
+    <div
+      class="absolute top-4 right-4"
+      data-testid="decorative-icon"
+    >
       <span
         class="material-symbols-outlined !text-4xl"
         :class="iconBgClass"
-        >{{ icon }}</span
-      >
+      >{{ icon }}</span>
     </div>
 
     <!-- 标题 -->
-    <p class="text-sm font-medium text-slate-500 mb-2">{{ title }}</p>
+    <p class="text-sm font-medium text-slate-500 mb-2">
+      {{ title }}
+    </p>
 
     <!-- 数值 + 单位 -->
     <div class="flex items-baseline gap-2 mt-1">
       <span class="text-3xl font-bold text-slate-900 tracking-tight">{{
         value
       }}</span>
-      <span v-if="unit" class="text-sm text-slate-500 font-medium">{{
+      <span
+        v-if="unit"
+        class="text-sm text-slate-500 font-medium"
+      >{{
         unit
       }}</span>
     </div>
@@ -96,7 +106,10 @@ const trendBadgeClass = computed(() => {
         }}</span>
         {{ trend > 0 ? '+' : '' }}{{ trend }}%
       </span>
-      <span v-if="description" class="text-xs text-slate-400">{{
+      <span
+        v-if="description"
+        class="text-xs text-slate-400"
+      >{{
         description
       }}</span>
     </div>

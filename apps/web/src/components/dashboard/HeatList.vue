@@ -73,9 +73,7 @@ const handleViewDetail = (heatNo: string) => {
       class="flex items-center justify-between px-6 py-4 border-b border-border-light bg-slate-50/50"
     >
       <div class="flex items-center gap-2">
-        <span class="material-symbols-outlined text-slate-500 text-[20px]"
-          >list_alt</span
-        >
+        <span class="material-symbols-outlined text-slate-500 text-[20px]">list_alt</span>
         <h3 class="text-base font-bold text-slate-800">
           {{ t('dashboard.recentHeats') }}
         </h3>
@@ -85,9 +83,7 @@ const handleViewDetail = (heatNo: string) => {
         @click="router.push('/heats')"
       >
         {{ t('common.viewAll') }}
-        <span class="material-symbols-outlined text-[16px]"
-          >chevron_right</span
-        >
+        <span class="material-symbols-outlined text-[16px]">chevron_right</span>
       </button>
     </div>
 
@@ -161,17 +157,19 @@ const handleViewDetail = (heatNo: string) => {
             <td class="px-4 py-3.5 text-right">
               <span
                 class="text-xs text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity"
-                >{{ t('common.detail', '详情') }}</span
-              >
+              >{{ t('common.detail', '详情') }}</span>
             </td>
           </tr>
           <!-- 空状态 -->
           <tr v-if="heats.length === 0">
-            <td colspan="5" class="px-6 py-10 text-center">
-              <span class="material-symbols-outlined text-slate-300 text-4xl"
-                >inbox</span
-              >
-              <p class="text-sm text-slate-400 mt-2">暂无炉次数据</p>
+            <td
+              colspan="5"
+              class="px-6 py-10 text-center"
+            >
+              <span class="material-symbols-outlined text-slate-300 text-4xl">inbox</span>
+              <p class="text-sm text-slate-400 mt-2">
+                暂无炉次数据
+              </p>
             </td>
           </tr>
         </tbody>
