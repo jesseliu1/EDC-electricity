@@ -622,7 +622,10 @@ onMounted(async () => {
             </div>
 
             <div class="grid grid-cols-1 gap-4">
-              <el-form-item :label="t('baseline.wizard.rangeStart')">
+              <el-form-item
+                :label="t('baseline.wizard.rangeStart')"
+                data-testid="baseline-wizard-start-form-item"
+              >
                 <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
                   <el-date-picker
                     v-model="selectedStart"
@@ -640,7 +643,10 @@ onMounted(async () => {
                   </el-button>
                 </div>
               </el-form-item>
-              <el-form-item :label="t('baseline.wizard.rangeEnd')">
+              <el-form-item
+                :label="t('baseline.wizard.rangeEnd')"
+                data-testid="baseline-wizard-end-form-item"
+              >
                 <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
                   <el-date-picker
                     v-model="selectedEnd"
@@ -799,7 +805,10 @@ onMounted(async () => {
         />
 
         <div class="grid grid-cols-1 gap-4">
-          <el-form-item :label="t('baseline.wizard.rangeStart')">
+          <el-form-item
+            :label="t('baseline.wizard.rangeStart')"
+            data-testid="baseline-wizard-fullscreen-start-form-item"
+          >
             <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
               <el-date-picker
                 v-model="selectedStart"
@@ -816,7 +825,10 @@ onMounted(async () => {
               </el-button>
             </div>
           </el-form-item>
-          <el-form-item :label="t('baseline.wizard.rangeEnd')">
+          <el-form-item
+            :label="t('baseline.wizard.rangeEnd')"
+            data-testid="baseline-wizard-fullscreen-end-form-item"
+          >
             <div class="grid w-full grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto]">
               <el-date-picker
                 v-model="selectedEnd"

@@ -87,6 +87,13 @@ const primaryComparisonMetric = computed<{
   return fallbackMetric
 })
 
+const compareSeriesCount = computed(() => {
+  const metricCurves = comparisonMetricCurves.value.length > 0
+    ? comparisonMetricCurves.value
+    : [primaryComparisonMetric.value]
+  return metricCurves.length * 2
+})
+
 const statusTagType = computed(() => {
   if (!current.value) return 'info'
   if (current.value.base.status === 'normal') return 'success'
@@ -488,6 +495,8 @@ onMounted(() => {
             :option="compareOption"
             autoresize
             class="h-80"
+            data-testid="heat-compare-chart"
+            :data-series-count="compareSeriesCount"
           />
         </div>
 
@@ -499,11 +508,13 @@ onMounted(() => {
           <div
             v-if="(selectedComparison?.deviation_ranges || current.deviationRanges).length > 0"
             class="space-y-3"
+            data-testid="heat-abnormal-range-list"
           >
             <div
               v-for="(range, idx) in selectedComparison?.deviation_ranges || current.deviationRanges"
               :key="`${range.start}-${range.end}`"
               class="rounded-lg border border-red-200 bg-red-50 p-4 flex items-center justify-between"
+              data-testid="heat-abnormal-range-item"
             >
               <div class="flex items-center gap-3">
                 <span class="w-6 h-6 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-xs font-bold">{{ idx + 1 }}</span>
@@ -680,6 +691,10 @@ onMounted(() => {
           :option="manualAdjustOption"
           autoresize
           class="h-[460px]"
+          data-testid="manual-adjust-chart"
+          data-reference-series="2"
+          :data-range-start="manualAdjustStart || ''"
+          :data-range-end="manualAdjustEnd || ''"
           @click="handleManualAdjustChartClick"
         />
 
@@ -695,7 +710,10 @@ onMounted(() => {
         </div>
 
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div class="space-y-2">
+          <div
+            class="space-y-2"
+            data-testid="manual-adjust-start-field"
+          >
             <div class="text-sm font-medium text-slate-600">
               {{ t('heat.startTime') }}
             </div>
@@ -707,7 +725,10 @@ onMounted(() => {
               class="!w-full"
             />
           </div>
-          <div class="space-y-2">
+          <div
+            class="space-y-2"
+            data-testid="manual-adjust-end-field"
+          >
             <div class="text-sm font-medium text-slate-600">
               {{ t('heat.endTime') }}
             </div>
