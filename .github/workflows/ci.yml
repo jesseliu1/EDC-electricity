@@ -43,6 +43,9 @@ jobs:
       - name: Lint web
         run: pnpm lint
 
+      - name: Run i18n regression check
+        run: pnpm test:i18n
+
       - name: Build web
         run: pnpm build
 

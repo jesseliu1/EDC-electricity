@@ -68,6 +68,7 @@ require_command pnpm
 require_command uv
 
 run_step "Web lint" pnpm --dir "$web_dir" lint
+run_step "Web i18n regression" pnpm --dir "$web_dir" test:i18n
 run_step "Web build" pnpm --dir "$web_dir" build
 run_step "Web unit tests" pnpm --dir "$web_dir" test
 

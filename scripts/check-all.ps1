@@ -35,6 +35,10 @@ Invoke-Step -Name "Web lint" -WorkingDirectory $repoRoot -Action {
     pnpm --dir $webDir lint
 }
 
+Invoke-Step -Name "Web i18n regression" -WorkingDirectory $repoRoot -Action {
+    pnpm --dir $webDir test:i18n
+}
+
 Invoke-Step -Name "Web build" -WorkingDirectory $repoRoot -Action {
     pnpm --dir $webDir build
 }
