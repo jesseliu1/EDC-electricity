@@ -81,6 +81,16 @@
   - [x] 与 Windows 版一键检查保持相同回归口径
   - [x] `docs/testing.md` 补充 Codex cloud setup script 与执行方式
 
+### 2026-03-13（前端 lint warning 收口）
+
+- [x] 批量清理历史 Vue 模板格式 warning
+  - [x] 通过 `eslint --fix` 收口可自动修复的模板/属性/缩进问题
+  - [x] 前端 `pnpm lint` 当前无 error、无 warning
+- [x] Playwright 稳定性补强
+  - [x] 手动调整弹窗 smoke test 改为等待 `data-testid`
+  - [x] 基线向导 smoke test 改为显式等待发布按钮出现
+- [x] 验证通过：`pnpm --dir apps/web lint`、`pnpm --dir apps/web build`、`pnpm --dir apps/web test`、`pnpm --dir apps/web test:e2e`
+
 ### 2026-03-12（UI 联调问题修复）
 
 - [x] 新建基线向导联调修复
@@ -328,7 +338,7 @@
 
 ## 已知问题
 
-- ESLint 仍有多项 Vue 样式类警告（不阻断构建，通常为 class 排序问题）
+- 前端构建仍有大 chunk warning（`elementPlus` / `echarts` 产物体积较大）
 
 ---
 
