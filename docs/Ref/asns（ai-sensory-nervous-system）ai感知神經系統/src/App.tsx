@@ -1,0 +1,1425 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useMemo, useRef } from 'react';  
+import {   
+  Activity, Package, Database, Terminal, LayoutGrid, X,   
+  Download, Sun, Moon, Search, Cpu, Globe, Check,   
+  ChevronRight, ChevronDown, Zap, ShieldCheck, Clock,  
+  Settings, Key, User, Power, Save, RefreshCw, Smartphone,  
+  Info, AlertTriangle, FileText, ChevronLeft, Plus, Sparkles, Wand2, Image as ImageIcon
+} from 'lucide-react';  
+import { GoogleGenAI } from "@google/genai";
+import { edcChannelSnapshot, edcSnapshotMeta } from './edcChannelSnapshot';
+import HostSettingsView from './SettingsView';
+  
+/**  
+ * ASNS (AI Sensory Nervous System) - 邊緣側作業系統  
+ * 核心規範：  
+ * 1. 視覺：iOS 白色科技風格 (支援明亮/黑暗模式)  
+ * 2. 語系：10 國語言支援 (i18n 引擎)  
+ * 3. 架構：L1 (RocksDB) -> L2 (Python/PostgreSQL) -> L3 (OpenClaw/AI)  
+ * 4. 命名：Nickname > Name > ID (CUID/SUID)  
+ */  
+  
+// --- 國際化語系定義 (10 國語言) ---  
+const translations: Record<string, Record<string, string>> = {  
+  'zh-TW': { name: '繁體中文', app: 'ASNS（AI Sensory Nervous System）AI感知神經系統', connect: '連線設置', store: '應用商店', devices: '設備目錄', dash: '實時看板', dev: '開發工具', status: '系統狀態', cpu: '處理器', ram: '記憶體', ssd: '硬碟壽命', online: '在線', offline: '離線', install: '下載應用', l1: '感知層 (RocksDB)', l2: '傳導層 (SQL)', l3: '大腦層 (AI)', sync: '同步清單', nickname: '別名優先', apply: '儲存設定', diagnosis: '診斷報告', rca: '原因分析', capa: '改善措施', pythonApp: 'Python 應用', skill: '技能' },  
+  'zh-CN': { name: '简体中文', app: 'ASNS（AI Sensory Nervous System）AI感知神经系统', connect: '连线设置', store: '应用商店', devices: '设备目录', dash: '实时看板', dev: '开发工具', status: '系统状态', cpu: '处理器', ram: '内存', ssd: '硬盘寿命', online: '在线', offline: '离线', install: '下载应用', l1: '感知层 (RocksDB)', l2: '传导层 (SQL)', l3: '大脑层 (AI)', sync: '同步清单', nickname: '别名優先', apply: '保存设置', diagnosis: '诊断报告', rca: '原因分析', capa: '改善措施', pythonApp: 'Python 应用', skill: '技能' },  
+  'en-US': { name: 'English', app: 'ASNS (AI Sensory Nervous System)', connect: 'Connectivity', store: 'App Store', devices: 'Sensors', dash: 'Dashboard', dev: 'IDE', status: 'Status', cpu: 'CPU', ram: 'RAM', ssd: 'SSD Life', online: 'Online', offline: 'Offline', install: 'Install', l1: 'Sensory (RocksDB)', l2: 'Transmission (SQL)', l3: 'Cognitive (AI)', sync: 'Sync', nickname: 'Nickname First', apply: 'Apply', diagnosis: 'AI Report', rca: 'RCA', capa: 'CAPA', pythonApp: 'Python App', skill: 'Skill' },  
+  'ja-JP': { name: '日本語', app: 'ASNS（AI感覚神経系）', connect: '接続設定', store: 'ストア', devices: 'デバイス', dash: 'パネル', dev: 'ツール', status: 'ステータス', cpu: 'CPU', ram: 'メモリ', ssd: 'SSD寿命', online: 'オンライン', offline: 'オフライン', install: '導入', l1: '感知層', l2: '伝導層', l3: '知能層', sync: '同期', nickname: '別名優先', apply: '適用', diagnosis: '診断報告', rca: '原因分析', capa: '改善策', pythonApp: 'Python アプリ', skill: 'スキル' },  
+  'ko-KR': { name: '한국어', app: 'ASNS（AI 감각 신경계）', connect: '연결 설정', store: '스토어', devices: '장치', dash: '대시보드', dev: '도구', status: '상태', cpu: 'CPU', ram: 'RAM', ssd: 'SSD 수명', online: '온라인', offline: '오프라인', install: '설치', l1: '감지층', l2: '전송층', l3: '지능층', sync: '동기화', nickname: '별칭 우선', apply: '적용', diagnosis: '진단 보고서', rca: '원인 분석', capa: '개선 조치', pythonApp: 'Python 앱', skill: '기술' },  
+  'fr-FR': { name: 'Français', app: 'ASNS (Système Nerveux Sensoriel AI)', connect: 'Connexion', store: 'Boutique', devices: 'Appareils', dash: 'Tableau', dev: 'Outils', status: 'Statut', cpu: 'CPU', ram: 'RAM', ssd: 'Vie SSD', online: 'En ligne', offline: 'Hors ligne', install: 'Installer', l1: 'Sensoriel', l2: 'Transmission', l3: 'Cognition', sync: 'Sync', nickname: 'Pseudo d\'abord', apply: 'Appliquer', diagnosis: 'Rapport AI', rca: 'RCA', capa: 'CAPA', pythonApp: 'App Python', skill: 'Compétence' },  
+  'de-DE': { name: 'Deutsch', app: 'ASNS (Sensorisches Nervensystem AI)', connect: 'Verbindung', store: 'Laden', devices: 'Geräte', dash: 'Dashboard', dev: 'Tools', status: 'Status', cpu: 'CPU', ram: 'RAM', ssd: 'SSD Leben', online: 'Online', offline: 'Offline', install: 'Installieren', l1: 'Sensorik', l2: 'Übertragung', l3: 'Kognition', sync: 'Sync', nickname: 'Spitzname zuerst', apply: 'Speichern', diagnosis: 'KI-Bericht', rca: 'RCA', capa: 'CAPA', pythonApp: 'Python App', skill: 'Fähigkeit' },  
+  'vi-VN': { name: 'Tiếng Việt', app: 'ASNS (Hệ Thần Kinh Cảm Biến AI)', connect: 'Kết nối', store: 'Cửa hàng', devices: 'Thiết bị', dash: 'Bảng điều khiển', dev: 'Công cụ', status: 'Trạng thái', cpu: 'CPU', ram: 'RAM', ssd: 'Tuổi thọ SSD', online: 'Trực tuyến', offline: 'Ngoại tuyến', install: 'Cài đặt', l1: 'Cảm biến', l2: 'Truyền dẫn', l3: 'Nhận thức', sync: 'Đồng bộ', nickname: 'Ưu tiên biệt danh', apply: 'Áp dụng', diagnosis: 'Báo cáo AI', rca: 'RCA', capa: 'CAPA', pythonApp: 'Ứng dụng Python', skill: 'Kỹ năng' },  
+  'th-TH': { name: 'ไทย', app: 'ASNS (ระบบประสาทรับความรู้สึก AI)', connect: 'การเชื่อมต่อ', store: 'ร้านค้า', devices: 'อุปกรณ์', dash: 'แผงควบคุม', dev: 'เครื่องมือ', status: 'สถานะ', cpu: 'CPU', ram: 'RAM', ssd: 'อายุ SSD', online: 'ออนไลน์', offline: 'ออฟไลน์', install: 'ติดตั้ง', l1: 'ประสาทสัมผัส', l2: 'การส่งข้อมูล', l3: 'ความรู้ความเข้าใจ', sync: 'ซิงค์', nickname: 'ชื่อเล่นก่อน', apply: 'ใช้', diagnosis: 'รายงาน AI', rca: 'RCA', capa: 'CAPA', pythonApp: 'แอป Python', skill: 'ทักษะ' },  
+  'id-ID': { name: 'Indonesia', app: 'ASNS (Sistem Saraf Sensorik AI)', connect: 'Koneksi', store: 'Toko', devices: 'Perangkat', dash: 'Dasbor', dev: 'Alat', status: 'Status', cpu: 'CPU', ram: 'RAM', ssd: 'Umur SSD', online: 'Online', offline: 'Offline', install: 'Pasang', l1: 'Sensorik', l2: 'Transmisi', l3: 'Kognitif', sync: 'Sinkron', nickname: 'Alias Prioritas', apply: 'Terapkan', diagnosis: 'Laporan AI', rca: 'RCA', capa: 'CAPA', pythonApp: 'Aplikasi Python', skill: 'Keterampilan' }  
+};  
+
+const hostI18n: Record<string, Record<string, string>> = {
+  'zh-TW': {
+    endpoint: 'EDC URL',
+    username: '帳戶名',
+    password: '密碼',
+    openApp: '打開應用',
+    hostedApp: '宿主應用',
+    storeIntro: '在 ASNS 宿主中安裝與打開業務應用，先完成宿主與應用的串聯。',
+    embeddedHint: '目前先以宿主內嵌方式串聯，方便確認應用商店、已安裝應用與業務頁面的整體關係。',
+    openInNewWindow: '新視窗打開',
+    apiConnection: 'API 連線',
+    apiConnectionDesc: '由 ASNS 宿主層負責與 EDC 後台建立系統級連線，應用層只消費已連進來的資料來源。',
+    connectSource: '連線來源',
+    connectSourceDesc: '輸入 EDC 位址、帳戶與密碼，建立宿主層連線。',
+    testConnection: '測試連線',
+    syncChannels: '同步通道',
+    lastSync: '最近同步',
+    connectedMachine: '已連接節點',
+    mappingWorkbench: '通道工作台',
+    mappingWorkbenchDesc: '宿主層先把硬體通道讀進來並整理成採集清單，後續應用再從這份清單裡做自己的配置。',
+    hardwareCollectionWorkbench: '硬體通道採集',
+    sourceCatalog: '來源通道目錄',
+    sourceCatalogDesc: '直接從硬體讀取原始通道，支援逐條加入或整組加入，方便先建立可用資料清單。',
+    addedChannels: '已添加通道清單',
+    addedChannelsDesc: '這裡先收集宿主層要保留的硬體通道；應用商店內的各個應用之後再從這份清單挑選自己要用的欄位。',
+    searchPlaceholder: '搜尋設備、區域、通道名稱或 suid/cuid',
+    channelAddHint: '左側每條通道都可以直接加入，設備組也支援整組加入。',
+    saveDraft: '保存草稿',
+    required: '必填',
+    mapped: '已映射',
+    unmapped: '未映射',
+    sourceDevice: '來源設備',
+    sourceChannel: '來源通道',
+    noResult: '沒有符合搜尋條件的通道',
+    assignNow: '選中查看',
+    addCurrent: '添加此通道',
+    addGroup: '整組添加',
+    added: '已添加',
+    alreadyAdded: '已在清單',
+    removeCurrent: '移除這條',
+    removeGroup: '移除整組',
+    sourceDetailLabel: '通道詳情',
+    selectedChannel: '當前選中通道',
+    selectedChannelDesc: '查看通道明細、最近值，以及它是否已經加入宿主層採集清單。',
+    collectionStatus: '加入狀態',
+    alreadyInCollection: '這條通道已經在宿主層採集清單裡。',
+    notInCollectionYet: '這條通道還沒有加入宿主層採集清單。',
+    sourceReadonly: '只讀目錄',
+    sourceRealtime: '宿主直連',
+    enabledChannels: '使能通道',
+    connectionReady: 'EDC 連線就緒',
+    waitingValidation: '等待驗證',
+    testSuccess: '連線測試成功，已取得設備清單摘要。',
+    testFailed: '連線測試失敗',
+    syncSuccess: '通道清單同步完成，已更新宿主目錄。',
+    syncFailed: '同步失敗',
+    selectedEmpty: '請先從左側選擇一條通道',
+    hostConnectNote: '宿主層只負責後台連線、同步與標準化，後續各業務應用共享同一份連線能力。',
+    hostCollectionNote: '這一頁先做宿主層硬體通道收集，不直接處理各個應用的欄位映射。',
+    collectionExplain: '先把硬體通道加入宿主清單，之後各應用再從這份清單裡綁自己的欄位。',
+    noAddedChannels: '目前還沒有加入任何硬體通道。',
+    channelCountLabel: 'channels',
+    draftSaved: '草稿已保存，時間：',
+    settingsAppliedMessage: '設定已保存，時間：',
+    draftRestored: '已恢復上次保存的草稿，時間：',
+    draftRestoreFailed: '上次保存的草稿無法恢復，請重新保存。',
+  },
+  'zh-CN': {
+    endpoint: 'EDC URL',
+    username: '账户名',
+    password: '密码',
+    openApp: '打开应用',
+    hostedApp: '宿主应用',
+    storeIntro: '在 ASNS 宿主中安装与打开业务应用，先完成宿主与应用的串联。',
+    embeddedHint: '目前先以宿主内嵌方式串联，方便确认应用商店、已安装应用与业务页面的整体关系。',
+    openInNewWindow: '新窗口打开',
+    apiConnection: 'API 连接',
+    apiConnectionDesc: '由 ASNS 宿主层负责与 EDC 后台建立系统级连接，应用层只消费已连进来的数据来源。',
+    connectSource: '连接来源',
+    connectSourceDesc: '输入 EDC 地址、账户与密码，建立宿主层连接。',
+    testConnection: '测试连接',
+    syncChannels: '同步通道',
+    lastSync: '最近同步',
+    connectedMachine: '已连接节点',
+    mappingWorkbench: '通道工作台',
+    mappingWorkbenchDesc: '宿主层先把硬件通道读进来并整理成采集清单，后续应用再从这份清单里做自己的配置。',
+    hardwareCollectionWorkbench: '硬件通道采集',
+    sourceCatalog: '来源通道目录',
+    sourceCatalogDesc: '直接从硬件读取原始通道，支持逐条加入或整组加入，方便先建立可用数据清单。',
+    addedChannels: '已添加通道清单',
+    addedChannelsDesc: '这里先收集宿主层要保留的硬件通道；应用商店内的各个应用之后再从这份清单挑选自己要用的字段。',
+    searchPlaceholder: '搜索设备、区域、通道名称或 suid/cuid',
+    channelAddHint: '左侧每条通道都可以直接加入，设备组也支持整组加入。',
+    saveDraft: '保存草稿',
+    required: '必填',
+    mapped: '已映射',
+    unmapped: '未映射',
+    sourceDevice: '来源设备',
+    sourceChannel: '来源通道',
+    noResult: '没有符合搜索条件的通道',
+    assignNow: '选中查看',
+    addCurrent: '添加此通道',
+    addGroup: '整组添加',
+    added: '已添加',
+    alreadyAdded: '已在清单',
+    removeCurrent: '移除这条',
+    removeGroup: '移除整组',
+    sourceDetailLabel: '通道详情',
+    selectedChannel: '当前选中通道',
+    selectedChannelDesc: '查看通道明细、最近值，以及它是否已经加入宿主层采集清单。',
+    collectionStatus: '加入状态',
+    alreadyInCollection: '这条通道已经在宿主层采集清单里。',
+    notInCollectionYet: '这条通道还没有加入宿主层采集清单。',
+    sourceReadonly: '只读目录',
+    sourceRealtime: '宿主直连',
+    enabledChannels: '使能通道',
+    connectionReady: 'EDC 连接就绪',
+    waitingValidation: '等待验证',
+    testSuccess: '连接测试成功，已取得设备清单摘要。',
+    testFailed: '连接测试失败',
+    syncSuccess: '通道清单同步完成，已更新宿主目录。',
+    syncFailed: '同步失败',
+    selectedEmpty: '请先从左侧选择一条通道',
+    hostConnectNote: '宿主层只负责后台连接、同步与标准化，后续各业务应用共享同一份连接能力。',
+    hostCollectionNote: '这一页先做宿主层硬件通道收集，不直接处理各个应用的字段映射。',
+    collectionExplain: '先把硬件通道加入宿主清单，之后各应用再从这份清单里绑自己的字段。',
+    noAddedChannels: '目前还没有加入任何硬件通道。',
+    channelCountLabel: 'channels',
+    draftSaved: '草稿已保存，时间：',
+    settingsAppliedMessage: '设置已保存，时间：',
+    draftRestored: '已恢复上次保存的草稿，时间：',
+    draftRestoreFailed: '上次保存的草稿无法恢复，请重新保存。',
+  },
+  'en-US': {
+    endpoint: 'EDC URL',
+    username: 'Username',
+    password: 'Password',
+    openApp: 'Open App',
+    hostedApp: 'Hosted App',
+    storeIntro: 'Install and open business apps inside ASNS first, then iterate on the embedded experience.',
+    embeddedHint: 'The host currently embeds the business app so we can validate store, installed-app entry, and page flow together.',
+    openInNewWindow: 'Open in New Window',
+    apiConnection: 'API Connection',
+    apiConnectionDesc: 'ASNS owns the system-level connection to EDC. The app only consumes the connected data sources.',
+    connectSource: 'Connection Source',
+    connectSourceDesc: 'Enter EDC URL, username, and password to establish the host-level connection.',
+    testConnection: 'Test Connection',
+    syncChannels: 'Sync Channels',
+    lastSync: 'Last Sync',
+    connectedMachine: 'Connected Node',
+    mappingWorkbench: 'Channel Workbench',
+    mappingWorkbenchDesc: 'The host first reads hardware channels into a shared collection. Each installed app will later map its own fields from that collection.',
+    hardwareCollectionWorkbench: 'Hardware Channel Intake',
+    sourceCatalog: 'Source Catalog',
+    sourceCatalogDesc: 'Read raw hardware channels directly and support adding one-by-one or by device group.',
+    addedChannels: 'Added Channel Collection',
+    addedChannelsDesc: 'The host keeps a reusable hardware channel collection here. Installed apps will later pick their own fields from it.',
+    searchPlaceholder: 'Search by device, area, channel name, or suid/cuid',
+    channelAddHint: 'Each row can be added directly, and each device group also supports bulk add.',
+    saveDraft: 'Save Draft',
+    required: 'Required',
+    mapped: 'Mapped',
+    unmapped: 'Unmapped',
+    sourceDevice: 'Device',
+    sourceChannel: 'Channel',
+    noResult: 'No channels match the current search',
+    assignNow: 'Inspect',
+    addCurrent: 'Add Channel',
+    addGroup: 'Add Group',
+    added: 'Added',
+    alreadyAdded: 'Already Added',
+    removeCurrent: 'Remove',
+    removeGroup: 'Remove Group',
+    sourceDetailLabel: 'Channel Details',
+    selectedChannel: 'Selected Channel',
+    selectedChannelDesc: 'Review channel details, the latest sample, and whether this channel is already in the host collection.',
+    collectionStatus: 'Collection Status',
+    alreadyInCollection: 'This channel is already included in the host-level collection.',
+    notInCollectionYet: 'This channel has not been added to the host-level collection yet.',
+    sourceReadonly: 'Readonly Catalog',
+    sourceRealtime: 'Live via Host',
+    enabledChannels: 'Enabled Channels',
+    connectionReady: 'EDC Link Ready',
+    waitingValidation: 'Waiting for Validation',
+    testSuccess: 'Connection test succeeded and returned a device summary.',
+    testFailed: 'Connection test failed',
+    syncSuccess: 'Channel sync completed and refreshed the host catalog.',
+    syncFailed: 'Channel sync failed',
+    selectedEmpty: 'Choose one channel from the left first',
+    hostConnectNote: 'The host owns connectivity, synchronization, and standardization so every installed app can reuse one shared connection.',
+    hostCollectionNote: 'This page only collects reusable hardware channels at the host layer. App field mapping will happen later inside each installed app.',
+    collectionExplain: 'First add hardware channels into the host collection. Each app will later map its own business fields from this shared list.',
+    noAddedChannels: 'No hardware channels have been added yet.',
+    channelCountLabel: 'channels',
+    draftSaved: 'Draft saved at',
+    settingsAppliedMessage: 'Settings saved at',
+    draftRestored: 'Restored the previous draft from',
+    draftRestoreFailed: 'The previous draft could not be restored. Please save again.',
+  },
+};
+
+const mappingFieldDefinitions: Array<{
+  key: MappingFieldKey;
+  labelKey: string;
+  descriptionKey: string;
+}> = [
+  { key: 'power', labelKey: 'fieldPower', descriptionKey: 'fieldPowerDesc' },
+  { key: 'voltage', labelKey: 'fieldVoltage', descriptionKey: 'fieldVoltageDesc' },
+  { key: 'temperature', labelKey: 'fieldTemperature', descriptionKey: 'fieldTemperatureDesc' },
+  { key: 'pressure', labelKey: 'fieldPressure', descriptionKey: 'fieldPressureDesc' },
+];
+
+const realChannelCatalog: ChannelMappingItem[] = [...edcChannelSnapshot];
+
+function findChannelByKeyword(catalog: ChannelMappingItem[], keywords: string[]) {
+  return catalog.find((item) => {
+    const haystack = `${item.deviceName} ${item.deviceType} ${item.channelName} ${item.unit}`.toLowerCase();
+    return keywords.some((keyword) => haystack.includes(keyword));
+  });
+}
+
+function buildDefaultMapping(catalog: ChannelMappingItem[]): Record<MappingFieldKey, string | null> {
+  return {
+    power: findChannelByKeyword(catalog, ['功率', 'power', '有功'])?.id ?? null,
+    voltage: findChannelByKeyword(catalog, ['电压', '電壓', 'voltage'])?.id ?? null,
+    temperature: findChannelByKeyword(catalog, ['温度', '溫度', '热电偶'])?.id ?? null,
+    pressure: findChannelByKeyword(catalog, ['压力', '壓力', 'mpa', '4-20'])?.id ?? null,
+  };
+}
+
+const defaultMappingSeed: Record<MappingFieldKey, string | null> = buildDefaultMapping(realChannelCatalog);
+
+interface AppWindow {
+  id: string;
+  name: string;
+  icon?: React.ReactNode;
+  iconUrl?: string;
+  color: string;
+  description?: string;
+  kind?: 'system' | 'embedded';
+  launchUrl?: string;
+}
+
+interface WindowProps {
+  win: AppWindow;
+  active: boolean;
+  onFocus: () => void;
+  onClose: () => void;
+  theme: string;
+  children: React.ReactNode;
+}
+
+interface Sensor {
+  suid: string;
+  name: string;
+  nickname: string;
+  value: number;
+  unit: string;
+}
+
+interface SensorGroup {
+  cuid: string;
+  nickname: string;
+  status: string;
+  sensors: Sensor[];
+}
+
+interface Config {
+  endpoint: string;
+  username: string;
+  password: string;
+}
+
+interface SettingsViewProps {
+  config: Config;
+  setConfig: (config: Config) => void;
+  t: (key: string) => string;
+  isConnected: boolean;
+  setIsConnected: (connected: boolean) => void;
+}
+
+type MappingFieldKey = 'power' | 'voltage' | 'temperature' | 'pressure';
+
+interface ChannelMappingItem {
+  id: string;
+  deviceName: string;
+  deviceType: string;
+  area: string;
+  suid: string;
+  cuid: string;
+  channelName: string;
+  unit: string;
+  lastValue: string;
+  status: 'online' | 'idle';
+}
+
+interface HostEdcMeta {
+  source: string;
+  sensorCount: number;
+  channelCount: number;
+  enabledChannelCount: number;
+}
+
+interface HostEdcResponse {
+  ok: boolean;
+  nodeName: string;
+  checkedAt: string;
+  meta: HostEdcMeta;
+  channels?: ChannelMappingItem[];
+  message?: string;
+}
+
+interface DeviceViewProps {
+  sensors: SensorGroup[];
+  getLabel: (item: any) => string;
+  t: (key: string) => string;
+}
+
+interface StoreViewProps {
+  t: (key: string) => string;
+  items: StoreItem[];
+  installedAppIds: string[];
+  onInstall: (appId: string) => void;
+  onOpen: (appId: string) => void;
+}
+
+interface StoreItem extends AppWindow {
+  type: 'py' | 'md' | 'app';
+  status: 'deployable' | 'ready' | 'installed';
+}
+
+interface AppStudioViewProps {
+  t: (key: string) => string;
+  onAddApp: (app: AppWindow) => void;
+}
+  
+export default function App() {  
+  // 核心狀態  
+  const [lang, setLang] = useState('zh-CN');  
+  const [theme, setTheme] = useState('light');  
+  const [openWindowIds, setOpenWindowIds] = useState<string[]>([]);  
+  const [activeWin, setActiveWin] = useState<string | null>(null);  
+  const [customApps, setCustomApps] = useState<AppWindow[]>([]);
+  const [installedAppIds, setInstalledAppIds] = useState<string[]>(['edc-electricity']);
+  const [isConnected, setIsConnected] = useState(false);  
+  const [showLangMenu, setShowLangMenu] = useState(false);  
+  const embeddedEdcUrl =
+    (globalThis as typeof globalThis & { __ASNS_EDC_APP_URL__?: string }).__ASNS_EDC_APP_URL__ ||
+    'http://127.0.0.1:3000/edc/';
+    
+  // EDC API 配置狀態  
+  const [config, setConfig] = useState<Config>({  
+    endpoint: 'http://60.251.229.32',
+    username: 'volapu',
+    password: 'admin',
+  });  
+  
+  // 感測器清單 (落實 Nickname 優先邏輯)  
+  const [sensors, setSensors] = useState<SensorGroup[]>([  
+    { cuid: 'C001', nickname: '一號空壓機房', status: 'active', sensors: [  
+      { suid: 'S01', name: 'Main_Power', nickname: '總供電負載', value: 45.8, unit: 'kW' },  
+      { suid: 'S02', name: 'Pressure_Tank', nickname: '', value: 7.2, unit: 'bar' }  
+    ]},  
+    { cuid: 'C002', nickname: '', status: 'active', sensors: [  
+      { suid: 'S01', name: 'Motor_Temp', nickname: '馬達溫度', value: 42.5, unit: '°C' },  
+      { suid: 'S02', name: 'Vibration_X', nickname: '', value: 0.08, unit: 'g' }  
+    ]}  
+  ]);  
+  
+  const t = (key: string) =>
+    hostI18n[lang]?.[key] ||
+    translations[lang]?.[key] ||
+    hostI18n['zh-CN']?.[key] ||
+    translations['zh-CN']?.[key] ||
+    key;  
+  
+  // 輔助邏輯：Nickname > Name > ID  
+  const getLabel = (item: any) => item.nickname || item.name || item.cuid || item.suid;  
+
+  const storeItems: StoreItem[] = [
+    {
+      id: 'edc-electricity',
+      name: 'EDC electricity',
+      icon: <Zap className="w-full h-full" />,
+      color: 'bg-gradient-to-br from-blue-600 to-cyan-500',
+      description: '中頻爐熔煉偏差監控與基線分析應用，將作為 ASNS 應用商店中的已安裝業務應用提供。',
+      type: 'app',
+      status: installedAppIds.includes('edc-electricity') ? 'installed' : 'deployable',
+      kind: 'embedded',
+      launchUrl: embeddedEdcUrl,
+    },
+    {
+      id: 'l2_cleaner',
+      name: 'Power Matrix L2',
+      description: 'Python 清洗應用：負責將 RocksDB 原始電力流轉化為特徵 JSON。',
+      type: 'py',
+      status: 'deployable',
+      color: 'bg-blue-500',
+    },
+    {
+      id: 'l3_expert',
+      name: 'OpenClaw Expert',
+      description: 'L3 診斷技能：馬達壽命預測、機電故障 RCA 分析。',
+      type: 'md',
+      status: 'ready',
+      color: 'bg-purple-500',
+    },
+  ];
+
+  const installedStoreApps = storeItems.filter(item => installedAppIds.includes(item.id));
+  
+  const appIcons: AppWindow[] = [  
+    { id: 'dash', name: t('dash'), icon: <Activity className="w-full h-full" />, color: 'bg-blue-500' },  
+    { id: 'store', name: t('store'), icon: <Package className="w-full h-full" />, color: 'bg-orange-500' },  
+    { id: 'devices', name: t('devices'), icon: <Database className="w-full h-full" />, color: 'bg-emerald-500' },  
+    { id: 'studio', name: 'App Studio', icon: <Cpu className="w-full h-full" />, color: 'bg-indigo-600' },
+    { id: 'connect', name: t('connect'), icon: <Settings className="w-full h-full" />, color: 'bg-slate-600' },  
+    ...installedStoreApps,
+    ...customApps
+  ];  
+  
+  const openWindows = openWindowIds.map(id => appIcons.find(app => app.id === id)).filter(Boolean) as AppWindow[];
+
+  const toggleWindow = (appId: string) => {  
+    if (openWindowIds.includes(appId)) setActiveWin(appId);  
+    else setOpenWindowIds([...openWindowIds, appId]);  
+    setActiveWin(appId);  
+  };  
+
+  const installApp = (appId: string) => {
+    if (installedAppIds.includes(appId)) {
+      return;
+    }
+    setInstalledAppIds([...installedAppIds, appId]);
+  };
+  
+  return (  
+    <div className={`${theme === 'dark' ? 'dark' : ''} h-screen w-full transition-all duration-700 select-none overflow-hidden font-sans`}>  
+      <div className="h-full w-full bg-[#F2F2F7] dark:bg-[#000000] text-slate-900 dark:text-white relative transition-colors duration-700">  
+          
+        {/* iOS 科技感背景裝飾 - 增強光影質感 */}  
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">  
+          <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-blue-400/20 dark:bg-blue-600/10 rounded-full blur-[160px] animate-pulse duration-[10000ms]" />  
+          <div className="absolute bottom-[-20%] right-[-10%] w-[70%] h-[70%] bg-purple-400/20 dark:bg-purple-600/10 rounded-full blur-[160px] animate-pulse duration-[12000ms]" />  
+          <div className="absolute top-[40%] left-[40%] w-[40%] h-[40%] bg-emerald-400/10 dark:bg-emerald-600/5 rounded-full blur-[140px] animate-pulse duration-[15000ms]" />
+        </div>  
+  
+        {/* 頂部狀態欄 (iOS Style) - 增加磨砂質感 */}  
+        <div className="h-10 w-full bg-white/60 dark:bg-black/40 backdrop-blur-xl px-4 md:px-6 flex justify-between items-center text-[11px] font-medium z-50 border-b border-white/20 dark:border-white/5 shadow-sm">  
+          <div className="flex items-center gap-3 md:gap-6">  
+            <span className="text-slate-950 dark:text-white tracking-tight text-sm font-bold flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              <span className="inline">{t('app')}</span>
+            </span>  
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-black/5 dark:bg-white/10 backdrop-blur-md">
+              <Cpu className="w-3.5 h-3.5 opacity-70" /> 
+              <span className="font-mono font-bold">12%</span>
+            </div>  
+            <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-full bg-black/5 dark:bg-white/10 backdrop-blur-md">
+              <Database className="w-3.5 h-3.5 text-emerald-500" /> 
+              <span className="font-bold">PostgreSQL</span>
+              <span className="text-[9px] uppercase opacity-60 ml-1">{t('online')}</span>
+            </div>  
+          </div>  
+          <div className="flex items-center gap-2 md:gap-4">  
+            <button 
+              onClick={() => setShowLangMenu(!showLangMenu)} 
+              className="flex items-center gap-2 hover:bg-black/5 dark:hover:bg-white/10 px-2 md:px-3 py-1.5 rounded-full transition-all active:scale-95"
+            >  
+              <Globe className="w-3.5 h-3.5" /> 
+              <span className="font-bold inline">{translations[lang].name}</span>
+            </button>  
+            <button 
+              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+              className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-all active:scale-95 active:rotate-12"
+            >  
+              {theme === 'light' ? <Moon className="w-4 h-4 text-slate-700" /> : <Sun className="w-4 h-4 text-yellow-400" />}  
+            </button>  
+            <span className="font-mono font-bold opacity-60 tabular-nums tracking-widest text-[10px] md:text-[11px]">
+              {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>  
+          </div>  
+        </div>  
+  
+        {/* 語言選擇菜單 - iOS 彈出風格 */}  
+        {showLangMenu && (  
+          <>
+            <div className="fixed inset-0 z-[90]" onClick={() => setShowLangMenu(false)} />
+            <div className="absolute top-14 right-6 w-56 bg-white/80 dark:bg-[#1C1C1E]/80 backdrop-blur-2xl rounded-2xl shadow-2xl border border-white/20 dark:border-white/10 p-2 z-[100] animate-in fade-in zoom-in-95 duration-200 origin-top-right">  
+              <div className="px-3 py-2 text-[10px] font-bold uppercase opacity-40 tracking-widest mb-1">Select Language</div>
+              <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                {Object.keys(translations).map(code => (  
+                  <button   
+                    key={code}  
+                    onClick={() => { setLang(code); setShowLangMenu(false); }}  
+                    className={`w-full text-left px-3 py-2.5 rounded-xl text-xs transition-all flex justify-between items-center mb-1 ${lang === code ? 'bg-blue-500 text-white font-bold shadow-lg shadow-blue-500/30' : 'hover:bg-black/5 dark:hover:bg-white/10 text-slate-700 dark:text-slate-200'}`}  
+                  >  
+                    {translations[code].name}  
+                    {lang === code && <Check className="w-3.5 h-3.5" />}  
+                  </button>  
+                ))}  
+              </div>
+            </div>  
+          </>
+        )}  
+  
+        {/* 桌面圖示區域 - 網格佈局優化 */}  
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-6 md:gap-10 p-8 md:p-16 h-[calc(100%-140px)] content-start overflow-y-auto custom-scrollbar">  
+          {appIcons.map(app => (  
+            <div   
+              key={app.id}   
+              onClick={() => {
+                // On mobile, single click might be better, but let's keep double click for desktop feel
+                // and add a fallback for touch
+                if (window.innerWidth < 768) toggleWindow(app.id);
+              }}
+              onDoubleClick={() => toggleWindow(app.id)}  
+              className="flex flex-col items-center gap-2 md:gap-3 w-full cursor-pointer group"  
+            >  
+              <div className={`
+                ${app.color} w-16 h-16 md:w-20 md:h-20 rounded-[20px] md:rounded-[24px] shadow-xl 
+                group-hover:scale-105 group-active:scale-95 transition-all duration-300 
+                flex items-center justify-center relative overflow-hidden
+                ring-1 ring-black/5 dark:ring-white/10
+              `}>  
+                <div className="text-white w-8 h-8 md:w-10 md:h-10 drop-shadow-md flex items-center justify-center">
+                  {app.iconUrl ? (
+                    <img src={app.iconUrl} alt={app.name} className="w-full h-full object-cover rounded-lg" referrerPolicy="no-referrer" />
+                  ) : (
+                    app.icon
+                  )}
+                </div>
+                
+                {/* 凝膠光澤效果 */}
+                <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent pointer-events-none" />
+                <div className="absolute inset-0 bg-gradient-to-tr from-black/10 to-transparent pointer-events-none" />
+              </div>  
+              <span className="text-[10px] md:text-xs font-medium text-slate-600 dark:text-slate-300 text-center drop-shadow-sm bg-white/30 dark:bg-black/30 backdrop-blur-md px-2 md:px-3 py-0.5 md:py-1 rounded-full border border-white/20 dark:border-white/5 truncate w-full">
+                {app.name}
+              </span>  
+            </div>  
+          ))}  
+        </div>  
+  
+        {/* 視窗管理系統 */}  
+        {openWindows.map(win => (  
+          <WindowFrame   
+            key={win.id}   
+            win={win}   
+            active={activeWin === win.id}  
+            onFocus={() => setActiveWin(win.id)}  
+            onClose={() => setOpenWindowIds(openWindowIds.filter(id => id !== win.id))}  
+            theme={theme}  
+            >  
+            {win.id === 'connect' && <HostSettingsView config={config} setConfig={setConfig} t={t} isConnected={isConnected} setIsConnected={setIsConnected} />}  
+            {win.id === 'devices' && <DeviceView sensors={sensors} getLabel={getLabel} t={t} />}  
+            {win.id === 'store' && (
+              <StoreView
+                t={t}
+                items={storeItems}
+                installedAppIds={installedAppIds}
+                onInstall={installApp}
+                onOpen={toggleWindow}
+              />
+            )}  
+            {win.id === 'studio' && <AppStudioView t={t} onAddApp={(newApp) => setCustomApps([...customApps, newApp])} />}
+            {win.kind === 'embedded' && win.launchUrl && (
+              <EmbeddedAppView
+                appName={win.name}
+                launchUrl={win.launchUrl}
+              />
+            )}
+          </WindowFrame>  
+        ))}  
+  
+        {/* 底部 Dock (iOS Style) - 懸浮玻璃質感 */}  
+        <div className="absolute bottom-4 md:bottom-8 left-1/2 -translate-x-1/2 px-3 md:px-5 py-2 md:py-4 bg-white/20 dark:bg-black/20 backdrop-blur-3xl border border-white/30 dark:border-white/10 rounded-[24px] md:rounded-[40px] shadow-2xl flex items-center gap-3 md:gap-6 z-50 hover:bg-white/30 dark:hover:bg-black/30 transition-colors duration-500">  
+          {appIcons.map(app => (  
+            <button   
+              key={app.id}  
+              onClick={() => toggleWindow(app.id)}  
+              className={`
+                w-12 h-12 md:w-16 md:h-16 rounded-[14px] md:rounded-[20px] ${app.color} text-white p-3 md:p-4 
+                hover:scale-110 md:hover:-translate-y-4 active:scale-95 transition-all duration-300 ease-out
+                shadow-lg shadow-black/10 flex items-center justify-center relative group
+                ring-1 ring-black/5 dark:ring-white/10 overflow-hidden
+              `}  
+            >  
+            <div className="relative z-10 w-full h-full drop-shadow-md flex items-center justify-center">
+              {app.iconUrl ? (
+                <img src={app.iconUrl} alt={app.name} className="w-full h-full object-cover rounded-md" referrerPolicy="no-referrer" />
+              ) : (
+                app.icon
+              )}
+            </div>
+              
+              {/* 凝膠光澤 */}
+              <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/25 to-transparent pointer-events-none" />
+              
+              {openWindowIds.includes(app.id) && (  
+                <div className="absolute -bottom-2 md:-bottom-3 w-1 h-1 md:w-1.5 md:h-1.5 bg-slate-800 dark:bg-white rounded-full shadow-lg" />  
+              )}  
+            </button>  
+          ))}  
+        </div>  
+      </div>  
+    </div>  
+  );  
+}  
+  
+// --- 通用視窗容器 - 增強玻璃質感 ---  
+const WindowFrame: React.FC<WindowProps> = ({ win, active, onFocus, onClose, theme, children }) => {  
+  const isLargeWorkspace = win.id === 'connect' || win.kind === 'embedded';
+  return (  
+    <div   
+      onClick={onFocus}  
+      className={`
+        absolute top-0 md:top-12 left-0 md:left-1/2 md:-translate-x-1/2 w-full ${isLargeWorkspace ? 'md:w-[calc(100%-48px)] md:h-[calc(100%-112px)]' : 'md:w-[900px] md:h-[600px]'} h-full md:rounded-[32px] shadow-2xl transition-all duration-500 flex flex-col overflow-hidden backdrop-blur-3xl 
+        ${active ? 'z-40 scale-100 opacity-100 ring-1 ring-white/20 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)]' : 'z-30 scale-95 opacity-60 border-transparent pointer-events-none blur-[1px] translate-y-4'} 
+        ${theme === 'dark' ? 'bg-[#1C1C1E]/85 border-white/10' : 'bg-white/85 border-white/40'}
+        border-0 md:border
+      `}  
+    >  
+      {/* 視窗標題欄 */}
+      <div className={`h-12 md:h-14 flex items-center justify-between px-4 md:px-6 select-none cursor-grab active:cursor-grabbing border-b ${theme === 'dark' ? 'border-white/5 bg-white/5' : 'border-black/5 bg-black/5'}`}>  
+        <div className="flex gap-2.5 group">  
+          <button onClick={(e) => {e.stopPropagation(); onClose();}} className="w-3.5 h-3.5 rounded-full bg-[#FF5F57] border border-[#E0443E] hover:brightness-90 transition-all shadow-sm flex items-center justify-center group-hover:text-black/50 text-transparent">
+            <X className="w-2.5 h-2.5" strokeWidth={3} />
+          </button>  
+          <button className="hidden xs:block w-3.5 h-3.5 rounded-full bg-[#FEBC2E] border border-[#D89E24] hover:brightness-90 transition-all shadow-sm" />  
+          <button className="hidden xs:block w-3.5 h-3.5 rounded-full bg-[#28C840] border border-[#1AAB29] hover:brightness-90 transition-all shadow-sm" />  
+        </div>  
+        <div className="flex flex-col items-center">
+          <span className="text-[10px] md:text-xs font-bold opacity-70 uppercase tracking-widest flex items-center gap-2">
+            {win.icon && <span className="w-3 h-3 opacity-50">{win.icon}</span>}
+            {win.name}
+          </span>  
+        </div>
+        <div className="w-14 flex justify-end">
+          <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center">
+            <User className="w-3.5 h-3.5 md:w-4 md:h-4 opacity-50" />
+          </div>
+        </div>  
+      </div>  
+      <div className="flex-1 overflow-hidden relative">
+        {children}
+        {/* 內容區域內陰影增強層次感 */}
+        <div className="absolute inset-0 pointer-events-none shadow-[inset_0_10px_20px_-10px_rgba(0,0,0,0.05)]" />
+      </div>  
+    </div>  
+  );  
+}  
+  
+// --- 視窗：連線設置 (EDC API 心臟) - 優化卡片設計 ---  
+function SettingsView({ config, setConfig, t, isConnected, setIsConnected }: SettingsViewProps) {  
+  const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState('');
+  const [activeField, setActiveField] = useState<MappingFieldKey>('power');
+  const [expandedDevices, setExpandedDevices] = useState<Record<string, boolean>>({});
+  const [mapping, setMapping] = useState<Record<MappingFieldKey, string | null>>({
+    ...defaultMappingSeed,
+  });
+
+  const filteredChannels = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) {
+      return realChannelCatalog;
+    }
+    return realChannelCatalog.filter((item) =>
+      [
+        item.deviceName,
+        item.deviceType,
+        item.area,
+        item.channelName,
+        item.suid,
+        item.cuid,
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(normalized),
+    );
+  }, [query]);
+
+  const groupedChannels = useMemo(() => {
+    const groups = new Map<string, ChannelMappingItem[]>();
+    filteredChannels.forEach((item) => {
+      const existing = groups.get(item.deviceName) || [];
+      existing.push(item);
+      groups.set(item.deviceName, existing);
+    });
+    return Array.from(groups.entries()).map(([deviceName, items]) => ({
+      deviceName,
+      deviceType: items[0]?.deviceType || '',
+      area: items[0]?.area || '',
+      items,
+    }));
+  }, [filteredChannels]);
+
+  const handleConnect = () => {
+    setLoading(true);
+    setTimeout(() => {
+      setLoading(false);
+      setIsConnected(true);
+    }, 1200);
+  };
+
+  const assignChannel = (channelId: string) => {
+    setMapping((prev) => ({ ...prev, [activeField]: channelId }));
+  };
+
+  const clearField = (field: MappingFieldKey) => {
+    setMapping((prev) => ({ ...prev, [field]: null }));
+  };
+
+  const toggleDevice = (deviceName: string) => {
+    setExpandedDevices((prev) => ({ ...prev, [deviceName]: !prev[deviceName] }));
+  };
+
+  return (
+    <div className="p-6 md:p-10 flex flex-col gap-6 md:gap-8 h-full bg-gradient-to-br from-transparent to-black/5 dark:to-white/5 overflow-y-auto custom-scrollbar">
+      <div className="flex items-center gap-4 md:gap-6 animate-in slide-in-from-left duration-500">
+        <div className="p-4 md:p-5 bg-blue-500 rounded-[20px] md:rounded-[24px] text-white shadow-lg shadow-blue-500/30 ring-4 ring-blue-500/10">
+          <Settings className="w-8 h-8 md:w-10 md:h-10" />
+        </div>
+        <div>
+          <h2 className="text-2xl md:text-3xl font-black tracking-tight mb-1">{t('connect')}</h2>
+          <p className="text-[11px] md:text-xs opacity-60 font-medium max-w-3xl">
+            {t('apiConnectionDesc')}
+          </p>
+        </div>
+      </div>
+
+      <section className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        <div className="xl:col-span-7 bg-white/55 dark:bg-black/20 rounded-[28px] border border-white/40 dark:border-white/10 backdrop-blur-xl shadow-sm p-6 space-y-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] opacity-40">{t('apiConnection')}</p>
+              <h3 className="text-xl font-black tracking-tight mt-1">{t('connectSource')}</h3>
+              <p className="text-[11px] md:text-xs opacity-55 mt-2 max-w-2xl">{t('connectSourceDesc')}</p>
+            </div>
+            <div className="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-blue-500/10 text-blue-600 dark:text-blue-300 border border-blue-500/15">
+              EDC
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="text-[10px] font-black uppercase opacity-40 ml-1 mb-2 block tracking-wider">{t('endpoint')}</label>
+              <div className="relative group">
+                <Database className="absolute left-4 top-4 w-4 h-4 opacity-40 group-focus-within:text-blue-500 transition-colors" />
+                <input
+                  type="text"
+                  value={config.endpoint}
+                  onChange={(e) => setConfig({ ...config, endpoint: e.target.value })}
+                  className="w-full bg-slate-100/80 dark:bg-black/40 border-none rounded-2xl pl-12 pr-4 py-4 text-sm font-medium focus:ring-2 ring-blue-500/50 transition-all font-mono shadow-inner"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-black uppercase opacity-40 ml-1 mb-2 block tracking-wider">{t('username')}</label>
+              <div className="relative group">
+                <User className="absolute left-4 top-4 w-4 h-4 opacity-40 group-focus-within:text-blue-500 transition-colors" />
+                <input
+                  type="text"
+                  value={config.username}
+                  onChange={(e) => setConfig({ ...config, username: e.target.value })}
+                  className="w-full bg-slate-100/80 dark:bg-black/40 border-none rounded-2xl pl-12 pr-4 py-4 text-sm font-medium focus:ring-2 ring-blue-500/50 transition-all shadow-inner"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-black uppercase opacity-40 ml-1 mb-2 block tracking-wider">{t('password')}</label>
+              <div className="relative group">
+                <Key className="absolute left-4 top-4 w-4 h-4 opacity-40 group-focus-within:text-blue-500 transition-colors" />
+                <input
+                  type="password"
+                  value={config.password}
+                  onChange={(e) => setConfig({ ...config, password: e.target.value })}
+                  className="w-full bg-slate-100/80 dark:bg-black/40 border-none rounded-2xl pl-12 pr-4 py-4 text-sm font-medium focus:ring-2 ring-blue-500/50 transition-all shadow-inner"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="rounded-[22px] bg-slate-100/80 dark:bg-white/5 border border-white/40 dark:border-white/10 p-4">
+              <p className="text-[10px] uppercase tracking-widest opacity-40 font-black">{t('status')}</p>
+              <div className="mt-3 flex items-center gap-3">
+                <div className={`h-3 w-3 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.5)]' : 'bg-slate-400'}`} />
+                <span className="text-sm font-black">{isConnected ? t('online') : t('offline')}</span>
+              </div>
+            </div>
+            <div className="rounded-[22px] bg-slate-100/80 dark:bg-white/5 border border-white/40 dark:border-white/10 p-4">
+              <p className="text-[10px] uppercase tracking-widest opacity-40 font-black">{t('connectedMachine')}</p>
+              <p className="mt-3 text-sm font-black">{config.endpoint}</p>
+              <p className="text-[10px] opacity-50 mt-1">EDC Test Gateway</p>
+            </div>
+            <div className="rounded-[22px] bg-slate-100/80 dark:bg-white/5 border border-white/40 dark:border-white/10 p-4">
+              <p className="text-[10px] uppercase tracking-widest opacity-40 font-black">{t('lastSync')}</p>
+              <p className="mt-3 text-sm font-black">2026-03-16 11:12</p>
+              <p className="text-[10px] opacity-50 mt-1">{edcSnapshotMeta.sensorCount} devices / {edcSnapshotMeta.channelCount} channels</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap justify-end gap-3 pt-1">
+            <button
+              type="button"
+              onClick={handleConnect}
+              className="px-5 py-3 rounded-2xl bg-white dark:bg-white/10 text-slate-700 dark:text-slate-200 text-xs font-black uppercase tracking-widest border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/15 transition-colors flex items-center gap-2"
+            >
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Power className="w-4 h-4" />}
+              {t('testConnection')}
+            </button>
+            <button
+              type="button"
+              className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-blue-500/20 hover:bg-blue-500 transition-colors flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              {t('syncChannels')}
+            </button>
+          </div>
+        </div>
+
+        <div className="xl:col-span-5 bg-gradient-to-br from-white/85 to-white/45 dark:from-white/10 dark:to-white/5 rounded-[28px] border border-white/40 dark:border-white/10 backdrop-blur-xl shadow-sm p-6 flex flex-col gap-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.24em] opacity-40">{t('status')}</p>
+          <div className="flex items-center gap-3">
+            <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${isConnected ? 'bg-emerald-500/15 text-emerald-500' : 'bg-slate-200/70 dark:bg-white/10 text-slate-500'}`}>
+              {isConnected ? <Check className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+            </div>
+            <div>
+              <h4 className="text-lg font-black tracking-tight">
+                {isConnected ? 'EDC Link Ready' : 'Waiting for Validation'}
+              </h4>
+              <p className="text-[11px] opacity-55 mt-1">
+                {isConnected ? t('mappingWorkbenchDesc') : t('chooseFieldHint')}
+              </p>
+            </div>
+          </div>
+          <div className="mt-2 rounded-[22px] bg-black/5 dark:bg-white/5 border border-white/40 dark:border-white/10 p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <Info className="w-4 h-4 text-blue-500 mt-0.5" />
+              <div>
+                <p className="text-xs font-black">{t('connectSource')}</p>
+                <p className="text-[11px] opacity-55 mt-1">
+                  宿主层负责连接，应用层只做字段映射。这样后面多个应用可以复用同一条 EDC 连接。
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <LayoutGrid className="w-4 h-4 text-cyan-500 mt-0.5" />
+              <div>
+                <p className="text-xs font-black">{t('mappingWorkbench')}</p>
+                <p className="text-[11px] opacity-55 mt-1">
+                  建议采用“左侧可搜索来源树 + 右侧固定业务字段槽位”的工作台，而不是让用户在纯树里来回展开查找。
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        <div className="xl:col-span-7 bg-white/55 dark:bg-black/20 rounded-[28px] border border-white/40 dark:border-white/10 backdrop-blur-xl shadow-sm p-6 flex flex-col gap-5 min-h-[460px]">
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] opacity-40">{t('mappingWorkbench')}</p>
+              <h3 className="text-xl font-black tracking-tight mt-1">{t('sourceCatalog')}</h3>
+              <p className="text-[11px] md:text-xs opacity-55 mt-2 max-w-2xl">{t('sourceCatalogDesc')}</p>
+            </div>
+            <div className="relative w-full md:w-80">
+              <Search className="absolute left-4 top-3.5 w-4 h-4 opacity-40" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t('searchPlaceholder')}
+                className="w-full rounded-2xl bg-slate-100/85 dark:bg-black/35 border-none pl-11 pr-4 py-3 text-sm font-medium shadow-inner focus:ring-2 ring-blue-500/50"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 rounded-2xl bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/15 px-4 py-3 text-[11px] font-medium">
+            <Info className="w-4 h-4 shrink-0" />
+            <span>{t('chooseFieldHint')}</span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto pr-1 space-y-4 custom-scrollbar">
+            {groupedChannels.length === 0 ? (
+              <div className="h-full min-h-[220px] rounded-[24px] border border-dashed border-slate-300 dark:border-white/10 flex items-center justify-center text-sm opacity-50">
+                {t('noResult')}
+              </div>
+            ) : (
+              groupedChannels.map((group) => {
+                const expanded = expandedDevices[group.deviceName] ?? true;
+                return (
+                  <div
+                    key={group.deviceName}
+                    className="rounded-[24px] border border-white/40 dark:border-white/10 bg-slate-100/65 dark:bg-white/5 overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleDevice(group.deviceName)}
+                      className="w-full px-5 py-4 flex items-center justify-between gap-4 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                    >
+                      <div className="text-left">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black">{group.deviceName}</span>
+                          <span className="px-2 py-0.5 rounded-full bg-white/70 dark:bg-white/10 text-[9px] uppercase tracking-widest font-black opacity-70">
+                            {group.deviceType}
+                          </span>
+                        </div>
+              <p className="text-[11px] opacity-50 mt-1">
+                {group.area} · {group.items.length} channels
+              </p>
+                      </div>
+                      {expanded ? <ChevronDown className="w-4 h-4 opacity-50" /> : <ChevronRight className="w-4 h-4 opacity-50" />}
+                    </button>
+                    {expanded && (
+                      <div className="px-4 pb-4 space-y-2">
+                        {group.items.map((channel) => {
+                          const isMapped = Object.values(mapping).includes(channel.id);
+                          const active = mapping[activeField] === channel.id;
+                          return (
+                            <button
+                              key={channel.id}
+                              type="button"
+                              onClick={() => assignChannel(channel.id)}
+                              className={`w-full rounded-[20px] border px-4 py-3 text-left transition-all ${
+                                active
+                                  ? 'border-blue-500 bg-blue-500/10 shadow-sm'
+                                  : 'border-white/50 dark:border-white/10 bg-white/70 dark:bg-black/20 hover:border-blue-300 hover:bg-blue-500/5'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-black">{channel.channelName}</span>
+                                    <span className="px-2 py-0.5 rounded-full bg-slate-900 text-white text-[9px] uppercase tracking-widest font-black">
+                                      {channel.unit}
+                                    </span>
+                                    {isMapped && (
+                                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[9px] uppercase tracking-widest font-black">
+                                        {t('mapped')}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[11px] opacity-55 mt-1">
+                                    {t('sourceDevice')}: {channel.deviceName} · suid {channel.suid}
+                                  </p>
+                                  <p className="text-[11px] opacity-55 mt-1">
+                                    {t('sourceChannel')}: cuid {channel.cuid} · last {channel.lastValue}
+                                  </p>
+                                </div>
+                                <span className="text-[10px] font-black uppercase tracking-widest opacity-40 pt-1">
+                                  {t('assignNow')}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="xl:col-span-5 bg-gradient-to-br from-white/85 to-white/50 dark:from-white/10 dark:to-white/5 rounded-[28px] border border-white/40 dark:border-white/10 backdrop-blur-xl shadow-sm p-6 flex flex-col gap-5 min-h-[460px]">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.24em] opacity-40">{t('mappingWorkbench')}</p>
+            <h3 className="text-xl font-black tracking-tight mt-1">{t('mappingTargets')}</h3>
+            <p className="text-[11px] md:text-xs opacity-55 mt-2">{t('mappingTargetsDesc')}</p>
+          </div>
+
+          <div className="space-y-4">
+            {mappingFieldDefinitions.map((field) => {
+              const mappedChannel = realChannelCatalog.find((item) => item.id === mapping[field.key]);
+              const selected = activeField === field.key;
+              return (
+                <button
+                  key={field.key}
+                  type="button"
+                  onClick={() => setActiveField(field.key)}
+                  className={`w-full rounded-[24px] border p-4 text-left transition-all ${
+                    selected
+                      ? 'border-blue-500 bg-blue-500/10 shadow-sm'
+                      : 'border-white/40 dark:border-white/10 bg-slate-100/70 dark:bg-white/5 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-base font-black">{t(field.labelKey)}</span>
+                        <span className="px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-300 text-[9px] uppercase tracking-widest font-black">
+                          {t('required')}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] uppercase tracking-widest font-black ${
+                          mappedChannel ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-slate-200 dark:bg-white/10 opacity-60'
+                        }`}>
+                          {mappedChannel ? t('mapped') : t('unmapped')}
+                        </span>
+                      </div>
+                      <p className="text-[11px] opacity-55 mt-2">{t(field.descriptionKey)}</p>
+                      {mappedChannel ? (
+                        <div className="mt-3 rounded-[18px] bg-white/80 dark:bg-black/20 border border-white/50 dark:border-white/10 px-4 py-3 space-y-1">
+                          <p className="text-xs font-black">{mappedChannel.channelName}</p>
+                          <p className="text-[11px] opacity-55">{mappedChannel.deviceName} · {mappedChannel.area}</p>
+                          <p className="text-[11px] opacity-55">suid {mappedChannel.suid} / cuid {mappedChannel.cuid} · {mappedChannel.unit}</p>
+                        </div>
+                      ) : (
+                        <div className="mt-3 rounded-[18px] border border-dashed border-slate-300 dark:border-white/10 px-4 py-3 text-[11px] opacity-50">
+                          {t('chooseFieldHint')}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        clearField(field.key);
+                      }}
+                      className="px-3 py-2 rounded-xl bg-white dark:bg-white/10 text-[10px] font-black uppercase tracking-widest border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/15 transition-colors"
+                    >
+                      {t('clearMapping')}
+                    </button>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-auto flex justify-end gap-3">
+            <button
+              type="button"
+              className="px-4 py-3 rounded-2xl bg-white dark:bg-white/10 text-slate-700 dark:text-slate-200 text-xs font-black uppercase tracking-widest border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/15 transition-colors"
+            >
+              {t('saveDraft')}
+            </button>
+            <button
+              type="button"
+              className="px-4 py-3 rounded-2xl bg-slate-900 dark:bg-white dark:text-slate-900 text-white text-xs font-black uppercase tracking-widest shadow-lg hover:opacity-90 transition-opacity flex items-center gap-2"
+            >
+              <Save className="w-4 h-4" />
+              {t('apply')}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}  
+  
+// --- 視窗：設備目錄 (Nickname 優先邏輯) - 優化列表設計 ---  
+function DeviceView({ sensors, getLabel, t }: DeviceViewProps) {  
+  return (  
+    <div className="p-4 md:p-8 h-full flex flex-col gap-4 md:gap-6 bg-gradient-to-b from-transparent to-black/5 dark:to-white/5">  
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end px-2 gap-4">  
+        <div className="animate-in slide-in-from-left duration-500">  
+          <h2 className="text-2xl md:text-3xl font-black tracking-tight mb-1">{t('devices')}</h2>  
+          <span className="text-[10px] font-bold text-blue-500 uppercase tracking-[0.2em] bg-blue-500/10 px-2 py-1 rounded-md">{t('nickname')}</span>  
+        </div>  
+        <div className="relative animate-in slide-in-from-right duration-500 w-full sm:w-auto">  
+          <Search className="absolute left-3 top-2.5 w-4 h-4 opacity-40" />  
+          <input 
+            type="text" 
+            placeholder={t('search')} 
+            className="pl-10 pr-6 py-2.5 bg-white/60 dark:bg-white/10 rounded-full text-xs font-medium outline-none w-full sm:w-64 focus:ring-2 ring-blue-500/50 backdrop-blur-md shadow-sm transition-all" 
+          />  
+        </div>  
+      </div>  
+  
+      <div className="flex-1 overflow-y-auto space-y-4 md:space-y-5 pr-1 md:pr-2 custom-scrollbar pb-6">  
+        {sensors.map((c, idx) => (  
+          <div 
+            key={c.cuid} 
+            className="bg-white/60 dark:bg-[#2C2C2E]/60 backdrop-blur-md rounded-[20px] md:rounded-[24px] border border-white/40 dark:border-white/5 overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 animate-in slide-in-from-bottom"
+            style={{ animationDelay: `${idx * 100}ms` }}
+          >  
+            <div className="px-4 md:px-6 py-3 md:py-4 flex items-center justify-between bg-gradient-to-r from-slate-50/80 to-slate-100/50 dark:from-white/10 dark:to-white/5 border-b border-black/5 dark:border-white/5">  
+              <div className="flex items-center gap-3">  
+                <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-amber-500/10 flex items-center justify-center">
+                  <Zap className="w-3.5 h-3.5 md:w-4 md:h-4 text-amber-500" />  
+                </div>
+                <div>
+                  <span className="text-xs md:text-sm font-black tracking-tight block">{getLabel(c)}</span>  
+                  <span className="text-[8px] md:text-[9px] opacity-40 font-mono tracking-widest uppercase">{c.cuid}</span>  
+                </div>
+              </div>  
+              <div className="flex gap-1.5">  
+                 {[1,2,3].map(i => <div key={i} className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)] animate-pulse" style={{ animationDelay: `${i * 200}ms` }} />)}  
+              </div>  
+            </div>  
+            <div className="divide-y divide-black/5 dark:divide-white/5">  
+              {c.sensors.map((s, sIdx) => (  
+                <div key={s.suid} className="flex justify-between items-center p-3 md:p-4 pl-4 md:pl-6 hover:bg-blue-500/5 dark:hover:bg-white/5 transition-all group cursor-pointer">  
+                  <div className="flex items-center gap-3 md:gap-4">
+                    <div className="w-1 h-6 md:h-8 rounded-full bg-slate-200 dark:bg-white/10 group-hover:bg-blue-500 transition-colors" />
+                    <div className="flex flex-col">  
+                      <span className="text-xs md:text-sm font-bold text-slate-700 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{getLabel(s)}</span>  
+                      <span className="text-[8px] md:text-[9px] opacity-40 font-mono uppercase tracking-tighter">SUID: {s.suid}</span>  
+                    </div>  
+                  </div>
+                  <div className="flex items-center gap-4 md:gap-6 pr-2 md:pr-4">  
+                    <div className="text-right">  
+                      <div className="text-base md:text-lg font-black text-slate-800 dark:text-white font-mono leading-none flex items-baseline justify-end gap-1">
+                        {s.value}
+                        <span className="text-[8px] md:text-[9px] opacity-40 font-bold uppercase">{s.unit}</span>  
+                      </div>  
+                    </div>  
+                    <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
+                      <ChevronRight className="w-3.5 h-3.5 md:w-4 md:h-4 opacity-50" />  
+                    </div>
+                  </div>  
+                </div>  
+              ))}  
+            </div>  
+          </div>  
+        ))}  
+      </div>  
+    </div>  
+  );  
+}  
+  
+// --- 視窗：應用商店 (L2/L3 模式) - 優化卡片展示 ---  
+function StoreView({ t, items, installedAppIds, onInstall, onOpen }: StoreViewProps) {  
+  return (  
+    <div className="p-6 md:p-10 flex flex-col gap-6 md:gap-8 h-full bg-gradient-to-tr from-transparent to-blue-500/5 overflow-y-auto custom-scrollbar">  
+      <div className="animate-in slide-in-from-left duration-500">
+        <h2 className="text-2xl md:text-3xl font-black tracking-tight mb-2">{t('store')}</h2>  
+        <p className="text-[10px] md:text-xs opacity-50 font-medium">在 ASNS 宿主中安裝與打開業務應用，先完成宿主與應用的串聯。</p>
+      </div>
+  
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">  
+        {items.map((item, idx) => (  
+          <div 
+            key={item.id} 
+            className="bg-white/60 dark:bg-[#2C2C2E]/60 backdrop-blur-xl p-6 md:p-8 rounded-[28px] md:rounded-[32px] border border-white/40 dark:border-white/5 hover:border-blue-500/30 transition-all duration-300 group relative overflow-hidden flex flex-col min-h-[280px] md:h-80 shadow-lg hover:shadow-2xl hover:-translate-y-1 animate-in zoom-in-95"
+            style={{ animationDelay: `${idx * 150}ms` }}
+          >  
+            {/* 裝飾背景 */}
+              <div className={`absolute -right-10 -top-10 w-32 h-32 rounded-full blur-3xl opacity-0 group-hover:opacity-20 transition-opacity duration-500 ${item.type === 'py' ? 'bg-blue-500' : item.type === 'app' ? 'bg-cyan-500' : 'bg-purple-500'}`} />
+              
+              <div className="flex justify-between items-start mb-4 md:mb-6 relative z-10">  
+                <span className={`
+                  px-3 md:px-4 py-1 md:py-1.5 rounded-full text-[9px] md:text-[10px] font-black uppercase tracking-widest shadow-sm border border-white/10
+                  ${item.type === 'py' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' : item.type === 'app' ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'}
+                `}>  
+                  {item.type === 'py' ? t('pythonApp') : item.type === 'app' ? 'Hosted App' : t('skill')}  
+                </span>  
+                <div className="p-1.5 md:p-2 rounded-full bg-emerald-500/10 text-emerald-500">
+                  <ShieldCheck className="w-4 h-4 md:w-5 md:h-5" />  
+                </div>
+              </div>  
+              
+              <h3 className="text-xl md:text-2xl font-black mb-2 md:mb-3 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{item.name}</h3>  
+              <p className="text-[10px] md:text-xs opacity-60 leading-relaxed flex-1 line-clamp-3 font-medium">{item.description}</p>  
+              
+              <button
+                type="button"
+                onClick={() => {
+                  if (installedAppIds.includes(item.id)) {
+                    onOpen(item.id);
+                    return;
+                  }
+                  onInstall(item.id);
+                }}
+                className="w-full py-3 md:py-4 mt-4 bg-slate-900 dark:bg-white dark:text-slate-900 text-white rounded-2xl text-[10px] md:text-xs font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2 relative overflow-hidden group/btn"
+              >  
+                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300" />
+                {installedAppIds.includes(item.id) ? (
+                  <>
+                    <Activity className="w-3.5 h-3.5 md:w-4 md:h-4" /> 打開應用
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-3.5 h-3.5 md:w-4 md:h-4" /> {t('install')}
+                  </>
+                )}
+              </button>  
+            </div>  
+          ))}  
+        </div>  
+      </div>  
+    );  
+  }  
+
+function EmbeddedAppView({ appName, launchUrl }: { appName: string; launchUrl: string }) {
+  return (
+    <div className="h-full bg-gradient-to-br from-transparent to-blue-500/5 p-4 md:p-6 flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-4 rounded-[24px] bg-white/60 dark:bg-white/5 border border-white/40 dark:border-white/10 px-5 py-4 backdrop-blur-xl shadow-sm">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-lg md:text-xl font-black tracking-tight">{appName}</h2>
+          <p className="text-[10px] md:text-xs opacity-60 font-medium">
+            目前先以宿主內嵌方式串聯，方便確認應用商店、已安裝應用與業務頁面的整體關係。
+          </p>
+        </div>
+        <a
+          href={launchUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="px-4 py-2 rounded-2xl bg-slate-900 dark:bg-white dark:text-slate-900 text-white text-[10px] md:text-xs font-black uppercase tracking-widest shadow-lg hover:opacity-90 transition-opacity"
+        >
+          新視窗打開
+        </a>
+      </div>
+      <div className="flex-1 overflow-hidden rounded-[28px] border border-white/40 dark:border-white/10 bg-white/70 dark:bg-black/20 backdrop-blur-xl shadow-xl">
+        <iframe
+          title={appName}
+          src={launchUrl}
+          className="h-full w-full border-0 bg-white"
+        />
+      </div>
+    </div>
+  );
+}
+
+// --- 視窗：應用工作室 (AI 自動生成) ---
+function AppStudioView({ t, onAddApp }: AppStudioViewProps) {
+  const [appName, setAppName] = useState('');
+  const [appDesc, setAppDesc] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [previewIcon, setPreviewIcon] = useState<string | null>(null);
+  const [previewFeature, setPreviewFeature] = useState<string | null>(null);
+  const [status, setStatus] = useState('');
+
+  const generateApp = async () => {
+    if (!appName) return;
+    setIsGenerating(true);
+    setStatus('AI 正在構思應用視覺與功能...');
+    
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      
+      // 1. 生成圖示
+      setStatus('正在生成智慧圖示 (Icon)...');
+      const iconResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [{ text: `A high-quality, modern, minimalist iOS style app icon for an application named "${appName}". Description: ${appDesc}. The icon should have vibrant colors, soft shadows, and a clean technological feel. No text in the icon.` }]
+        },
+        config: {
+          imageConfig: { aspectRatio: "1:1" }
+        }
+      });
+
+      let iconUrl = '';
+      for (const part of iconResponse.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          iconUrl = `data:image/png;base64,${part.inlineData.data}`;
+          setPreviewIcon(iconUrl);
+        }
+      }
+
+      // 2. 智慧配圖 (Feature Image)
+      setStatus('正在進行智慧配圖 (Feature Image)...');
+      const featureResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [{ text: `A cinematic, high-resolution feature background image for an AI sensory application named "${appName}". Theme: ${appDesc}. Style: futuristic, clean, digital nervous system, abstract technology.` }]
+        },
+        config: {
+          imageConfig: { aspectRatio: "16:9" }
+        }
+      });
+
+      let featureUrl = '';
+      for (const part of featureResponse.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          featureUrl = `data:image/png;base64,${part.inlineData.data}`;
+          setPreviewFeature(featureUrl);
+        }
+      }
+
+      setStatus('生成完成！');
+      
+      const newApp: AppWindow = {
+        id: `app_${Date.now()}`,
+        name: appName,
+        iconUrl: iconUrl,
+        color: 'bg-gradient-to-br from-blue-500 to-purple-600',
+        description: appDesc
+      };
+
+      onAddApp(newApp);
+      setAppName('');
+      setAppDesc('');
+      
+    } catch (error) {
+      console.error('Generation failed:', error);
+      setStatus('生成失敗，請檢查網路或 API 設定。');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  return (
+    <div className="p-6 md:p-10 flex flex-col gap-8 h-full bg-gradient-to-br from-indigo-500/5 to-purple-500/5 overflow-y-auto custom-scrollbar">
+      <div className="animate-in slide-in-from-left duration-500">
+        <h2 className="text-2xl md:text-3xl font-black tracking-tight mb-2 flex items-center gap-3">
+          <Sparkles className="text-indigo-500" />
+          App Studio <span className="text-sm font-bold opacity-40 uppercase tracking-widest">AI Creator</span>
+        </h2>
+        <p className="text-[10px] md:text-xs opacity-50 font-medium">輸入應用名稱，AI 將自動為您生成專屬圖示與智慧配圖</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="space-y-6 animate-in slide-in-from-bottom duration-700">
+          <div className="bg-white/50 dark:bg-black/20 p-6 rounded-[32px] border border-white/40 dark:border-white/5 shadow-xl space-y-6">
+            <div>
+              <label className="text-[10px] font-black uppercase opacity-40 ml-1 mb-2 block tracking-wider">應用名稱 (App Name)</label>
+              <input 
+                type="text" 
+                value={appName}
+                onChange={e => setAppName(e.target.value)}
+                placeholder="例如：智慧能源監控..."
+                className="w-full bg-white/80 dark:bg-black/40 border-none rounded-2xl px-4 py-4 text-sm font-bold focus:ring-2 ring-indigo-500/50 transition-all shadow-inner"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-black uppercase opacity-40 ml-1 mb-2 block tracking-wider">功能描述 (Description)</label>
+              <textarea 
+                value={appDesc}
+                onChange={e => setAppDesc(e.target.value)}
+                placeholder="描述應用的主要功能，AI 將以此構思視覺..."
+                rows={4}
+                className="w-full bg-white/80 dark:bg-black/40 border-none rounded-2xl px-4 py-4 text-sm font-medium focus:ring-2 ring-indigo-500/50 transition-all shadow-inner resize-none"
+              />
+            </div>
+            <button 
+              onClick={generateApp}
+              disabled={isGenerating || !appName}
+              className={`
+                w-full py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all flex items-center justify-center gap-3
+                ${isGenerating ? 'bg-slate-200 dark:bg-white/10 text-slate-400' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/30'}
+              `}
+            >
+              {isGenerating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+              {isGenerating ? 'AI 正在創作中...' : '開始 AI 自動生成'}
+            </button>
+            {status && <p className="text-[10px] text-center font-bold text-indigo-500 animate-pulse">{status}</p>}
+          </div>
+        </div>
+
+        <div className="space-y-6 animate-in slide-in-from-right duration-700">
+          <div className="bg-white/50 dark:bg-black/20 p-6 rounded-[32px] border border-white/40 dark:border-white/5 shadow-xl h-full flex flex-col gap-6">
+            <h3 className="text-[10px] font-black uppercase opacity-40 tracking-widest">生成預覽 (AI Preview)</h3>
+            
+            <div className="flex-1 flex flex-col gap-6">
+              <div className="flex items-center gap-6">
+                <div className="w-24 h-24 md:w-32 md:h-32 rounded-[28px] bg-slate-100 dark:bg-white/5 border border-white/20 flex items-center justify-center overflow-hidden shadow-inner relative group">
+                  {previewIcon ? (
+                    <img src={previewIcon} alt="Icon Preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <ImageIcon className="w-8 h-8 opacity-20" />
+                  )}
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <span className="text-[8px] text-white font-bold uppercase tracking-widest">Icon</span>
+                  </div>
+                </div>
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-32 bg-slate-200 dark:bg-white/10 rounded-full animate-pulse" />
+                  <div className="h-3 w-full bg-slate-100 dark:bg-white/5 rounded-full animate-pulse" />
+                  <div className="h-3 w-2/3 bg-slate-100 dark:bg-white/5 rounded-full animate-pulse" />
+                </div>
+              </div>
+
+              <div className="aspect-video w-full rounded-[24px] bg-slate-100 dark:bg-white/5 border border-white/20 flex items-center justify-center overflow-hidden shadow-inner relative group">
+                {previewFeature ? (
+                  <img src={previewFeature} alt="Feature Preview" className="w-full h-full object-cover" />
+                ) : (
+                  <ImageIcon className="w-12 h-12 opacity-20" />
+                )}
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <span className="text-[10px] text-white font-bold uppercase tracking-widest">Feature Image</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

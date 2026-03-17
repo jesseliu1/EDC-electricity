@@ -51,3 +51,4 @@ data/*.db
 *.bak
 *.tmp
 nul
+.tmp_run/
