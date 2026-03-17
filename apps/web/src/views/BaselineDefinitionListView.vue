@@ -242,6 +242,32 @@ function formatHostChannelLabel(channel: HostChannelItemResponse) {
   return `${channel.channel_name} · ${channel.unit || '--'}`
 }
 
+function getMetricBoundCount(metrics: MetricItem[]) {
+  return metrics.filter(metric => Boolean(metric.edcChannelId)).length
+}
+
+function getSelectableHostChannelGroups(currentMetricId?: string | null) {
+  const currentMetric = currentMetricId
+    ? metricDefinitionItem.value?.metrics.find(metric => metric.id === currentMetricId)
+    : null
+  const currentChannelId = currentMetric?.edcChannelId ?? null
+  const usedIds = new Set(
+    (metricDefinitionItem.value?.metrics || [])
+      .filter(metric => metric.id !== currentMetricId)
+      .map(metric => metric.edcChannelId)
+      .filter((channelId): channelId is string => Boolean(channelId))
+  )
+
+  return hostChannelGroups.value
+    .map(group => ({
+      ...group,
+      options: group.options.filter(
+        channel => !usedIds.has(channel.id) || channel.id === currentChannelId
+      )
+    }))
+    .filter(group => group.options.length > 0)
+}
+
 function resolveHostChannelSummary(channelId: string | null) {
   if (!channelId) return ''
   const channel = hostChannelMap.value.get(channelId)
@@ -421,6 +447,9 @@ onMounted(() => {
           </el-descriptions-item>
           <el-descriptions-item :label="t('baselineDefinition.metricCount')">
             {{ item.metrics.length }}
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('baselineDefinition.boundChannelCount')">
+            {{ getMetricBoundCount(item.metrics) }}/{{ item.metrics.length }}
           </el-descriptions-item>
           <el-descriptions-item :label="t('baselineDefinition.instanceCount')">
             {{ item.instanceCount }}
@@ -603,7 +632,7 @@ onMounted(() => {
                 @change="value => applySourceChannelDefaults(value, editMetricForm)"
               >
                 <el-option-group
-                  v-for="group in hostChannelGroups"
+                  v-for="group in getSelectableHostChannelGroups(metric.id)"
                   :key="group.label"
                   :label="group.label"
                 >
@@ -662,6 +691,12 @@ onMounted(() => {
                 {{ t('baselineDefinition.sourceChannelBound') }}:
                 {{ resolveHostChannelSummary(metric.edcChannelId) }}
               </span>
+              <span
+                v-else
+                class="text-xs text-amber-500"
+              >
+                {{ t('baselineDefinition.sourceChannelMissing') }}
+              </span>
               <span class="text-xs text-gray-400">#{{ metric.sortOrder }}</span>
               <div class="flex-1" />
               <el-button
@@ -706,7 +741,7 @@ onMounted(() => {
               @change="value => applySourceChannelDefaults(value, newMetricForm)"
             >
               <el-option-group
-                v-for="group in hostChannelGroups"
+                v-for="group in getSelectableHostChannelGroups()"
                 :key="group.label"
                 :label="group.label"
               >

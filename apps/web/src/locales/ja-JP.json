@@ -297,6 +297,8 @@
     "metricUnit": "単位",
     "sourceChannelPlaceholder": "ホスト通道から選択",
     "sourceChannelBound": "元チャネル",
+    "sourceChannelMissing": "ホスト通道未バインド",
+    "boundChannelCount": "バインド済み通道",
     "hostChannelsLoadFailed": "ホスト通道の読み込みに失敗しました",
     "noMetrics": "指標がありません。追加してください",
     "metricFieldRequired": "指標名と単位を入力してください",

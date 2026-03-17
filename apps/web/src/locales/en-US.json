@@ -297,6 +297,8 @@
     "metricUnit": "Unit",
     "sourceChannelPlaceholder": "Choose from host channels",
     "sourceChannelBound": "Source Channel",
+    "sourceChannelMissing": "Host channel not bound",
+    "boundChannelCount": "Bound Channels",
     "hostChannelsLoadFailed": "Failed to load host channels",
     "noMetrics": "No metrics yet, please add",
     "metricFieldRequired": "Please fill metric name and unit",

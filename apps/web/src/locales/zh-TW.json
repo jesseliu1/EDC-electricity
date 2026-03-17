@@ -297,6 +297,8 @@
     "metricUnit": "單位",
     "sourceChannelPlaceholder": "從宿主通道選擇來源",
     "sourceChannelBound": "來源通道",
+    "sourceChannelMissing": "未綁定宿主通道",
+    "boundChannelCount": "已綁定通道",
     "hostChannelsLoadFailed": "宿主通道載入失敗",
     "noMetrics": "尚無指標，請新增",
     "metricFieldRequired": "請填寫指標名稱與單位",

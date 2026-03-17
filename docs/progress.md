@@ -28,6 +28,10 @@
   - [x] 后端测试新增宿主通道列表接口验证
   - [x] 后端测试补充指标 `edc_channel_id` 创建/编辑回归
   - [x] Playwright 覆盖“选择宿主通道 -> 自动填名称/单位 -> 创建指标”流程
+- [x] 指标绑定体验继续收口
+  - [x] 基线定义卡片补充“已绑定通道 x/y”概览
+  - [x] 指标列表补充“未绑定宿主通道”提示
+  - [x] 宿主通道选择器过滤当前定义内已占用通道，避免重复绑定
 - [x] 验证通过
   - [x] `apps/server/.venv/Scripts/ruff.exe check tests`
   - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py`
