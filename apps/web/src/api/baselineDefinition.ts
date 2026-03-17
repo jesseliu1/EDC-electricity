@@ -21,6 +21,30 @@ export interface BaselineDefinitionResponse {
   updated_at: string
 }
 
+export interface CurvePoint {
+  timestamp: number
+  value: number
+}
+
+export interface PreviewCurveData {
+  metric_id: string
+  metric_name: string
+  unit: string
+  color: string
+  edc_channel_id: string | null
+  source_channel_name?: string | null
+  source_channel_label?: string | null
+  points: CurvePoint[]
+}
+
+export interface BaselinePreviewResponse {
+  definition_id: string
+  source_heat_id: string
+  range_start: string
+  range_end: string
+  curves_data: PreviewCurveData[]
+}
+
 export interface BaselineDefinitionListResponse {
   items: BaselineDefinitionResponse[]
   total: number
@@ -60,6 +84,10 @@ export const baselineDefinitionApi = {
     client.get<BaselineDefinitionListResponse>('/baseline-definitions', { params }),
   get: (id: string) =>
     client.get<BaselineDefinitionResponse>(`/baseline-definitions/${id}`),
+  previewCurves: (id: string, heatId: string) =>
+    client.get<BaselinePreviewResponse>(`/baseline-definitions/${id}/preview-curves`, {
+      params: { heat_id: heatId }
+    }),
   create: (payload: BaselineDefinitionCreatePayload) =>
     client.post<BaselineDefinitionResponse>('/baseline-definitions', payload),
   update: (id: string, payload: BaselineDefinitionUpdatePayload) =>

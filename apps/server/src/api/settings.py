@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter
 
 from ..config import settings as app_settings
@@ -41,7 +43,7 @@ _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     },
 }
 
-_HOST_CHANNEL_STORE: list[dict[str, str]] = [
+_HOST_CHANNEL_FALLBACKS: list[dict[str, str]] = [
     {
         "id": "2349-199",
         "device_name": "SSTW 380V-220V電力 · 三相智能电表",
@@ -140,6 +142,133 @@ _HOST_CHANNEL_STORE: list[dict[str, str]] = [
     },
 ]
 
+_HOST_CHANNEL_STORE: list[dict[str, str]] = [item.copy() for item in _HOST_CHANNEL_FALLBACKS]
+_HOST_CHANNEL_LAST_SYNC_AT: datetime | None = None
+
+
+def _stringify(value: object, default: str = "") -> str:
+    if value is None:
+        return default
+    return str(value).strip() or default
+
+
+def _pick_first(payload: dict[str, object], *keys: str, default: str = "") -> str:
+    for key in keys:
+        value = payload.get(key)
+        if value is None:
+            continue
+        text = _stringify(value)
+        if text:
+            return text
+    return default
+
+
+def _channel_score(channel_name: str, unit: str, device_type: str) -> int:
+    text = f"{channel_name} {unit} {device_type}".lower()
+    score = 0
+    if "有功" in channel_name or "power" in text or unit.lower() == "kw":
+        score += 120
+    if "电压" in channel_name or unit.lower() == "v":
+        score += 110
+    if "温" in channel_name or "temp" in text or unit in {"℃", "°c"}:
+        score += 100
+    if "压" in channel_name or unit.lower() == "mpa":
+        score += 90
+    if "总" in channel_name:
+        score += 15
+    if "a相" in channel_name or "b相" in channel_name or "c相" in channel_name:
+        score += 8
+    return score
+
+
+def _normalize_host_channels(sensor_list: list[dict[str, object]]) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for sensor in sensor_list:
+        suid = _pick_first(sensor, "uid", "suid")
+        if not suid:
+            continue
+
+        area = _pick_first(sensor, "name", "areaName", "tagName", default="未命名区域")
+        device_type = _pick_first(
+            sensor,
+            "typeName",
+            "devTypeName",
+            "deviceType",
+            "sensorType",
+            default="未知设备",
+        )
+        device_name = f"{area} · {device_type}"
+
+        channel_list = sensor.get("channelList")
+        if not isinstance(channel_list, list):
+            continue
+
+        for channel in channel_list:
+            if not isinstance(channel, dict):
+                continue
+
+            status = channel.get("status")
+            if status is not None and str(status) != "1":
+                continue
+
+            cuid = _pick_first(channel, "cuid", "uid")
+            if not cuid:
+                continue
+
+            channel_name = _pick_first(channel, "chnName", "name", "title", default=f"通道 {cuid}")
+            unit = _pick_first(channel, "chnDim", "unit", default="--")
+            last_value = _pick_first(channel, "lastData", "lastValue", default="--")
+
+            items.append(
+                {
+                    "id": f"{suid}-{cuid}",
+                    "device_name": device_name,
+                    "device_type": device_type,
+                    "area": area,
+                    "suid": suid,
+                    "cuid": cuid,
+                    "channel_name": channel_name,
+                    "unit": unit,
+                    "last_value": last_value,
+                    "status": "online",
+                }
+            )
+
+    items.sort(
+        key=lambda item: (
+            -_channel_score(item["channel_name"], item["unit"], item["device_type"]),
+            item["device_name"],
+            item["channel_name"],
+        )
+    )
+    return items
+
+
+async def _sync_host_channels_from_edc(force: bool = False) -> None:
+    """按需从真实 EDC 同步宿主通道清单并缓存。"""
+    global _HOST_CHANNEL_LAST_SYNC_AT
+
+    if _HOST_CHANNEL_STORE and _HOST_CHANNEL_LAST_SYNC_AT is not None and not force:
+        return
+
+    config = get_edc_connection_config()
+    if not config["base_url"] or not config["username"] or not config["password"]:
+        return
+
+    try:
+        async with EDCClient(**config) as client:
+            sensor_list = await client.get_all_sensor_list()
+    except EDCClientError:
+        return
+
+    normalized = _normalize_host_channels(sensor_list)
+    if not normalized:
+        return
+
+    _HOST_CHANNEL_STORE.clear()
+    _HOST_CHANNEL_STORE.extend(normalized)
+    _HOST_CHANNEL_LAST_SYNC_AT = datetime.now()
+
 
 def _to_response() -> SettingsResponse:
     return SettingsResponse(
@@ -175,6 +304,7 @@ async def get_settings() -> SettingsResponse:
 @router.get("/host-channels", response_model=HostChannelCollectionResponse)
 async def get_host_channels() -> HostChannelCollectionResponse:
     """获取宿主层已添加通道清单。"""
+    await _sync_host_channels_from_edc()
     items = [HostChannelItem(**payload) for payload in _HOST_CHANNEL_STORE]
     return HostChannelCollectionResponse(items=items, total=len(items))
 
@@ -200,12 +330,15 @@ async def update_tolerance(data: ToleranceSettingRequest) -> MessageResponse:
 @router.put("/edc-connection", response_model=MessageResponse)
 async def update_edc_connection(data: EDCConnectionRequest) -> MessageResponse:
     """更新 EDC 连接配置。"""
+    global _HOST_CHANNEL_LAST_SYNC_AT
     _SETTINGS_STORE["edc_base_url"]["value"] = data.base_url
     if data.username is not None:
         _SETTINGS_STORE["edc_username"]["value"] = data.username
     if data.password is not None:
         _SETTINGS_STORE["edc_password"]["value"] = data.password
     _SETTINGS_STORE["edc_api_key"]["value"] = data.api_key or ""
+    _HOST_CHANNEL_STORE.clear()
+    _HOST_CHANNEL_LAST_SYNC_AT = None
     return MessageResponse(message="EDC 连接配置已更新", success=True)
 
 

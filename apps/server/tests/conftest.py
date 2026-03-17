@@ -8,7 +8,7 @@ from httpx import ASGITransport, AsyncClient
 from src.api.baseline_definitions import _DEFINITION_STORE
 from src.api.baselines import _BASELINE_STORE
 from src.api.heats import _HEAT_STORE, _NEXT_HEAT_INDEX
-from src.api.settings import _SETTINGS_STORE
+from src.api.settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE
 from src.api.tasks import _TASK_STORE
 from src.main import app
 
@@ -28,6 +28,7 @@ def reset_in_memory_stores():
     heat_snapshot = copy.deepcopy(_HEAT_STORE)
     task_snapshot = copy.deepcopy(_TASK_STORE)
     settings_snapshot = copy.deepcopy(_SETTINGS_STORE)
+    host_channel_snapshot = copy.deepcopy(_HOST_CHANNEL_STORE)
     next_heat_index_snapshot = _NEXT_HEAT_INDEX
 
     yield
@@ -46,6 +47,9 @@ def reset_in_memory_stores():
 
     _SETTINGS_STORE.clear()
     _SETTINGS_STORE.update(copy.deepcopy(settings_snapshot))
+
+    _HOST_CHANNEL_STORE.clear()
+    _HOST_CHANNEL_STORE.extend(copy.deepcopy(host_channel_snapshot))
 
     import src.api.heats as heats_module
 

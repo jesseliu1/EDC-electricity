@@ -76,6 +76,16 @@ class BaselineWithCurve(BaselineResponse):
     temperature: float | None = Field(default=None, description="出汤温度")
 
 
+class BaselinePreviewResponse(BaseModel):
+    """基线向导候选曲线预览响应"""
+
+    definition_id: str = Field(..., description="所属定义ID")
+    source_heat_id: str = Field(..., description="来源炉次ID")
+    range_start: datetime = Field(..., description="预览开始时间")
+    range_end: datetime = Field(..., description="预览结束时间")
+    curves_data: list[CurveData] = Field(default_factory=list, description="候选曲线数据")
+
+
 class BaselineListResponse(BaseModel):
     """基线列表响应"""
 

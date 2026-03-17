@@ -82,6 +82,16 @@
   - [x] 验证通过：`apps/server/.venv/Scripts/ruff.exe check src tests`
   - [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py`
   - [x] 验证通过：`pnpm --dir apps/web build`
+- [x] 继续收口剩余本地生成链路
+  - [x] 宿主通道接口 `/api/settings/host-channels` 改为优先从真实 EDC 同步并缓存，不再只返回固定 8 条示例
+  - [x] 基线定义新增 `/api/baseline-definitions/{id}/preview-curves`，按“定义 + 炉次”返回候选预览曲线
+  - [x] 基线向导改为使用后端 heat 列表与 preview 曲线接口，不再默认在前端生成全天候选曲线
+  - [x] 回归补充：宿主通道同步与基线向导 preview 接口测试
+  - [x] 验证通过：`apps/server/.venv/Scripts/ruff.exe check src tests`
+  - [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py`
+  - [x] 验证通过：`pnpm --dir apps/web lint`
+  - [x] 验证通过：`pnpm --dir apps/web build`
+  - [x] 验证通过：`pnpm --dir apps/web exec playwright test e2e/app.spec.ts`
 
 ### 2026-03-16（ASNS 宿主层接入边界梳理）
 

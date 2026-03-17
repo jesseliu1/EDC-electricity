@@ -27,6 +27,8 @@ import { CanvasRenderer } from 'echarts/renderers'
 import type { ECharts, EChartsOption } from 'echarts'
 import dayjs from 'dayjs'
 import { useBaselineDefinitionStore } from '@/stores/baselineDefinition'
+import { baselineDefinitionApi } from '@/api/baselineDefinition'
+import { heatApi } from '@/api/heat'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent])
 
@@ -178,7 +180,7 @@ function getMetricAmplitude(unit: string, seed: number) {
   return 12
 }
 
-function createCurvePoints() {
+function createCurvePointsFallback() {
   const metrics = selectedDefinition.value?.metrics || []
   const rangeStart = dayjs().subtract(24, 'hour').startOf('hour')
   const totalPoints = 576
@@ -201,7 +203,31 @@ function createCurvePoints() {
     return { timestamp, values }
   })
   zoomWindow.value = { start: 0, end: 100 }
+}
 
+function mapPreviewCurvesToPoints(
+  curves: Array<{
+    metric_id: string
+    points: Array<{ timestamp: number; value: number }>
+  }>
+) {
+  const pointMap = new Map<number, Record<string, number>>()
+
+  curves.forEach(curve => {
+    curve.points.forEach(point => {
+      const existing = pointMap.get(point.timestamp) || {}
+      existing[curve.metric_id] = point.value
+      pointMap.set(point.timestamp, existing)
+    })
+  })
+
+  return Array.from(pointMap.entries())
+    .sort((left, right) => left[0] - right[0])
+    .map(([timestamp, values]) => ({ timestamp, values }))
+}
+
+function buildMockHeatCandidates() {
+  const rangeStart = dayjs().subtract(24, 'hour').startOf('hour')
   const candidateSeed = [
     { id: 'heat-101', heatNo: 'H20260312-101', offsetHours: 3, durationMinutes: 38 },
     { id: 'heat-102', heatNo: 'H20260312-102', offsetHours: 16, durationMinutes: 42 },
@@ -209,7 +235,7 @@ function createCurvePoints() {
     { id: 'heat-104', heatNo: 'H20260313-104', offsetHours: 40, durationMinutes: 31 }
   ]
 
-  heatCandidates.value = candidateSeed.map(item => {
+  return candidateSeed.map(item => {
     const start = rangeStart.add(item.offsetHours, 'hour')
     const end = start.add(item.durationMinutes, 'minute')
     return {
@@ -220,13 +246,29 @@ function createCurvePoints() {
       endTime: end.valueOf()
     }
   })
+}
+
+async function loadHeatCandidates() {
+  try {
+    const data = await heatApi.list({ page: 1, page_size: 50 })
+    heatCandidates.value = data.items.map(item => ({
+      id: item.id,
+      heatNo: item.heat_no,
+      date: dayjs(item.start_time).format('YYYY-MM-DD HH:mm:ss'),
+      startTime: dayjs(item.start_time).valueOf(),
+      endTime: dayjs(item.end_time).valueOf()
+    }))
+  } catch (error) {
+    console.warn('BaselineWizard heat list fallback to mock.', error)
+    heatCandidates.value = buildMockHeatCandidates()
+  }
 
   if (props.initialSourceHeatId) {
     const exists = heatCandidates.value.some(item => item.id === props.initialSourceHeatId)
     if (!exists) {
       const start = props.initialSelectedStartTime
         ? dayjs(props.initialSelectedStartTime)
-        : rangeStart.add(20, 'hour')
+        : dayjs().subtract(4, 'hour')
       const end = props.initialSelectedEndTime
         ? dayjs(props.initialSelectedEndTime)
         : start.add(35, 'minute')
@@ -239,6 +281,22 @@ function createCurvePoints() {
         endTime: end.valueOf()
       })
     }
+  }
+}
+
+async function loadPreviewCurves() {
+  if (!formData.value.definitionId) return
+
+  const targetHeatId = selectedHeatId.value || heatCandidates.value[0]?.id
+  if (!targetHeatId) return
+
+  try {
+    const preview = await baselineDefinitionApi.previewCurves(formData.value.definitionId, targetHeatId)
+    fullCurvePoints.value = mapPreviewCurvesToPoints(preview.curves_data)
+    zoomWindow.value = { start: 0, end: 100 }
+  } catch (error) {
+    console.warn('BaselineWizard preview fallback to local generated curves.', error)
+    createCurvePointsFallback()
   }
 }
 
@@ -558,8 +616,7 @@ function submit(mode: 'draft' | 'publish') {
 
 watch(
   () => formData.value.definitionId,
-  () => {
-    createCurvePoints()
+  async () => {
     if (!selectedHeatId.value && heatCandidates.value[0]) {
       selectedHeatId.value = heatCandidates.value[0].id
     }
@@ -570,17 +627,20 @@ watch(
     } else if (!selectedStart.value || !selectedEnd.value) {
       resetRangeByHeat()
     }
+    await loadPreviewCurves()
   }
 )
 
-watch(selectedHeatId, () => {
-  if (activeStep.value === 1) {
+watch(selectedHeatId, async () => {
+  if (activeStep.value === 1 || !selectedStart.value || !selectedEnd.value) {
     resetRangeByHeat()
   }
+  await loadPreviewCurves()
 })
 
 onMounted(async () => {
   await baselineDefinitionStore.fetchList('active')
+  await loadHeatCandidates()
 
   const firstDefinition = baselineDefinitionStore.list[0]
   if (!formData.value.definitionId && firstDefinition) {
@@ -593,8 +653,6 @@ onMounted(async () => {
     selectedHeatId.value = props.initialSourceHeatId
   }
 
-  createCurvePoints()
-
   if (!selectedHeatId.value && heatCandidates.value[0]) {
     selectedHeatId.value = heatCandidates.value[0].id
   }
@@ -606,6 +664,8 @@ onMounted(async () => {
   } else {
     resetRangeByHeat()
   }
+
+  await loadPreviewCurves()
 })
 </script>
 

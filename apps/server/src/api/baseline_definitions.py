@@ -1,11 +1,14 @@
 """黄金基线定义 API 路由"""
 
-from datetime import datetime
+import asyncio
+import math
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ..schemas import BaselinePreviewResponse, CurveData
 from ..schemas.baseline_definition import (
     BaselineDefinitionCreate,
     BaselineDefinitionListResponse,
@@ -16,6 +19,8 @@ from ..schemas.baseline_definition import (
     MetricDefinitionUpdate,
 )
 from ..schemas.common import MessageResponse
+from ..services import EDCClient, EDCClientError
+from .settings import _HOST_CHANNEL_STORE, _sync_host_channels_from_edc, get_edc_connection_config
 
 router = APIRouter(prefix="/baseline-definitions", tags=["BaselineDefinitions"])
 
@@ -139,6 +144,151 @@ def _get_or_404(definition_id: str) -> dict[str, Any]:
     return item
 
 
+def _resolve_host_channel(channel_id: str | None) -> dict[str, str] | None:
+    if not channel_id:
+        return None
+    return next((item for item in _HOST_CHANNEL_STORE if item["id"] == channel_id), None)
+
+
+def _format_host_channel_label(channel: dict[str, str] | None) -> str | None:
+    if not channel:
+        return None
+    return (
+        f'{channel["device_name"]} / '
+        f'{channel["channel_name"]} / '
+        f'{channel["unit"] or "--"}'
+    )
+
+
+def _metric_seed(metric_id: str) -> int:
+    return sum(ord(char) for char in metric_id)
+
+
+def _metric_base(unit: str, seed: int) -> float:
+    if unit == "kW":
+        return 420 + seed % 20
+    if unit == "V":
+        return 382 + seed % 8
+    if unit == "°C":
+        return 1455 + seed % 18
+    if unit == "MPa":
+        return 0.85 + (seed % 10) * 0.02
+    return 100 + seed % 30
+
+
+def _metric_amplitude(unit: str, seed: int) -> float:
+    if unit == "kW":
+        return 28 + seed % 6
+    if unit == "V":
+        return 6 + seed % 3
+    if unit == "°C":
+        return 18 + seed % 5
+    if unit == "MPa":
+        return 0.08 + (seed % 4) * 0.01
+    return 12
+
+
+def _build_preview_fallback_points(
+    *,
+    metric: dict[str, Any],
+    range_start: datetime,
+    range_end: datetime,
+) -> list[dict[str, float | int]]:
+    total_steps = max(int((range_end - range_start).total_seconds() // 300), 1)
+    seed = _metric_seed(str(metric.get("id") or metric.get("name") or "metric"))
+    unit = str(metric.get("unit") or "")
+    base = _metric_base(unit, seed)
+    amplitude = _metric_amplitude(unit, seed)
+    phase = seed / 17
+
+    points: list[dict[str, float | int]] = []
+    for index in range(total_steps + 1):
+        timestamp = int((range_start + timedelta(minutes=index * 5)).timestamp() * 1000)
+        periodic = math.sin(index / (14 + seed % 7) + phase)
+        micro_fluctuation = math.cos(index / (11 + seed % 5) + phase / 2)
+        raw_value = base + periodic * amplitude + micro_fluctuation * amplitude * 0.18
+        precision = 2 if unit == "MPa" else 1
+        points.append({"timestamp": timestamp, "value": round(raw_value, precision)})
+    return points
+
+
+def _resolve_preview_window(heat_id: str) -> tuple[datetime, datetime]:
+    from .heats import _HEAT_STORE
+
+    heat = _HEAT_STORE.get(heat_id)
+    if not heat:
+        raise HTTPException(status_code=404, detail="来源炉次不存在")
+
+    heat_start: datetime = heat["start_time"]
+    day_start = heat_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    return day_start, day_start + timedelta(days=1)
+
+
+async def _build_preview_curves(
+    *,
+    definition: dict[str, Any],
+    range_start: datetime,
+    range_end: datetime,
+) -> list[CurveData]:
+    metrics = list(definition.get("metrics", []))
+    await _sync_host_channels_from_edc()
+
+    points_by_metric: dict[str, list[dict[str, float | int]]] = {}
+    config = get_edc_connection_config()
+    bound_metrics: list[tuple[dict[str, Any], dict[str, str]]] = []
+    for metric in metrics:
+        channel = _resolve_host_channel(metric.get("edc_channel_id"))
+        if channel:
+            bound_metrics.append((metric, channel))
+
+    if bound_metrics and config["base_url"] and config["username"] and config["password"]:
+        try:
+            async with EDCClient(**config) as client:
+                tasks = {
+                    str(metric["id"]): asyncio.create_task(
+                        client.get_local_datas(
+                            suid=channel["suid"],
+                            cuid=channel["cuid"],
+                            start_time=range_start,
+                            end_time=range_end,
+                        )
+                    )
+                    for metric, channel in bound_metrics
+                }
+                results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        except EDCClientError:
+            results = []
+            tasks = {}
+
+        for metric_id, result in zip(tasks.keys(), results, strict=False):
+            if isinstance(result, Exception) or not result:
+                continue
+            points_by_metric[metric_id] = [point.model_dump() for point in result]
+
+    curves: list[CurveData] = []
+    for metric in metrics:
+        metric_id = str(metric["id"])
+        host_channel = _resolve_host_channel(metric.get("edc_channel_id"))
+        points = points_by_metric.get(metric_id) or _build_preview_fallback_points(
+            metric=metric,
+            range_start=range_start,
+            range_end=range_end,
+        )
+        curves.append(
+            CurveData(
+                metric_id=metric_id,
+                metric_name=str(metric["name"]),
+                unit=str(metric["unit"]),
+                color=str(metric["color"]),
+                edc_channel_id=metric.get("edc_channel_id"),
+                source_channel_name=host_channel["channel_name"] if host_channel else None,
+                source_channel_label=_format_host_channel_label(host_channel),
+                points=points,
+            )
+        )
+    return curves
+
+
 @router.get("", response_model=BaselineDefinitionListResponse)
 async def list_definitions(
     status: str | None = Query(default=None, description="状态筛选: active/disabled"),
@@ -165,6 +315,28 @@ async def get_definition(definition_id: str) -> BaselineDefinitionResponse:
     """获取黄金基线定义详情。"""
     item = _get_or_404(definition_id)
     return _to_response(item)
+
+
+@router.get("/{definition_id}/preview-curves", response_model=BaselinePreviewResponse)
+async def get_definition_preview_curves(
+    definition_id: str,
+    heat_id: str = Query(..., description="来源炉次ID"),
+) -> BaselinePreviewResponse:
+    """按定义与炉次返回基线向导候选曲线预览。"""
+    definition = _get_or_404(definition_id)
+    range_start, range_end = _resolve_preview_window(heat_id)
+    curves = await _build_preview_curves(
+        definition=definition,
+        range_start=range_start,
+        range_end=range_end,
+    )
+    return BaselinePreviewResponse(
+        definition_id=definition_id,
+        source_heat_id=heat_id,
+        range_start=range_start,
+        range_end=range_end,
+        curves_data=curves,
+    )
 
 
 @router.post("", response_model=BaselineDefinitionResponse, status_code=201)

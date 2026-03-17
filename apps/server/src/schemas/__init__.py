@@ -6,6 +6,7 @@
 from .baseline import (
     BaselineCreate,
     BaselineListResponse,
+    BaselinePreviewResponse,
     BaselineResponse,
     BaselineSummary,
     BaselineUpdate,
@@ -77,6 +78,7 @@ __all__ = [
     "BaselineResponse",
     "BaselineWithCurve",
     "BaselineListResponse",
+    "BaselinePreviewResponse",
     "BaselineSummary",
     "CurveData",
     # Heat

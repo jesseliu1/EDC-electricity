@@ -2,6 +2,7 @@
 
 import pytest
 
+from src.api.settings import _HOST_CHANNEL_STORE
 from src.schemas.common import CurvePoint
 
 
@@ -63,13 +64,86 @@ async def test_dashboard_realtime_prefers_edc_curves_when_available(client, monk
 
 
 @pytest.mark.asyncio
-async def test_settings_host_channels_endpoint(client) -> None:
+async def test_settings_host_channels_endpoint(client, monkeypatch) -> None:
+    async def fake_sync_host_channels_from_edc(*_args, **_kwargs):
+        _HOST_CHANNEL_STORE.clear()
+        _HOST_CHANNEL_STORE.extend(
+            [
+                {
+                    "id": "sensor-1-128",
+                    "device_name": "测试设备 · 三相智能电表",
+                    "device_type": "三相智能电表",
+                    "area": "测试区域",
+                    "suid": "sensor-1",
+                    "cuid": "128",
+                    "channel_name": "总有功功率",
+                    "unit": "kW",
+                    "last_value": "321.5",
+                    "status": "online",
+                },
+                {
+                    "id": "sensor-2-128",
+                    "device_name": "测试设备 · 热电偶温度采集器",
+                    "device_type": "热电偶温度采集器",
+                    "area": "测试区域",
+                    "suid": "sensor-2",
+                    "cuid": "128",
+                    "channel_name": "热电偶温度采集通道",
+                    "unit": "℃",
+                    "last_value": "1450.2",
+                    "status": "online",
+                },
+            ]
+        )
+
+    from src.api import settings as settings_module
+
+    monkeypatch.setattr(
+        settings_module,
+        "_sync_host_channels_from_edc",
+        fake_sync_host_channels_from_edc,
+    )
     host_channels_resp = await client.get("/api/settings/host-channels")
     assert host_channels_resp.status_code == 200
     payload = host_channels_resp.json()
-    assert payload["total"] >= 6
+    assert payload["total"] == 2
     assert any(item["channel_name"] == "总有功功率" for item in payload["items"])
     assert any(item["channel_name"] == "热电偶温度采集通道" for item in payload["items"])
+
+
+@pytest.mark.asyncio
+async def test_definition_preview_curves_prefers_preview_builder(client, monkeypatch) -> None:
+    async def fake_build_preview_curves(**_kwargs):
+        return [
+            {
+                "metric_id": "metric-001",
+                "metric_name": "功率",
+                "unit": "kW",
+                "color": "#409EFF",
+                "edc_channel_id": "2349-199",
+                "source_channel_name": "总有功功率",
+                "source_channel_label": "SSTW / 总有功功率 / kW",
+                "points": [
+                    {"timestamp": 1000, "value": 401.0},
+                    {"timestamp": 2000, "value": 402.0},
+                ],
+            }
+        ]
+
+    monkeypatch.setattr(
+        "src.api.baseline_definitions._build_preview_curves",
+        fake_build_preview_curves,
+    )
+
+    response = await client.get(
+        "/api/baseline-definitions/def-001/preview-curves",
+        params={"heat_id": "heat-001"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["definition_id"] == "def-001"
+    assert payload["source_heat_id"] == "heat-001"
+    assert payload["curves_data"][0]["points"][0]["value"] == 401.0
 
 
 @pytest.mark.asyncio
