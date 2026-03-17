@@ -15,6 +15,8 @@ class Settings(BaseSettings):
 
     # EDC API
     edc_base_url: str = "http://localhost:8080"
+    edc_username: str | None = None
+    edc_password: str | None = None
     edc_api_key: str | None = None
 
     # 默认参数

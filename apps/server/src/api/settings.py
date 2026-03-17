@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from ..config import settings as app_settings
 from ..schemas import (
     BaselineLengthScopeSettingRequest,
     CuttingSettingRequest,
@@ -17,12 +18,15 @@ from ..schemas import (
     SettingsUpdateRequest,
     ToleranceSettingRequest,
 )
+from ..services import EDCClient, EDCClientError
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
 
 _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     "default_tolerance_percent": {"value": "15.0", "description": "默认容许误差百分比"},
-    "edc_base_url": {"value": "http://localhost:8080", "description": "EDC API 基础URL"},
+    "edc_base_url": {"value": "http://60.251.229.32", "description": "EDC API 基础URL"},
+    "edc_username": {"value": "volapu", "description": "EDC 登录账号"},
+    "edc_password": {"value": "admin", "description": "EDC 登录密码"},
     "edc_api_key": {"value": "", "description": "EDC API 密钥"},
     "report_generation_hour": {"value": "2", "description": "日报生成时间（小时）"},
     "active_baseline_id": {"value": "baseline-001", "description": "当前激活的基线ID"},
@@ -146,6 +150,22 @@ def _to_response() -> SettingsResponse:
     )
 
 
+def get_edc_connection_config() -> dict[str, str]:
+    """读取当前 EDC 连接配置。"""
+    base_url = str(_SETTINGS_STORE.get("edc_base_url", {}).get("value") or app_settings.edc_base_url)
+    username = str(
+        _SETTINGS_STORE.get("edc_username", {}).get("value") or app_settings.edc_username or ""
+    )
+    password = str(
+        _SETTINGS_STORE.get("edc_password", {}).get("value") or app_settings.edc_password or ""
+    )
+    return {
+        "base_url": base_url.strip(),
+        "username": username.strip(),
+        "password": password.strip(),
+    }
+
+
 @router.get("", response_model=SettingsResponse)
 async def get_settings() -> SettingsResponse:
     """获取所有系统设置。"""
@@ -181,6 +201,10 @@ async def update_tolerance(data: ToleranceSettingRequest) -> MessageResponse:
 async def update_edc_connection(data: EDCConnectionRequest) -> MessageResponse:
     """更新 EDC 连接配置。"""
     _SETTINGS_STORE["edc_base_url"]["value"] = data.base_url
+    if data.username is not None:
+        _SETTINGS_STORE["edc_username"]["value"] = data.username
+    if data.password is not None:
+        _SETTINGS_STORE["edc_password"]["value"] = data.password
     _SETTINGS_STORE["edc_api_key"]["value"] = data.api_key or ""
     return MessageResponse(message="EDC 连接配置已更新", success=True)
 
@@ -188,6 +212,16 @@ async def update_edc_connection(data: EDCConnectionRequest) -> MessageResponse:
 @router.post("/edc-connection/test", response_model=MessageResponse)
 async def test_edc_connection() -> MessageResponse:
     """测试 EDC 连接。"""
+    config = get_edc_connection_config()
+    if not config["base_url"] or not config["username"] or not config["password"]:
+        return MessageResponse(message="EDC 连接信息不完整", success=False)
+
+    try:
+        async with EDCClient(**config) as client:
+            await client.login()
+    except EDCClientError as exc:
+        return MessageResponse(message=str(exc), success=False)
+
     return MessageResponse(message="EDC 连接测试成功", success=True)
 
 

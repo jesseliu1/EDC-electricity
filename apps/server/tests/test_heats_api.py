@@ -2,6 +2,8 @@
 
 import pytest
 
+from src.schemas.common import CurvePoint
+
 
 @pytest.mark.asyncio
 async def test_list_heats_with_pagination(client) -> None:
@@ -63,6 +65,38 @@ async def test_get_heat_curve_and_compare(client) -> None:
     ]
     assert all("source_channel_label" in item for item in first_baseline["metric_curves"])
     assert all("source_channel_name" in item for item in second_baseline["metric_curves"])
+
+
+@pytest.mark.asyncio
+async def test_heat_compare_prefers_edc_curves_when_available(client, monkeypatch) -> None:
+    list_resp = await client.get("/api/heats", params={"page_size": 20})
+    heat_id = next(
+        item["id"] for item in list_resp.json()["items"] if item.get("baseline_id") is not None
+    )
+
+    async def fake_load_metric_current_curves_from_edc(**_kwargs):
+        return {
+            "metric-001": [
+                CurvePoint(timestamp=1000, value=501.0),
+                CurvePoint(timestamp=2000, value=502.0),
+            ],
+            "metric-002": [
+                CurvePoint(timestamp=1000, value=331.0),
+                CurvePoint(timestamp=2000, value=332.0),
+            ],
+        }
+
+    monkeypatch.setattr(
+        "src.api.heats._load_metric_current_curves_from_edc",
+        fake_load_metric_current_curves_from_edc,
+    )
+
+    compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
+    assert compare_resp.status_code == 200
+    payload = compare_resp.json()
+    first_baseline = payload["baselines"][0]
+    assert first_baseline["metric_curves"][0]["current_curve"][0]["value"] == 501.0
+    assert first_baseline["metric_curves"][1]["current_curve"][1]["value"] == 332.0
 
 
 @pytest.mark.asyncio

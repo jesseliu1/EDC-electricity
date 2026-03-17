@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -17,17 +18,17 @@ from ..schemas import (
     HeatAnalyzeResponse,
     HeatCompareResponse,
     HeatListResponse,
-    MetricCompareSeries,
     HeatResponse,
     HeatResumeCuttingRequest,
     HeatUpdate,
     HeatWithCurve,
+    MetricCompareSeries,
 )
 from ..schemas.heat import BaselineWithCurveSimple
-from ..services import DeviationService
+from ..services import DeviationService, EDCClient, EDCClientError
 from .baseline_definitions import _DEFINITION_STORE
 from .baselines import _BASELINE_STORE
-from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE
+from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE, get_edc_connection_config
 
 router = APIRouter(prefix="/heats", tags=["Heats"])
 deviation_service = DeviationService()
@@ -168,9 +169,56 @@ def _build_current_curve_for_metric(
     )
 
 
-def _build_metric_curve_series(
+async def _load_metric_current_curves_from_edc(
+    *,
+    metrics: list[dict[str, Any]],
+    start_time: datetime,
+    end_time: datetime,
+) -> dict[str, list[CurvePoint]]:
+    """按指标绑定尝试批量读取真实当前曲线。"""
+    bound_metrics: list[tuple[str, dict[str, str]]] = []
+    for metric in metrics:
+        channel = _resolve_host_channel(metric.get("edc_channel_id"))
+        metric_id = str(metric.get("id") or "")
+        if channel and metric_id:
+            bound_metrics.append((metric_id, channel))
+
+    if not bound_metrics:
+        return {}
+
+    config = get_edc_connection_config()
+    if not config["base_url"] or not config["username"] or not config["password"]:
+        return {}
+
+    try:
+        async with EDCClient(**config) as client:
+            tasks = {
+                metric_id: asyncio.create_task(
+                    client.get_local_datas(
+                        suid=channel["suid"],
+                        cuid=channel["cuid"],
+                        start_time=start_time,
+                        end_time=end_time,
+                    )
+                )
+                for metric_id, channel in bound_metrics
+            }
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    except EDCClientError:
+        return {}
+
+    curves: dict[str, list[CurvePoint]] = {}
+    for metric_id, result in zip(tasks.keys(), results, strict=False):
+        if isinstance(result, Exception) or not result:
+            continue
+        curves[metric_id] = result
+    return curves
+
+
+async def _build_metric_curve_series(
     *,
     start_time: datetime,
+    end_time: datetime,
     minutes: int,
     baseline_id: str,
     power_curve: list[CurvePoint],
@@ -197,6 +245,12 @@ def _build_metric_curve_series(
                 {"id": "metric-pressure", "name": "炉压", "unit": "MPa", "color": "#F56C6C"}
             )
 
+    real_current_curves = await _load_metric_current_curves_from_edc(
+        metrics=metrics,
+        start_time=start_time,
+        end_time=end_time,
+    )
+
     series: list[MetricCompareSeries] = []
     for index, metric in enumerate(metrics):
         metric_key = _infer_metric_key(metric, index)
@@ -209,15 +263,18 @@ def _build_metric_curve_series(
             variant="baseline",
             offset=index * 1.5,
         )
-        current_metric_curve = _build_current_curve_for_metric(
-            start_time=start_time,
-            minutes=minutes,
-            metric_key=metric_key,
-            metric_index=index,
-            baseline_index=baseline_index,
-            power_curve=power_curve,
-            voltage_curve=voltage_curve,
-        )
+        metric_id = str(metric.get("id") or "")
+        current_metric_curve = real_current_curves.get(metric_id)
+        if current_metric_curve is None:
+            current_metric_curve = _build_current_curve_for_metric(
+                start_time=start_time,
+                minutes=minutes,
+                metric_key=metric_key,
+                metric_index=index,
+                baseline_index=baseline_index,
+                power_curve=power_curve,
+                voltage_curve=voltage_curve,
+            )
         series.append(
             MetricCompareSeries(
                 metric_key=metric_key,
@@ -715,8 +772,9 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     baseline_ids = item.get("baseline_ids", [])
     baseline_compares: list[BaselineCompareItem] = []
     for idx, baseline_id in enumerate(baseline_ids):
-        metric_curves = _build_metric_curve_series(
+        metric_curves = await _build_metric_curve_series(
             start_time=item["start_time"],
+            end_time=item["end_time"],
             minutes=46,
             baseline_id=baseline_id,
             power_curve=item["power_curve"],

@@ -1,14 +1,18 @@
 """仪表盘 API 路由"""
 
+from __future__ import annotations
+
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter
 
 from ..schemas import DashboardStats, RecentHeat, RecentHeatsResponse
+from ..schemas.common import CurvePoint
+from ..services import EDCClient, EDCClientError
 from .baseline_definitions import _DEFINITION_STORE
 from .baselines import _BASELINE_STORE
-from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE
+from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE, get_edc_connection_config
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -81,6 +85,74 @@ def _resolve_dashboard_sources() -> dict[str, str | None]:
     }
 
 
+async def _load_realtime_curves_from_edc(
+    *,
+    duration: Literal["5m", "1h", "6h", "24h"],
+    start_time: datetime,
+    end_time: datetime,
+) -> dict[str, list[CurvePoint]] | None:
+    """尝试从真实 EDC 读取实时功率/电压曲线。"""
+    baseline = _resolve_active_baseline()
+    definition = (
+        _DEFINITION_STORE.get(str(baseline.get("definition_id")))
+        if baseline and baseline.get("definition_id")
+        else None
+    )
+    metrics = list(definition.get("metrics", [])) if definition else []
+    power_metric = next(
+        (item for index, item in enumerate(metrics) if _infer_metric_key(item, index) == "power"),
+        None,
+    )
+    voltage_metric = next(
+        (item for index, item in enumerate(metrics) if _infer_metric_key(item, index) == "voltage"),
+        None,
+    )
+    power_channel = _resolve_host_channel(power_metric.get("edc_channel_id")) if power_metric else None
+    voltage_channel = (
+        _resolve_host_channel(voltage_metric.get("edc_channel_id")) if voltage_metric else None
+    )
+    if not power_channel or not voltage_channel:
+        return None
+
+    config = get_edc_connection_config()
+    if not config["base_url"] or not config["username"] or not config["password"]:
+        return None
+
+    try:
+        async with EDCClient(**config) as client:
+            power_points = await client.get_local_datas(
+                suid=power_channel["suid"],
+                cuid=power_channel["cuid"],
+                start_time=start_time,
+                end_time=end_time,
+            )
+            voltage_points = await client.get_local_datas(
+                suid=voltage_channel["suid"],
+                cuid=voltage_channel["cuid"],
+                start_time=start_time,
+                end_time=end_time,
+            )
+    except EDCClientError:
+        return None
+
+    if not power_points or not voltage_points:
+        return None
+
+    baseline_power = _build_flat_baseline_curve(power_points, 460.0)
+    baseline_voltage = _build_flat_baseline_curve(voltage_points, 385.0)
+    return {
+        "power": power_points,
+        "voltage": voltage_points,
+        "baseline_power": baseline_power,
+        "baseline_voltage": baseline_voltage,
+    }
+
+
+def _build_flat_baseline_curve(points: list[CurvePoint], value: float) -> list[CurvePoint]:
+    """沿真实时间轴生成平直基线。"""
+    return [CurvePoint(timestamp=item.timestamp, value=value) for item in points]
+
+
 @router.get("/stats", response_model=DashboardStats)
 async def get_dashboard_stats() -> DashboardStats:
     """获取仪表盘统计数据
@@ -120,28 +192,37 @@ async def get_realtime_data(
     end_time = datetime.now()
     start_time = end_time - delta
 
-    # TODO: 实现真实逻辑，从 EDC API 或数据库获取
-    # 生成模拟数据
-    points_map = {
-        "5m": 60,
-        "1h": 120,
-        "6h": 180,
-        "24h": 288,
-    }
-    points = points_map[duration]
-    power_curve = []
-    voltage_curve = []
-    baseline_power = []
-    baseline_voltage = []
-
-    for i in range(points):
-        ts = int((start_time + (delta / points) * i).timestamp() * 1000)
-        power_curve.append({"timestamp": ts, "value": 450 + ((i + points // 12) % 10) * 5})
-        voltage_curve.append({"timestamp": ts, "value": 380 + ((i + points // 24) % 5) * 2})
-        baseline_power.append({"timestamp": ts, "value": 460})
-        baseline_voltage.append({"timestamp": ts, "value": 385})
-
     sources = _resolve_dashboard_sources()
+    realtime_curves = await _load_realtime_curves_from_edc(
+        duration=duration,
+        start_time=start_time,
+        end_time=end_time,
+    )
+
+    if realtime_curves is None:
+        points_map = {
+            "5m": 60,
+            "1h": 120,
+            "6h": 180,
+            "24h": 288,
+        }
+        points = points_map[duration]
+        power_curve: list[dict[str, float | int]] = []
+        voltage_curve: list[dict[str, float | int]] = []
+        baseline_power: list[dict[str, float | int]] = []
+        baseline_voltage: list[dict[str, float | int]] = []
+
+        for i in range(points):
+            ts = int((start_time + (delta / points) * i).timestamp() * 1000)
+            power_curve.append({"timestamp": ts, "value": 450 + ((i + points // 12) % 10) * 5})
+            voltage_curve.append({"timestamp": ts, "value": 380 + ((i + points // 24) % 5) * 2})
+            baseline_power.append({"timestamp": ts, "value": 460})
+            baseline_voltage.append({"timestamp": ts, "value": 385})
+    else:
+        power_curve = [item.model_dump() for item in realtime_curves["power"]]
+        voltage_curve = [item.model_dump() for item in realtime_curves["voltage"]]
+        baseline_power = [item.model_dump() for item in realtime_curves["baseline_power"]]
+        baseline_voltage = [item.model_dump() for item in realtime_curves["baseline_voltage"]]
 
     return {
         "timestamp": end_time.isoformat(),

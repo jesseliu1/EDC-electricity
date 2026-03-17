@@ -2,6 +2,8 @@
 
 import pytest
 
+from src.schemas.common import CurvePoint
+
 
 @pytest.mark.asyncio
 async def test_dashboard_endpoints(client) -> None:
@@ -24,6 +26,40 @@ async def test_dashboard_endpoints(client) -> None:
     assert recent_resp.status_code == 200
     recent_data = recent_resp.json()
     assert len(recent_data["items"]) == 5
+
+
+@pytest.mark.asyncio
+async def test_dashboard_realtime_prefers_edc_curves_when_available(client, monkeypatch) -> None:
+    async def fake_load_realtime_curves_from_edc(**_kwargs):
+        return {
+            "power": [
+                CurvePoint(timestamp=1000, value=101.0),
+                CurvePoint(timestamp=2000, value=102.0),
+            ],
+            "voltage": [
+                CurvePoint(timestamp=1000, value=221.0),
+                CurvePoint(timestamp=2000, value=222.0),
+            ],
+            "baseline_power": [
+                CurvePoint(timestamp=1000, value=460.0),
+                CurvePoint(timestamp=2000, value=460.0),
+            ],
+            "baseline_voltage": [
+                CurvePoint(timestamp=1000, value=385.0),
+                CurvePoint(timestamp=2000, value=385.0),
+            ],
+        }
+
+    monkeypatch.setattr(
+        "src.api.dashboard._load_realtime_curves_from_edc",
+        fake_load_realtime_curves_from_edc,
+    )
+
+    response = await client.get("/api/dashboard/realtime", params={"duration": "1h"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["power"][0]["value"] == 101.0
+    assert payload["voltage"][1]["value"] == 222.0
 
 
 @pytest.mark.asyncio

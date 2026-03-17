@@ -55,6 +55,8 @@ class EDCConnectionRequest(BaseModel):
     """EDC 连接配置请求"""
 
     base_url: str = Field(..., description="EDC API 基础URL")
+    username: str | None = Field(default=None, description="账号名称")
+    password: str | None = Field(default=None, description="账号密码")
     api_key: str | None = Field(default=None, description="API 密钥")
 
 

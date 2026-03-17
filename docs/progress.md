@@ -64,6 +64,16 @@
   - [x] 验证通过：`pnpm --dir apps/web lint`
   - [x] 验证通过：`pnpm --dir apps/web build`
   - [x] 验证通过：`pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts e2e/app.spec.ts`
+- [x] 真实 EDC 取数开始替换后端 mock 当前曲线
+  - [x] 新增 `apps/server/src/services/edc_client.py`，支持登录、设备清单读取、历史曲线读取
+  - [x] 设置模块扩展 `edc_username / edc_password`，并让 `/api/settings/edc-connection/test` 走真实登录校验
+  - [x] Dashboard `realtime` 接口优先使用绑定功率/电压通道的真实历史曲线，失败时自动回退 mock
+  - [x] 炉次详情对比 `metric_curves` 优先使用指标绑定宿主通道的真实历史曲线，失败时自动回退 mock
+  - [x] 后端回归新增“Dashboard 优先走真实曲线”和“炉次对比优先走真实当前曲线”测试桩断言
+  - [x] 只读实测 EDC 客户端可从 `60.251.229.32` 拉取通道 `2349/199` 最近 15 分钟历史曲线
+  - [x] 验证通过：`apps/server/.venv/Scripts/ruff.exe check src tests`
+  - [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py`
+  - [x] 验证通过：`pnpm --dir apps/web build`
 
 ### 2026-03-16（ASNS 宿主层接入边界梳理）
 
