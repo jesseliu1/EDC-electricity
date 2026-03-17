@@ -170,6 +170,9 @@ onMounted(() => {
         :power="dashboardStore.realtime.power"
         :baseline-power="dashboardStore.realtime.baselinePower"
         :selected-range="dashboardStore.timeRange"
+        :baseline-name="dashboardStore.realtime.baselineName"
+        :power-source-label="dashboardStore.realtime.powerSourceLabel"
+        :voltage-source-label="dashboardStore.realtime.voltageSourceLabel"
         @range-change="handleRangeChange"
       />
     </div>

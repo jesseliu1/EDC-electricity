@@ -20,6 +20,10 @@ interface DashboardStats {
 
 interface RealtimeData {
   timestamp: string
+  baselineId: string | null
+  baselineName: string | null
+  powerSourceLabel: string | null
+  voltageSourceLabel: string | null
   power: CurvePoint[]
   voltage: CurvePoint[]
   baselinePower: CurvePoint[]
@@ -45,6 +49,10 @@ const defaultStats: DashboardStats = {
 
 const defaultRealtime: RealtimeData = {
   timestamp: '',
+  baselineId: null,
+  baselineName: null,
+  powerSourceLabel: null,
+  voltageSourceLabel: null,
   power: [],
   voltage: [],
   baselinePower: [],
@@ -71,6 +79,10 @@ function mapStats(data: DashboardStatsResponse): DashboardStats {
 function mapRealtime(data: RealtimeResponse): RealtimeData {
   return {
     timestamp: data.timestamp,
+    baselineId: data.baseline_id ?? null,
+    baselineName: data.baseline_name ?? null,
+    powerSourceLabel: data.power_source_label ?? null,
+    voltageSourceLabel: data.voltage_source_label ?? null,
     power: data.power,
     voltage: data.voltage,
     baselinePower: data.baseline_power,
@@ -122,6 +134,10 @@ function mockRealtime(range: TimeRange): RealtimeData {
 
   return {
     timestamp: now.toISOString(),
+    baselineId: 'baseline-001',
+    baselineName: '标准基线 v2.1',
+    powerSourceLabel: 'SSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW',
+    voltageSourceLabel: 'SSTW 380V-220V電力 · 三相智能电表 / A相电压 / V',
     power,
     voltage,
     baselinePower,

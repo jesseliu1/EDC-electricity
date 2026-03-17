@@ -52,6 +52,18 @@
   - [x] 验证通过：`pnpm --dir apps/web build`
   - [x] 验证通过：`pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts`
   - [x] 验证通过：`pnpm --dir apps/web exec playwright test e2e/app.spec.ts`
+- [x] Dashboard 开始消费宿主通道绑定摘要
+  - [x] `GET /api/dashboard/realtime` 补充当前激活基线与功率/电压宿主来源摘要
+  - [x] 总览页实时曲线卡片补充“功率来源 / 电压来源”摘要面板
+  - [x] Dashboard 标题文案改为跟随当前激活基线名称
+  - [x] 默认基线定义补齐宿主通道绑定，保证总览与炉次详情来源信息一致
+- [x] Dashboard 回归补强
+  - [x] 后端 `test_baselines_dashboard_api.py` 新增来源摘要断言
+  - [x] Playwright `issue-acceptance.spec.ts` 覆盖 Dashboard 来源摘要展示
+  - [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe apps/server/tests/test_baselines_dashboard_api.py apps/server/tests/test_heats_api.py`
+  - [x] 验证通过：`pnpm --dir apps/web lint`
+  - [x] 验证通过：`pnpm --dir apps/web build`
+  - [x] 验证通过：`pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts e2e/app.spec.ts`
 
 ### 2026-03-16（ASNS 宿主层接入边界梳理）
 

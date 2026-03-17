@@ -17,6 +17,10 @@ export interface DashboardStatsResponse {
 
 export interface RealtimeResponse {
   timestamp: string
+  baseline_id?: string | null
+  baseline_name?: string | null
+  power_source_label?: string | null
+  voltage_source_label?: string | null
   power: CurvePoint[]
   voltage: CurvePoint[]
   baseline_power: CurvePoint[]

@@ -95,6 +95,10 @@ async function mockDashboardRanges(page: Page) {
 
     await fulfillJson(route, {
       timestamp: '2026-03-13T09:30:00Z',
+      baseline_id: 'baseline-001',
+      baseline_name: '标准基线 v2.1',
+      power_source_label: 'SSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW',
+      voltage_source_label: 'SSTW 380V-220V電力 · 三相智能电表 / A相电压 / V',
       power,
       voltage: buildCurvePoints(
         '2026-03-13T00:00:00Z',
@@ -425,11 +429,12 @@ test.describe('EDC issue acceptance checks', () => {
 
     await page.getByTestId('dashboard-range-6h').click()
     await expect(page.getByTestId('dashboard-range-6h')).toHaveClass(/bg-white/)
-    await expect(page.getByText(/黄金基线 V3\.2 · 6小时/)).toBeVisible()
+    await expect(page.getByText(/标准基线 v2\.1 · 6小时/)).toBeVisible()
 
     await page.getByTestId('dashboard-range-24h').click()
     await expect(page.getByTestId('dashboard-range-24h')).toHaveClass(/bg-white/)
-    await expect(page.getByText(/黄金基线 V3\.2 · 24小时/)).toBeVisible()
+    await expect(page.getByText(/标准基线 v2\.1 · 24小时/)).toBeVisible()
+    await expect(page.getByTestId('dashboard-source-summary')).toBeVisible()
     await expect.poll(() => durations.filter((item) => item === '6h').length).toBeGreaterThan(0)
     await expect.poll(() => durations.filter((item) => item === '24h').length).toBeGreaterThan(0)
   })

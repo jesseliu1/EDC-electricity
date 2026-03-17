@@ -16,6 +16,9 @@ async def test_dashboard_endpoints(client) -> None:
     realtime_data = realtime_resp.json()
     assert len(realtime_data["power"]) == len(realtime_data["baseline_power"])
     assert len(realtime_data["voltage"]) == len(realtime_data["baseline_voltage"])
+    assert realtime_data["baseline_name"] == "标准基线 v2.1"
+    assert "总有功功率" in realtime_data["power_source_label"]
+    assert "A相电压" in realtime_data["voltage_source_label"]
 
     recent_resp = await client.get("/api/dashboard/recent-heats", params={"limit": 5})
     assert recent_resp.status_code == 200

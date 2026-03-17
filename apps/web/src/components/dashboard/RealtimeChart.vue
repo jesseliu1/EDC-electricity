@@ -34,6 +34,9 @@ interface Props {
   power: CurvePoint[]
   baselinePower: CurvePoint[]
   selectedRange: TimeRange
+  baselineName?: string | null
+  powerSourceLabel?: string | null
+  voltageSourceLabel?: string | null
 }
 
 interface Emits {
@@ -168,7 +171,7 @@ const option = computed<EChartsOption>(() => ({
             {{ t('dashboard.realtimeCurve') }}
           </h3>
           <p class="text-xs text-slate-400 mt-0.5">
-            当前炉次 #H-20231025-08 vs 黄金基线 V3.2 · {{ t(`dashboard.timeRange.${selectedRange}`) }}
+            当前炉次 #H-20231025-08 vs {{ baselineName || '黄金基线 V3.2' }} · {{ t(`dashboard.timeRange.${selectedRange}`) }}
           </p>
         </div>
       </div>
@@ -196,6 +199,28 @@ const option = computed<EChartsOption>(() => ({
         :option="option"
         autoresize
       />
+    </div>
+
+    <div
+      class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2"
+      data-testid="dashboard-source-summary"
+    >
+      <div class="rounded-lg border border-border-light bg-slate-50 px-4 py-3">
+        <div class="text-xs uppercase tracking-wider text-slate-400">
+          功率来源
+        </div>
+        <div class="mt-1 text-sm font-medium text-slate-700">
+          {{ powerSourceLabel || '未绑定宿主通道' }}
+        </div>
+      </div>
+      <div class="rounded-lg border border-border-light bg-slate-50 px-4 py-3">
+        <div class="text-xs uppercase tracking-wider text-slate-400">
+          电压来源
+        </div>
+        <div class="mt-1 text-sm font-medium text-slate-700">
+          {{ voltageSourceLabel || '未绑定宿主通道' }}
+        </div>
+      </div>
     </div>
   </div>
 </template>
