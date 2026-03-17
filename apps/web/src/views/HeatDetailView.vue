@@ -113,6 +113,9 @@ const primaryComparisonMetric = computed<{
   metric_name: string
   unit: string
   color: string
+  edc_channel_id?: string | null
+  source_channel_name?: string | null
+  source_channel_label?: string | null
   baseline_curve: { timestamp: number; value: number }[]
   current_curve: { timestamp: number; value: number }[]
 }>(() => {
@@ -141,6 +144,25 @@ const compareSeriesCount = computed(() => {
       ? comparisonMetricCurves.value
       : [primaryComparisonMetric.value]
   return metricCurves.length * 2
+})
+
+const comparisonBindingSummary = computed(() => {
+  const metricCurves =
+    comparisonMetricCurves.value.length > 0
+      ? comparisonMetricCurves.value
+      : [primaryComparisonMetric.value]
+  const items = metricCurves.map((item) => ({
+    metricKey: item.metric_key,
+    metricName: item.metric_name,
+    unit: item.unit,
+    bound: Boolean(item.edc_channel_id),
+    sourceLabel: item.source_channel_label || item.source_channel_name || '',
+  }))
+  return {
+    total: items.length,
+    boundCount: items.filter((item) => item.bound).length,
+    items,
+  }
 })
 
 function normalizedTimestamp(value: number | string | null | undefined) {
@@ -757,6 +779,43 @@ onMounted(() => {
             data-testid="heat-compare-chart"
             :data-series-count="compareSeriesCount"
           />
+        </div>
+
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
+          <div class="flex items-center justify-between mb-4 pb-4 border-b border-border-light">
+            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <span class="material-symbols-outlined text-primary text-[20px]">route</span>
+              {{ t('heat.metricSourcesTitle') }}
+            </h3>
+            <span class="text-xs text-slate-500">
+              {{ comparisonBindingSummary.boundCount }}/{{ comparisonBindingSummary.total }}
+            </span>
+          </div>
+          <div
+            class="space-y-3"
+            data-testid="heat-source-binding-list"
+          >
+            <div
+              v-for="item in comparisonBindingSummary.items"
+              :key="item.metricKey"
+              class="rounded-lg border border-border-light bg-slate-50 p-3"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-sm font-semibold text-slate-800">
+                  {{ item.metricName }} ({{ item.unit }})
+                </div>
+                <span
+                  class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
+                  :class="item.bound ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
+                >
+                  {{ item.bound ? t('heat.sourceBound') : t('heat.sourceUnbound') }}
+                </span>
+              </div>
+              <div class="mt-2 text-xs text-slate-500">
+                {{ item.bound ? item.sourceLabel : t('heat.sourceUnboundHint') }}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="bg-white rounded-xl border border-border-light shadow-card p-5">

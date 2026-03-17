@@ -56,6 +56,9 @@ export interface MetricCompareSeries {
   metric_name: string
   unit: string
   color: string
+  edc_channel_id?: string | null
+  source_channel_name?: string | null
+  source_channel_label?: string | null
   baseline_curve: CurvePoint[]
   current_curve: CurvePoint[]
 }

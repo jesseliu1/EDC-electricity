@@ -162,6 +162,9 @@ function mockDetail(id: string): HeatDetail {
         metric_name: '功率',
         unit: 'kW',
         color: '#409EFF',
+        edc_channel_id: '2349-199',
+        source_channel_name: '总有功功率',
+        source_channel_label: 'SSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW',
         baseline_curve: baselinePowerCurve.map(item => ({ ...item, value: Number((item.value + baselineIndex * 8).toFixed(1)) })),
         current_curve: powerCurve
       },
@@ -170,6 +173,9 @@ function mockDetail(id: string): HeatDetail {
         metric_name: '电压',
         unit: 'V',
         color: '#67C23A',
+        edc_channel_id: '2349-128',
+        source_channel_name: 'A相电压',
+        source_channel_label: 'SSTW 380V-220V電力 · 三相智能电表 / A相电压 / V',
         baseline_curve: voltageCurve.map(item => ({ ...item, value: Number((item.value + baselineIndex * 2).toFixed(1)) })),
         current_curve: voltageCurve
       },
@@ -178,6 +184,9 @@ function mockDetail(id: string): HeatDetail {
         metric_name: '炉温',
         unit: '°C',
         color: '#E6A23C',
+        edc_channel_id: '2054-128',
+        source_channel_name: '热电偶温度采集通道',
+        source_channel_label: 'A-1溫度 · 热电偶温度采集器 / 热电偶温度采集通道 / ℃',
         baseline_curve: temperatureCurve.map(item => ({ ...item, value: Number((item.value + 6 + baselineIndex * 12).toFixed(1)) })),
         current_curve: temperatureCurve
       }
@@ -189,6 +198,9 @@ function mockDetail(id: string): HeatDetail {
         metric_name: '炉压',
         unit: 'MPa',
         color: '#F56C6C',
+        edc_channel_id: '769-128',
+        source_channel_name: 'AD_CH1',
+        source_channel_label: '防水型智慧電流信號轉換器 · AD_CH1 / 外部传感器决定',
         baseline_curve: pressureCurve.map(item => ({ ...item, value: Number((item.value + 0.04).toFixed(2)) })),
         current_curve: pressureCurve
       })

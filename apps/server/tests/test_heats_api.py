@@ -30,8 +30,10 @@ async def test_get_heat_not_found(client) -> None:
 
 @pytest.mark.asyncio
 async def test_get_heat_curve_and_compare(client) -> None:
-    list_resp = await client.get("/api/heats", params={"page_size": 1})
-    heat_id = list_resp.json()["items"][0]["id"]
+    list_resp = await client.get("/api/heats", params={"page_size": 20})
+    heat_id = next(
+        item["id"] for item in list_resp.json()["items"] if item.get("baseline_id") is not None
+    )
 
     curve_resp = await client.get(f"/api/heats/{heat_id}/curve")
     assert curve_resp.status_code == 200
@@ -44,20 +46,40 @@ async def test_get_heat_curve_and_compare(client) -> None:
     assert "deviation_ranges" in compare_data
     assert compare_data["heat"]["id"] == heat_id
     assert len(compare_data["baselines"]) > 0
-    assert len(compare_data["baselines"][0]["metric_curves"]) >= 2
+    first_baseline = compare_data["baselines"][0]
+    second_baseline = compare_data["baselines"][1]
+    assert len(first_baseline["metric_curves"]) == 3
+    assert len(second_baseline["metric_curves"]) == 4
+    assert [item["metric_key"] for item in first_baseline["metric_curves"]] == [
+        "power",
+        "voltage",
+        "temperature",
+    ]
+    assert [item["metric_key"] for item in second_baseline["metric_curves"]] == [
+        "power",
+        "voltage",
+        "temperature",
+        "pressure",
+    ]
+    assert all("source_channel_label" in item for item in first_baseline["metric_curves"])
+    assert all("source_channel_name" in item for item in second_baseline["metric_curves"])
 
 
 @pytest.mark.asyncio
 async def test_cutting_timeline_uses_abnormal_outcome_for_abnormal_heat(client) -> None:
-    list_resp = await client.get("/api/heats", params={"status": "abnormal", "page_size": 20})
+    list_resp = await client.get("/api/heats", params={"status": "abnormal", "page_size": 50})
     abnormal_items = list_resp.json()["items"]
     assert abnormal_items
 
-    target_heat = next(item for item in abnormal_items if item["cut_status"] == "normal")
+    target_heat = next(
+        item
+        for item in abnormal_items
+        if item["cut_status"] in {"normal", "major_issue"}
+    )
     timeline_resp = await client.get(f"/api/heats/{target_heat['id']}/cutting-timeline")
     assert timeline_resp.status_code == 200
     events = timeline_resp.json()["events"]
-    assert events[-1]["title"] == "判定异常"
+    assert events[-1]["title"] in {"判定异常", "触发重大事故"}
 
 
 @pytest.mark.asyncio

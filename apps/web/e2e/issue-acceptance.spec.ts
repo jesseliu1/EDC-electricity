@@ -209,6 +209,9 @@ async function mockHeatAcceptance(page: Page) {
               metric_name: '功率',
               unit: 'kW',
               color: '#409EFF',
+              edc_channel_id: '2349-199',
+              source_channel_name: '总有功功率',
+              source_channel_label: 'SSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW',
               baseline_curve: powerCurve.map((item) => ({
                 ...item,
                 value: Number((item.value + 8).toFixed(1)),
@@ -220,6 +223,9 @@ async function mockHeatAcceptance(page: Page) {
               metric_name: '电压',
               unit: 'V',
               color: '#67C23A',
+              edc_channel_id: '2349-128',
+              source_channel_name: 'A相电压',
+              source_channel_label: 'SSTW 380V-220V電力 · 三相智能电表 / A相电压 / V',
               baseline_curve: voltageCurve.map((item) => ({
                 ...item,
                 value: Number((item.value + 1).toFixed(1)),
@@ -231,6 +237,9 @@ async function mockHeatAcceptance(page: Page) {
               metric_name: '炉温',
               unit: '°C',
               color: '#E6A23C',
+              edc_channel_id: '2054-128',
+              source_channel_name: '热电偶温度采集通道',
+              source_channel_label: 'A-1溫度 · 热电偶温度采集器 / 热电偶温度采集通道 / ℃',
               baseline_curve: temperatureCurve.map((item) => ({
                 ...item,
                 value: Number((item.value + 6).toFixed(1)),
@@ -268,6 +277,9 @@ async function mockHeatAcceptance(page: Page) {
               metric_name: '功率',
               unit: 'kW',
               color: '#409EFF',
+              edc_channel_id: '2349-199',
+              source_channel_name: '总有功功率',
+              source_channel_label: 'SSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW',
               baseline_curve: powerCurve.map((item) => ({
                 ...item,
                 value: Number((item.value + 12).toFixed(1)),
@@ -279,6 +291,9 @@ async function mockHeatAcceptance(page: Page) {
               metric_name: '电压',
               unit: 'V',
               color: '#67C23A',
+              edc_channel_id: '2349-128',
+              source_channel_name: 'A相电压',
+              source_channel_label: 'SSTW 380V-220V電力 · 三相智能电表 / A相电压 / V',
               baseline_curve: voltageCurve.map((item) => ({
                 ...item,
                 value: Number((item.value + 2).toFixed(1)),
@@ -290,6 +305,9 @@ async function mockHeatAcceptance(page: Page) {
               metric_name: '炉温',
               unit: '°C',
               color: '#E6A23C',
+              edc_channel_id: '2054-128',
+              source_channel_name: '热电偶温度采集通道',
+              source_channel_label: 'A-1溫度 · 热电偶温度采集器 / 热电偶温度采集通道 / ℃',
               baseline_curve: temperatureCurve.map((item) => ({
                 ...item,
                 value: Number((item.value + 10).toFixed(1)),
@@ -301,6 +319,9 @@ async function mockHeatAcceptance(page: Page) {
               metric_name: '炉压',
               unit: 'MPa',
               color: '#F56C6C',
+              edc_channel_id: '769-128',
+              source_channel_name: 'AD_CH1',
+              source_channel_label: '防水型智慧電流信號轉換器 / AD_CH1 / 外部传感器决定',
               baseline_curve: pressureCurve.map((item) => ({
                 ...item,
                 value: Number((item.value + 0.04).toFixed(2)),
@@ -502,8 +523,11 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
     await expect(page.getByText('异常', { exact: true }).first()).toBeVisible()
     await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute('data-series-count', '6')
+    await expect(page.getByTestId('heat-source-binding-list')).toBeVisible()
+    await expect(page.getByTestId('heat-source-binding-list').getByText('总有功功率')).toBeVisible()
     await page.getByRole('tab', { name: '高功率基线' }).click()
     await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute('data-series-count', '8')
+    await expect(page.getByTestId('heat-source-binding-list').getByText('AD_CH1')).toBeVisible()
 
     await expect(page.getByTestId('heat-abnormal-range-list')).toBeVisible()
     await expect(page.getByTestId('heat-abnormal-range-item')).toHaveCount(1)

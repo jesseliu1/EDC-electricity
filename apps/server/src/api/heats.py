@@ -25,7 +25,9 @@ from ..schemas import (
 )
 from ..schemas.heat import BaselineWithCurveSimple
 from ..services import DeviationService
-from .settings import _SETTINGS_STORE
+from .baseline_definitions import _DEFINITION_STORE
+from .baselines import _BASELINE_STORE
+from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE
 
 router = APIRouter(prefix="/heats", tags=["Heats"])
 deviation_service = DeviationService()
@@ -84,6 +86,88 @@ def _curve_points(
     return points
 
 
+def _resolve_host_channel(channel_id: str | None) -> dict[str, str] | None:
+    if not channel_id:
+        return None
+    return next((item for item in _HOST_CHANNEL_STORE if item["id"] == channel_id), None)
+
+
+def _format_host_channel_label(channel: dict[str, str] | None) -> str | None:
+    if not channel:
+        return None
+    return f'{channel["device_name"]} / {channel["channel_name"]} / {channel["unit"] or "--"}'
+
+
+def _infer_metric_key(metric: dict[str, Any], index: int) -> str:
+    name = str(metric.get("name") or "").lower()
+    unit = str(metric.get("unit") or "")
+    if "功率" in name or "power" in name or unit == "kW":
+        return "power"
+    if "电压" in name or "電壓" in name or "voltage" in name or unit == "V":
+        return "voltage"
+    if "温" in name or "溫" in name or "temperature" in name or unit in {"°C", "℃"}:
+        return "temperature"
+    if "压" in name or "壓" in name or "pressure" in name or unit == "MPa":
+        return "pressure"
+    return f"metric_{index + 1}"
+
+
+def _build_generated_curve(
+    *,
+    start_time: datetime,
+    minutes: int,
+    metric_key: str,
+    baseline_index: int,
+    variant: Literal["baseline", "current"],
+    offset: float = 0.0,
+) -> list[CurvePoint]:
+    if metric_key == "power":
+        base = 435 + baseline_index * 5 + offset
+        amp = 24 + baseline_index * 3
+        phase = 2.0 + baseline_index
+    elif metric_key == "voltage":
+        base = 380 + baseline_index * 2 + offset
+        amp = 5 + baseline_index
+        phase = 1.0 + baseline_index
+    elif metric_key == "temperature":
+        base = (1460 if variant == "baseline" else 1452) + baseline_index * 10 + offset
+        amp = 18 + baseline_index * 2 if variant == "baseline" else 22 + baseline_index * 3
+        phase = 2.5 + baseline_index if variant == "baseline" else 2.1 + baseline_index
+    elif metric_key == "pressure":
+        base = (0.82 if variant == "baseline" else 0.79) + offset
+        amp = 0.12 if variant == "baseline" else 0.18
+        phase = 1.6 if variant == "baseline" else 1.2
+    else:
+        base = (120 if variant == "baseline" else 112) + baseline_index * 7 + offset
+        amp = 14 + baseline_index * 2
+        phase = 1.0 + baseline_index
+    return _curve_points(start_time, minutes, base, amp, phase)
+
+
+def _build_current_curve_for_metric(
+    *,
+    start_time: datetime,
+    minutes: int,
+    metric_key: str,
+    metric_index: int,
+    baseline_index: int,
+    power_curve: list[CurvePoint],
+    voltage_curve: list[CurvePoint],
+) -> list[CurvePoint]:
+    if metric_key == "power":
+        return power_curve
+    if metric_key == "voltage":
+        return voltage_curve
+    return _build_generated_curve(
+        start_time=start_time,
+        minutes=minutes,
+        metric_key=metric_key,
+        baseline_index=baseline_index,
+        variant="current",
+        offset=metric_index * 1.5,
+    )
+
+
 def _build_metric_curve_series(
     *,
     start_time: datetime,
@@ -92,65 +176,63 @@ def _build_metric_curve_series(
     power_curve: list[CurvePoint],
     voltage_curve: list[CurvePoint],
 ) -> list[MetricCompareSeries]:
-    """构造炉次详情多指标对比曲线。"""
+    """按基线定义动态构造炉次详情多指标对比曲线。"""
+    baseline_item = _BASELINE_STORE.get(baseline_id)
+    definition = (
+        _DEFINITION_STORE.get(str(baseline_item.get("definition_id")))
+        if baseline_item
+        else None
+    )
+    metrics = list(definition.get("metrics", [])) if definition else []
     baseline_index = 0 if baseline_id == "baseline-001" else 1
-    metric_specs: list[dict[str, Any]] = [
-        {
-            "metric_key": "power",
-            "metric_name": "功率",
-            "unit": "kW",
-            "color": "#409EFF",
-            "baseline_curve": _curve_points(
-                start_time, minutes, 435 + baseline_index * 5, 24 + baseline_index * 3, 2.0 + baseline_index
-            ),
-            "current_curve": power_curve,
-        },
-        {
-            "metric_key": "voltage",
-            "metric_name": "电压",
-            "unit": "V",
-            "color": "#67C23A",
-            "baseline_curve": _curve_points(
-                start_time, minutes, 380 + baseline_index * 2, 5 + baseline_index, 1.0 + baseline_index
-            ),
-            "current_curve": voltage_curve,
-        },
-        {
-            "metric_key": "temperature",
-            "metric_name": "炉温",
-            "unit": "°C",
-            "color": "#E6A23C",
-            "baseline_curve": _curve_points(
-                start_time, minutes, 1460 + baseline_index * 12, 18 + baseline_index * 2, 2.5 + baseline_index
-            ),
-            "current_curve": _curve_points(
-                start_time, minutes, 1452 + baseline_index * 8, 22 + baseline_index * 3, 2.1 + baseline_index
-            ),
-        },
-    ]
-    if baseline_id == "baseline-002":
-        metric_specs.append(
-            {
-                "metric_key": "pressure",
-                "metric_name": "炉压",
-                "unit": "MPa",
-                "color": "#F56C6C",
-                "baseline_curve": _curve_points(start_time, minutes, 0.82, 0.12, 1.6),
-                "current_curve": _curve_points(start_time, minutes, 0.79, 0.18, 1.2),
-            }
+
+    if not metrics:
+        metrics = [
+            {"id": "metric-power", "name": "功率", "unit": "kW", "color": "#409EFF"},
+            {"id": "metric-voltage", "name": "电压", "unit": "V", "color": "#67C23A"},
+            {"id": "metric-temperature", "name": "炉温", "unit": "°C", "color": "#E6A23C"},
+        ]
+        if baseline_id == "baseline-002":
+            metrics.append(
+                {"id": "metric-pressure", "name": "炉压", "unit": "MPa", "color": "#F56C6C"}
+            )
+
+    series: list[MetricCompareSeries] = []
+    for index, metric in enumerate(metrics):
+        metric_key = _infer_metric_key(metric, index)
+        host_channel = _resolve_host_channel(metric.get("edc_channel_id"))
+        baseline_curve = _build_generated_curve(
+            start_time=start_time,
+            minutes=minutes,
+            metric_key=metric_key,
+            baseline_index=baseline_index,
+            variant="baseline",
+            offset=index * 1.5,
+        )
+        current_metric_curve = _build_current_curve_for_metric(
+            start_time=start_time,
+            minutes=minutes,
+            metric_key=metric_key,
+            metric_index=index,
+            baseline_index=baseline_index,
+            power_curve=power_curve,
+            voltage_curve=voltage_curve,
+        )
+        series.append(
+            MetricCompareSeries(
+                metric_key=metric_key,
+                metric_name=str(metric.get("name") or f"指标{index + 1}"),
+                unit=str(metric.get("unit") or "--"),
+                color=str(metric.get("color") or "#94a3b8"),
+                edc_channel_id=metric.get("edc_channel_id"),
+                source_channel_name=host_channel["channel_name"] if host_channel else None,
+                source_channel_label=_format_host_channel_label(host_channel),
+                baseline_curve=baseline_curve,
+                current_curve=current_metric_curve,
+            )
         )
 
-    return [
-        MetricCompareSeries(
-            metric_key=spec["metric_key"],
-            metric_name=spec["metric_name"],
-            unit=spec["unit"],
-            color=spec["color"],
-            baseline_curve=spec["baseline_curve"],
-            current_curve=spec["current_curve"],
-        )
-        for spec in metric_specs
-    ]
+    return series
 
 
 def _ensure_deviation_ranges(
@@ -171,6 +253,16 @@ def _ensure_deviation_ranges(
             deviation=round(float(item.get("deviation_percent") or 12.0), 2),
         )
     ]
+
+
+def _select_metric_curve(
+    metric_curves: list[MetricCompareSeries], metric_key: str
+) -> list[CurvePoint]:
+    matched = next((item for item in metric_curves if item.metric_key == metric_key), None)
+    if matched:
+        return matched.baseline_curve
+    fallback = metric_curves[0] if metric_curves else None
+    return fallback.baseline_curve if fallback else []
 
 
 def _seed_heats() -> dict[str, dict[str, Any]]:
@@ -630,8 +722,14 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
             power_curve=item["power_curve"],
             voltage_curve=item["voltage_curve"],
         )
-        baseline_curve_points = metric_curves[0].baseline_curve
-        baseline_voltage_curve_points = metric_curves[1].baseline_curve
+        baseline_item = _BASELINE_STORE.get(baseline_id)
+        baseline_name = (
+            str(baseline_item.get("name"))
+            if baseline_item and baseline_item.get("name")
+            else ("标准基线 v2.1" if idx == 0 else "高功率基线")
+        )
+        baseline_curve_points = _select_metric_curve(metric_curves, "power")
+        baseline_voltage_curve_points = _select_metric_curve(metric_curves, "voltage")
 
         baseline_curve = [
             (float(point.timestamp), float(point.value)) for point in baseline_curve_points
@@ -659,7 +757,7 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
             BaselineCompareItem(
                 baseline=BaselineWithCurveSimple(
                     id=baseline_id,
-                    name="标准基线 v2.1" if idx == 0 else "高功率基线",
+                    name=baseline_name,
                     power_curve=baseline_curve_points,
                     voltage_curve=baseline_voltage_curve_points,
                     tolerance_percent=15.0,

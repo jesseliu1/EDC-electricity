@@ -39,6 +39,19 @@
   - [x] `pnpm --dir apps/web lint`
   - [x] `pnpm --dir apps/web build`
   - [x] `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts`
+- [x] 宿主通道绑定继续下沉到炉次详情与手动调整
+  - [x] 炉次对比接口不再硬编码固定三四个指标，改为按所选黄金基线实例关联的定义动态生成对比指标
+  - [x] `GET /api/heats/{id}/compare` 的 `metric_curves` 补充 `edc_channel_id / source_channel_name / source_channel_label`
+  - [x] 炉次详情新增“指标来源”面板，直接展示当前对比基线下每个指标是否绑定宿主通道及其来源摘要
+  - [x] 手动调整继续复用同一组动态指标与来源元数据，保证与炉次详情主图一致
+- [x] Heat compare 回归补强
+  - [x] 后端 `test_heats_api.py` 新增动态指标数量与来源字段断言
+  - [x] Playwright `issue-acceptance.spec.ts` 新增“指标来源”面板断言
+  - [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe apps/server/tests/test_heats_api.py`
+  - [x] 验证通过：`pnpm --dir apps/web lint`
+  - [x] 验证通过：`pnpm --dir apps/web build`
+  - [x] 验证通过：`pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts`
+  - [x] 验证通过：`pnpm --dir apps/web exec playwright test e2e/app.spec.ts`
 
 ### 2026-03-16（ASNS 宿主层接入边界梳理）
 
