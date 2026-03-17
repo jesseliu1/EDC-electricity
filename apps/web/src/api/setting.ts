@@ -10,8 +10,27 @@ export interface SettingsResponse {
   items: SettingItemResponse[]
 }
 
+export interface HostChannelItemResponse {
+  id: string
+  device_name: string
+  device_type: string
+  area: string
+  suid: string
+  cuid: string
+  channel_name: string
+  unit: string
+  last_value: string
+  status: string
+}
+
+export interface HostChannelCollectionResponse {
+  items: HostChannelItemResponse[]
+  total: number
+}
+
 export const settingApi = {
   getAll: () => client.get<SettingsResponse>('/settings'),
+  getHostChannels: () => client.get<HostChannelCollectionResponse>('/settings/host-channels'),
   updateBatch: (settings: Record<string, string>) => client.patch('/settings', { settings }),
   updateTolerance: (tolerance_percent: number) =>
     client.put('/settings/tolerance', { tolerance_percent }),

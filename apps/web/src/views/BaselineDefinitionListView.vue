@@ -18,12 +18,16 @@ import {
   ElCard,
   ElDescriptions,
   ElDescriptionsItem,
-  ElMessageBox
+  ElMessageBox,
+  ElSelect,
+  ElOption,
+  ElOptionGroup
 } from 'element-plus'
 import { Plus, Delete, Edit, CircleClose, CircleCheck } from '@element-plus/icons-vue'
 import { useBaselineDefinitionStore } from '@/stores/baselineDefinition'
 import type { MetricItem } from '@/stores/baselineDefinition'
 import type { MetricDefinitionCreate } from '@/api/baselineDefinition'
+import { settingApi, type HostChannelItemResponse } from '@/api/setting'
 
 const { t } = useI18n()
 const store = useBaselineDefinitionStore()
@@ -67,7 +71,8 @@ const definitionForm = reactive<DefinitionForm>({
 const newMetricForm = reactive<MetricDefinitionCreate>({
   name: '',
   unit: '',
-  color: '#409EFF'
+  color: '#409EFF',
+  edc_channel_id: null
 })
 
 // 编辑指标
@@ -75,16 +80,44 @@ const editingMetricId = ref<string | null>(null)
 const editMetricForm = reactive<MetricDefinitionCreate>({
   name: '',
   unit: '',
-  color: '#409EFF'
+  color: '#409EFF',
+  edc_channel_id: null
 })
 
 // 当前管理指标的定义
 const metricDialogVisible = ref(false)
 const metricDefinitionId = ref<string | null>(null)
+const hostChannels = ref<HostChannelItemResponse[]>([])
+const hostChannelsLoading = ref(false)
+const hostChannelsLoaded = ref(false)
 
 const metricDefinitionItem = computed(() => {
   if (!metricDefinitionId.value) return null
   return store.list.find(d => d.id === metricDefinitionId.value) || null
+})
+
+const hostChannelMap = computed(() => {
+  return new Map(hostChannels.value.map(item => [item.id, item]))
+})
+
+const hostChannelGroups = computed(() => {
+  const groups = new Map<
+    string,
+    { label: string; area: string; options: HostChannelItemResponse[] }
+  >()
+
+  hostChannels.value.forEach(item => {
+    if (!groups.has(item.device_name)) {
+      groups.set(item.device_name, {
+        label: item.device_name,
+        area: item.area,
+        options: []
+      })
+    }
+    groups.get(item.device_name)?.options.push(item)
+  })
+
+  return Array.from(groups.values())
 })
 
 function resetForm() {
@@ -167,12 +200,53 @@ function openMetricManager(definitionId: string) {
   resetNewMetricForm()
   editingMetricId.value = null
   metricDialogVisible.value = true
+  void ensureHostChannels()
 }
 
 function resetNewMetricForm() {
   newMetricForm.name = ''
   newMetricForm.unit = ''
   newMetricForm.color = '#409EFF'
+  newMetricForm.edc_channel_id = null
+}
+
+async function ensureHostChannels() {
+  if (hostChannelsLoaded.value || hostChannelsLoading.value) return
+  hostChannelsLoading.value = true
+  try {
+    const data = await settingApi.getHostChannels()
+    hostChannels.value = data.items
+    hostChannelsLoaded.value = true
+  } catch {
+    ElMessage.error(t('baselineDefinition.hostChannelsLoadFailed'))
+  } finally {
+    hostChannelsLoading.value = false
+  }
+}
+
+function applySourceChannelDefaults(
+  channelId: string | null | undefined,
+  form: MetricDefinitionCreate
+) {
+  form.edc_channel_id = channelId || null
+  if (!channelId) return
+
+  const channel = hostChannelMap.value.get(channelId)
+  if (!channel) return
+
+  form.name = channel.channel_name
+  form.unit = channel.unit
+}
+
+function formatHostChannelLabel(channel: HostChannelItemResponse) {
+  return `${channel.channel_name} · ${channel.unit || '--'}`
+}
+
+function resolveHostChannelSummary(channelId: string | null) {
+  if (!channelId) return ''
+  const channel = hostChannelMap.value.get(channelId)
+  if (!channel) return channelId
+  return `${channel.device_name} / ${channel.channel_name} / ${channel.unit || '--'}`
 }
 
 async function handleAddMetric() {
@@ -185,7 +259,8 @@ async function handleAddMetric() {
     await store.addMetric(metricDefinitionId.value, {
       name: newMetricForm.name.trim(),
       unit: newMetricForm.unit.trim(),
-      color: newMetricForm.color
+      color: newMetricForm.color,
+      edc_channel_id: newMetricForm.edc_channel_id
     })
     resetNewMetricForm()
     ElMessage.success(t('baselineDefinition.metricAddSuccess'))
@@ -199,10 +274,13 @@ function startEditMetric(metric: MetricItem) {
   editMetricForm.name = metric.name
   editMetricForm.unit = metric.unit
   editMetricForm.color = metric.color
+  editMetricForm.edc_channel_id = metric.edcChannelId
+  void ensureHostChannels()
 }
 
 function cancelEditMetric() {
   editingMetricId.value = null
+  editMetricForm.edc_channel_id = null
 }
 
 async function saveEditMetric() {
@@ -215,7 +293,8 @@ async function saveEditMetric() {
     await store.updateMetric(metricDefinitionId.value, editingMetricId.value, {
       name: editMetricForm.name.trim(),
       unit: editMetricForm.unit.trim(),
-      color: editMetricForm.color
+      color: editMetricForm.color,
+      edc_channel_id: editMetricForm.edc_channel_id
     })
     editingMetricId.value = null
     ElMessage.success(t('baselineDefinition.metricUpdateSuccess'))
@@ -513,6 +592,29 @@ onMounted(() => {
           >
             <template v-if="editingMetricId === metric.id">
               <!-- 编辑模式 -->
+              <el-select
+                v-model="editMetricForm.edc_channel_id"
+                size="small"
+                class="w-64"
+                clearable
+                filterable
+                :loading="hostChannelsLoading"
+                :placeholder="t('baselineDefinition.sourceChannelPlaceholder')"
+                @change="value => applySourceChannelDefaults(value, editMetricForm)"
+              >
+                <el-option-group
+                  v-for="group in hostChannelGroups"
+                  :key="group.label"
+                  :label="group.label"
+                >
+                  <el-option
+                    v-for="channel in group.options"
+                    :key="channel.id"
+                    :label="formatHostChannelLabel(channel)"
+                    :value="channel.id"
+                  />
+                </el-option-group>
+              </el-select>
               <el-input
                 v-model="editMetricForm.name"
                 size="small"
@@ -553,6 +655,13 @@ onMounted(() => {
               >
                 {{ metric.unit }}
               </el-tag>
+              <span
+                v-if="metric.edcChannelId"
+                class="text-xs text-gray-400"
+              >
+                {{ t('baselineDefinition.sourceChannelBound') }}:
+                {{ resolveHostChannelSummary(metric.edcChannelId) }}
+              </span>
               <span class="text-xs text-gray-400">#{{ metric.sortOrder }}</span>
               <div class="flex-1" />
               <el-button
@@ -584,7 +693,40 @@ onMounted(() => {
           <p class="text-sm font-medium text-gray-700 mb-3">
             {{ t('baselineDefinition.addMetric') }}
           </p>
-          <div class="flex items-center gap-3">
+          <div class="space-y-3">
+            <el-select
+              v-model="newMetricForm.edc_channel_id"
+              size="small"
+              clearable
+              filterable
+              class="w-full"
+              :loading="hostChannelsLoading"
+              :placeholder="t('baselineDefinition.sourceChannelPlaceholder')"
+              data-testid="baseline-definition-source-channel-select"
+              @change="value => applySourceChannelDefaults(value, newMetricForm)"
+            >
+              <el-option-group
+                v-for="group in hostChannelGroups"
+                :key="group.label"
+                :label="group.label"
+              >
+                <el-option
+                  v-for="channel in group.options"
+                  :key="channel.id"
+                  :label="formatHostChannelLabel(channel)"
+                  :value="channel.id"
+                />
+              </el-option-group>
+            </el-select>
+            <p
+              v-if="newMetricForm.edc_channel_id"
+              class="text-xs text-gray-500"
+            >
+              {{ t('baselineDefinition.sourceChannelBound') }}:
+              {{ resolveHostChannelSummary(newMetricForm.edc_channel_id ?? null) }}
+            </p>
+          </div>
+          <div class="mt-3 flex items-center gap-3">
             <el-input
               v-model="newMetricForm.name"
               size="small"

@@ -51,6 +51,38 @@ async function mockBaselineDefinitionMutations(page: Page) {
       updated_at: '2026-03-12T08:30:00Z'
     })
   })
+
+  await page.route('**/api/settings/host-channels', async route => {
+    await fulfillJson(route, {
+      items: [
+        {
+          id: '2349-199',
+          device_name: 'SSTW 380V-220V電力 · 三相智能电表',
+          device_type: '三相智能电表',
+          area: 'SSTW 380V-220V電力',
+          suid: '2349',
+          cuid: '199',
+          channel_name: '总有功功率',
+          unit: 'kW',
+          last_value: '--',
+          status: 'online'
+        },
+        {
+          id: '2054-128',
+          device_name: 'A-1溫度 · 热电偶温度采集器',
+          device_type: '热电偶温度采集器',
+          area: 'A-1溫度',
+          suid: '2054',
+          cuid: '128',
+          channel_name: '热电偶温度采集通道',
+          unit: '℃',
+          last_value: '--',
+          status: 'online'
+        }
+      ],
+      total: 2
+    })
+  })
 }
 
 async function mockTaskWorkflow(page: Page) {
@@ -180,6 +212,10 @@ test.describe('EDC web extended coverage', () => {
     await expect(page.getByText('E2E 基线定义')).toBeVisible()
 
     await page.getByTestId('baseline-definition-manage-metrics-def-001').click()
+    await page.getByTestId('baseline-definition-source-channel-select').click()
+    await page.getByRole('option', { name: /总有功功率/ }).click()
+    await expect(page.getByTestId('baseline-definition-metric-name-input')).toHaveValue('总有功功率')
+    await expect(page.getByTestId('baseline-definition-metric-unit-input')).toHaveValue('kW')
     await page.getByTestId('baseline-definition-metric-name-input').fill('氧含量')
     await page.getByTestId('baseline-definition-metric-unit-input').fill('%')
     await page.getByTestId('baseline-definition-add-metric').click()

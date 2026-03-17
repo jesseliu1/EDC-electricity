@@ -8,6 +8,8 @@ from ..schemas import (
     BaselineLengthScopeSettingRequest,
     CuttingSettingRequest,
     EDCConnectionRequest,
+    HostChannelCollectionResponse,
+    HostChannelItem,
     MessageResponse,
     ReportSettingRequest,
     SettingItem,
@@ -35,6 +37,105 @@ _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     },
 }
 
+_HOST_CHANNEL_STORE: list[dict[str, str]] = [
+    {
+        "id": "2349-199",
+        "device_name": "SSTW 380V-220V電力 · 三相智能电表",
+        "device_type": "三相智能电表",
+        "area": "SSTW 380V-220V電力",
+        "suid": "2349",
+        "cuid": "199",
+        "channel_name": "总有功功率",
+        "unit": "kW",
+        "last_value": "--",
+        "status": "online",
+    },
+    {
+        "id": "2349-142",
+        "device_name": "SSTW 380V-220V電力 · 三相智能电表",
+        "device_type": "三相智能电表",
+        "area": "SSTW 380V-220V電力",
+        "suid": "2349",
+        "cuid": "142",
+        "channel_name": "A相有功功率",
+        "unit": "kW",
+        "last_value": "--",
+        "status": "online",
+    },
+    {
+        "id": "2349-128",
+        "device_name": "SSTW 380V-220V電力 · 三相智能电表",
+        "device_type": "三相智能电表",
+        "area": "SSTW 380V-220V電力",
+        "suid": "2349",
+        "cuid": "128",
+        "channel_name": "A相电压",
+        "unit": "V",
+        "last_value": "--",
+        "status": "online",
+    },
+    {
+        "id": "2349-130",
+        "device_name": "SSTW 380V-220V電力 · 三相智能电表",
+        "device_type": "三相智能电表",
+        "area": "SSTW 380V-220V電力",
+        "suid": "2349",
+        "cuid": "130",
+        "channel_name": "B相电压",
+        "unit": "V",
+        "last_value": "--",
+        "status": "online",
+    },
+    {
+        "id": "2054-128",
+        "device_name": "A-1溫度 · 热电偶温度采集器",
+        "device_type": "热电偶温度采集器",
+        "area": "A-1溫度",
+        "suid": "2054",
+        "cuid": "128",
+        "channel_name": "热电偶温度采集通道",
+        "unit": "℃",
+        "last_value": "--",
+        "status": "online",
+    },
+    {
+        "id": "2066-128",
+        "device_name": "A-2溫度 · 热电偶温度采集器",
+        "device_type": "热电偶温度采集器",
+        "area": "A-2溫度",
+        "suid": "2066",
+        "cuid": "128",
+        "channel_name": "热电偶温度采集通道",
+        "unit": "℃",
+        "last_value": "--",
+        "status": "online",
+    },
+    {
+        "id": "769-128",
+        "device_name": "防水型智慧電流信號轉換器  · General 4-20 mA to CAN Converter",
+        "device_type": "General 4-20 mA to CAN Converter",
+        "area": "防水型智慧電流信號轉換器 ",
+        "suid": "769",
+        "cuid": "128",
+        "channel_name": "AD_CH1",
+        "unit": "外部传感器决定",
+        "last_value": "--",
+        "status": "online",
+    },
+    {
+        "id": "769-129",
+        "device_name": "防水型智慧電流信號轉換器  · General 4-20 mA to CAN Converter",
+        "device_type": "General 4-20 mA to CAN Converter",
+        "area": "防水型智慧電流信號轉換器 ",
+        "suid": "769",
+        "cuid": "129",
+        "channel_name": "AD_CH2",
+        "unit": "外部传感器决定",
+        "last_value": "--",
+        "status": "online",
+    },
+]
+
 
 def _to_response() -> SettingsResponse:
     return SettingsResponse(
@@ -49,6 +150,13 @@ def _to_response() -> SettingsResponse:
 async def get_settings() -> SettingsResponse:
     """获取所有系统设置。"""
     return _to_response()
+
+
+@router.get("/host-channels", response_model=HostChannelCollectionResponse)
+async def get_host_channels() -> HostChannelCollectionResponse:
+    """获取宿主层已添加通道清单。"""
+    items = [HostChannelItem(**payload) for payload in _HOST_CHANNEL_STORE]
+    return HostChannelCollectionResponse(items=items, total=len(items))
 
 
 @router.patch("", response_model=MessageResponse)

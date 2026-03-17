@@ -45,6 +45,8 @@ from .setting import (
     BaselineLengthScopeSettingRequest,
     CuttingSettingRequest,
     EDCConnectionRequest,
+    HostChannelCollectionResponse,
+    HostChannelItem,
     ReportSettingRequest,
     SettingItem,
     SettingsResponse,
@@ -102,6 +104,8 @@ __all__ = [
     # Setting
     "SettingItem",
     "SettingsResponse",
+    "HostChannelItem",
+    "HostChannelCollectionResponse",
     "SettingsUpdateRequest",
     "ToleranceSettingRequest",
     "BaselineLengthScopeSettingRequest",

@@ -24,6 +24,16 @@ async def test_dashboard_endpoints(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_settings_host_channels_endpoint(client) -> None:
+    host_channels_resp = await client.get("/api/settings/host-channels")
+    assert host_channels_resp.status_code == 200
+    payload = host_channels_resp.json()
+    assert payload["total"] >= 6
+    assert any(item["channel_name"] == "总有功功率" for item in payload["items"])
+    assert any(item["channel_name"] == "热电偶温度采集通道" for item in payload["items"])
+
+
+@pytest.mark.asyncio
 async def test_baseline_definition_crud_and_metric_workflow(client) -> None:
     list_resp = await client.get("/api/baseline-definitions")
     assert list_resp.status_code == 200
@@ -57,20 +67,28 @@ async def test_baseline_definition_crud_and_metric_workflow(client) -> None:
 
     metric_add_resp = await client.post(
         f"/api/baseline-definitions/{definition_id}/metrics",
-        json={"name": "压力", "unit": "MPa", "color": "#f56c6c"},
+        json={
+            "name": "压力",
+            "unit": "MPa",
+            "color": "#f56c6c",
+            "edc_channel_id": "769-128",
+        },
     )
     assert metric_add_resp.status_code == 201
     metric_added = metric_add_resp.json()
     assert any(metric["name"] == "压力" for metric in metric_added["metrics"])
 
     added_metric = next(metric for metric in metric_added["metrics"] if metric["name"] == "压力")
+    assert added_metric["edc_channel_id"] == "769-128"
     metric_update_resp = await client.patch(
         f"/api/baseline-definitions/{definition_id}/metrics/{added_metric['id']}",
-        json={"name": "炉压", "color": "#ef4444"},
+        json={"name": "炉压", "color": "#ef4444", "edc_channel_id": "769-129"},
     )
     assert metric_update_resp.status_code == 200
     metric_updated = metric_update_resp.json()
-    assert any(metric["name"] == "炉压" for metric in metric_updated["metrics"])
+    updated_metric = next(metric for metric in metric_updated["metrics"] if metric["id"] == added_metric["id"])
+    assert updated_metric["name"] == "炉压"
+    assert updated_metric["edc_channel_id"] == "769-129"
 
     metric_delete_resp = await client.delete(
         f"/api/baseline-definitions/{definition_id}/metrics/{added_metric['id']}"

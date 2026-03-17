@@ -16,6 +16,26 @@
 
 ## 已完成
 
+### 2026-03-17（智慧熔炉指标引用宿主通道）
+
+- [x] 打通宿主已添加通道到智慧熔炉“管理指标”弹窗的最小闭环
+  - [x] 后端新增 `/api/settings/host-channels`，返回宿主层已添加通道候选清单
+  - [x] 基线定义“管理指标”弹窗新增宿主通道选择器，并按设备分组展示
+  - [x] 选择宿主通道后自动带出默认指标名称与单位，且允许在应用内继续修改
+  - [x] 指标创建与编辑时写入 `edc_channel_id`，保留后续真实数据绑定入口
+  - [x] 现有指标列表补充来源通道摘要回显，便于核对映射关系
+- [x] 自动化回归补强
+  - [x] 后端测试新增宿主通道列表接口验证
+  - [x] 后端测试补充指标 `edc_channel_id` 创建/编辑回归
+  - [x] Playwright 覆盖“选择宿主通道 -> 自动填名称/单位 -> 创建指标”流程
+- [x] 验证通过
+  - [x] `apps/server/.venv/Scripts/ruff.exe check tests`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py`
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts`
+
 ### 2026-03-16（ASNS 宿主层接入边界梳理）
 
 - [x] 梳理 ASNS 宿主层与 EDC electricity 应用层职责边界

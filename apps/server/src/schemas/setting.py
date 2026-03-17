@@ -17,6 +17,28 @@ class SettingsResponse(BaseModel):
     items: list[SettingItem] = Field(..., description="设置列表")
 
 
+class HostChannelItem(BaseModel):
+    """宿主层已添加通道项"""
+
+    id: str = Field(..., description="宿主通道唯一ID")
+    device_name: str = Field(..., description="来源设备名称")
+    device_type: str = Field(..., description="来源设备类型")
+    area: str = Field(..., description="来源区域")
+    suid: str = Field(..., description="设备UID")
+    cuid: str = Field(..., description="通道UID")
+    channel_name: str = Field(..., description="通道名称")
+    unit: str = Field(..., description="通道单位")
+    last_value: str = Field(..., description="最近一次读数")
+    status: str = Field(..., description="通道状态")
+
+
+class HostChannelCollectionResponse(BaseModel):
+    """宿主层已添加通道列表响应"""
+
+    items: list[HostChannelItem] = Field(..., description="宿主层已添加通道列表")
+    total: int = Field(..., description="通道总数")
+
+
 class SettingsUpdateRequest(BaseModel):
     """批量更新设置请求"""
 
