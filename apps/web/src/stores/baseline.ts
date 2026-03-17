@@ -141,6 +141,9 @@ function mockBaselineDetail(id: string): BaselineDetail {
         metric_name: '功率',
         unit: 'kW',
         color: '#409EFF',
+        edc_channel_id: '2349-199',
+        source_channel_name: '总有功功率',
+        source_channel_label: 'SSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW',
         points: powerCurve
       },
       {
@@ -148,6 +151,9 @@ function mockBaselineDetail(id: string): BaselineDetail {
         metric_name: '电压',
         unit: 'V',
         color: '#67C23A',
+        edc_channel_id: '2349-128',
+        source_channel_name: 'A相电压',
+        source_channel_label: 'SSTW 380V-220V電力 · 三相智能电表 / A相电压 / V',
         points: voltageCurve
       }
     ],

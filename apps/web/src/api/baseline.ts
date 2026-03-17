@@ -12,6 +12,9 @@ export interface CurveData {
   metric_name: string
   unit: string
   color: string
+  edc_channel_id?: string | null
+  source_channel_name?: string | null
+  source_channel_label?: string | null
   points: CurvePoint[]
 }
 

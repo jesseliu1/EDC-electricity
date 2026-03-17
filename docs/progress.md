@@ -479,6 +479,12 @@
   - [x] 保存与恢复动作会给出明确状态反馈
   - [x] 保存按钮旁补充就地成功提示，避免用户必须回看顶部状态区才知道已保存
   - [x] 验证通过：宿主原型 `vite build` / `tsc --noEmit`
+ - [x] 智慧熔炉基线流程开始消费宿主通道绑定元数据
+  - [x] 基线向导 Step 1 显示每个指标的宿主通道绑定状态，并提示未绑定指标
+  - [x] 基线向导确认页显示当前定义的绑定覆盖率与未绑定提醒
+  - [x] 基线详情新增“指标来源”信息卡，展示每条曲线的宿主通道来源摘要
+  - [x] 基线详情接口 `curves_data` 补充 `edc_channel_id / source_channel_*` 元数据，避免后续真实取数时再改结构
+  - [x] 验证通过：`pytest apps/server/tests/test_baselines_dashboard_api.py`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build`、`pnpm --dir apps/web exec playwright test e2e/app.spec.ts`
 
 ---
 

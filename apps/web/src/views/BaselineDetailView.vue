@@ -113,6 +113,24 @@ const curveOption = computed<EChartsOption>(() => {
   }
 })
 
+const curveBindingSummary = computed(() => {
+  const curves = baseline.value?.curvesData || []
+  const bound = curves.filter(item => Boolean(item.edc_channel_id))
+  const unbound = curves.filter(item => !item.edc_channel_id)
+  return {
+    total: curves.length,
+    boundCount: bound.length,
+    unboundCount: unbound.length,
+    items: curves.map(item => ({
+      metricId: item.metric_id,
+      metricName: item.metric_name,
+      unit: item.unit,
+      bound: Boolean(item.edc_channel_id),
+      sourceLabel: item.source_channel_label || item.source_channel_name || ''
+    }))
+  }
+})
+
 function handleEdit() {
   if (!baseline.value) return
   if (baseline.value.status !== 'draft') {
@@ -270,6 +288,12 @@ onMounted(async () => {
               <span class="text-slate-500">{{ t('baseline.detail.sourceHeat') }}</span>
               <span class="font-semibold text-primary cursor-pointer hover:underline">{{ baseline.sourceHeatId }}</span>
             </div>
+            <div class="flex justify-between items-center">
+              <span class="text-slate-500">{{ t('baseline.detail.bindingStatus') }}</span>
+              <span class="font-semibold">
+                {{ curveBindingSummary.boundCount }}/{{ curveBindingSummary.total }}
+              </span>
+            </div>
             <div class="pt-4 border-t border-border-light">
               <span class="text-slate-500 block mb-1 flex items-center gap-1">
                 <span class="material-symbols-outlined text-[16px]">schedule</span>
@@ -280,6 +304,40 @@ onMounted(async () => {
                 <br><span class="text-slate-400">to</span><br>
                 {{ baseline.selectedEndTime ? dayjs(baseline.selectedEndTime).format('YYYY-MM-DD HH:mm:ss') : '--' }}
               </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
+          <div class="flex items-center justify-between mb-4 pb-4 border-b border-border-light">
+            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <span class="material-symbols-outlined text-primary text-[20px]">route</span>
+              {{ t('baseline.detail.metricSourcesTitle') }}
+            </h3>
+            <span class="text-xs text-slate-500">
+              {{ curveBindingSummary.boundCount }}/{{ curveBindingSummary.total }}
+            </span>
+          </div>
+          <div class="space-y-3">
+            <div
+              v-for="item in curveBindingSummary.items"
+              :key="item.metricId"
+              class="rounded-lg border border-border-light bg-slate-50 p-3"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <div class="text-sm font-semibold text-slate-800">
+                  {{ item.metricName }} ({{ item.unit }})
+                </div>
+                <span
+                  class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
+                  :class="item.bound ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
+                >
+                  {{ item.bound ? t('baseline.wizard.metricBound') : t('baseline.wizard.metricUnboundShort') }}
+                </span>
+              </div>
+              <div class="mt-2 text-xs text-slate-500">
+                {{ item.bound ? item.sourceLabel : t('baseline.wizard.metricUnbound') }}
+              </div>
             </div>
           </div>
         </div>

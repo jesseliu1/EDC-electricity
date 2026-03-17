@@ -19,7 +19,7 @@ from ..schemas import (
 
 # 引用 definition store 以做关联校验
 from .baseline_definitions import _DEFINITION_STORE
-from .settings import _SETTINGS_STORE
+from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE
 
 router = APIRouter(prefix="/baselines", tags=["Baselines"])
 
@@ -41,12 +41,16 @@ def _build_curves_data(definition_id: str, seed: int) -> list[dict[str, Any]]:
     curves = []
     for idx, metric in enumerate(definition["metrics"]):
         points = _build_curve(seed + idx * 2)
+        host_channel = _resolve_host_channel(metric.get("edc_channel_id"))
         curves.append(
             {
                 "metric_id": metric["id"],
                 "metric_name": metric["name"],
                 "unit": metric["unit"],
                 "color": metric["color"],
+                "edc_channel_id": metric.get("edc_channel_id"),
+                "source_channel_name": host_channel["channel_name"] if host_channel else None,
+                "source_channel_label": _format_host_channel_label(host_channel),
                 "points": points,
             }
         )
@@ -57,6 +61,22 @@ def _get_definition_name(definition_id: str) -> str:
     """获取定义名称。"""
     definition = _DEFINITION_STORE.get(definition_id)
     return definition["definition_name"] if definition else ""
+
+
+def _resolve_host_channel(channel_id: str | None) -> dict[str, str] | None:
+    if not channel_id:
+        return None
+    return next((item for item in _HOST_CHANNEL_STORE if item["id"] == channel_id), None)
+
+
+def _format_host_channel_label(channel: dict[str, str] | None) -> str | None:
+    if not channel:
+        return None
+    return (
+        f'{channel["device_name"]} / '
+        f'{channel["channel_name"]} / '
+        f'{channel["unit"] or "--"}'
+    )
 
 
 def _now() -> datetime:
@@ -131,6 +151,9 @@ def _to_baseline_with_curve(item: dict[str, Any]) -> BaselineWithCurve:
             metric_name=curve["metric_name"],
             unit=curve["unit"],
             color=curve["color"],
+            edc_channel_id=curve.get("edc_channel_id"),
+            source_channel_name=curve.get("source_channel_name"),
+            source_channel_label=curve.get("source_channel_label"),
             points=curve["points"],
         )
         for curve in item.get("curves_data", [])

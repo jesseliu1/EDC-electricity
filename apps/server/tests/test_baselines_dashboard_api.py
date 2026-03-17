@@ -145,6 +145,8 @@ async def test_baseline_crud_publish_disable_and_delete(client) -> None:
     detail_data = detail_resp.json()
     assert detail_data["definition_id"] == "def-001"
     assert len(detail_data["curves_data"]) > 0
+    assert all("edc_channel_id" in curve for curve in detail_data["curves_data"])
+    assert all("source_channel_label" in curve for curve in detail_data["curves_data"])
 
     update_resp = await client.patch(
         f"/api/baselines/{baseline_id}",

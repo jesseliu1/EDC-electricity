@@ -14,6 +14,9 @@ class CurveData(BaseModel):
     metric_name: str = Field(..., description="指标名称")
     unit: str = Field(..., description="单位")
     color: str = Field(..., description="颜色")
+    edc_channel_id: str | None = Field(default=None, description="绑定的宿主通道ID")
+    source_channel_name: str | None = Field(default=None, description="来源通道名称")
+    source_channel_label: str | None = Field(default=None, description="来源通道摘要")
     points: list[CurvePoint] = Field(..., description="曲线数据点")
 
 

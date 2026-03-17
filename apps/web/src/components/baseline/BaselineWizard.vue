@@ -127,6 +127,24 @@ const selectedDefinition = computed(() =>
   baselineDefinitionStore.list.find(item => item.id === formData.value.definitionId) || null
 )
 
+const metricBindingSummary = computed(() => {
+  const metrics = selectedDefinition.value?.metrics || []
+  const bound = metrics.filter(metric => Boolean(metric.edcChannelId))
+  const unbound = metrics.filter(metric => !metric.edcChannelId)
+
+  return {
+    total: metrics.length,
+    boundCount: bound.length,
+    unboundCount: unbound.length,
+    unboundMetrics: unbound
+  }
+})
+
+function resolveMetricBindingLabel(edcChannelId: string | null) {
+  if (!edcChannelId) return t('baseline.wizard.metricUnbound')
+  return t('baseline.wizard.metricBoundTo', { channelId: edcChannelId })
+}
+
 const selectedHeat = computed(() =>
   heatCandidates.value.find(item => item.id === selectedHeatId.value) || null
 )
@@ -679,6 +697,17 @@ onMounted(async () => {
           </div>
         </template>
 
+        <div
+          v-if="metricBindingSummary.unboundCount > 0"
+          data-testid="baseline-wizard-binding-warning"
+          class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700"
+        >
+          {{ t('baseline.wizard.bindingWarning', { count: metricBindingSummary.unboundCount }) }}
+          <span class="ml-1 text-amber-800">
+            {{ metricBindingSummary.unboundMetrics.map(metric => metric.name).join(' / ') }}
+          </span>
+        </div>
+
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div
             v-for="metric in selectedDefinition.metrics"
@@ -694,6 +723,25 @@ onMounted(async () => {
             </div>
             <div class="mt-1 text-xs text-slate-500">
               {{ metric.unit }}
+            </div>
+            <div class="mt-2 text-xs">
+              <span
+                class="inline-flex rounded-full px-2 py-0.5 font-medium"
+                :class="
+                  metric.edcChannelId
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-amber-100 text-amber-700'
+                "
+              >
+                {{
+                  metric.edcChannelId
+                    ? t('baseline.wizard.metricBound')
+                    : t('baseline.wizard.metricUnboundShort')
+                }}
+              </span>
+              <div class="mt-2 text-xs text-slate-500">
+                {{ resolveMetricBindingLabel(metric.edcChannelId) }}
+              </div>
             </div>
           </div>
         </div>
@@ -902,11 +950,22 @@ onMounted(async () => {
             <span class="text-gray-500">{{ t('baseline.wizard.description') }}:</span>
             {{ formData.description || t('common.noDescription') }}
           </div>
+          <div>
+            <span class="text-gray-500">{{ t('baseline.wizard.bindingStatus') }}:</span>
+            {{ metricBindingSummary.boundCount }}/{{ metricBindingSummary.total }}
+            {{ t('baseline.wizard.metricBound') }}
+          </div>
         </div>
       </el-card>
 
       <div class="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-700">
         {{ t('baseline.wizard.confirmHint') }}
+      </div>
+      <div
+        v-if="metricBindingSummary.unboundCount > 0"
+        class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700"
+      >
+        {{ t('baseline.wizard.confirmUnboundHint', { count: metricBindingSummary.unboundCount }) }}
       </div>
     </div>
 
