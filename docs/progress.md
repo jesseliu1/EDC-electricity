@@ -74,6 +74,14 @@
   - [x] 验证通过：`apps/server/.venv/Scripts/ruff.exe check src tests`
   - [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py`
   - [x] 验证通过：`pnpm --dir apps/web build`
+- [x] 基线实例详情开始消费真实 EDC 曲线
+  - [x] 基线详情接口按“选区时间 -> 来源炉次时间 -> 最近一小时”顺序解析取数时间窗
+  - [x] 基线实例 `curves_data / power_curve / voltage_curve` 优先使用指标绑定宿主通道的真实历史曲线
+  - [x] 基线创建与编辑后会立即尝试水合真实曲线，避免详情页首次打开仍停留在纯 mock
+  - [x] 后端回归新增“基线详情优先走真实曲线”测试桩断言
+  - [x] 验证通过：`apps/server/.venv/Scripts/ruff.exe check src tests`
+  - [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py`
+  - [x] 验证通过：`pnpm --dir apps/web build`
 
 ### 2026-03-16（ASNS 宿主层接入边界梳理）
 

@@ -251,3 +251,29 @@ async def test_baseline_delete_draft_and_reject_disabled_definition(client) -> N
 
     get_deleted = await client.get(f"/api/baselines/{baseline_id}")
     assert get_deleted.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_baseline_detail_prefers_edc_curves_when_available(client, monkeypatch) -> None:
+    async def fake_hydrate_baseline_item(item):
+        item["power_curve"] = [
+            {"timestamp": 1000, "value": 301.0},
+            {"timestamp": 2000, "value": 302.0},
+        ]
+        item["voltage_curve"] = [
+            {"timestamp": 1000, "value": 211.0},
+            {"timestamp": 2000, "value": 212.0},
+        ]
+        item["curves_data"][0]["points"] = [
+            {"timestamp": 1000, "value": 301.0},
+            {"timestamp": 2000, "value": 302.0},
+        ]
+        return item
+
+    monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fake_hydrate_baseline_item)
+
+    response = await client.get("/api/baselines/baseline-001")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["power_curve"][0]["value"] == 301.0
+    assert payload["curves_data"][0]["points"][1]["value"] == 302.0

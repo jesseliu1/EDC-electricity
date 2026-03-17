@@ -1,6 +1,9 @@
 """基线 API 路由（黄金基线实例）"""
 
-from datetime import datetime
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -16,10 +19,12 @@ from ..schemas import (
     CurveData,
     MessageResponse,
 )
+from ..schemas.common import CurvePoint
+from ..services import EDCClient, EDCClientError
 
 # 引用 definition store 以做关联校验
 from .baseline_definitions import _DEFINITION_STORE
-from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE
+from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE, get_edc_connection_config
 
 router = APIRouter(prefix="/baselines", tags=["Baselines"])
 
@@ -55,6 +60,11 @@ def _build_curves_data(definition_id: str, seed: int) -> list[dict[str, Any]]:
             }
         )
     return curves
+
+
+def _curve_points_to_dicts(points: list[CurvePoint]) -> list[dict[str, float | int]]:
+    """将 Pydantic 曲线点转回存储结构。"""
+    return [point.model_dump() for point in points]
 
 
 def _get_definition_name(definition_id: str) -> str:
@@ -181,6 +191,129 @@ def _to_baseline_with_curve(item: dict[str, Any]) -> BaselineWithCurve:
     )
 
 
+def _resolve_baseline_time_window(item: dict[str, Any]) -> tuple[datetime, datetime]:
+    """优先按选区时间，其次按来源炉次时间，最后回退最近一小时。"""
+    selected_start = item.get("selected_start_time")
+    selected_end = item.get("selected_end_time")
+    if isinstance(selected_start, datetime) and isinstance(selected_end, datetime):
+        return selected_start, selected_end
+
+    from .heats import _HEAT_STORE
+
+    source_heat = _HEAT_STORE.get(str(item.get("source_heat_id")))
+    if source_heat:
+        return source_heat["start_time"], source_heat["end_time"]
+
+    end_time = datetime.now()
+    return end_time - timedelta(hours=1), end_time
+
+
+async def _load_baseline_curves_from_edc(
+    item: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]] | None:
+    """按基线定义绑定通道尝试拉取真实基线曲线。"""
+    definition = _DEFINITION_STORE.get(str(item.get("definition_id")))
+    metrics = list(definition.get("metrics", [])) if definition else []
+    if not metrics:
+        return None
+
+    config = get_edc_connection_config()
+    if not config["base_url"] or not config["username"] or not config["password"]:
+        return None
+
+    start_time, end_time = _resolve_baseline_time_window(item)
+    bound_metrics: list[tuple[dict[str, Any], dict[str, str]]] = []
+    for metric in metrics:
+        channel = _resolve_host_channel(metric.get("edc_channel_id"))
+        if channel:
+            bound_metrics.append((metric, channel))
+
+    if not bound_metrics:
+        return None
+
+    try:
+        async with EDCClient(**config) as client:
+            tasks = {
+                str(metric["id"]): asyncio.create_task(
+                    client.get_local_datas(
+                        suid=channel["suid"],
+                        cuid=channel["cuid"],
+                        start_time=start_time,
+                        end_time=end_time,
+                    )
+                )
+                for metric, channel in bound_metrics
+            }
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    except EDCClientError:
+        return None
+
+    points_by_metric: dict[str, list[CurvePoint]] = {}
+    for metric_id, result in zip(tasks.keys(), results, strict=False):
+        if isinstance(result, Exception) or not result:
+            continue
+        points_by_metric[metric_id] = result
+
+    if not points_by_metric:
+        return None
+
+    hydrated_curves: list[dict[str, Any]] = []
+    power_curve: list[dict[str, float | int]] = []
+    voltage_curve: list[dict[str, float | int]] = []
+
+    for idx, metric in enumerate(metrics):
+        metric_id = str(metric["id"])
+        host_channel = _resolve_host_channel(metric.get("edc_channel_id"))
+        points = points_by_metric.get(metric_id)
+        if points:
+            stored_points = _curve_points_to_dicts(points)
+        else:
+            stored_points = _build_curve(9 + idx * 2)
+
+        metric_name = str(metric.get("name") or "")
+        unit = str(metric.get("unit") or "")
+        hydrated_curves.append(
+            {
+                "metric_id": metric_id,
+                "metric_name": metric_name,
+                "unit": unit,
+                "color": metric["color"],
+                "edc_channel_id": metric.get("edc_channel_id"),
+                "source_channel_name": host_channel["channel_name"] if host_channel else None,
+                "source_channel_label": _format_host_channel_label(host_channel),
+                "points": stored_points,
+            }
+        )
+
+        if ("功率" in metric_name or unit == "kW") and stored_points:
+            power_curve = stored_points
+        if ("电压" in metric_name or "電壓" in metric_name or unit == "V") and stored_points:
+            voltage_curve = stored_points
+
+    if not power_curve:
+        power_curve = _build_curve(1)
+    if not voltage_curve:
+        voltage_curve = _build_curve(3)
+
+    return {
+        "curves_data": hydrated_curves,
+        "power_curve": power_curve,
+        "voltage_curve": voltage_curve,
+    }
+
+
+async def _hydrate_baseline_item(item: dict[str, Any]) -> dict[str, Any]:
+    """为基线实例补齐真实曲线，失败时保留现有 mock。"""
+    curves = await _load_baseline_curves_from_edc(item)
+    if not curves:
+        return item
+
+    item["curves_data"] = curves["curves_data"]
+    item["power_curve"] = curves["power_curve"]
+    item["voltage_curve"] = curves["voltage_curve"]
+    return item
+
+
 def _get_or_404(baseline_id: str) -> dict[str, Any]:
     item = _BASELINE_STORE.get(baseline_id)
     if not item:
@@ -287,6 +420,7 @@ async def get_active_baseline() -> BaselineSummary | None:
 async def get_baseline(baseline_id: str) -> BaselineWithCurve:
     """获取基线详情（含曲线数据）。"""
     item = _get_or_404(baseline_id)
+    await _hydrate_baseline_item(item)
     return _to_baseline_with_curve(item)
 
 
@@ -316,6 +450,7 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
         "temperature": 1455.0,
         "curves_data": _build_curves_data(data.definition_id, 9),
     }
+    await _hydrate_baseline_item(item)
     _BASELINE_STORE[baseline_id] = item
     return _to_baseline_response(item)
 
@@ -338,6 +473,7 @@ async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineRes
     if data.tolerance_percent is not None:
         item["tolerance_percent"] = data.tolerance_percent
     item["updated_at"] = _now()
+    await _hydrate_baseline_item(item)
 
     return _to_baseline_response(item)
 
