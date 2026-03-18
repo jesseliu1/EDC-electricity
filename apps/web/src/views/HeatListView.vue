@@ -88,10 +88,18 @@ function buildSparklinePath(values: number[]) {
 }
 
 function getPreviewPower(item: HeatItem) {
+  const cached = heatStore.previews[item.id]?.powerCurve
+  if (cached && cached.length > 0) {
+    return cached.map(point => point.value)
+  }
   return buildSeries(item.id, 430 + (item.deviationPercent || 0), 22)
 }
 
 function getPreviewTemperature(item: HeatItem) {
+  const cached = heatStore.previews[item.id]?.temperatureCurve
+  if (cached && cached.length > 0) {
+    return cached.map(point => point.value)
+  }
   return buildSeries(`${item.id}-temp`, item.temperature || 1450, 12)
 }
 
@@ -120,7 +128,11 @@ function handleViewDetail(id: string) {
 }
 
 function toggleExpand(id: string) {
-  expandedHeatId.value = expandedHeatId.value === id ? '' : id
+  const nextExpanded = expandedHeatId.value === id ? '' : id
+  expandedHeatId.value = nextExpanded
+  if (nextExpanded) {
+    void heatStore.fetchPreview(id)
+  }
 }
 
 onMounted(() => {

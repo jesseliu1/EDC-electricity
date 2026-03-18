@@ -52,6 +52,12 @@ export interface HeatDetail {
   cuttingTimeline: CuttingTimelineEvent[]
 }
 
+export interface HeatPreview {
+  powerCurve: CurvePoint[]
+  voltageCurve: CurvePoint[]
+  temperatureCurve: CurvePoint[]
+}
+
 function mapHeat(item: HeatResponseItem): HeatItem {
   return {
     id: item.id,
@@ -324,6 +330,7 @@ export const useHeatStore = defineStore('heat', {
   state: () => ({
     list: [] as HeatItem[],
     current: null as HeatDetail | null,
+    previews: {} as Record<string, HeatPreview>,
     loading: false,
     page: 1,
     pageSize: 10,
@@ -402,6 +409,26 @@ export const useHeatStore = defineStore('heat', {
         this.current = mockDetail(id)
       } finally {
         this.loading = false
+      }
+    },
+    async fetchPreview(id: string) {
+      if (this.previews[id]) {
+        return
+      }
+
+      try {
+        const [curve, compare] = await Promise.all([heatApi.getCurve(id), heatApi.getCompare(id)])
+        const temperatureCurve =
+          compare.baselines?.[0]?.metric_curves.find(item => item.metric_key === 'temperature')
+            ?.current_curve || []
+
+        this.previews[id] = {
+          powerCurve: curve.power_curve,
+          voltageCurve: curve.voltage_curve,
+          temperatureCurve
+        }
+      } catch (error) {
+        console.warn('Heat preview fallback to local preview.', error)
       }
     },
     async updateDescription(id: string, description: string) {

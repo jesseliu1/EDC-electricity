@@ -101,6 +101,13 @@
   - [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py`
   - [x] 验证通过：`pnpm --dir apps/web build`
   - [x] 验证通过：`pnpm --dir apps/web exec playwright test e2e/app.spec.ts`
+- [x] 炉次列表展开预览改为懒加载真实曲线优先
+  - [x] Heat store 新增按炉次缓存的 preview 曲线
+  - [x] 展开炉次行时懒加载 `getCurve + getCompare`，优先展示真实功率/炉温预览
+  - [x] 后端不可达或通道无数据时仍保留本地 preview 回退，避免展开交互空白
+  - [x] 验证通过：`pnpm --dir apps/web lint`
+  - [x] 验证通过：`pnpm --dir apps/web build`
+  - [x] 验证通过：`pnpm --dir apps/web exec playwright test e2e/app.spec.ts`
 
 ### 2026-03-16（ASNS 宿主层接入边界梳理）
 
