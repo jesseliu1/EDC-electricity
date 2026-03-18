@@ -87,6 +87,26 @@ def _curve_points(
     return points
 
 
+def _coerce_curve_points(points: list[CurvePoint] | list[dict[str, Any]] | None) -> list[CurvePoint]:
+    """将存储结构统一转换为 CurvePoint 列表。"""
+    if not points:
+        return []
+
+    normalized: list[CurvePoint] = []
+    for point in points:
+        if isinstance(point, CurvePoint):
+            normalized.append(point)
+            continue
+
+        if isinstance(point, dict):
+            timestamp = point.get("timestamp")
+            value = point.get("value")
+            if timestamp is None or value is None:
+                continue
+            normalized.append(CurvePoint(timestamp=int(timestamp), value=float(value)))
+    return normalized
+
+
 def _resolve_host_channel(channel_id: str | None) -> dict[str, str] | None:
     if not channel_id:
         return None
@@ -143,6 +163,140 @@ def _build_generated_curve(
         amp = 14 + baseline_index * 2
         phase = 1.0 + baseline_index
     return _curve_points(start_time, minutes, base, amp, phase)
+
+
+def _resolve_primary_baseline_id(item: dict[str, Any]) -> str | None:
+    baseline_id = item.get("baseline_id")
+    if isinstance(baseline_id, str) and baseline_id:
+        return baseline_id
+
+    baseline_ids = item.get("baseline_ids")
+    if isinstance(baseline_ids, list) and baseline_ids:
+        first = baseline_ids[0]
+        if isinstance(first, str) and first:
+            return first
+    return None
+
+
+def _resolve_definition_metrics(item: dict[str, Any]) -> tuple[str | None, list[dict[str, Any]]]:
+    baseline_id = _resolve_primary_baseline_id(item)
+    baseline_item = _BASELINE_STORE.get(baseline_id) if baseline_id else None
+    definition = (
+        _DEFINITION_STORE.get(str(baseline_item.get("definition_id")))
+        if baseline_item and baseline_item.get("definition_id")
+        else None
+    )
+    return baseline_id, list(definition.get("metrics", [])) if definition else []
+
+
+async def _load_heat_curves_from_edc(item: dict[str, Any]) -> dict[str, list[CurvePoint]] | None:
+    """按炉次主基线绑定读取真实功率/电压曲线。"""
+    _baseline_id, metrics = _resolve_definition_metrics(item)
+    if not metrics:
+        return None
+
+    power_metric = next(
+        (metric for index, metric in enumerate(metrics) if _infer_metric_key(metric, index) == "power"),
+        None,
+    )
+    voltage_metric = next(
+        (metric for index, metric in enumerate(metrics) if _infer_metric_key(metric, index) == "voltage"),
+        None,
+    )
+    power_channel = _resolve_host_channel(power_metric.get("edc_channel_id")) if power_metric else None
+    voltage_channel = _resolve_host_channel(voltage_metric.get("edc_channel_id")) if voltage_metric else None
+    if not power_channel and not voltage_channel:
+        return None
+
+    config = get_edc_connection_config()
+    if not config["base_url"] or not config["username"] or not config["password"]:
+        return None
+
+    start_time = item["start_time"]
+    end_time = item["end_time"]
+
+    try:
+        async with EDCClient(**config) as client:
+            tasks: dict[str, asyncio.Task[list[CurvePoint]]] = {}
+            if power_channel:
+                tasks["power"] = asyncio.create_task(
+                    client.get_local_datas(
+                        suid=power_channel["suid"],
+                        cuid=power_channel["cuid"],
+                        start_time=start_time,
+                        end_time=end_time,
+                    )
+                )
+            if voltage_channel:
+                tasks["voltage"] = asyncio.create_task(
+                    client.get_local_datas(
+                        suid=voltage_channel["suid"],
+                        cuid=voltage_channel["cuid"],
+                        start_time=start_time,
+                        end_time=end_time,
+                    )
+                )
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    except EDCClientError:
+        return None
+
+    curves: dict[str, list[CurvePoint]] = {}
+    for metric_key, result in zip(tasks.keys(), results, strict=False):
+        if isinstance(result, Exception) or not result:
+            continue
+        curves[metric_key] = result
+
+    return curves or None
+
+
+async def _hydrate_heat_item(item: dict[str, Any]) -> dict[str, Any]:
+    """优先为炉次自身曲线补齐真实 EDC 数据。"""
+    live_curves = await _load_heat_curves_from_edc(item)
+    if live_curves:
+        if live_curves.get("power"):
+            item["power_curve"] = live_curves["power"]
+        if live_curves.get("voltage"):
+            item["voltage_curve"] = live_curves["voltage"]
+
+    baseline_id = _resolve_primary_baseline_id(item)
+    baseline_item = _BASELINE_STORE.get(baseline_id) if baseline_id else None
+    if baseline_item:
+        from .baselines import _hydrate_baseline_item
+
+        await _hydrate_baseline_item(baseline_item)
+        baseline_power_curve = _coerce_curve_points(baseline_item.get("power_curve"))
+        baseline_voltage_curve = _coerce_curve_points(baseline_item.get("voltage_curve"))
+        if baseline_power_curve:
+            item["baseline_power_curve"] = baseline_power_curve
+        if baseline_voltage_curve:
+            item["baseline_voltage_curve"] = baseline_voltage_curve
+
+    return item
+
+
+def _resolve_baseline_metric_curve(
+    baseline_id: str,
+    metric_id: str,
+) -> list[CurvePoint]:
+    baseline_item = _BASELINE_STORE.get(baseline_id)
+    if not baseline_item:
+        return []
+
+    curves_data = baseline_item.get("curves_data")
+    if not isinstance(curves_data, list):
+        return []
+
+    matched = next(
+        (
+            curve
+            for curve in curves_data
+            if isinstance(curve, dict) and str(curve.get("metric_id") or "") == metric_id
+        ),
+        None,
+    )
+    if not matched:
+        return []
+    return _coerce_curve_points(matched.get("points"))
 
 
 def _build_current_curve_for_metric(
@@ -250,20 +404,27 @@ async def _build_metric_curve_series(
         start_time=start_time,
         end_time=end_time,
     )
+    baseline_item = _BASELINE_STORE.get(baseline_id)
+    if baseline_item:
+        from .baselines import _hydrate_baseline_item
+
+        await _hydrate_baseline_item(baseline_item)
 
     series: list[MetricCompareSeries] = []
     for index, metric in enumerate(metrics):
         metric_key = _infer_metric_key(metric, index)
         host_channel = _resolve_host_channel(metric.get("edc_channel_id"))
-        baseline_curve = _build_generated_curve(
-            start_time=start_time,
-            minutes=minutes,
-            metric_key=metric_key,
-            baseline_index=baseline_index,
-            variant="baseline",
-            offset=index * 1.5,
-        )
         metric_id = str(metric.get("id") or "")
+        baseline_curve = _resolve_baseline_metric_curve(baseline_id, metric_id)
+        if not baseline_curve:
+            baseline_curve = _build_generated_curve(
+                start_time=start_time,
+                minutes=minutes,
+                metric_key=metric_key,
+                baseline_index=baseline_index,
+                variant="baseline",
+                offset=index * 1.5,
+            )
         current_metric_curve = real_current_curves.get(metric_id)
         if current_metric_curve is None:
             current_metric_curve = _build_current_curve_for_metric(
@@ -760,6 +921,7 @@ async def get_cutting_timeline(heat_id: str) -> CuttingTimelineResponse:
 async def get_heat_curve(heat_id: str) -> HeatWithCurve:
     """获取炉次曲线数据。"""
     item = _get_or_404(heat_id)
+    await _hydrate_heat_item(item)
     return _to_heat_with_curve(item)
 
 
@@ -767,6 +929,7 @@ async def get_heat_curve(heat_id: str) -> HeatWithCurve:
 async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     """获取炉次与基线对比数据。"""
     item = _get_or_404(heat_id)
+    await _hydrate_heat_item(item)
 
     heat = _to_heat_with_curve(item)
     baseline_ids = item.get("baseline_ids", [])
@@ -846,6 +1009,7 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
 async def analyze_heat(heat_id: str, data: HeatAnalyzeRequest) -> HeatAnalyzeResponse:
     """触发炉次偏差分析。"""
     item = _get_or_404(heat_id)
+    await _hydrate_heat_item(item)
     baseline_id = data.baseline_id or item["baseline_id"] or "baseline-001"
 
     baseline_curve = [

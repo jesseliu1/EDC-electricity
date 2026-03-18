@@ -92,6 +92,15 @@
   - [x] 验证通过：`pnpm --dir apps/web lint`
   - [x] 验证通过：`pnpm --dir apps/web build`
   - [x] 验证通过：`pnpm --dir apps/web exec playwright test e2e/app.spec.ts`
+- [x] 炉次基础曲线进一步切到真实链路
+  - [x] `GET /api/heats/{id}/curve` 会优先按炉次主基线绑定的功率/电压宿主通道读取真实 EDC 历史曲线
+  - [x] 炉次对比 `metric_curves` 的黄金基线曲线优先复用已水合的真实基线实例曲线，不再一律临时生成
+  - [x] 炉次分析 `POST /api/heats/{id}/analyze` 改为复用同一套已水合热次/基线曲线，避免分析仍吃旧 mock
+  - [x] 回归补充：炉次基础曲线优先走真实 EDC、炉次对比优先走已水合真实基线曲线
+  - [x] 验证通过：`apps/server/.venv/Scripts/ruff.exe check src tests`
+  - [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py`
+  - [x] 验证通过：`pnpm --dir apps/web build`
+  - [x] 验证通过：`pnpm --dir apps/web exec playwright test e2e/app.spec.ts`
 
 ### 2026-03-16（ASNS 宿主层接入边界梳理）
 

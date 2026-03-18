@@ -100,6 +100,80 @@ async def test_heat_compare_prefers_edc_curves_when_available(client, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_get_heat_curve_prefers_live_heat_curves(client, monkeypatch) -> None:
+    list_resp = await client.get("/api/heats", params={"page_size": 20})
+    heat_id = next(
+        item["id"] for item in list_resp.json()["items"] if item.get("baseline_id") is not None
+    )
+
+    async def fake_load_heat_curves_from_edc(_item):
+        return {
+            "power": [
+                CurvePoint(timestamp=1000, value=611.0),
+                CurvePoint(timestamp=2000, value=612.0),
+            ],
+            "voltage": [
+                CurvePoint(timestamp=1000, value=351.0),
+                CurvePoint(timestamp=2000, value=352.0),
+            ],
+        }
+
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fake_load_heat_curves_from_edc)
+
+    curve_resp = await client.get(f"/api/heats/{heat_id}/curve")
+    assert curve_resp.status_code == 200
+    payload = curve_resp.json()
+    assert payload["power_curve"][0]["value"] == 611.0
+    assert payload["voltage_curve"][1]["value"] == 352.0
+
+
+@pytest.mark.asyncio
+async def test_heat_compare_prefers_hydrated_baseline_metric_curves(client, monkeypatch) -> None:
+    list_resp = await client.get("/api/heats", params={"page_size": 20})
+    heat_id = next(
+        item["id"] for item in list_resp.json()["items"] if item.get("baseline_id") is not None
+    )
+
+    async def fake_load_heat_curves_from_edc(_item):
+        return None
+
+    async def fake_hydrate_baseline_item(item):
+        item["curves_data"] = [
+            {
+                "metric_id": "metric-001",
+                "metric_name": "功率",
+                "unit": "kW",
+                "color": "#409EFF",
+                "points": [
+                    {"timestamp": 1000, "value": 701.0},
+                    {"timestamp": 2000, "value": 702.0},
+                ],
+            },
+            {
+                "metric_id": "metric-002",
+                "metric_name": "电压",
+                "unit": "V",
+                "color": "#67C23A",
+                "points": [
+                    {"timestamp": 1000, "value": 381.0},
+                    {"timestamp": 2000, "value": 382.0},
+                ],
+            },
+        ]
+        return item
+
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fake_load_heat_curves_from_edc)
+    monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fake_hydrate_baseline_item)
+
+    compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
+    assert compare_resp.status_code == 200
+    payload = compare_resp.json()
+    first_baseline = payload["baselines"][0]
+    assert first_baseline["metric_curves"][0]["baseline_curve"][0]["value"] == 701.0
+    assert first_baseline["metric_curves"][1]["baseline_curve"][1]["value"] == 382.0
+
+
+@pytest.mark.asyncio
 async def test_cutting_timeline_uses_abnormal_outcome_for_abnormal_heat(client) -> None:
     list_resp = await client.get("/api/heats", params={"status": "abnormal", "page_size": 50})
     abnormal_items = list_resp.json()["items"]
