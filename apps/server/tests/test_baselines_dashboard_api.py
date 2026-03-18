@@ -65,43 +65,34 @@ async def test_dashboard_realtime_prefers_edc_curves_when_available(client, monk
 
 @pytest.mark.asyncio
 async def test_settings_host_channels_endpoint(client, monkeypatch) -> None:
-    async def fake_sync_host_channels_from_edc(*_args, **_kwargs):
-        _HOST_CHANNEL_STORE.clear()
-        _HOST_CHANNEL_STORE.extend(
-            [
-                {
-                    "id": "sensor-1-128",
-                    "device_name": "测试设备 · 三相智能电表",
-                    "device_type": "三相智能电表",
-                    "area": "测试区域",
-                    "suid": "sensor-1",
-                    "cuid": "128",
-                    "channel_name": "总有功功率",
-                    "unit": "kW",
-                    "last_value": "321.5",
-                    "status": "online",
-                },
-                {
-                    "id": "sensor-2-128",
-                    "device_name": "测试设备 · 热电偶温度采集器",
-                    "device_type": "热电偶温度采集器",
-                    "area": "测试区域",
-                    "suid": "sensor-2",
-                    "cuid": "128",
-                    "channel_name": "热电偶温度采集通道",
-                    "unit": "℃",
-                    "last_value": "1450.2",
-                    "status": "online",
-                },
-            ]
-        )
-
-    from src.api import settings as settings_module
-
-    monkeypatch.setattr(
-        settings_module,
-        "_sync_host_channels_from_edc",
-        fake_sync_host_channels_from_edc,
+    _HOST_CHANNEL_STORE.clear()
+    _HOST_CHANNEL_STORE.extend(
+        [
+            {
+                "id": "sensor-1-128",
+                "device_name": "测试设备 · 三相智能电表",
+                "device_type": "三相智能电表",
+                "area": "测试区域",
+                "suid": "sensor-1",
+                "cuid": "128",
+                "channel_name": "总有功功率",
+                "unit": "kW",
+                "last_value": "321.5",
+                "status": "online",
+            },
+            {
+                "id": "sensor-2-128",
+                "device_name": "测试设备 · 热电偶温度采集器",
+                "device_type": "热电偶温度采集器",
+                "area": "测试区域",
+                "suid": "sensor-2",
+                "cuid": "128",
+                "channel_name": "热电偶温度采集通道",
+                "unit": "℃",
+                "last_value": "1450.2",
+                "status": "online",
+            },
+        ]
     )
     host_channels_resp = await client.get("/api/settings/host-channels")
     assert host_channels_resp.status_code == 200
@@ -109,6 +100,36 @@ async def test_settings_host_channels_endpoint(client, monkeypatch) -> None:
     assert payload["total"] == 2
     assert any(item["channel_name"] == "总有功功率" for item in payload["items"])
     assert any(item["channel_name"] == "热电偶温度采集通道" for item in payload["items"])
+
+
+@pytest.mark.asyncio
+async def test_settings_host_channels_can_be_saved(client) -> None:
+    response = await client.put(
+        "/api/settings/host-channels",
+        json={
+            "items": [
+                {
+                    "id": "sensor-9-128",
+                    "device_name": "测试设备 · 三相智能电表",
+                    "device_type": "三相智能电表",
+                    "area": "测试区域",
+                    "suid": "sensor-9",
+                    "cuid": "128",
+                    "channel_name": "B相电压",
+                    "unit": "V",
+                    "last_value": "226.8",
+                    "status": "online",
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+
+    fetch_resp = await client.get("/api/settings/host-channels")
+    assert fetch_resp.status_code == 200
+    payload = fetch_resp.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["id"] == "sensor-9-128"
 
 
 @pytest.mark.asyncio

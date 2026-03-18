@@ -39,6 +39,12 @@ class HostChannelCollectionResponse(BaseModel):
     total: int = Field(..., description="通道总数")
 
 
+class HostChannelCollectionUpdateRequest(BaseModel):
+    """宿主层已添加通道列表更新请求"""
+
+    items: list[HostChannelItem] = Field(..., description="宿主层保存的已添加通道列表")
+
+
 class SettingsUpdateRequest(BaseModel):
     """批量更新设置请求"""
 

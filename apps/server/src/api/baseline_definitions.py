@@ -20,7 +20,7 @@ from ..schemas.baseline_definition import (
 )
 from ..schemas.common import MessageResponse
 from ..services import EDCClient, EDCClientError
-from .settings import _HOST_CHANNEL_STORE, _sync_host_channels_from_edc, get_edc_connection_config
+from .settings import _HOST_CHANNEL_STORE, get_edc_connection_config
 
 router = APIRouter(prefix="/baseline-definitions", tags=["BaselineDefinitions"])
 
@@ -231,8 +231,6 @@ async def _build_preview_curves(
     range_end: datetime,
 ) -> list[CurveData]:
     metrics = list(definition.get("metrics", []))
-    await _sync_host_channels_from_edc()
-
     points_by_metric: dict[str, list[dict[str, float | int]]] = {}
     config = get_edc_connection_config()
     bound_metrics: list[tuple[dict[str, Any], dict[str, str]]] = []

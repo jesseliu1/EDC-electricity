@@ -12,6 +12,7 @@ from ..schemas import (
     CuttingSettingRequest,
     EDCConnectionRequest,
     HostChannelCollectionResponse,
+    HostChannelCollectionUpdateRequest,
     HostChannelItem,
     MessageResponse,
     ReportSettingRequest,
@@ -143,6 +144,7 @@ _HOST_CHANNEL_FALLBACKS: list[dict[str, str]] = [
 ]
 
 _HOST_CHANNEL_STORE: list[dict[str, str]] = [item.copy() for item in _HOST_CHANNEL_FALLBACKS]
+_HOST_CHANNEL_CATALOG_CACHE: list[dict[str, str]] = [item.copy() for item in _HOST_CHANNEL_FALLBACKS]
 _HOST_CHANNEL_LAST_SYNC_AT: datetime | None = None
 
 
@@ -244,30 +246,31 @@ def _normalize_host_channels(sensor_list: list[dict[str, object]]) -> list[dict[
     return items
 
 
-async def _sync_host_channels_from_edc(force: bool = False) -> None:
-    """按需从真实 EDC 同步宿主通道清单并缓存。"""
+async def _sync_host_channel_catalog_from_edc(force: bool = False) -> list[dict[str, str]]:
+    """按需从真实 EDC 同步全量通道目录缓存。"""
     global _HOST_CHANNEL_LAST_SYNC_AT
 
-    if _HOST_CHANNEL_STORE and _HOST_CHANNEL_LAST_SYNC_AT is not None and not force:
-        return
+    if _HOST_CHANNEL_CATALOG_CACHE and _HOST_CHANNEL_LAST_SYNC_AT is not None and not force:
+        return _HOST_CHANNEL_CATALOG_CACHE
 
     config = get_edc_connection_config()
     if not config["base_url"] or not config["username"] or not config["password"]:
-        return
+        return _HOST_CHANNEL_CATALOG_CACHE
 
     try:
         async with EDCClient(**config) as client:
             sensor_list = await client.get_all_sensor_list()
     except EDCClientError:
-        return
+        return _HOST_CHANNEL_CATALOG_CACHE
 
     normalized = _normalize_host_channels(sensor_list)
     if not normalized:
-        return
+        return _HOST_CHANNEL_CATALOG_CACHE
 
-    _HOST_CHANNEL_STORE.clear()
-    _HOST_CHANNEL_STORE.extend(normalized)
+    _HOST_CHANNEL_CATALOG_CACHE.clear()
+    _HOST_CHANNEL_CATALOG_CACHE.extend(normalized)
     _HOST_CHANNEL_LAST_SYNC_AT = datetime.now()
+    return _HOST_CHANNEL_CATALOG_CACHE
 
 
 def _to_response() -> SettingsResponse:
@@ -304,9 +307,16 @@ async def get_settings() -> SettingsResponse:
 @router.get("/host-channels", response_model=HostChannelCollectionResponse)
 async def get_host_channels() -> HostChannelCollectionResponse:
     """获取宿主层已添加通道清单。"""
-    await _sync_host_channels_from_edc()
     items = [HostChannelItem(**payload) for payload in _HOST_CHANNEL_STORE]
     return HostChannelCollectionResponse(items=items, total=len(items))
+
+
+@router.put("/host-channels", response_model=MessageResponse)
+async def update_host_channels(data: HostChannelCollectionUpdateRequest) -> MessageResponse:
+    """保存宿主层已添加通道清单。"""
+    _HOST_CHANNEL_STORE.clear()
+    _HOST_CHANNEL_STORE.extend([item.model_dump() for item in data.items])
+    return MessageResponse(message=f"宿主通道清单已保存，共 {len(data.items)} 条", success=True)
 
 
 @router.patch("", response_model=MessageResponse)
@@ -337,7 +347,7 @@ async def update_edc_connection(data: EDCConnectionRequest) -> MessageResponse:
     if data.password is not None:
         _SETTINGS_STORE["edc_password"]["value"] = data.password
     _SETTINGS_STORE["edc_api_key"]["value"] = data.api_key or ""
-    _HOST_CHANNEL_STORE.clear()
+    _HOST_CHANNEL_CATALOG_CACHE.clear()
     _HOST_CHANNEL_LAST_SYNC_AT = None
     return MessageResponse(message="EDC 连接配置已更新", success=True)
 

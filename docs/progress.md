@@ -18,6 +18,16 @@
 
 ### 2026-03-17（智慧熔炉指标引用宿主通道）
 
+- [x] 修复宿主连线设置与智慧熔炉通道候选未联动的问题
+  - [x] `/api/settings/host-channels` 改为表达“宿主层已保存通道清单”，不再被全量 EDC 同步结果覆盖
+  - [x] 新增 `PUT /api/settings/host-channels`，允许宿主显式保存当前已添加通道集合
+  - [x] 宿主 `保存设置` 改为同步写回 EDC 连接配置与已选通道清单，智慧熔炉读取到的候选将与宿主保存结果一致
+  - [x] 宿主补充保存失败文案，避免提示裸 key
+  - [x] 后端回归新增宿主通道清单保存断言
+  - [x] 验证通过：`apps/server/.venv/Scripts/ruff.exe check src tests`
+  - [x] 验证通过：`apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py`
+  - [x] 验证通过：宿主原型 `npm run build`
+
 - [x] 打通宿主已添加通道到智慧熔炉“管理指标”弹窗的最小闭环
   - [x] 后端新增 `/api/settings/host-channels`，返回宿主层已添加通道候选清单
   - [x] 基线定义“管理指标”弹窗新增宿主通道选择器，并按设备分组展示

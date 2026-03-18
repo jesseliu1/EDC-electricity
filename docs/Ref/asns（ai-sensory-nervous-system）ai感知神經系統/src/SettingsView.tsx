@@ -62,6 +62,7 @@ interface HostEdcResponse {
 
 const initialCatalog: ChannelMappingItem[] = [...edcChannelSnapshot];
 const hostSettingsStorageKey = 'asns-host-connectivity-draft';
+const appApiBase = 'http://127.0.0.1:8000/api';
 
 interface HostConnectivityDraft {
   config: SettingsViewConfig;
@@ -231,6 +232,61 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
         : `${t('settingsAppliedMessage')} ${formatCheckedAt(savedAt)}`;
     setStatusMessage(message);
     setSaveFeedback(message);
+  };
+
+  const syncSelectionToBackend = async () => {
+    const selectedChannels = addedChannels.map((channel) => ({
+      id: channel.id,
+      device_name: channel.deviceName,
+      device_type: channel.deviceType,
+      area: channel.area,
+      suid: channel.suid,
+      cuid: channel.cuid,
+      channel_name: channel.channelName,
+      unit: channel.unit,
+      last_value: channel.lastValue,
+      status: channel.status,
+    }));
+
+    const saveConnection = fetch(`${appApiBase}/settings/edc-connection`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        base_url: config.endpoint,
+        username: config.username,
+        password: config.password,
+      }),
+    });
+
+    const saveChannels = fetch(`${appApiBase}/settings/host-channels`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: selectedChannels }),
+    });
+
+    const [connectionResponse, channelsResponse] = await Promise.all([saveConnection, saveChannels]);
+    if (!connectionResponse.ok || !channelsResponse.ok) {
+      throw new Error(t('settingsSyncFailed'));
+    }
+  };
+
+  const handlePersist = async (mode: 'draft' | 'apply') => {
+    persistDraft(mode);
+    if (mode !== 'apply') {
+      return;
+    }
+
+    try {
+      await syncSelectionToBackend();
+      const savedAt = new Date().toISOString();
+      const message = `${t('settingsAppliedMessage')} ${formatCheckedAt(savedAt)}`;
+      setStatusMessage(message);
+      setSaveFeedback(message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('settingsSyncFailed');
+      setStatusMessage(message);
+      setSaveFeedback(message);
+    }
   };
 
   const handleConnect = async () => {
@@ -599,14 +655,14 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
             <div className="flex justify-end gap-3">
             <button
               type="button"
-              onClick={() => persistDraft('draft')}
+              onClick={() => void handlePersist('draft')}
               className="px-4 py-3 rounded-2xl bg-white dark:bg-white/10 text-slate-700 dark:text-slate-200 text-xs font-black uppercase tracking-widest border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/15 transition-colors"
             >
               {t('saveDraft')}
             </button>
             <button
               type="button"
-              onClick={() => persistDraft('apply')}
+              onClick={() => void handlePersist('apply')}
               className="px-4 py-3 rounded-2xl bg-slate-900 dark:bg-white dark:text-slate-900 text-white text-xs font-black uppercase tracking-widest shadow-lg hover:opacity-90 transition-opacity flex items-center gap-2"
             >
               <Save className="w-4 h-4" />
