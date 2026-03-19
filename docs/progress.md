@@ -12,6 +12,8 @@
 
 **进度**: 100%
 
+- [x] 已新增 `docs/session_handoff.md` 作为新 session 的固定交接入口
+
 ---
 
 ## 已完成
