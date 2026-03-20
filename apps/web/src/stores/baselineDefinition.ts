@@ -51,42 +51,6 @@ function mapDefinition(item: BaselineDefinitionResponse): DefinitionItem {
   }
 }
 
-function mockDefinitions(): DefinitionItem[] {
-  return [
-    {
-      id: 'def-001',
-      definitionName: '标准熔炼基线',
-      description: '中频炉标准熔炼过程，适用于常规铸铁生产',
-      expectedDurationMinutes: 30,
-      status: 'active',
-      metrics: [
-        { id: 'metric-001', name: '功率', unit: 'kW', color: '#409EFF', sortOrder: 1, edcChannelId: null },
-        { id: 'metric-002', name: '电压', unit: 'V', color: '#67C23A', sortOrder: 2, edcChannelId: null },
-        { id: 'metric-003', name: '炉温', unit: '°C', color: '#E6A23C', sortOrder: 3, edcChannelId: null }
-      ],
-      instanceCount: 0,
-      createdAt: dayjs().format('YYYY-MM-DD HH:mm'),
-      updatedAt: dayjs().format('YYYY-MM-DD HH:mm')
-    },
-    {
-      id: 'def-002',
-      definitionName: '高功率熔炼基线',
-      description: '高强度钢生产专用，包含压力监控',
-      expectedDurationMinutes: 45,
-      status: 'active',
-      metrics: [
-        { id: 'metric-004', name: '功率', unit: 'kW', color: '#409EFF', sortOrder: 1, edcChannelId: null },
-        { id: 'metric-005', name: '电压', unit: 'V', color: '#67C23A', sortOrder: 2, edcChannelId: null },
-        { id: 'metric-006', name: '炉温', unit: '°C', color: '#E6A23C', sortOrder: 3, edcChannelId: null },
-        { id: 'metric-007', name: '炉压', unit: 'MPa', color: '#F56C6C', sortOrder: 4, edcChannelId: null }
-      ],
-      instanceCount: 0,
-      createdAt: dayjs().format('YYYY-MM-DD HH:mm'),
-      updatedAt: dayjs().format('YYYY-MM-DD HH:mm')
-    }
-  ]
-}
-
 export const useBaselineDefinitionStore = defineStore('baselineDefinition', {
   state: () => ({
     list: [] as DefinitionItem[],
@@ -102,9 +66,9 @@ export const useBaselineDefinitionStore = defineStore('baselineDefinition', {
         this.list = data.items.map(mapDefinition)
         this.total = data.total
       } catch (error) {
-        console.warn('BaselineDefinition list fallback to mock.', error)
-        this.list = mockDefinitions()
-        this.total = this.list.length
+        console.error('BaselineDefinition list request failed.', error)
+        this.list = []
+        this.total = 0
       } finally {
         this.loading = false
       }
@@ -115,8 +79,8 @@ export const useBaselineDefinitionStore = defineStore('baselineDefinition', {
         const data = await baselineDefinitionApi.get(id)
         this.current = mapDefinition(data)
       } catch (error) {
-        console.warn('BaselineDefinition detail fallback to mock.', error)
-        this.current = mockDefinitions().find(d => d.id === id) || null
+        console.error('BaselineDefinition detail request failed.', error)
+        this.current = null
       } finally {
         this.loading = false
       }

@@ -44,6 +44,13 @@ export interface BaselineListResponse {
   total: number
 }
 
+export interface BaselineSummary {
+  id: string
+  name: string
+  status: BaselineStatus
+  version: number
+}
+
 export interface BaselineCreatePayload {
   name: string
   description?: string
@@ -70,11 +77,13 @@ export const baselineApi = {
         ...(definitionId ? { definition_id: definitionId } : {})
       }
     }),
+  getActive: () => client.get<BaselineSummary | null>('/baselines/active'),
   get: (id: string) => client.get<BaselineResponse>(`/baselines/${id}`),
   create: (payload: BaselineCreatePayload) =>
     client.post<BaselineResponse>('/baselines', payload),
   update: (id: string, payload: BaselineUpdatePayload) =>
     client.patch<BaselineResponse>(`/baselines/${id}`, payload),
+  activate: (id: string) => client.post<BaselineSummary>(`/baselines/${id}/activate`),
   publish: (id: string) => client.post<BaselineResponse>(`/baselines/${id}/publish`),
   disable: (id: string) => client.post<BaselineResponse>(`/baselines/${id}/disable`),
   remove: (id: string) => client.delete(`/baselines/${id}`)

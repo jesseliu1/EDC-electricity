@@ -41,6 +41,7 @@ const editForm = reactive({
 
 const baselineId = computed(() => String(route.params.id || ''))
 const baseline = computed(() => baselineStore.current)
+const isDefaultBaseline = computed(() => baselineStore.activeBaselineId === baseline.value?.id)
 
 const statusType = computed(() => {
   if (!baseline.value) return 'info'
@@ -187,16 +188,27 @@ async function handleToggleStatus() {
   await baselineStore.fetchDetail(baseline.value.id)
 }
 
+async function handleActivateDefault() {
+  if (!baseline.value) return
+  const ok = await baselineStore.activateBaseline(baseline.value.id)
+  if (!ok) {
+    ElMessage.error(t('common.error'))
+    return
+  }
+  ElMessage.success(t('baseline.defaultSetSuccess'))
+}
+
 function handleCreateVersion() {
   ElMessage.info(t('baseline.detail.newVersionHint'))
 }
 
 onMounted(async () => {
   if (!baselineId.value) return
-  await Promise.all([
-    baselineStore.fetchDetail(baselineId.value),
-    baselineStore.fetchVersionHistory(baselineId.value)
-  ])
+    await Promise.all([
+      baselineStore.fetchDetail(baselineId.value),
+      baselineStore.fetchVersionHistory(),
+      baselineStore.fetchActiveBaseline()
+    ])
 })
 </script>
 
@@ -215,12 +227,27 @@ onMounted(async () => {
         >
           {{ statusLabel }}
         </StatusBadge>
+        <StatusBadge
+          v-if="isDefaultBaseline"
+          type="warning"
+          class="mr-2"
+        >
+          {{ t('baseline.defaultBadge') }}
+        </StatusBadge>
         <button
           class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
           @click="handleEdit"
         >
           <span class="material-symbols-outlined text-[18px]">edit</span>
           {{ t('common.edit') }}
+        </button>
+        <button
+          v-if="baseline?.status === 'published' && !isDefaultBaseline"
+          class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+          @click="handleActivateDefault"
+        >
+          <span class="material-symbols-outlined text-[18px]">star</span>
+          {{ t('baseline.setDefault') }}
         </button>
         <button
           v-if="baseline?.status === 'published' || baseline?.status === 'draft'"

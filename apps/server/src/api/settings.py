@@ -7,6 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter
 
 from ..config import settings as app_settings
+from ..runtime_state import persist_runtime_state
 from ..schemas import (
     BaselineLengthScopeSettingRequest,
     CuttingSettingRequest,
@@ -38,6 +39,10 @@ _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     "work_start_time": {"value": "08:00", "description": "上班时间"},
     "work_end_time": {"value": "18:00", "description": "下班时间"},
     "break_periods": {"value": "12:00-13:00", "description": "休息时间段，逗号分隔"},
+    "live_heat_inference_enabled": {
+        "value": "true",
+        "description": "是否启用基于真实功率曲线推断炉次台账",
+    },
     "baseline_length_scope_mode": {
         "value": "definition",
         "description": "基线等长校验范围: definition/system/production_line",
@@ -316,6 +321,7 @@ async def update_host_channels(data: HostChannelCollectionUpdateRequest) -> Mess
     """保存宿主层已添加通道清单。"""
     _HOST_CHANNEL_STORE.clear()
     _HOST_CHANNEL_STORE.extend([item.model_dump() for item in data.items])
+    await persist_runtime_state("host_channels")
     return MessageResponse(message=f"宿主通道清单已保存，共 {len(data.items)} 条", success=True)
 
 
@@ -327,6 +333,7 @@ async def update_settings(data: SettingsUpdateRequest) -> MessageResponse:
             _SETTINGS_STORE[key]["value"] = value
         else:
             _SETTINGS_STORE[key] = {"value": value, "description": None}
+    await persist_runtime_state("settings_store")
     return MessageResponse(message=f"已更新 {len(data.settings)} 项设置", success=True)
 
 
@@ -334,6 +341,7 @@ async def update_settings(data: SettingsUpdateRequest) -> MessageResponse:
 async def update_tolerance(data: ToleranceSettingRequest) -> MessageResponse:
     """更新默认容许误差设置。"""
     _SETTINGS_STORE["default_tolerance_percent"]["value"] = str(data.tolerance_percent)
+    await persist_runtime_state("settings_store")
     return MessageResponse(message=f"容许误差已更新为 {data.tolerance_percent}%", success=True)
 
 
@@ -349,6 +357,11 @@ async def update_edc_connection(data: EDCConnectionRequest) -> MessageResponse:
     _SETTINGS_STORE["edc_api_key"]["value"] = data.api_key or ""
     _HOST_CHANNEL_CATALOG_CACHE.clear()
     _HOST_CHANNEL_LAST_SYNC_AT = None
+    await persist_runtime_state(
+        "settings_store",
+        "host_channel_catalog",
+        "host_channel_last_sync_at",
+    )
     return MessageResponse(message="EDC 连接配置已更新", success=True)
 
 
@@ -372,6 +385,7 @@ async def test_edc_connection() -> MessageResponse:
 async def update_report_settings(data: ReportSettingRequest) -> MessageResponse:
     """更新报表设置。"""
     _SETTINGS_STORE["report_generation_hour"]["value"] = str(data.generation_hour)
+    await persist_runtime_state("settings_store")
     return MessageResponse(message=f"日报生成时间已设置为 {data.generation_hour}:00", success=True)
 
 
@@ -385,6 +399,7 @@ async def update_cutting_settings(data: CuttingSettingRequest) -> MessageRespons
     _SETTINGS_STORE["work_start_time"]["value"] = data.work_start_time
     _SETTINGS_STORE["work_end_time"]["value"] = data.work_end_time
     _SETTINGS_STORE["break_periods"]["value"] = ",".join(data.break_periods)
+    await persist_runtime_state("settings_store")
     return MessageResponse(message="炉次切割设置已更新", success=True)
 
 
@@ -396,4 +411,5 @@ async def update_baseline_length_scope(data: BaselineLengthScopeSettingRequest) 
         return MessageResponse(message="scope_mode 非法", success=False)
 
     _SETTINGS_STORE["baseline_length_scope_mode"]["value"] = data.scope_mode
+    await persist_runtime_state("settings_store")
     return MessageResponse(message=f"基线等长校验范围已更新为 {data.scope_mode}", success=True)

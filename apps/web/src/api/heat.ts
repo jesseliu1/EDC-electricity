@@ -1,6 +1,7 @@
 import { client } from './client'
 
 export type HeatStatus = 'normal' | 'abnormal' | 'pending'
+export type HeatDataSource = 'live_edc' | 'live_inferred' | 'demo_seed' | 'demo_curve' | 'none'
 
 export interface HeatResponseItem {
   id: string
@@ -20,6 +21,9 @@ export interface HeatResponseItem {
   blocked_by_issue: boolean
   status: HeatStatus
   temperature: number | null
+  record_source: HeatDataSource
+  current_curve_source: HeatDataSource
+  baseline_curve_source: HeatDataSource
   created_at: string
 }
 

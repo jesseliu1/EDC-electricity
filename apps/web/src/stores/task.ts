@@ -52,52 +52,6 @@ function mapTaskDetail(item: TaskDetailResponse): TaskDetail {
   }
 }
 
-function mockTaskList(status: 'all' | TaskStatus, page: number, pageSize: number): { items: TaskItem[]; total: number } {
-  const statuses: TaskStatus[] = ['pending', 'in_progress', 'completed', 'cancelled']
-  const all = Array.from({ length: 36 }).map((_, idx) => {
-    const taskStatus = statuses[idx % statuses.length]
-    const now = dayjs().subtract(idx, 'day')
-    return {
-      id: `mock-task-${idx + 1}`,
-      taskNo: `T${dayjs().format('YYYYMMDD')}-${String(idx + 1).padStart(3, '0')}`,
-      heatId: `heat-${String(idx + 1).padStart(3, '0')}`,
-      deviationPercent: Number((10 + (idx % 8) * 1.7).toFixed(2)),
-      status: taskStatus,
-      createdAt: now.format('YYYY-MM-DD HH:mm'),
-      updatedAt: now.add(2, 'hour').format('YYYY-MM-DD HH:mm'),
-      completedAt: taskStatus === 'completed' ? now.add(6, 'hour').format('YYYY-MM-DD HH:mm') : null
-    } as TaskItem
-  })
-  const filtered = status === 'all' ? all : all.filter(item => item.status === status)
-  const start = (page - 1) * pageSize
-  return { items: filtered.slice(start, start + pageSize), total: filtered.length }
-}
-
-function mockTaskDetail(id: string): TaskDetail {
-  return {
-    id,
-    taskNo: `T${dayjs().format('YYYYMMDD')}-001`,
-    heatId: 'heat-001',
-    heatNo: `H${dayjs().format('YYYYMMDD')}-001`,
-    deviationPercent: 18.2,
-    status: 'in_progress',
-    createdAt: dayjs().subtract(1, 'day').format('YYYY-MM-DD HH:mm'),
-    updatedAt: dayjs().format('YYYY-MM-DD HH:mm'),
-    completedAt: null,
-    causeAnalysis: '温度波动导致功率偏差持续上升',
-    improvement: '调整加热曲线并稳定投料节奏',
-    prevention: '增加关键段采样与班组复核',
-    deviationSnapshot: {
-      max_deviation: 21.5,
-      avg_deviation: 8.6,
-      deviation_ranges: [
-        { start: 20000, end: 35000, deviation: 18.5 },
-        { start: 60000, end: 76000, deviation: 21.5 }
-      ]
-    }
-  }
-}
-
 export const useTaskStore = defineStore('task', {
   state: () => ({
     list: [] as TaskItem[],
@@ -120,10 +74,9 @@ export const useTaskStore = defineStore('task', {
         this.list = data.items.map(mapTask)
         this.total = data.total
       } catch (error) {
-        console.warn('Task list fallback to mock.', error)
-        const mock = mockTaskList(this.statusFilter, this.page, this.pageSize)
-        this.list = mock.items
-        this.total = mock.total
+        console.error('Task list request failed.', error)
+        this.list = []
+        this.total = 0
       } finally {
         this.loading = false
       }
@@ -148,8 +101,8 @@ export const useTaskStore = defineStore('task', {
         const data = await taskApi.get(id)
         this.current = mapTaskDetail(data)
       } catch (error) {
-        console.warn('Task detail fallback to mock.', error)
-        this.current = mockTaskDetail(id)
+        console.error('Task detail request failed.', error)
+        this.current = null
       } finally {
         this.loading = false
       }

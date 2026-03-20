@@ -3,6 +3,7 @@
 import pytest
 
 from src.api.settings import _HOST_CHANNEL_STORE
+from src.config import settings
 from src.schemas.common import CurvePoint
 
 
@@ -61,6 +62,42 @@ async def test_dashboard_realtime_prefers_edc_curves_when_available(client, monk
     payload = response.json()
     assert payload["power"][0]["value"] == 101.0
     assert payload["voltage"][1]["value"] == 222.0
+
+
+@pytest.mark.asyncio
+async def test_dashboard_realtime_rejects_empty_real_data_when_mock_disabled(
+    client, monkeypatch
+) -> None:
+    settings.enable_mock_dataset = False
+
+    async def fake_load_realtime_curves_from_edc(**_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "src.api.dashboard._load_realtime_curves_from_edc",
+        fake_load_realtime_curves_from_edc,
+    )
+
+    response = await client.get("/api/dashboard/realtime", params={"duration": "1h"})
+    assert response.status_code == 503
+    assert "未获取到真实实时数据" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_realtime_does_not_fallback_when_mock_enabled(client, monkeypatch) -> None:
+    settings.enable_mock_dataset = True
+
+    async def fake_load_realtime_curves_from_edc(**_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "src.api.dashboard._load_realtime_curves_from_edc",
+        fake_load_realtime_curves_from_edc,
+    )
+
+    response = await client.get("/api/dashboard/realtime", params={"duration": "1h"})
+    assert response.status_code == 503
+    assert "未获取到真实实时数据" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -165,6 +202,64 @@ async def test_definition_preview_curves_prefers_preview_builder(client, monkeyp
     assert payload["definition_id"] == "def-001"
     assert payload["source_heat_id"] == "heat-001"
     assert payload["curves_data"][0]["points"][0]["value"] == 401.0
+
+
+@pytest.mark.asyncio
+async def test_definition_preview_curves_rejects_empty_real_data_when_mock_disabled(
+    client, monkeypatch
+) -> None:
+    settings.enable_mock_dataset = False
+
+    class FakeClient:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get_local_datas(self, **_kwargs):
+            return []
+
+    monkeypatch.setattr("src.api.baseline_definitions.EDCClient", FakeClient)
+
+    response = await client.get(
+        "/api/baseline-definitions/def-001/preview-curves",
+        params={"heat_id": "heat-001"},
+    )
+    assert response.status_code == 503
+    assert "未获取到真实预览数据" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_definition_preview_curves_do_not_fallback_when_mock_enabled(
+    client, monkeypatch
+) -> None:
+    settings.enable_mock_dataset = True
+
+    class FakeClient:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get_local_datas(self, **_kwargs):
+            return []
+
+    monkeypatch.setattr("src.api.baseline_definitions.EDCClient", FakeClient)
+
+    response = await client.get(
+        "/api/baseline-definitions/def-001/preview-curves",
+        params={"heat_id": "heat-001"},
+    )
+    assert response.status_code == 503
+    assert "未获取到真实预览数据" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -297,6 +392,14 @@ async def test_baseline_crud_publish_disable_and_delete(client) -> None:
     assert published["status"] == "published"
     assert published["published_at"] is not None
 
+    activate_resp = await client.post(f"/api/baselines/{baseline_id}/activate")
+    assert activate_resp.status_code == 200
+    assert activate_resp.json()["id"] == baseline_id
+
+    active_after_activate = await client.get("/api/baselines/active")
+    assert active_after_activate.status_code == 200
+    assert active_after_activate.json()["id"] == baseline_id
+
     update_published_resp = await client.patch(
         f"/api/baselines/{baseline_id}",
         json={"description": "不应该成功"},
@@ -306,6 +409,10 @@ async def test_baseline_crud_publish_disable_and_delete(client) -> None:
     disable_resp = await client.post(f"/api/baselines/{baseline_id}/disable")
     assert disable_resp.status_code == 200
     assert disable_resp.json()["status"] == "disabled"
+
+    active_after_disable = await client.get("/api/baselines/active")
+    assert active_after_disable.status_code == 200
+    assert active_after_disable.json()["id"] != baseline_id
 
     delete_disabled_resp = await client.delete(f"/api/baselines/{baseline_id}")
     assert delete_disabled_resp.status_code == 400

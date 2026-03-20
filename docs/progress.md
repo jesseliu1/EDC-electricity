@@ -6,17 +6,196 @@
 
 ## 当前状态
 
-**当前阶段**: MVP 完成（待联调整体验收）
+**当前阶段**: MVP 完成（联调整体验收收口中）
 
 **当前步骤**: 联调与验收
 
 **进度**: 100%
 
 - [x] 已新增 `docs/session_handoff.md` 作为新 session 的固定交接入口
+- [x] 已完成交接 issue 1-9 收口，并补齐默认黄金基线与宿主入口多语言回归
+- [x] 已完成宿主 Dock 点击、宿主连线状态持久化、全局 mock 默认禁用 3 项新增问题收口
+- [x] 已完成“基线发布重复创建 / 定义与基线刷新丢失 / 炉次筛选刷新跳变 / 待分析炉次缺少基线 tab”一轮收口
+- [x] 已补充炉次列表与炉次详情的数据来源说明，页面可区分“演示台账 / 真实曲线 / 演示曲线”
+- [x] 已完成 EDC 炉次主数据接口阶段性探测，确认当前基座未暴露炉次台账 request
+- [x] 已落第一版“基于真实功率曲线推断炉次台账”，炉次列表可优先展示 `live_inferred` 记录
+- [x] 已收口“宿主显示离线 / 从宿主进入 EDC 首屏实时数据 503”两项新增联调问题
+- [x] 已完成“炉次浏览 / 基线向导 Step 2 仍拿不到真实炉次”原因分析，确认当前是“真实炉次推断开关关闭 + `/api/heats` 40 秒级慢查询 + 前端 10 秒超时误报”为叠加问题
+- [x] 已完成“普通接口 mock fallback 统一收口”第一轮改造：普通接口不再隐式回退 mock，前端不再本地拼接 mock 数据
 
 ---
 
 ## 已完成
+
+### 2026-03-20（宿主恢复同步与实时数据链路收口）
+
+- [x] 修复宿主恢复后“离线状态与历史摘要并存”的误导展示
+  - [x] 宿主启动时会基于已保存草稿自动做一次真实 EDC 连线校验
+  - [x] 连线设置页离线态改为占位显示，不再复用旧节点名、旧同步时间和旧通道统计
+- [x] 修复从宿主进入 EDC 后 Dashboard 实时数据直接 503
+  - [x] 宿主启动时会自动把本地恢复的连接配置与已保存通道集合回写到 `8000`
+  - [x] 宿主通道集合补齐推荐的功率/电压关键通道，避免默认基线缺失实时来源
+  - [x] 实测 `GET /api/dashboard/realtime?duration=1h` 已恢复真实曲线返回
+- [x] 宿主回归通过
+  - [x] `npm test`
+  - [x] `npm run lint`
+  - [x] `npm run build`
+
+### 2026-03-20（联调问题第二轮收口）
+
+- [x] 修复基线发布后弹窗不关闭、重复点击连续创建的问题
+  - [x] 基线创建 store 在“创建后立即发布”成功路径下返回明确成功结果
+  - [x] 基线向导新增提交中锁定，发布/存草稿/翻页/取消在请求完成前不可重复触发
+  - [x] Playwright smoke 覆盖“创建并发布基线”流程仍通过
+- [x] 修复基线定义、基线实例、宿主通道与设置刷新后丢失的问题
+  - [x] 新增 `apps/server/src/runtime_state.py`，将运行态内存 store 持久化到 SQLite `settings`
+  - [x] 应用启动时恢复运行态，避免 dev reload / 页面刷新后回到初始演示状态
+  - [x] 基线定义、基线实例、宿主通道、系统设置、炉次修改类写操作已统一接入持久化
+- [x] 收口炉次浏览刷新后筛选状态跳变
+  - [x] Heat store 持久化 `status / dateRange / page / pageSize`
+  - [x] 刷新页面后不再因为筛选状态回到默认值而出现“2 条 / 60 条”无解释切换
+- [x] 修复待分析炉次详情缺少默认黄金基线 tab
+  - [x] 炉次详情/对比接口改为统一按默认黄金基线解析 `baseline_id / baseline_ids`
+
+### 2026-03-20（真实曲线推断炉次第一版）
+
+- [x] 将炉次列表主记录从“仅 demo seed”推进到“优先使用真实 EDC 功率曲线推断”
+  - [x] 后端 `heats.py` 新增真实炉次推断入口，按当前默认黄金基线绑定的功率通道读取最近 72 小时历史曲线
+  - [x] 新增启发式切割规则：基于动态阈值识别活跃段，并按定义期望时长对过长连续段做分段
+  - [x] 推断出的炉次主记录以 `live_inferred` 来源返回，当前曲线标识为 `live_edc`
+  - [x] 若真实推断失败，则回退到现有持久化/demo 炉次记录，不会把空结果误当成功
+- [x] 打通推断炉次 ID 在后续链路中的可用性
+  - [x] 基线向导 preview 已可接受 `live_inferred` 炉次 ID
+  - [x] 基线实例按 `source_heat_id` 解析时间窗时，已兼容推断炉次而不只认 `_HEAT_STORE`
+  - [x] 炉次详情 / 对比 / 分析 / 手动修改统一改为通过解析函数读取炉次，避免只认内存 seed
+- [x] 前端补齐 `live_inferred` 来源文案与类型
+  - [x] 炉次浏览来源标签新增“真实 EDC 推断炉次”
+  - [x] 炉次详情来源说明同步支持 `live_inferred`
+- [x] 阶段性真实验证完成
+  - [x] 使用真实 EDC 通道 `2349-199` 跑第一版推断，当前可稳定推断出 63 条炉次
+  - [x] 最新样例已落到 `2026-03-20 09:01 ~ 09:25`、`2026-03-20 08:27 ~ 09:00` 等连续时间窗
+  - [x] 当前结果仍属于启发式切割，不等同于上游官方炉次台账
+- [x] 回归通过
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_heats_api.py -x -vv`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py -x -vv`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web test:i18n`
+
+### 2026-03-20（炉次浏览真实数据问题原因分析）
+
+- [x] 已确认基线向导 Step 2 报“未获取到真实炉次候选”时，失败点来自 `heatApi.list` 请求异常，而不是单纯空列表
+  - [x] `apps/web/src/components/baseline/BaselineWizard.vue` 中 `loadHeatCandidates()` 直接调用 `/api/heats?page=1&page_size=50`
+  - [x] 该提示只在 `catch` 分支设置，说明前端看到的是超时/失败，不是后端正常返回空数组
+- [x] 已确认炉次浏览当前并未稳定走真实炉次主记录
+  - [x] `GET /api/settings` 当前持久化值里 `live_heat_inference_enabled=false`
+  - [x] `apps/server/src/api/heats.py` 中 `_get_live_inferred_heat_store()` 在开关关闭时直接返回空，`_list_heat_store()` 随后回退到 `_HEAT_STORE`
+  - [x] 当前 `GET /api/heats` 实际返回仍包含 `record_source=demo_seed`
+- [x] 已确认 `/api/heats` 本身存在 40 秒级性能问题，足以把前端打成“假离线”
+  - [x] 本地实测 `GET /api/heats?page=1&page_size=50` 单次耗时约 `43.7s`
+  - [x] `apps/server/src/api/heats.py` 的 `list_heats()` 会对分页内每条记录执行 `_build_heat_response_view()`
+  - [x] `_build_heat_response_view()` 会进一步调用 `apps/server/src/api/baselines.py` 的 `_hydrate_baseline_item()`，按基线绑定再去 EDC 拉真实曲线
+- [x] 已确认前端错误提示会把接口超时误报成“后端未连接”
+  - [x] `apps/web/src/api/client.ts` 当前 `timeout` 为 `10000`
+  - [x] 同文件中 `error.response` 为空时统一弹出“后端服务未连接，当前页面不会回退为 Mock 数据”
+  - [x] 因此用户看到的黄色横幅并不等价于后端服务真的没起
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
+  - [x] 待分析炉次也会返回可切换的基线 tab，而不是顶部空白
+  - [x] 前端基线 tab 选中态在 compare 数据刷新后保持稳定
+- [x] 补充炉次数据来源透明化
+  - [x] 热次接口新增 `record_source / current_curve_source / baseline_curve_source`
+  - [x] 炉次浏览顶部新增来源说明提示，并在列表项展示当前台账来源标签
+  - [x] 炉次详情新增来源说明栏，明确区分“炉次台账 / 当前曲线 / 对比基线曲线”
+- [x] 完成真实 EDC 炉次主数据阶段性测试
+  - [x] 使用当前配置成功登录 `http://60.251.229.32`
+  - [x] 从文档 `EDC AI通信基座API使用說明書.docx` 中提取到的公开 request 只有 `getAllSensorList / getLocalDatas / getMonitorboardToken`
+  - [x] 针对 `getHeatList / getHeatRecords / getMeltList / getBatchList` 等候选 request 的现网探测均返回“未知请求”
+  - [x] 当前结论：现有 EDC 基座可提供设备清单与历史曲线，但未提供炉次台账接口，暂不具备直接替换热次主记录的条件
+- [x] 验证通过
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
+
+### 2026-03-20（普通接口 mock fallback 统一收口）
+
+- [x] 后端普通接口不再按 mock 开关隐式回退
+  - [x] `apps/server/src/api/dashboard.py` 的 `/api/dashboard/realtime` 在真实曲线不可用时固定返回 `503`
+  - [x] `apps/server/src/api/baseline_definitions.py` 的 `/preview-curves` 在无真实预览点位时固定返回 `503`
+  - [x] `apps/server/src/api/baselines.py` 与 `apps/server/src/api/heats.py` 已移除“真实曲线缺失时补本地生成曲线”的分支
+- [x] 专用 mock 入口仍保留为显式演示接口
+  - [x] `/api/heats/stream/mock`
+  - [x] `/api/heats/stream/mock/ingest`
+- [x] 前端已移除本地 mock 数据拼装
+  - [x] 删除 `apps/web/src/utils/mockDataset.ts`
+  - [x] `dashboard / heat / baseline / baselineDefinition / report / task` store 不再在请求失败时本地塞 mock 列表或详情
+  - [x] `BaselineWizard.vue` 不再在候选炉次失败或 preview 失败时生成本地假候选和本地图形
+- [x] 前端网络错误提示已去掉“会不会回退 mock”的双口径
+  - [x] 超时提示改为“请求超时，请检查后端服务状态或接口性能”
+  - [x] 断连提示改为“后端服务未连接，请检查网络或服务状态”
+- [x] Dashboard 统计与最近炉次列表已去掉硬编码演示值
+  - [x] `/api/dashboard/stats` 改为按当前 heat/task store 动态计算
+  - [x] `/api/dashboard/recent-heats` 改为复用当前热次列表数据源
+- [x] 自动化已同步更新
+  - [x] 后端新增断言：mock 开启时普通接口也不得 fallback
+  - [x] 前端 E2E 已修正基线向导验收桩与等待条件
+- [x] 验证通过
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py -x -vv`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
+
+### 当前明确残留
+
+- [ ] `GET /api/heats` 在 `live_heat_inference_enabled=false` 时仍可能返回 `demo_seed` 主记录
+  - 这是“炉次主记录真源替换”问题，不再是“普通接口 fallback mock”问题
+  - 下一轮如果继续收这条，需要进一步拆分 heat 主 store 与 demo seed store
+
+### 2026-03-19（宿主连接持久化与 mock 回退收口）
+
+- [x] 修复宿主 Dock 中 `EDC electricity` 图标点击无响应
+  - [x] Dock 与桌面入口统一复用同一套窗口切换逻辑
+  - [x] 补充宿主纯状态测试，覆盖“首次打开”和“已打开聚焦不重复开窗”
+- [x] 修复宿主 EDC 登录后刷新回到离线的问题
+  - [x] 宿主根层启动时恢复本地保存的连线草稿与在线状态
+  - [x] 连线设置页持久化 `isConnected / machineName / lastSync / meta / addedChannelIds`
+  - [x] 刷新或重开后可恢复在线态与最近同步摘要
+- [x] 收口全局 mock 数据集默认禁用策略
+  - [x] 后端新增统一 mock 开关，默认关闭
+  - [x] 基线 preview、Dashboard realtime、mock stream 等接口在 mock 关闭时不再偷偷回退
+  - [x] 前端 store 与基线向导仅在显式开启 flag 时才允许回退 mock
+  - [x] 补齐后端 pytest、前端 Playwright、宿主状态测试
+- [x] 验证通过
+  - [x] `.\.venv\Scripts\pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py`（`apps/server`）
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
+  - [x] 宿主原型 `npm test`
+  - [x] 宿主原型 `npm run lint`
+  - [x] 宿主原型 `npm run build`
+
+### 2026-03-19（交接 issue 1-9 收口）
+
+- [x] 完成基线向导 / 炉次浏览 / 炉次详情 / 宿主入口的 9 项联调问题收口
+  - [x] 基线向导 Step 2 候选炉次列表改为默认限高并内部滚动
+  - [x] 基线向导次操作按钮改为“上一页”，选点图横轴按分钟粒度展示
+  - [x] 炉次浏览移除“模拟流入一炉”入口，展开区重排为“功率 / 温度 / 摘要”三栏
+  - [x] 炉次详情移除“指标来源”模块，并保证新增黄金基线可出现在对比 tab 中
+  - [x] 新增“默认黄金基线”激活能力，炉次列表偏离度、详情对比与分析统一按默认基线口径计算
+  - [x] ASNS 宿主入口补齐应用商店、内嵌应用与 App Studio 的多语言入口文案
+- [x] 默认黄金基线口径下沉到后端统一解析
+  - [x] `GET /api/baselines/active` 改为真正读取当前激活基线
+  - [x] 新增 `POST /api/baselines/{id}/activate` 用于显式设置默认黄金基线
+  - [x] 基线发布 / 停用时同步维护默认基线的初始化与回退
+  - [x] 热次列表、详情、对比、分析统一复用同一套默认基线解析与 compare 顺序
+- [x] 验证通过
+  - [x] `.\.venv\Scripts\ruff.exe check src tests`（`apps/server`）
+  - [x] `.\.venv\Scripts\pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py`（`apps/server`）
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
+  - [x] 宿主原型 `npm run build`
 
 ### 2026-03-17（智慧熔炉指标引用宿主通道）
 
@@ -567,11 +746,99 @@
   - [x] 基线详情接口 `curves_data` 补充 `edc_channel_id / source_channel_*` 元数据，避免后续真实取数时再改结构
   - [x] 验证通过：`pytest apps/server/tests/test_baselines_dashboard_api.py`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build`、`pnpm --dir apps/web exec playwright test e2e/app.spec.ts`
 
+### 2026-03-20（炉次主记录源头切真：普通接口与 mock stream 拆分）
+- [x] `apps/server/src/api/heats.py` 拆分普通炉次主记录 store 与显式 mock stream store
+- [x] 普通 `/api/heats*`、详情、分析、恢复切割只消费真实推断记录与持久化 overlay，不再默认暴露 `demo_seed`
+- [x] 显式 mock 仅保留在 `/api/heats/stream/mock*`，并单独维护 `mock_stream` 记录与自增索引
+- [x] `apps/server/src/runtime_state.py` 运行态持久化新增 `mock_heats`，并在恢复旧 `runtime_heats` 时自动过滤 `demo_seed/mock_stream`
+- [x] 后端测试夹具改成“测试专用 historical_import 炉次”，不再默认依赖 demo seed 作为普通接口前提
+- [x] 验证通过：
+  - [x] `apps/server/.venv/Scripts/ruff.exe check src tests`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_heats_api.py -x -vv`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py -x -vv`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
+
+### 2026-03-20（炉次列表性能第一刀：移除列表级基线 hydrate）
+- [x] `/api/heats` 列表改为轻量 summary view，不再在列表请求里逐条 `_hydrate_baseline_item()`
+- [x] 列表仍保留默认基线 ID、来源字段和本地可算的偏差值，但把重 IO 留给详情/对比接口
+- [x] `GET /api/heats?page=1&page_size=50` 本地实测由 30 秒级降到约 `213ms`
+- [x] 基线向导 Step 2 继续复用 `/api/heats`，因此本轮性能优化会直接影响黄金基线候选炉次加载
+- [x] 新增回归：`test_list_heats_does_not_hydrate_baselines`
+- [x] 验证通过：
+  - [x] `apps/server/.venv/Scripts/ruff.exe check src tests`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_heats_api.py -x -vv`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
+
+### 2026-03-20（炉次详情性能第二刀：前端去重重复请求）
+- [x] 炉次详情页从 `get / getCurve / getCompare / getCuttingTimeline` 四请求收敛为 `getCompare / getCuttingTimeline` 两请求
+- [x] 炉次浏览展开预览从 `getCurve + getCompare` 两请求收敛为仅 `getCompare`
+- [x] 保持详情页多基线对比、异常区间、手动调整和展开区预览能力不变
+- [x] 验证通过：
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
+
+### 2026-03-20（炉次详情性能第三刀：compare 去重取数与短 TTL 缓存）
+- [x] `apps/server/src/api/heats.py` 的 `get_heat_compare()` 去掉与指标批量取数重复的功率/电压主曲线 EDC 请求
+- [x] compare 链路优先复用已批量读取的通道曲线回填主曲线，仅在缺失时才回退单独 `_load_heat_curves_from_edc`
+- [x] 新增 20 秒级炉次 compare 响应缓存，同一炉次短时间重复打开详情/展开区时不再重复 hydrate 基线和拉 EDC 曲线
+- [x] `update_heat / resume_cutting / analyze_heat` 已接入 compare 缓存失效，避免炉次修改后继续命中旧响应
+- [x] 后端测试夹具新增 compare cache 隔离，避免跨用例污染
+- [x] 实测效果：
+  - [x] 冷启动首包 `GET /api/heats/heat-007/compare` 约 `3.2s`
+  - [x] 同炉次二次请求约 `0.08s`
+  - [x] 冷启动首包 `GET /api/heats/heat-008/compare` 约 `2.8s`
+  - [x] 同炉次二次请求约 `0.14s`
+- [x] 新增回归：
+  - [x] `test_heat_compare_reuses_short_ttl_cache`
+- [x] 验证通过：
+  - [x] `apps/server/.venv/Scripts/ruff.exe check apps/server/src apps/server/tests`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_heats_api.py -x -vv`
+
+### 2026-03-20（基线向导体验补充：preview loading 与整日曲线口径提示）
+- [x] 已确认“切换不同炉次图形看起来不变”不是单纯前端未刷新
+  - [x] `baseline-definitions/{id}/preview-curves` 当前按所选炉次所在自然日整天取数
+  - [x] 同一天内切换不同炉次时，图表主体会高度相似，真正变化的是默认选区时间窗
+- [x] `apps/web/src/components/baseline/BaselineWizard.vue` 新增 preview loading 状态
+  - [x] 切换炉次或定义时，图表区域会显示“正在加载所选炉次预览曲线...”
+  - [x] 新增请求 token，避免旧 preview 结果晚到后覆盖新选中炉次
+- [x] 基线向导图表区新增当前炉次时间窗与整日预览口径提示
+  - [x] 明确显示“当前炉次：...”
+  - [x] 明确显示“当前预览展示所选炉次所在自然日整天曲线：...”
+- [x] i18n 已同步补齐 `zh-CN / zh-TW / ja-JP / en-US`
+- [x] 实测当前较连续的测试通道：
+  - [x] `2349-199` 总有功功率
+  - [x] `2349-128` A相电压
+  - [x] `2349-142` A相有功功率
+  - [x] `2349-130` B相电压
+  - [x] 次连续：`2054-128`、`2066-128`、`769-128`
+- [x] 验证通过：
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web build`
+
+### 2026-03-20（基线向导 preview 图修正：多指标按原始时间序列直绘）
+- [x] 已确认 preview 图出现“零星碎点”不是上游没数据，而是前端把不同指标按完全相同 timestamp 硬合并导致大量点位对不上
+- [x] `apps/web/src/components/baseline/BaselineWizard.vue` 已改为每条 series 直接使用各自原始 `[timestamp, value]`
+- [x] 图上选点改为优先吸附主指标原始点，不再依赖跨指标合并后的 `pointMap`
+- [x] 统计卡（平均/峰值/时长）改为基于主指标原始曲线计算，避免跨指标混点
+- [x] 当前效果：
+  - [x] 功率/电压类高频通道会恢复连续曲线
+  - [x] 温度类低频通道保留其原本较稀疏的采样特征
+- [x] 验证通过：
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web build`
+
 ---
 
 ## 进行中
 
 - [ ] 联调整体验收（跨页面走查）
+- [ ] 继续校准真实曲线推断炉次规则（阈值、长段切分、异常/待分析判定）
+- [ ] 继续拆解 `/api/heats` 性能瓶颈（当前第一刀已去掉列表级基线 hydrate，后续仍需评估 live_inferred 推断与详情链耗时）
 - [ ] 生产线维度等长校验（当前为定义维度）
 - [ ] 切割在线引擎进一步增强（真实数据接入后的持续判定参数自学习）
 
@@ -591,6 +858,8 @@
 
 ## 笔记
 
-- MVP 先使用 Mock 数据，后续对接 EDC API
+- 当前炉次主记录已进入“真实曲线推断”阶段，不再只靠 Mock；但仍不是上游官方炉次台账
+- 当前普通 `/api/heats` 已与 demo/mock 主记录解耦；剩余“拿不到真实数据”问题主要转到真实推断开关与列表性能链路
+- 炉次详情链已做前端请求去重；若后续仍慢，下一步应转到后端 `compare` 与详情聚合链路继续收重
 - 单台 EDC 设备，架构预留多台扩展能力
 - 模块化设计，支持按插件销售

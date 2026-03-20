@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia'
-import dayjs from 'dayjs'
 import { baselineApi } from '@/api/baseline'
 import type {
   BaselineCreatePayload,
@@ -8,7 +7,8 @@ import type {
   CurvePoint,
   BaselineListResponse,
   BaselineResponse,
-  BaselineStatus
+  BaselineStatus,
+  BaselineSummary
 } from '@/api/baseline'
 
 export interface BaselineItem {
@@ -56,111 +56,8 @@ function mapBaselineList(data: BaselineListResponse): BaselineItem[] {
   return data.items.map(mapBaseline)
 }
 
-function mockBaselines(): BaselineItem[] {
-  const now = dayjs()
-  return [
-    {
-      id: 'baseline-001',
-      name: '标准铸铁基线 v1',
-      description: '适用于标准铸铁生产，包含功率与电压稳定段。',
-      definitionId: 'def-001',
-      definitionName: '标准熔炼基线',
-      status: 'published',
-      version: 1,
-      tolerancePercent: 5,
-      createdAt: now.subtract(10, 'day').toISOString(),
-      publishedAt: now.subtract(9, 'day').toISOString(),
-      sourceHeatId: 'heat-001',
-      selectedStartTime: null,
-      selectedEndTime: null
-    },
-    {
-      id: 'baseline-002',
-      name: '高强度钢基线 v2',
-      description: '用于高强度钢生产，偏差阈值更严格。',
-      definitionId: 'def-002',
-      definitionName: '高功率熔炼基线',
-      status: 'draft',
-      version: 2,
-      tolerancePercent: 3,
-      createdAt: now.subtract(3, 'day').toISOString(),
-      publishedAt: null,
-      sourceHeatId: 'heat-014',
-      selectedStartTime: null,
-      selectedEndTime: null
-    },
-    {
-      id: 'baseline-003',
-      name: '旧版铸铁基线',
-      description: '旧工艺基线，已停用。',
-      definitionId: 'def-001',
-      definitionName: '标准熔炼基线',
-      status: 'disabled',
-      version: 1,
-      tolerancePercent: 8,
-      createdAt: now.subtract(60, 'day').toISOString(),
-      publishedAt: now.subtract(55, 'day').toISOString(),
-      sourceHeatId: 'heat-089',
-      selectedStartTime: null,
-      selectedEndTime: null
-    }
-  ]
-}
-
-function mockBaselineDetail(id: string): BaselineDetail {
-  const mockList = mockBaselines()
-  const base = mockList.find(item => item.id === id) || mockList[0] || {
-    id: 'baseline-local',
-    name: '默认基线',
-    description: null,
-    definitionId: 'def-001',
-    definitionName: '标准熔炼基线',
-    status: 'draft' as BaselineStatus,
-    version: 1,
-    tolerancePercent: 15,
-    createdAt: dayjs().toISOString(),
-    publishedAt: null,
-    sourceHeatId: 'heat-001',
-    selectedStartTime: null,
-    selectedEndTime: null
-  }
-  const powerCurve: CurvePoint[] = Array.from({ length: 20 }).map((_, idx) => ({
-    timestamp: dayjs().subtract(20 - idx, 'minute').valueOf(),
-    value: Number((420 + Math.sin(idx / 3) * 35 + idx * 0.8).toFixed(1))
-  }))
-  const voltageCurve: CurvePoint[] = Array.from({ length: 20 }).map((_, idx) => ({
-    timestamp: dayjs().subtract(20 - idx, 'minute').valueOf(),
-    value: Number((378 + Math.cos(idx / 4) * 6 + idx * 0.2).toFixed(1))
-  }))
-
-  return {
-    ...base,
-    curvesData: [
-      {
-        metric_id: 'metric-001',
-        metric_name: '功率',
-        unit: 'kW',
-        color: '#409EFF',
-        edc_channel_id: '2349-199',
-        source_channel_name: '总有功功率',
-        source_channel_label: 'SSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW',
-        points: powerCurve
-      },
-      {
-        metric_id: 'metric-002',
-        metric_name: '电压',
-        unit: 'V',
-        color: '#67C23A',
-        edc_channel_id: '2349-128',
-        source_channel_name: 'A相电压',
-        source_channel_label: 'SSTW 380V-220V電力 · 三相智能电表 / A相电压 / V',
-        points: voltageCurve
-      }
-    ],
-    powerCurve,
-    voltageCurve,
-    temperature: 1465
-  }
+function mapBaselineSummary(data: BaselineSummary | null) {
+  return data?.id || null
 }
 
 function mapBaselineDetail(item: BaselineResponse): BaselineDetail {
@@ -181,6 +78,7 @@ export const useBaselineStore = defineStore('baseline', {
     current: null as BaselineDetail | null,
     versionHistory: [] as BaselineItem[],
     currentFilter: 'all' as BaselineFilter,
+    activeBaselineId: null as string | null,
     loading: false
   }),
   getters: {
@@ -200,29 +98,44 @@ export const useBaselineStore = defineStore('baseline', {
         )
         this.list = mapBaselineList(data)
       } catch (error) {
-        console.warn('Baseline list fallback to mock.', error)
-        const mock = mockBaselines()
-        this.list =
-          this.currentFilter === 'all'
-            ? mock
-            : mock.filter(item => item.status === this.currentFilter)
+        console.error('Baseline list request failed.', error)
+        this.list = []
       } finally {
         this.loading = false
+      }
+    },
+    async fetchActiveBaseline() {
+      try {
+        const data = await baselineApi.getActive()
+        this.activeBaselineId = mapBaselineSummary(data)
+      } catch (error) {
+        console.error('Active baseline request failed.', error)
+        this.activeBaselineId = null
       }
     },
     async setFilter(filter: BaselineFilter) {
       this.currentFilter = filter
       await this.fetchList()
     },
+    async activateBaseline(id: string) {
+      try {
+        const summary = await baselineApi.activate(id)
+        this.activeBaselineId = summary.id
+      } catch (error) {
+        console.warn('Activate baseline failed.', error)
+        return false
+      }
+      return true
+    },
     async publishBaseline(id: string) {
       try {
         const updated = await baselineApi.publish(id)
         const index = this.list.findIndex(item => item.id === id)
         if (index >= 0) this.list[index] = mapBaseline(updated)
+        await this.fetchActiveBaseline()
       } catch (error) {
-        console.warn('Publish baseline fallback to local update.', error)
-        const target = this.list.find(item => item.id === id)
-        if (target) target.status = 'published'
+        console.error('Publish baseline failed.', error)
+        throw error
       }
     },
     async disableBaseline(id: string) {
@@ -230,17 +143,18 @@ export const useBaselineStore = defineStore('baseline', {
         const updated = await baselineApi.disable(id)
         const index = this.list.findIndex(item => item.id === id)
         if (index >= 0) this.list[index] = mapBaseline(updated)
+        await this.fetchActiveBaseline()
       } catch (error) {
-        console.warn('Disable baseline fallback to local update.', error)
-        const target = this.list.find(item => item.id === id)
-        if (target) target.status = 'disabled'
+        console.error('Disable baseline failed.', error)
+        throw error
       }
     },
     async deleteBaseline(id: string) {
       try {
         await baselineApi.remove(id)
       } catch (error) {
-        console.warn('Delete baseline fallback to local update.', error)
+        console.error('Delete baseline failed.', error)
+        throw error
       }
       this.list = this.list.filter(item => item.id !== id)
     },
@@ -250,27 +164,14 @@ export const useBaselineStore = defineStore('baseline', {
         if (mode === 'publish') {
           const published = await baselineApi.publish(created.id)
           this.list.unshift(mapBaseline(published))
-          return
+          await this.fetchActiveBaseline()
+          return true
         }
         this.list.unshift(mapBaseline(created))
+        return true
       } catch (error) {
-        console.warn('Create baseline fallback to local mock.', error)
-        const now = dayjs().toISOString()
-        this.list.unshift({
-          id: `local-${Date.now()}`,
-          name: payload.name,
-          description: payload.description || null,
-          definitionId: payload.definition_id,
-          definitionName: '本地定义',
-          status: mode === 'publish' ? 'published' : 'draft',
-          version: 1,
-          tolerancePercent: payload.tolerance_percent,
-          createdAt: now,
-          publishedAt: mode === 'publish' ? now : null,
-          sourceHeatId: payload.source_heat_id,
-          selectedStartTime: payload.selected_start_time || null,
-          selectedEndTime: payload.selected_end_time || null
-        })
+        console.error('Create baseline failed.', error)
+        return false
       }
     },
     async fetchDetail(id: string) {
@@ -279,8 +180,8 @@ export const useBaselineStore = defineStore('baseline', {
         const data = await baselineApi.get(id)
         this.current = mapBaselineDetail(data)
       } catch (error) {
-        console.warn('Baseline detail fallback to mock.', error)
-        this.current = mockBaselineDetail(id)
+        console.error('Baseline detail request failed.', error)
+        this.current = null
       } finally {
         this.loading = false
       }
@@ -305,7 +206,7 @@ export const useBaselineStore = defineStore('baseline', {
         return false
       }
     },
-    async fetchVersionHistory(id: string) {
+    async fetchVersionHistory() {
       try {
         const list = await baselineApi.list()
         const matched = list.items.filter(item =>
@@ -316,11 +217,8 @@ export const useBaselineStore = defineStore('baseline', {
           .map(mapBaseline)
           .sort((a, b) => b.version - a.version)
       } catch (error) {
-        console.warn('Baseline version history fallback to mock.', error)
-        const all = mockBaselines()
-        this.versionHistory = all
-          .filter(item => item.id === id || item.name.includes('基线'))
-          .sort((a, b) => b.version - a.version)
+        console.error('Baseline version history request failed.', error)
+        this.versionHistory = []
       }
     }
   }

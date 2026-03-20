@@ -113,6 +113,128 @@ async function mockDashboardRanges(page: Page) {
   })
 }
 
+async function mockBaselineWizardAcceptance(
+  page: Page,
+  options?: { previewUnavailable?: boolean }
+) {
+  const powerCurve = buildCurvePoints('2026-03-19T08:00:00Z', 40, 1, 438, 6)
+  const voltageCurve = buildCurvePoints('2026-03-19T08:00:00Z', 40, 1, 386, 1.5)
+
+  await page.route('**/api/baselines/active', async (route) => {
+    await fulfillJson(route, null)
+  })
+  await page.route('**/api/baselines', async (route) => {
+    if (route.request().method() === 'GET') {
+      await fulfillJson(route, { items: [], total: 0 })
+      return
+    }
+    await route.fallback()
+  })
+  await page.route('**/api/baseline-definitions?status=active', async (route) => {
+    await fulfillJson(route, {
+      items: [
+        {
+          id: 'def-real',
+          definition_name: '真实数据基线定义',
+          description: '只允许真实数据预览',
+          expected_duration_minutes: 40,
+          status: 'active',
+          metrics: [
+            {
+              id: 'metric-power',
+              name: '功率',
+              unit: 'kW',
+              color: '#409EFF',
+              sort_order: 1,
+              edc_channel_id: '2349-199',
+            },
+            {
+              id: 'metric-voltage',
+              name: '电压',
+              unit: 'V',
+              color: '#67C23A',
+              sort_order: 2,
+              edc_channel_id: '2349-128',
+            },
+          ],
+          instance_count: 0,
+          created_at: '2026-03-19T00:00:00Z',
+          updated_at: '2026-03-19T00:00:00Z',
+        },
+      ],
+      total: 1,
+    })
+  })
+  await page.route('**/api/heats?page=1&page_size=50', async (route) => {
+    await fulfillJson(route, {
+      items: [
+        {
+          id: 'heat-real-001',
+          heat_no: 'H20260319-001',
+          description: null,
+          start_time: '2026-03-19T08:00:00Z',
+          end_time: '2026-03-19T08:40:00Z',
+          baseline_id: null,
+          deviation_percent: null,
+          avg_deviation_percent: null,
+          time_offset_percent: null,
+          mismatch_duration_minutes: null,
+          schedule_tag: 'work',
+          cut_reason: null,
+          cut_status: 'normal',
+          major_issue: false,
+          blocked_by_issue: false,
+          status: 'normal',
+          temperature: 1458,
+          created_at: '2026-03-19T08:00:00Z',
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 50,
+    })
+  })
+  await page.route('**/api/baseline-definitions/def-real/preview-curves?*', async (route) => {
+    if (options?.previewUnavailable) {
+      await fulfillJson(
+        route,
+        { detail: '未获取到真实预览数据，请检查宿主连接和通道绑定' },
+        503
+      )
+      return
+    }
+
+    await fulfillJson(route, {
+      definition_id: 'def-real',
+      source_heat_id: 'heat-real-001',
+      range_start: '2026-03-19T08:00:00Z',
+      range_end: '2026-03-19T08:40:00Z',
+      curves_data: [
+        {
+          metric_id: 'metric-power',
+          metric_name: '功率',
+          unit: 'kW',
+          color: '#409EFF',
+          edc_channel_id: '2349-199',
+          source_channel_name: '总有功功率',
+          source_channel_label: 'SSTW / 总有功功率 / kW',
+          points: powerCurve,
+        },
+        {
+          metric_id: 'metric-voltage',
+          metric_name: '电压',
+          unit: 'V',
+          color: '#67C23A',
+          edc_channel_id: '2349-128',
+          source_channel_name: 'A相电压',
+          source_channel_label: 'SSTW / A相电压 / V',
+          points: voltageCurve,
+        },
+      ],
+    })
+  })
+}
+
 async function mockHeatAcceptance(page: Page) {
   const powerCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 438, 6)
   const voltageCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 386, 1.5)
@@ -442,8 +564,12 @@ test.describe('EDC issue acceptance checks', () => {
   test('baseline wizard keeps chart picking, zoom dragging, and fullscreen state in sync', async ({
     page,
   }) => {
+    await mockBaselineWizardAcceptance(page)
     await page.goto('baselines')
     await page.getByTestId('baseline-create-button').click()
+    await expect(page.getByTestId('baseline-wizard-definition-select')).toContainText(
+      '真实数据基线定义'
+    )
     await page.getByTestId('baseline-wizard-name-input').fill('Issue 验收基线')
     await page.getByTestId('baseline-wizard-next').click()
 
@@ -519,6 +645,30 @@ test.describe('EDC issue acceptance checks', () => {
       .not.toBe(endBeforeFullscreenPick)
   })
 
+  test('baseline wizard does not fallback to local preview when real data is unavailable', async ({
+    page,
+  }) => {
+    await mockBaselineWizardAcceptance(page, { previewUnavailable: true })
+
+    await page.goto('baselines')
+    await page.getByTestId('baseline-create-button').click()
+    await expect(page.getByTestId('baseline-wizard-definition-select')).toContainText(
+      '真实数据基线定义'
+    )
+    await page.getByTestId('baseline-wizard-name-input').fill('真实预览校验')
+    await page.getByTestId('baseline-wizard-next').click()
+
+    await expect(page.getByTestId('baseline-wizard-preview-empty')).toBeVisible()
+    await expect(page.getByTestId('baseline-wizard-preview-empty')).toContainText(
+      '未获取到真实预览数据'
+    )
+    await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute('data-start', '')
+    await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute('data-end', '')
+
+    await page.getByTestId('baseline-wizard-next').click()
+    await expect(page.getByTestId('baseline-wizard-publish')).toHaveCount(0)
+  })
+
   test('heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions', async ({
     page,
   }) => {
@@ -528,11 +678,9 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
     await expect(page.getByText('异常', { exact: true }).first()).toBeVisible()
     await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute('data-series-count', '6')
-    await expect(page.getByTestId('heat-source-binding-list')).toBeVisible()
-    await expect(page.getByTestId('heat-source-binding-list').getByText('总有功功率')).toBeVisible()
+    await expect(page.getByTestId('heat-source-binding-list')).toHaveCount(0)
     await page.getByRole('tab', { name: '高功率基线' }).click()
     await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute('data-series-count', '8')
-    await expect(page.getByTestId('heat-source-binding-list').getByText('AD_CH1')).toBeVisible()
 
     await expect(page.getByTestId('heat-abnormal-range-list')).toBeVisible()
     await expect(page.getByTestId('heat-abnormal-range-item')).toHaveCount(1)

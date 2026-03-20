@@ -32,9 +32,12 @@ import { heatApi } from '@/api/heat'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent])
 
-interface MetricCurvePoint {
-  timestamp: number
-  values: Record<string, number>
+interface PreviewMetricCurve {
+  metricId: string
+  metricName: string
+  unit: string
+  color: string
+  points: Array<{ timestamp: number; value: number }>
 }
 
 interface HeatCandidate {
@@ -61,6 +64,7 @@ interface Props {
   initialSelectedStartTime?: string
   initialSelectedEndTime?: string
   initialName?: string
+  submitting?: boolean
 }
 
 interface Emits {
@@ -96,7 +100,8 @@ const props = withDefaults(defineProps<Props>(), {
   initialSourceHeatId: '',
   initialSelectedStartTime: '',
   initialSelectedEndTime: '',
-  initialName: ''
+  initialName: '',
+  submitting: false
 })
 
 const emit = defineEmits<Emits>()
@@ -107,11 +112,16 @@ const activeStep = ref(0)
 const selectedHeatId = ref('')
 const selectingBoundary = ref<'start' | 'end'>('start')
 const fullscreenVisible = ref(false)
-const fullCurvePoints = ref<MetricCurvePoint[]>([])
+const previewCurves = ref<PreviewMetricCurve[]>([])
 const heatCandidates = ref<HeatCandidate[]>([])
 const inlineChartRef = ref<InstanceType<typeof VChart> | null>(null)
 const fullscreenChartRef = ref<InstanceType<typeof VChart> | null>(null)
 const zoomWindow = ref({ start: 0, end: 100 })
+const heatCandidatesError = ref('')
+const previewError = ref('')
+const previewLoading = ref(false)
+const previewWindowLabel = ref('')
+let previewRequestToken = 0
 
 const formData = ref({
   name: '',
@@ -160,95 +170,26 @@ const selectionProbe = computed(() => ({
   fullscreen: fullscreenVisible.value ? 'true' : 'false'
 }))
 
-function metricSeed(metricId: string) {
-  return metricId.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
-}
-
-function getMetricBase(unit: string, seed: number) {
-  if (unit === 'kW') return 420 + (seed % 20)
-  if (unit === 'V') return 382 + (seed % 8)
-  if (unit === '°C') return 1455 + (seed % 18)
-  if (unit === 'MPa') return Number((0.85 + (seed % 10) * 0.02).toFixed(2))
-  return 100 + (seed % 30)
-}
-
-function getMetricAmplitude(unit: string, seed: number) {
-  if (unit === 'kW') return 28 + (seed % 6)
-  if (unit === 'V') return 6 + (seed % 3)
-  if (unit === '°C') return 18 + (seed % 5)
-  if (unit === 'MPa') return Number((0.08 + (seed % 4) * 0.01).toFixed(2))
-  return 12
-}
-
-function createCurvePointsFallback() {
-  const metrics = selectedDefinition.value?.metrics || []
-  const rangeStart = dayjs().subtract(24, 'hour').startOf('hour')
-  const totalPoints = 576
-
-  fullCurvePoints.value = Array.from({ length: totalPoints + 1 }).map((_, index) => {
-    const timestamp = rangeStart.add(index * 5, 'minute').valueOf()
-    const values = metrics.reduce<Record<string, number>>((accumulator, metric) => {
-      const seed = metricSeed(metric.id)
-      const base = getMetricBase(metric.unit, seed)
-      const amplitude = getMetricAmplitude(metric.unit, seed)
-      const phase = seed / 17
-      const periodic = Math.sin(index / (14 + (seed % 7)) + phase)
-      const microFluctuation = Math.cos(index / (11 + (seed % 5)) + phase / 2)
-      const rawValue = base + periodic * amplitude + microFluctuation * amplitude * 0.18
-
-      accumulator[metric.id] = Number(rawValue.toFixed(metric.unit === 'MPa' ? 2 : 1))
-      return accumulator
-    }, {})
-
-    return { timestamp, values }
-  })
-  zoomWindow.value = { start: 0, end: 100 }
-}
-
-function mapPreviewCurvesToPoints(
+function mapPreviewCurves(
   curves: Array<{
     metric_id: string
+    metric_name: string
+    unit: string
+    color: string
     points: Array<{ timestamp: number; value: number }>
   }>
 ) {
-  const pointMap = new Map<number, Record<string, number>>()
-
-  curves.forEach(curve => {
-    curve.points.forEach(point => {
-      const existing = pointMap.get(point.timestamp) || {}
-      existing[curve.metric_id] = point.value
-      pointMap.set(point.timestamp, existing)
-    })
-  })
-
-  return Array.from(pointMap.entries())
-    .sort((left, right) => left[0] - right[0])
-    .map(([timestamp, values]) => ({ timestamp, values }))
-}
-
-function buildMockHeatCandidates() {
-  const rangeStart = dayjs().subtract(24, 'hour').startOf('hour')
-  const candidateSeed = [
-    { id: 'heat-101', heatNo: 'H20260312-101', offsetHours: 3, durationMinutes: 38 },
-    { id: 'heat-102', heatNo: 'H20260312-102', offsetHours: 16, durationMinutes: 42 },
-    { id: 'heat-103', heatNo: 'H20260313-103', offsetHours: 28, durationMinutes: 35 },
-    { id: 'heat-104', heatNo: 'H20260313-104', offsetHours: 40, durationMinutes: 31 }
-  ]
-
-  return candidateSeed.map(item => {
-    const start = rangeStart.add(item.offsetHours, 'hour')
-    const end = start.add(item.durationMinutes, 'minute')
-    return {
-      id: item.id,
-      heatNo: item.heatNo,
-      date: start.format('YYYY-MM-DD HH:mm:ss'),
-      startTime: start.valueOf(),
-      endTime: end.valueOf()
-    }
-  })
+  return curves.map(curve => ({
+    metricId: curve.metric_id,
+    metricName: curve.metric_name,
+    unit: curve.unit,
+    color: curve.color,
+    points: [...curve.points].sort((left, right) => left.timestamp - right.timestamp)
+  }))
 }
 
 async function loadHeatCandidates() {
+  heatCandidatesError.value = ''
   try {
     const data = await heatApi.list({ page: 1, page_size: 50 })
     heatCandidates.value = data.items.map(item => ({
@@ -259,8 +200,12 @@ async function loadHeatCandidates() {
       endTime: dayjs(item.end_time).valueOf()
     }))
   } catch (error) {
-    console.warn('BaselineWizard heat list fallback to mock.', error)
-    heatCandidates.value = buildMockHeatCandidates()
+    console.error('BaselineWizard heat list request failed.', error)
+    heatCandidates.value = []
+    selectedHeatId.value = ''
+    selectedStart.value = null
+    selectedEnd.value = null
+    heatCandidatesError.value = t('baseline.wizard.heatCandidatesUnavailable')
   }
 
   if (props.initialSourceHeatId) {
@@ -290,13 +235,29 @@ async function loadPreviewCurves() {
   const targetHeatId = selectedHeatId.value || heatCandidates.value[0]?.id
   if (!targetHeatId) return
 
+  const requestToken = ++previewRequestToken
+  previewError.value = ''
+  previewLoading.value = true
   try {
     const preview = await baselineDefinitionApi.previewCurves(formData.value.definitionId, targetHeatId)
-    fullCurvePoints.value = mapPreviewCurvesToPoints(preview.curves_data)
+    if (requestToken !== previewRequestToken) return
+    previewCurves.value = mapPreviewCurves(preview.curves_data)
     zoomWindow.value = { start: 0, end: 100 }
+    previewWindowLabel.value = `${dayjs(preview.range_start).format('MM-DD HH:mm:ss')} ~ ${dayjs(
+      preview.range_end
+    ).format('MM-DD HH:mm:ss')}`
   } catch (error) {
-    console.warn('BaselineWizard preview fallback to local generated curves.', error)
-    createCurvePointsFallback()
+    if (requestToken !== previewRequestToken) return
+    console.error('BaselineWizard preview request failed.', error)
+    previewCurves.value = []
+    selectedStart.value = null
+    selectedEnd.value = null
+    previewWindowLabel.value = ''
+    previewError.value = t('baseline.wizard.previewUnavailable')
+  } finally {
+    if (requestToken === previewRequestToken) {
+      previewLoading.value = false
+    }
   }
 }
 
@@ -338,8 +299,18 @@ function handleSelectHeat(id: string) {
   resetRangeByHeat()
 }
 
+const primaryPreviewCurve = computed(() => {
+  const definition = selectedDefinition.value
+  const primaryMetric = definition?.metrics[0]
+  if (!primaryMetric) return null
+  return previewCurves.value.find(curve => curve.metricId === primaryMetric.id) || null
+})
+
+const hasPreviewData = computed(() => previewCurves.value.some(curve => curve.points.length > 0))
+
 function selectNearestPoint(targetTimestamp: number) {
-  const point = fullCurvePoints.value.reduce<MetricCurvePoint | null>((closestPoint, currentPoint) => {
+  const points = primaryPreviewCurve.value?.points || []
+  const point = points.reduce<{ timestamp: number; value: number } | null>((closestPoint, currentPoint) => {
     if (!closestPoint) return currentPoint
     return Math.abs(currentPoint.timestamp - targetTimestamp) < Math.abs(closestPoint.timestamp - targetTimestamp)
       ? currentPoint
@@ -450,7 +421,7 @@ function handleChartDataZoom(payload: DataZoomPayload) {
 
 const chartOption = computed<EChartsOption>(() => {
   const definition = selectedDefinition.value
-  if (!definition || fullCurvePoints.value.length === 0) return {}
+  if (!definition || !hasPreviewData.value) return {}
 
   const rangeStart = normalizedTimestamp(selectedStart.value)
   const rangeEnd = normalizedTimestamp(selectedEnd.value)
@@ -496,6 +467,7 @@ const chartOption = computed<EChartsOption>(() => {
     ],
     xAxis: {
       type: 'time',
+      minInterval: 60 * 1000,
       axisLabel: {
         color: '#64748b',
         formatter: (value: number) => dayjs(value).format('MM-DD HH:mm')
@@ -517,7 +489,10 @@ const chartOption = computed<EChartsOption>(() => {
               data: [[{ xAxis: rangeStart }, { xAxis: rangeEnd }]]
             }
           : undefined,
-      data: fullCurvePoints.value.map(point => [point.timestamp, point.values[metric.id]])
+      data:
+        previewCurves.value
+          .find(curve => curve.metricId === metric.id)
+          ?.points.map(point => [point.timestamp, point.value]) || []
     }))
   }
 })
@@ -538,10 +513,10 @@ const summaryStats = computed(() => {
     }
   }
 
-  const selectedPoints = fullCurvePoints.value
-    .filter(point => point.timestamp >= rangeStart && point.timestamp <= rangeEnd)
-    .map(point => point.values[primaryMetric.id])
-    .filter(value => value !== undefined)
+  const selectedPoints =
+    primaryPreviewCurve.value?.points
+      .filter(point => point.timestamp >= rangeStart && point.timestamp <= rangeEnd)
+      .map(point => point.value) || []
 
   if (selectedPoints.length === 0) {
     return {
@@ -564,7 +539,17 @@ const summaryStats = computed(() => {
   }
 })
 
+const previewHeatSummary = computed(() => {
+  if (!selectedHeat.value) return '--'
+  return `${selectedHeat.value.heatNo} · ${dayjs(selectedHeat.value.startTime).format(
+    'MM-DD HH:mm:ss'
+  )} ~ ${dayjs(selectedHeat.value.endTime).format('MM-DD HH:mm:ss')}`
+})
+
 function nextStep() {
+  if (props.submitting) {
+    return
+  }
   if (activeStep.value === 0 && !formData.value.name.trim()) {
     ElMessage.warning(t('baseline.wizard.nameRequired'))
     return
@@ -588,12 +573,18 @@ function nextStep() {
 }
 
 function prevStep() {
+  if (props.submitting) {
+    return
+  }
   if (activeStep.value > 0) {
     activeStep.value -= 1
   }
 }
 
 function submit(mode: 'draft' | 'publish') {
+  if (props.submitting) {
+    return
+  }
   if (!selectedHeatId.value || !formData.value.name.trim() || !formData.value.definitionId) {
     ElMessage.warning(t('baseline.wizard.incompleteForm'))
     return
@@ -813,26 +804,37 @@ onMounted(async () => {
       class="space-y-4"
     >
       <el-card>
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <label
-            v-for="item in heatCandidates"
-            :key="item.id"
-            class="cursor-pointer rounded-lg border p-4 transition hover:border-primary"
-            :class="selectedHeatId === item.id ? 'border-primary bg-blue-50' : 'border-gray-200'"
+        <div
+          class="max-h-[520px] overflow-y-auto pr-2 md:max-h-[360px]"
+          data-testid="baseline-wizard-heat-candidate-list"
+        >
+          <div
+            v-if="heatCandidatesError"
+            class="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
           >
-            <el-radio
-              :model-value="selectedHeatId"
-              :value="item.id"
-              @change="handleSelectHeat(item.id)"
+            {{ heatCandidatesError }}
+          </div>
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label
+              v-for="item in heatCandidates"
+              :key="item.id"
+              class="cursor-pointer rounded-lg border p-4 transition hover:border-primary"
+              :class="selectedHeatId === item.id ? 'border-primary bg-blue-50' : 'border-gray-200'"
             >
-              {{ item.heatNo }}
-            </el-radio>
-            <div class="mt-2 text-xs text-gray-500">{{ item.date }}</div>
-            <div class="mt-1 text-xs text-slate-400">
-              {{ dayjs(item.startTime).format('MM-DD HH:mm:ss') }} ~
-              {{ dayjs(item.endTime).format('MM-DD HH:mm:ss') }}
-            </div>
-          </label>
+              <el-radio
+                :model-value="selectedHeatId"
+                :value="item.id"
+                @change="handleSelectHeat(item.id)"
+              >
+                {{ item.heatNo }}
+              </el-radio>
+              <div class="mt-2 text-xs text-gray-500">{{ item.date }}</div>
+              <div class="mt-1 text-xs text-slate-400">
+                {{ dayjs(item.startTime).format('MM-DD HH:mm:ss') }} ~
+                {{ dayjs(item.endTime).format('MM-DD HH:mm:ss') }}
+              </div>
+            </label>
+          </div>
         </div>
       </el-card>
 
@@ -843,6 +845,15 @@ onMounted(async () => {
               <div>{{ t('baseline.wizard.chartPickTitle') }}</div>
               <div class="mt-1 text-xs text-slate-500">
                 {{ selectedDefinition?.definitionName || '--' }} · {{ t('baseline.wizard.pickHint') }}
+              </div>
+              <div class="mt-1 text-xs text-slate-400">
+                {{ t('baseline.wizard.previewHeatWindow', { heat: previewHeatSummary }) }}
+              </div>
+              <div
+                v-if="previewWindowLabel"
+                class="mt-1 text-xs text-slate-400"
+              >
+                {{ t('baseline.wizard.previewDayWindow', { range: previewWindowLabel }) }}
               </div>
             </div>
             <el-button
@@ -856,10 +867,13 @@ onMounted(async () => {
         </template>
 
         <div
-          v-if="selectedDefinition && fullCurvePoints.length > 0"
+          v-if="selectedDefinition && hasPreviewData"
           class="space-y-4"
         >
-          <div data-testid="baseline-wizard-chart">
+          <div
+            class="relative"
+            data-testid="baseline-wizard-chart"
+          >
             <v-chart
               ref="inlineChartRef"
               :option="chartOption"
@@ -871,6 +885,12 @@ onMounted(async () => {
               @zr:click="handleChartPointerClick('inline', $event)"
               @zr:globalout="clearPointerState('inline')"
             />
+            <div
+              v-if="previewLoading"
+              class="absolute inset-0 flex items-center justify-center rounded-lg bg-white/70 text-sm font-medium text-slate-600 backdrop-blur-[1px]"
+            >
+              {{ t('baseline.wizard.previewLoading') }}
+            </div>
           </div>
 
           <div class="grid grid-cols-1 gap-4 xl:grid-cols-[220px_1fr]">
@@ -945,9 +965,17 @@ onMounted(async () => {
             </div>
           </div>
         </div>
+        <div
+          v-else-if="previewLoading"
+          class="flex h-[420px] items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500"
+          data-testid="baseline-wizard-preview-loading"
+        >
+          {{ t('baseline.wizard.previewLoading') }}
+        </div>
         <el-empty
           v-else
-          :description="t('common.noData')"
+          data-testid="baseline-wizard-preview-empty"
+          :description="previewError || t('common.noData')"
         />
       </el-card>
 
@@ -1030,32 +1058,36 @@ onMounted(async () => {
     </div>
 
     <div class="flex items-center justify-between">
-      <el-button @click="emit('cancel')">
-        {{ t('common.cancel') }}
+      <el-button
+        data-testid="baseline-wizard-secondary-action"
+        :disabled="props.submitting"
+        @click="activeStep === 0 ? emit('cancel') : prevStep()"
+      >
+        {{ activeStep === 0 ? t('common.cancel') : t('common.previousPage') }}
       </el-button>
       <div class="flex items-center gap-2">
-        <el-button
-          v-if="activeStep > 0"
-          data-testid="baseline-wizard-back"
-          @click="prevStep"
-        >
-          {{ t('common.back') }}
-        </el-button>
         <el-button
           v-if="activeStep < 2"
           type="primary"
           data-testid="baseline-wizard-next"
+          :disabled="props.submitting"
           @click="nextStep"
         >
           {{ t('common.next') }}
         </el-button>
         <template v-else>
-          <el-button @click="submit('draft')">
+          <el-button
+            :disabled="props.submitting"
+            :loading="props.submitting"
+            @click="submit('draft')"
+          >
             {{ t('baseline.wizard.saveDraft') }}
           </el-button>
           <el-button
             type="primary"
             data-testid="baseline-wizard-publish"
+            :disabled="props.submitting"
+            :loading="props.submitting"
             @click="submit('publish')"
           >
             {{ t('baseline.publish') }}

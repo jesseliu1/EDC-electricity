@@ -59,13 +59,6 @@ const defaultRealtime: RealtimeData = {
   baselineVoltage: []
 }
 
-const rangeMinutes: Record<TimeRange, number> = {
-  '5m': 5,
-  '1h': 60,
-  '6h': 360,
-  '24h': 1440
-}
-
 function mapStats(data: DashboardStatsResponse): DashboardStats {
   return {
     todayHeats: data.today_heats,
@@ -101,64 +94,6 @@ function mapRecentHeats(data: RecentHeatsResponse): RecentHeatItem[] {
   }))
 }
 
-function mockStats(): DashboardStats {
-  return {
-    todayHeats: 12,
-    avgDeviation: 3.2,
-    pendingTasks: 5,
-    activeBaseline: '标准基线 v2.1',
-    normalRate: 85
-  }
-}
-
-function mockRealtime(range: TimeRange): RealtimeData {
-  const minutes = rangeMinutes[range]
-  const now = dayjs()
-  const power: CurvePoint[] = []
-  const baselinePower: CurvePoint[] = []
-  const voltage: CurvePoint[] = []
-  const baselineVoltage: CurvePoint[] = []
-
-  for (let i = 0; i < minutes; i += 1) {
-    const timestamp = now.subtract(minutes - i, 'minute').valueOf()
-    const basePower = 420 + Math.sin(i / 18) * 30
-    const powerValue = basePower + (Math.random() - 0.5) * 12
-    const baseVoltage = 380 + Math.sin(i / 25) * 8
-    const voltageValue = baseVoltage + (Math.random() - 0.5) * 4
-
-    baselinePower.push({ timestamp, value: Number(basePower.toFixed(1)) })
-    power.push({ timestamp, value: Number(powerValue.toFixed(1)) })
-    baselineVoltage.push({ timestamp, value: Number(baseVoltage.toFixed(1)) })
-    voltage.push({ timestamp, value: Number(voltageValue.toFixed(1)) })
-  }
-
-  return {
-    timestamp: now.toISOString(),
-    baselineId: 'baseline-001',
-    baselineName: '标准基线 v2.1',
-    powerSourceLabel: 'SSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW',
-    voltageSourceLabel: 'SSTW 380V-220V電力 · 三相智能电表 / A相电压 / V',
-    power,
-    voltage,
-    baselinePower,
-    baselineVoltage
-  }
-}
-
-function mockRecentHeats(): RecentHeatItem[] {
-  return Array.from({ length: 6 }).map((_, index) => {
-    const start = dayjs().subtract(index + 1, 'hour')
-    return {
-      id: `mock-${index + 1}`,
-      heatNo: `H${dayjs().format('YYYYMMDD')}-${String(index + 1).padStart(3, '0')}`,
-      startTime: start.format('YYYY-MM-DD HH:mm'),
-      endTime: start.add(45, 'minute').format('YYYY-MM-DD HH:mm'),
-      status: index % 3 === 0 ? 'abnormal' : index % 4 === 0 ? 'pending' : 'normal',
-      deviationPercent: index % 3 === 0 ? Number((10 + index * 1.8).toFixed(1)) : 3.2
-    }
-  })
-}
-
 export const useDashboardStore = defineStore('dashboard', {
   state: () => ({
     stats: { ...defaultStats },
@@ -173,8 +108,8 @@ export const useDashboardStore = defineStore('dashboard', {
         const data = await dashboardApi.getStats()
         this.stats = mapStats(data)
       } catch (error) {
-        console.warn('Dashboard stats fallback to mock.', error)
-        this.stats = mockStats()
+        console.error('Dashboard stats request failed.', error)
+        this.stats = { ...defaultStats }
       }
     },
     async fetchRealtime(range?: TimeRange) {
@@ -183,8 +118,8 @@ export const useDashboardStore = defineStore('dashboard', {
         const data = await dashboardApi.getRealtime(this.timeRange)
         this.realtime = mapRealtime(data)
       } catch (error) {
-        console.warn('Dashboard realtime fallback to mock.', error)
-        this.realtime = mockRealtime(this.timeRange)
+        console.error('Dashboard realtime request failed.', error)
+        this.realtime = { ...defaultRealtime }
       }
     },
     async fetchRecentHeats(limit = 8) {
@@ -192,8 +127,8 @@ export const useDashboardStore = defineStore('dashboard', {
         const data = await dashboardApi.getRecentHeats(limit)
         this.recentHeats = mapRecentHeats(data)
       } catch (error) {
-        console.warn('Dashboard heats fallback to mock.', error)
-        this.recentHeats = mockRecentHeats()
+        console.error('Dashboard recent heats request failed.', error)
+        this.recentHeats = []
       }
     },
     async fetchAll() {

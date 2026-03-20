@@ -1,13 +1,13 @@
 """黄金基线定义 API 路由"""
 
 import asyncio
-import math
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ..runtime_state import persist_runtime_state
 from ..schemas import BaselinePreviewResponse, CurveData
 from ..schemas.baseline_definition import (
     BaselineDefinitionCreate,
@@ -160,62 +160,10 @@ def _format_host_channel_label(channel: dict[str, str] | None) -> str | None:
     )
 
 
-def _metric_seed(metric_id: str) -> int:
-    return sum(ord(char) for char in metric_id)
+async def _resolve_preview_window(heat_id: str) -> tuple[datetime, datetime]:
+    from .heats import resolve_heat_record
 
-
-def _metric_base(unit: str, seed: int) -> float:
-    if unit == "kW":
-        return 420 + seed % 20
-    if unit == "V":
-        return 382 + seed % 8
-    if unit == "°C":
-        return 1455 + seed % 18
-    if unit == "MPa":
-        return 0.85 + (seed % 10) * 0.02
-    return 100 + seed % 30
-
-
-def _metric_amplitude(unit: str, seed: int) -> float:
-    if unit == "kW":
-        return 28 + seed % 6
-    if unit == "V":
-        return 6 + seed % 3
-    if unit == "°C":
-        return 18 + seed % 5
-    if unit == "MPa":
-        return 0.08 + (seed % 4) * 0.01
-    return 12
-
-
-def _build_preview_fallback_points(
-    *,
-    metric: dict[str, Any],
-    range_start: datetime,
-    range_end: datetime,
-) -> list[dict[str, float | int]]:
-    total_steps = max(int((range_end - range_start).total_seconds() // 300), 1)
-    seed = _metric_seed(str(metric.get("id") or metric.get("name") or "metric"))
-    unit = str(metric.get("unit") or "")
-    base = _metric_base(unit, seed)
-    amplitude = _metric_amplitude(unit, seed)
-    phase = seed / 17
-
-    points: list[dict[str, float | int]] = []
-    for index in range(total_steps + 1):
-        timestamp = int((range_start + timedelta(minutes=index * 5)).timestamp() * 1000)
-        periodic = math.sin(index / (14 + seed % 7) + phase)
-        micro_fluctuation = math.cos(index / (11 + seed % 5) + phase / 2)
-        raw_value = base + periodic * amplitude + micro_fluctuation * amplitude * 0.18
-        precision = 2 if unit == "MPa" else 1
-        points.append({"timestamp": timestamp, "value": round(raw_value, precision)})
-    return points
-
-
-def _resolve_preview_window(heat_id: str) -> tuple[datetime, datetime]:
-    from .heats import _HEAT_STORE
-
-    heat = _HEAT_STORE.get(heat_id)
+    heat = await resolve_heat_record(heat_id)
     if not heat:
         raise HTTPException(status_code=404, detail="来源炉次不存在")
 
@@ -267,11 +215,9 @@ async def _build_preview_curves(
     for metric in metrics:
         metric_id = str(metric["id"])
         host_channel = _resolve_host_channel(metric.get("edc_channel_id"))
-        points = points_by_metric.get(metric_id) or _build_preview_fallback_points(
-            metric=metric,
-            range_start=range_start,
-            range_end=range_end,
-        )
+        points = points_by_metric.get(metric_id)
+        if points is None:
+            points = []
         curves.append(
             CurveData(
                 metric_id=metric_id,
@@ -322,12 +268,20 @@ async def get_definition_preview_curves(
 ) -> BaselinePreviewResponse:
     """按定义与炉次返回基线向导候选曲线预览。"""
     definition = _get_or_404(definition_id)
-    range_start, range_end = _resolve_preview_window(heat_id)
+    range_start, range_end = await _resolve_preview_window(heat_id)
     curves = await _build_preview_curves(
         definition=definition,
         range_start=range_start,
         range_end=range_end,
     )
+    if not any(
+        curve.points if hasattr(curve, "points") else curve.get("points", [])
+        for curve in curves
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="未获取到真实预览数据，请检查宿主连接和通道绑定",
+        )
     return BaselinePreviewResponse(
         definition_id=definition_id,
         source_heat_id=heat_id,
@@ -367,6 +321,7 @@ async def create_definition(data: BaselineDefinitionCreate) -> BaselineDefinitio
         "updated_at": now,
     }
     _DEFINITION_STORE[definition_id] = item
+    await persist_runtime_state("baseline_definitions")
     return _to_response(item)
 
 
@@ -384,6 +339,7 @@ async def update_definition(
     if data.expected_duration_minutes is not None:
         item["expected_duration_minutes"] = data.expected_duration_minutes
     item["updated_at"] = _now()
+    await persist_runtime_state("baseline_definitions")
 
     return _to_response(item)
 
@@ -394,6 +350,7 @@ async def delete_definition(definition_id: str) -> MessageResponse:
     _get_or_404(definition_id)
     # TODO: 后续检查是否有关联的黄金基线实例
     _DEFINITION_STORE.pop(definition_id, None)
+    await persist_runtime_state("baseline_definitions")
     return MessageResponse(message="黄金基线定义已删除", success=True)
 
 
@@ -405,6 +362,7 @@ async def disable_definition(definition_id: str) -> BaselineDefinitionResponse:
         raise HTTPException(status_code=400, detail="仅激活状态可停用")
     item["status"] = "disabled"
     item["updated_at"] = _now()
+    await persist_runtime_state("baseline_definitions")
     return _to_response(item)
 
 
@@ -416,6 +374,7 @@ async def enable_definition(definition_id: str) -> BaselineDefinitionResponse:
         raise HTTPException(status_code=400, detail="仅停用状态可启用")
     item["status"] = "active"
     item["updated_at"] = _now()
+    await persist_runtime_state("baseline_definitions")
     return _to_response(item)
 
 
@@ -442,6 +401,7 @@ async def add_metric(
     }
     item["metrics"].append(metric)
     item["updated_at"] = _now()
+    await persist_runtime_state("baseline_definitions")
     return _to_response(item)
 
 
@@ -469,6 +429,7 @@ async def update_metric(
     if data.edc_channel_id is not None:
         metric["edc_channel_id"] = data.edc_channel_id
     item["updated_at"] = _now()
+    await persist_runtime_state("baseline_definitions")
     return _to_response(item)
 
 
@@ -484,4 +445,5 @@ async def delete_metric(definition_id: str, metric_id: str) -> BaselineDefinitio
     if len(item["metrics"]) == original_len:
         raise HTTPException(status_code=404, detail="指标通道不存在")
     item["updated_at"] = _now()
+    await persist_runtime_state("baseline_definitions")
     return _to_response(item)

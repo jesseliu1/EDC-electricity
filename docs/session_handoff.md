@@ -8,7 +8,10 @@
 
 - 当前阶段：MVP 完成，进入联调整体验收与真实 EDC 替换收口阶段
 - 主分支状态：`master` 比 `origin/master` 超前 `12` 个提交
-- 当前工作区：仅保留 2 个未跟踪参考文件
+- 当前工作区：包含交接 issue 1-9、新增 issue 1-3、2026-03-20 第二轮验收问题、“真实曲线推断炉次第一版”，以及“宿主恢复同步 / 宿主入口 Dashboard 实时链路 / 炉次详情 compare 性能优化”收口代码，尚未提交；另保留 2 个未跟踪参考文件
+- 已完成交接 issue 1-9、新增 issue 1-3、第二轮联调问题的一轮收口、真实曲线推断炉次第一版，以及宿主恢复同步、实时数据链路修复与炉次详情 compare 第三刀性能优化，并已通过关键回归
+- 已补基线向导 Step 2 的 preview loading 与整日曲线口径提示，避免同日切炉次时误判成“图没刷新”
+- 已修基线向导 preview 图的多指标渲染方式：不再先按 timestamp 硬合并，不同指标直接按各自原始时序绘制
 - 未纳入版本控制的参考文件：
   - `docs/Ref/EDC AI通信基座API使用說明書.docx`
   - `docs/Ref/install_asns_server-m-1.sh`
@@ -41,9 +44,14 @@
   - 基线向导 preview
   - 炉次基础曲线与列表展开预览
 - 仍保留 demo/mock 的部分：
-  - 炉次对象本身的生成与切割源数据
+  - 炉次异常判定、待分析状态与切割原因仍主要基于本地启发式
+  - 当真实推断不可用时的后备炉次记录
   - 任务/报表等非本轮重点模块
-  - 真实 EDC 读取失败时的回退逻辑
+  - 仅在显式开启 mock flag 时才允许的演示数据回退
+- 新增阶段性方案：
+  - 炉次主记录优先走 `live_inferred`
+  - `live_inferred` 由真实 EDC 功率历史曲线本地切割推断，不是上游官方炉次台账
+  - 基线 preview / 基线实例时间窗 / 炉次详情已兼容这类推断炉次 ID
 
 ### 当前服务入口
 
@@ -72,30 +80,115 @@
 
 ## 当前待办
 
-### 待修改 issue（已记录，尚未开始改）
+### 本轮刚完成（2026-03-19）
 
-1. 新建基线 Step 2 候选炉次默认只显示 `6` 个，其余内部滚动
-2. 向导底部左侧 `取消` 改成 `上一页`
-3. 基线向导选点图横轴时间粒度改成按分钟显示
-4. 炉次浏览移除 `模拟流入一炉` 按钮及对应功能入口
-5. 炉次详情应显示新建黄金基线的 tab，并支持切换
-6. 炉次详情移除 `指标来源` 模块
-7. 新增“默认黄金基线”，炉次浏览偏离度统一按默认基线计算
-8. 炉次浏览展开区方向已确认：
-   - 左：功率微缩曲线
-   - 中：温度微缩曲线
-   - 右：关键摘要卡
+1. 基线向导 Step 2 候选炉次默认限高，超出部分内部滚动
+2. 向导底部左侧次操作从“取消”改为“上一页”
+3. 基线向导选点图横轴时间粒度改为按分钟显示
+4. 炉次浏览移除“模拟流入一炉”按钮及入口
+5. 炉次详情可显示新建黄金基线 tab，并保持切换稳定
+6. 炉次详情移除“指标来源”模块
+7. 新增“默认黄金基线”，炉次偏离度与分析统一按默认基线计算
+8. 炉次浏览展开区重排为“左功率 / 中温度 / 右摘要卡”
 9. ASNS 宿主框架相关功能入口补齐多语言匹配
+10. 宿主 Dock 与桌面区 `EDC electricity` 入口统一切窗逻辑
+11. 宿主连线设置在成功登录后持久化在线状态与同步摘要，刷新后自动恢复
+12. 全局 mock 数据集改为默认关闭，真实数据失败时返回错误/空态而不是自动回退
 
-### 当前最可能的实现顺序
+### 本轮刚完成（2026-03-20）
 
-1. 先做低风险 UI 收口：
-   - issue 1 / 2 / 3 / 4 / 6 / 9
-2. 再做炉次详情联动：
-   - issue 5
-3. 最后做带业务口径的新功能：
-   - issue 7（默认黄金基线）
-   - 同步调整展开区展示逻辑（issue 8）
+1. 基线向导发布成功后会关闭弹窗，且提交中禁用重复点击
+2. 基线定义、基线实例、宿主通道、设置与炉次修改类运行态改为落 SQLite，刷新后不再丢失
+3. 炉次浏览筛选条件与分页刷新后可恢复，收口“2 条 / 60 条”跳变中的筛选重置因素
+4. 待分析炉次详情会返回默认黄金基线 compare tab，不再出现顶部空白 tab 条
+5. 炉次列表与炉次详情新增来源说明，可明确区分“演示炉次台账 / 真实 EDC 曲线 / 演示曲线”
+6. 已完成真实 EDC 炉次主数据阶段性探测，确认当前基座未暴露炉次台账 request
+7. 已落第一版“真实功率曲线推断炉次”，炉次列表优先展示 `live_inferred` 记录
+8. 基线 preview / 基线实例时间窗 / 炉次详情与分析已兼容 `live_inferred` 炉次 ID
+9. 使用真实 EDC 通道 `2349-199` 实测当前可推断 63 条炉次，最新窗口落在 `2026-03-20 09:01 ~ 09:25`
+10. 宿主启动时会自动把本地恢复的连接配置与通道集合回写到 `8000`，并补做一次真实 EDC 连线校验
+11. 宿主连线设置页离线态已改为占位显示，不再把旧节点摘要误渲染成“仍像在线”
+12. 实测修复后 `GET /api/dashboard/realtime?duration=1h` 已恢复真实实时曲线返回，来源为 `2349-199 / 2349-128`
+13. 已完成“炉次浏览 / 基线向导 Step 2 仍拿不到真实数据”原因分析，确认这是多问题叠加，不是单点接口挂掉
+14. 已完成“普通接口不再 fallback mock”的第一轮收口，前端本地 mock 拼装已删除，普通接口在真实失败时统一返回错误/空态
+15. 已完成炉次详情 compare 第三刀性能优化：去掉重复功率/电压取数，新增 20 秒短 TTL 缓存，并对炉次修改类接口接入缓存失效
+16. 已完成基线向导 preview 体验补充：切炉次时显示 loading，并明确提示当前展示的是所选炉次所在自然日整天曲线
+17. 已完成基线向导 preview 图修正：不同指标改为各画各的原始 `[timestamp, value]`，解决碎点和“看起来只有总功率有数”问题
+
+### 当前下一步建议
+
+1. 继续做真实 EDC 联调整体验收，重点走查“宿主在线 -> 创建基线 preview -> 炉次浏览 -> 炉次详情 / 手动调整”的整链路
+2. 继续校准 `live_inferred` 规则，重点关注阈值、长连续段拆分、异常/待分析判定，避免把连续生产长段均分得过于机械
+3. 如果准备提交，先按“运行态持久化与重复发布修复 / 炉次来源透明化 / 真实曲线推断炉次 / 宿主恢复同步与实时链路修复”切分 commit
+4. 如继续优化性能，可优先关注 `apps/web` 与宿主原型构建中的大 chunk warning
+5. 如果下一轮要继续修“炉次浏览拿不到真实数据”，优先顺序应是：
+   - 先确认为什么 `settings` 里持久化成了 `live_heat_inference_enabled=false`
+   - 再继续拆 `/api/heats` 剩余慢链路，目前已去掉列表级逐条基线 hydrate
+   - 最后再修前端错误语义，把“超时/网关失败”和“后端未启动”区分开
+6. 如果下一轮继续收炉次详情性能，重点应转向：
+   - 继续压 `get_heat_compare()` 首包，当前仍是 `2.8s ~ 3.2s`
+   - 评估 `cutting-timeline` 是否要并行缓存或与详情接口再聚合一层
+   - 评估是否要把 compare 的短 TTL 响应缓存下沉成更细粒度的 EDC 通道曲线缓存
+7. 如果下一轮继续收基线向导体验，重点应转向：
+   - 评估 preview 是否仍需要按整日口径，还是改成默认聚焦所选炉次窗口
+   - 如果保留整日口径，继续加强当前炉次选区高亮，避免用户只看到“图形主体没变”
+6. 如果下一轮要继续收“mock 统一治理”的剩余部分，重点看：
+   - 报表/任务等仍为原型台账的模块，后续是保留原型口径还是进入真实替换
+   - `settings/edc-connection/test` 的失败语义和测试桩要不要与现网不可达场景解耦
+   - 普通接口统一来源字段后，前端是否要把“历史导入 / live_inferred / live_edc”展示层再细分
+
+### 已确认的阶段性测试结论
+
+- 当前 EDC 配置可成功登录：`http://60.251.229.32`
+- `GET /api/settings` 当前仍能读到 `live_heat_inference_enabled=false`
+- `GET /api/heats?page=1&page_size=50` 本地实测耗时约 `43.7s`
+- 本轮已收第一刀性能优化：
+  - `/api/heats` 列表已不再逐条 `_hydrate_baseline_item()`
+  - 重启最新后端后，`GET /api/heats?page=1&page_size=50` 本地实测约 `213ms`
+  - 黄金基线向导 Step 2 直接复用该接口，因此这条优化会同步降低候选炉次超时概率
+- 本轮已收第二刀性能优化：
+  - 前端炉次详情页请求由 `get / getCurve / getCompare / getCuttingTimeline` 收敛到 `getCompare / getCuttingTimeline`
+  - 炉次浏览展开预览由 `getCurve + getCompare` 收敛到仅 `getCompare`
+  - 这一步主要去掉重复请求；若详情仍慢，后续应继续拆 `getCompare` 本身的后端重链路
+- 本轮已收第三刀性能优化：
+  - `get_heat_compare()` 已去掉和指标批量取数重复的功率/电压主曲线请求
+  - compare 优先复用批量读取的通道曲线回填主曲线，仅在缺失时才单独回退 `_load_heat_curves_from_edc`
+  - 同一炉次详情/展开区 20 秒内复开会命中短 TTL compare 缓存
+  - `update_heat / resume_cutting / analyze_heat` 已接入 compare cache 失效
+  - 本地实测冷启动首包约 `2.8s ~ 3.2s`，同炉次二次请求约 `0.08s ~ 0.14s`
+- 本轮已补基线向导 preview 体验说明：
+  - `preview-curves` 当前按所选炉次所在自然日整天取数，因此同一天内切换不同炉次时图表主体会高度相似
+  - 前端已新增 loading 覆盖层、当前炉次说明和整日预览范围提示
+  - 前端已新增请求 token，避免旧 preview 响应覆盖最新选中炉次
+- 本轮已修 preview 图的多指标点位组织：
+  - 前端不再把多指标先压进统一 `pointMap`
+  - 每条 series 直接消费自己的原始 `[timestamp, value]`
+  - 图上选点与摘要统计统一改为基于主指标原始点列
+- 普通 `/api/heats` 已不再默认返回 `demo_seed`；当前 demo/mock 炉次只保留在显式 `/api/heats/stream/mock*`
+- 运行态恢复已兼容旧 `runtime_heats`：加载时会自动过滤 `demo_seed/mock_stream`，避免旧脏数据再次进入普通接口
+- 基线向导 Step 2 的“未获取到真实炉次候选”来自 `loadHeatCandidates()` 捕获到请求失败，不是正常空列表
+- 当前普通接口的 fallback 规则已统一：
+  - `dashboard/realtime` 与 `baseline-definitions/*/preview-curves` 不再因为 mock 开关而补本地假数据
+  - 前端 store 与 `BaselineWizard` 不再本地生成 mock 列表、详情或 preview 曲线
+  - 唯一保留的显式 mock 业务入口是 `/api/heats/stream/mock*`
+- 本轮新增验证：
+  - `tests/test_heats_api.py` 已覆盖“普通列表为空时不漏出 mock stream”“mock stream 仍独立可用”
+  - `tests/test_heats_api.py` 已覆盖“列表接口不得触发 baseline hydrate”
+  - `tests/conftest.py` 已改为测试专用 `historical_import` 炉次夹具，不再把 demo seed 当普通主记录前提
+- 从本地文档 `docs/Ref/EDC AI通信基座API使用說明書.docx` 提取到的 request 只有：
+  - `getAllSensorList`
+  - `getLocalDatas`
+  - `getMonitorboardToken`
+- 使用现网 token 探测 `getHeatList / getHeatRecords / getHeatRecordList / getMeltList / getBatchList` 均返回“未知请求”
+- 当前结论：
+  - 现有基座支持设备/通道清单与历史曲线读取
+  - 现有基座不支持直接读取炉次台账
+  - 若后续要替换热次主记录，只能走两条路：上游补接口，或本地基于真实曲线做炉次切割推断
+- 已落地的第一版补救方案：
+  - 当前默认基线绑定的真实功率通道会被用于拉取最近 72 小时历史曲线
+  - 后端已基于动态阈值 + 活跃段分组 + 按期望时长拆分的启发式规则生成 `live_inferred` 炉次
+  - 实测当前真实 EDC 上可推断出 63 条炉次，最新时间窗落在 `2026-03-20 09:01 ~ 09:25`
+  - 该结果可用于当前 UI 与基线流程联调，但仍需继续调参，不能等同官方台账
 
 ---
 
@@ -112,6 +205,7 @@
 - `apps/web/src/stores/heat.ts`
 - `apps/web/src/api/baseline.ts`
 - `apps/web/src/api/heat.ts`
+- `apps/web/src/api/client.ts`
 - `apps/web/src/locales/zh-CN.json`
 
 ### 后端
@@ -119,6 +213,12 @@
 - `apps/server/src/api/heats.py`
 - `apps/server/src/api/baselines.py`
 - `apps/server/src/api/baseline_definitions.py`
+- `apps/server/src/api/dashboard.py`
+- `apps/server/src/runtime_state.py`
+- `apps/server/tests/test_heats_api.py`
+- `apps/server/tests/test_baselines_dashboard_api.py`
+- `apps/server/src/config.py`
+- `apps/server/src/mock_dataset.py`
 - `apps/server/src/api/settings.py`
 - `apps/server/src/services/edc_client.py`
 - `apps/server/src/schemas/baseline.py`
@@ -127,6 +227,8 @@
 
 - `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/App.tsx`
 - `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/SettingsView.tsx`
+- `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivityState.ts`
+- `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`
 
 ### 过程文档
 
@@ -150,9 +252,15 @@
 
 - 前端 lint：`pnpm --dir apps/web lint`
 - 前端 build：`pnpm --dir apps/web build`
-- 前端 E2E：`pnpm --dir apps/web exec playwright test e2e/app.spec.ts`
+- 前端 E2E：`pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
 - 后端 ruff：`apps/server/.venv/Scripts/ruff.exe check src tests`
 - 后端 pytest：`apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py tests/test_heats_api.py`
+- 后端全量：`apps/server/.venv/Scripts/pytest.exe tests -x -vv`
+  - 当前唯一失败项：`tests/test_tasks_reports_settings_api.py::test_settings_get_and_update`
+  - 失败原因：测试会真实请求 `http://localhost:8080`，与本轮 store 拆分无关
+- 宿主测试：在 `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統` 下运行 `npm test`
+- 宿主类型检查：在 `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統` 下运行 `npm run lint`
+- 宿主构建：在 `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統` 下运行 `npm run build`
 
 ---
 
@@ -163,7 +271,7 @@
    - `docs/progress.md`
    - `docs/lessons.md`
 2. 确认当前目标：
-   - 先按已记录 issue 收口 UI/交互
+   - 继续真实 EDC 联调整体验收或整理本轮修复的提交边界
 3. 开工前先看：
    - `git status --short --branch`
    - `git log --oneline -12`

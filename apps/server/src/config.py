@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     # 默认参数
     default_tolerance_percent: float = 15.0
+    enable_mock_dataset: bool = False
 
     # 报表
     report_generation_hour: int = 2  # 凌晨 2 点生成日报

@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia'
-import dayjs from 'dayjs'
 import { reportApi } from '@/api/report'
 import type { DailyReportDetail, DailyReportSummary } from '@/api/report'
 
@@ -42,42 +41,6 @@ function mapDetail(item: DailyReportDetail): ReportDetail {
   }
 }
 
-function mockReports(): ReportItem[] {
-  return Array.from({ length: 7 }).map((_, idx) => {
-    const date = dayjs().subtract(idx, 'day').format('YYYY-MM-DD')
-    return {
-      date,
-      totalHeats: 12 + idx,
-      normalHeats: 10 + idx,
-      abnormalHeats: 2,
-      avgDeviation: Number((5.5 + idx * 0.3).toFixed(2)),
-      pendingTasks: Math.max(0, 3 - idx),
-      completedTasks: 6 + idx,
-      generatedAt: `${date}T02:00:00`
-    }
-  })
-}
-
-function mockReportDetail(date: string): ReportDetail {
-  const compactDate = date.split('-').join('')
-  return {
-    date,
-    totalHeats: 14,
-    normalHeats: 12,
-    abnormalHeats: 2,
-    avgDeviation: 5.8,
-    pendingTasks: 2,
-    completedTasks: 8,
-    generatedAt: `${date}T02:00:00`,
-    normalRate: 85.7,
-    effectiveHours: 18.6,
-    topDeviations: [
-      { heatNo: `H${compactDate}-003`, deviation: 22.4 },
-      { heatNo: `H${compactDate}-007`, deviation: 18.1 }
-    ]
-  }
-}
-
 export const useReportStore = defineStore('report', {
   state: () => ({
     list: [] as ReportItem[],
@@ -91,8 +54,8 @@ export const useReportStore = defineStore('report', {
         const data = await reportApi.list({ page: 1, page_size: 14 })
         this.list = data.items.map(mapSummary)
       } catch (error) {
-        console.warn('Report list fallback to mock.', error)
-        this.list = mockReports()
+        console.error('Report list request failed.', error)
+        this.list = []
       } finally {
         this.loading = false
       }
@@ -103,8 +66,8 @@ export const useReportStore = defineStore('report', {
         const data = await reportApi.get(date)
         this.current = mapDetail(data)
       } catch (error) {
-        console.warn('Report detail fallback to mock.', error)
-        this.current = mockReportDetail(date)
+        console.error('Report detail request failed.', error)
+        this.current = null
       } finally {
         this.loading = false
       }

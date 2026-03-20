@@ -25,6 +25,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import type { ECharts, EChartsOption } from 'echarts'
 import dayjs from 'dayjs'
+import type { HeatDataSource } from '@/api/heat'
 import { useHeatStore } from '@/stores/heat'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -146,25 +147,6 @@ const compareSeriesCount = computed(() => {
   return metricCurves.length * 2
 })
 
-const comparisonBindingSummary = computed(() => {
-  const metricCurves =
-    comparisonMetricCurves.value.length > 0
-      ? comparisonMetricCurves.value
-      : [primaryComparisonMetric.value]
-  const items = metricCurves.map((item) => ({
-    metricKey: item.metric_key,
-    metricName: item.metric_name,
-    unit: item.unit,
-    bound: Boolean(item.edc_channel_id),
-    sourceLabel: item.source_channel_label || item.source_channel_name || '',
-  }))
-  return {
-    total: items.length,
-    boundCount: items.filter((item) => item.bound).length,
-    items,
-  }
-})
-
 function normalizedTimestamp(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === '') return null
   const timestamp = Number(value)
@@ -235,6 +217,23 @@ const statusText = computed(() => {
   if (current.value.base.status === 'normal') return t('heat.statusNormal')
   if (current.value.base.status === 'abnormal') return t('heat.statusAbnormal')
   return t('heat.statusPending')
+})
+
+function dataSourceText(source: HeatDataSource) {
+  if (source === 'live_edc') return t('heat.dataSource.liveEdc')
+  if (source === 'live_inferred') return t('heat.dataSource.liveInferred')
+  if (source === 'demo_curve') return t('heat.dataSource.demoCurve')
+  if (source === 'none') return t('heat.dataSource.none')
+  return t('heat.dataSource.demoSeed')
+}
+
+const shouldShowSourceBanner = computed(() => {
+  if (!current.value) return false
+  return (
+    current.value.base.recordSource !== 'live_edc' ||
+    current.value.base.currentCurveSource !== 'live_edc' ||
+    current.value.base.baselineCurveSource !== 'live_edc'
+  )
 })
 
 const compareOption = computed<EChartsOption>(() => {
@@ -624,6 +623,21 @@ watch([manualAdjustStart, manualAdjustEnd], () => {
   syncRangeFromBounds()
 })
 
+watch(
+  () => current.value?.baselineComparisons,
+  (comparisons) => {
+    const items = comparisons || []
+    if (items.length === 0) {
+      activeBaselineId.value = ''
+      return
+    }
+    if (!items.some((item) => item.baseline.id === activeBaselineId.value)) {
+      activeBaselineId.value = items[0]?.baseline.id || ''
+    }
+  },
+  { immediate: true, deep: true }
+)
+
 function handleCreateTask() {
   ElMessage.info(t('heat.createTaskHint'))
 }
@@ -752,6 +766,21 @@ onMounted(() => {
       class="grid grid-cols-1 gap-6 xl:grid-cols-3"
     >
       <div class="xl:col-span-2 space-y-6">
+        <div
+          v-if="shouldShowSourceBanner"
+          class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+          data-testid="heat-detail-source-banner"
+        >
+          <div class="font-semibold">
+            {{ t('heat.detailSourceTitle') }}
+          </div>
+          <div class="mt-2 flex flex-wrap gap-3 text-amber-700">
+            <span>{{ t('heat.recordSourceLabel') }}: {{ dataSourceText(current.base.recordSource) }}</span>
+            <span>{{ t('heat.currentCurveSourceLabel') }}: {{ dataSourceText(current.base.currentCurveSource) }}</span>
+            <span>{{ t('heat.baselineCurveSourceLabel') }}: {{ dataSourceText(current.base.baselineCurveSource) }}</span>
+          </div>
+        </div>
+
         <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
           <div class="flex flex-col lg:flex-row justify-between lg:items-center mb-4 gap-4">
             <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
@@ -779,43 +808,6 @@ onMounted(() => {
             data-testid="heat-compare-chart"
             :data-series-count="compareSeriesCount"
           />
-        </div>
-
-        <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
-          <div class="flex items-center justify-between mb-4 pb-4 border-b border-border-light">
-            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
-              <span class="material-symbols-outlined text-primary text-[20px]">route</span>
-              {{ t('heat.metricSourcesTitle') }}
-            </h3>
-            <span class="text-xs text-slate-500">
-              {{ comparisonBindingSummary.boundCount }}/{{ comparisonBindingSummary.total }}
-            </span>
-          </div>
-          <div
-            class="space-y-3"
-            data-testid="heat-source-binding-list"
-          >
-            <div
-              v-for="item in comparisonBindingSummary.items"
-              :key="item.metricKey"
-              class="rounded-lg border border-border-light bg-slate-50 p-3"
-            >
-              <div class="flex items-center justify-between gap-3">
-                <div class="text-sm font-semibold text-slate-800">
-                  {{ item.metricName }} ({{ item.unit }})
-                </div>
-                <span
-                  class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
-                  :class="item.bound ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
-                >
-                  {{ item.bound ? t('heat.sourceBound') : t('heat.sourceUnbound') }}
-                </span>
-              </div>
-              <div class="mt-2 text-xs text-slate-500">
-                {{ item.bound ? item.sourceLabel : t('heat.sourceUnboundHint') }}
-              </div>
-            </div>
-          </div>
         </div>
 
         <div class="bg-white rounded-xl border border-border-light shadow-card p-5">

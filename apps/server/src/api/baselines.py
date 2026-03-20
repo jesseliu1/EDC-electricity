@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ..mock_dataset import is_mock_dataset_enabled
+from ..runtime_state import persist_runtime_state
 from ..schemas import (
     BaselineCreate,
     BaselineListResponse,
@@ -31,6 +33,8 @@ router = APIRouter(prefix="/baselines", tags=["Baselines"])
 
 def _build_curve(seed: int, length: int = 100) -> list[dict[str, float]]:
     """生成稳定的模拟曲线数据。"""
+    if not is_mock_dataset_enabled():
+        return []
     return [
         {"timestamp": 1000.0 * i, "value": float(430 + ((i + seed) % 12) * 3)}
         for i in range(length)
@@ -111,6 +115,7 @@ _BASELINE_STORE: dict[str, dict[str, Any]] = {
         "power_curve": _build_curve(1),
         "voltage_curve": _build_curve(3),
         "temperature": 1450.0,
+        "curve_source": "demo_curve" if is_mock_dataset_enabled() else "none",
         "curves_data": _build_curves_data("def-001", 1),
     },
     "baseline-002": {
@@ -130,9 +135,27 @@ _BASELINE_STORE: dict[str, dict[str, Any]] = {
         "power_curve": _build_curve(5),
         "voltage_curve": _build_curve(7),
         "temperature": 1460.0,
+        "curve_source": "demo_curve" if is_mock_dataset_enabled() else "none",
         "curves_data": _build_curves_data("def-002", 5),
     },
 }
+
+
+def _published_baselines() -> list[dict[str, Any]]:
+    published = [item for item in _BASELINE_STORE.values() if item["status"] == "published"]
+    published.sort(key=lambda item: item["published_at"] or item["updated_at"], reverse=True)
+    return published
+
+
+def _resolve_active_baseline_item() -> dict[str, Any] | None:
+    active_baseline_id = _SETTINGS_STORE.get("active_baseline_id", {}).get("value")
+    if isinstance(active_baseline_id, str) and active_baseline_id:
+        active_item = _BASELINE_STORE.get(active_baseline_id)
+        if active_item and active_item["status"] == "published":
+            return active_item
+
+    published = _published_baselines()
+    return published[0] if published else None
 
 
 def _to_baseline_response(item: dict[str, Any]) -> BaselineResponse:
@@ -191,18 +214,18 @@ def _to_baseline_with_curve(item: dict[str, Any]) -> BaselineWithCurve:
     )
 
 
-def _resolve_baseline_time_window(item: dict[str, Any]) -> tuple[datetime, datetime]:
+async def _resolve_baseline_time_window(item: dict[str, Any]) -> tuple[datetime, datetime]:
     """优先按选区时间，其次按来源炉次时间，最后回退最近一小时。"""
     selected_start = item.get("selected_start_time")
     selected_end = item.get("selected_end_time")
     if isinstance(selected_start, datetime) and isinstance(selected_end, datetime):
         return selected_start, selected_end
 
-    from .heats import _HEAT_STORE
+    from .heats import resolve_heat_time_window
 
-    source_heat = _HEAT_STORE.get(str(item.get("source_heat_id")))
-    if source_heat:
-        return source_heat["start_time"], source_heat["end_time"]
+    source_window = await resolve_heat_time_window(str(item.get("source_heat_id") or ""))
+    if source_window:
+        return source_window
 
     end_time = datetime.now()
     return end_time - timedelta(hours=1), end_time
@@ -221,7 +244,7 @@ async def _load_baseline_curves_from_edc(
     if not config["base_url"] or not config["username"] or not config["password"]:
         return None
 
-    start_time, end_time = _resolve_baseline_time_window(item)
+    start_time, end_time = await _resolve_baseline_time_window(item)
     bound_metrics: list[tuple[dict[str, Any], dict[str, str]]] = []
     for metric in metrics:
         channel = _resolve_host_channel(metric.get("edc_channel_id"))
@@ -261,14 +284,14 @@ async def _load_baseline_curves_from_edc(
     power_curve: list[dict[str, float | int]] = []
     voltage_curve: list[dict[str, float | int]] = []
 
-    for idx, metric in enumerate(metrics):
+    for metric in metrics:
         metric_id = str(metric["id"])
         host_channel = _resolve_host_channel(metric.get("edc_channel_id"))
         points = points_by_metric.get(metric_id)
         if points:
             stored_points = _curve_points_to_dicts(points)
         else:
-            stored_points = _build_curve(9 + idx * 2)
+            stored_points = []
 
         metric_name = str(metric.get("name") or "")
         unit = str(metric.get("unit") or "")
@@ -290,20 +313,16 @@ async def _load_baseline_curves_from_edc(
         if ("电压" in metric_name or "電壓" in metric_name or unit == "V") and stored_points:
             voltage_curve = stored_points
 
-    if not power_curve:
-        power_curve = _build_curve(1)
-    if not voltage_curve:
-        voltage_curve = _build_curve(3)
-
     return {
         "curves_data": hydrated_curves,
         "power_curve": power_curve,
         "voltage_curve": voltage_curve,
+        "curve_source": "live_edc" if points_by_metric else "none",
     }
 
 
 async def _hydrate_baseline_item(item: dict[str, Any]) -> dict[str, Any]:
-    """为基线实例补齐真实曲线，失败时保留现有 mock。"""
+    """为基线实例补齐真实曲线。"""
     curves = await _load_baseline_curves_from_edc(item)
     if not curves:
         return item
@@ -311,6 +330,7 @@ async def _hydrate_baseline_item(item: dict[str, Any]) -> dict[str, Any]:
     item["curves_data"] = curves["curves_data"]
     item["power_curve"] = curves["power_curve"]
     item["voltage_curve"] = curves["voltage_curve"]
+    item["curve_source"] = curves["curve_source"]
     return item
 
 
@@ -401,18 +421,33 @@ async def list_baselines(
 
 @router.get("/active", response_model=BaselineSummary | None)
 async def get_active_baseline() -> BaselineSummary | None:
-    """获取当前激活基线（最近发布的 published 基线）。"""
-    published = [item for item in _BASELINE_STORE.values() if item["status"] == "published"]
-    if not published:
+    """获取当前激活基线。"""
+    active = _resolve_active_baseline_item()
+    if not active:
         return None
 
-    published.sort(key=lambda x: x["published_at"] or x["updated_at"], reverse=True)
-    active = published[0]
     return BaselineSummary(
         id=active["id"],
         name=active["name"],
         status=active["status"],
         version=active["version"],
+    )
+
+
+@router.post("/{baseline_id}/activate", response_model=BaselineSummary)
+async def activate_baseline(baseline_id: str) -> BaselineSummary:
+    """设置默认黄金基线。"""
+    item = _get_or_404(baseline_id)
+    if item["status"] != "published":
+        raise HTTPException(status_code=400, detail="仅已发布基线可设为默认黄金基线")
+
+    _SETTINGS_STORE["active_baseline_id"]["value"] = baseline_id
+    await persist_runtime_state("settings_store")
+    return BaselineSummary(
+        id=item["id"],
+        name=item["name"],
+        status=item["status"],
+        version=item["version"],
     )
 
 
@@ -448,10 +483,12 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
         "power_curve": _build_curve(9),
         "voltage_curve": _build_curve(11),
         "temperature": 1455.0,
+        "curve_source": "demo_curve" if is_mock_dataset_enabled() else "none",
         "curves_data": _build_curves_data(data.definition_id, 9),
     }
     await _hydrate_baseline_item(item)
     _BASELINE_STORE[baseline_id] = item
+    await persist_runtime_state("baselines")
     return _to_baseline_response(item)
 
 
@@ -474,6 +511,7 @@ async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineRes
         item["tolerance_percent"] = data.tolerance_percent
     item["updated_at"] = _now()
     await _hydrate_baseline_item(item)
+    await persist_runtime_state("baselines")
 
     return _to_baseline_response(item)
 
@@ -491,6 +529,10 @@ async def publish_baseline(baseline_id: str) -> BaselineResponse:
     item["status"] = "published"
     item["published_at"] = now
     item["updated_at"] = now
+    active_item = _resolve_active_baseline_item()
+    if active_item is None:
+        _SETTINGS_STORE["active_baseline_id"]["value"] = baseline_id
+    await persist_runtime_state("baselines", "settings_store")
 
     return _to_baseline_response(item)
 
@@ -504,6 +546,12 @@ async def disable_baseline(baseline_id: str) -> BaselineResponse:
 
     item["status"] = "disabled"
     item["updated_at"] = _now()
+    if _SETTINGS_STORE.get("active_baseline_id", {}).get("value") == baseline_id:
+        next_active = _resolve_active_baseline_item()
+        _SETTINGS_STORE["active_baseline_id"]["value"] = (
+            str(next_active["id"]) if next_active else ""
+        )
+    await persist_runtime_state("baselines", "settings_store")
 
     return _to_baseline_response(item)
 
@@ -516,4 +564,5 @@ async def delete_baseline(baseline_id: str) -> MessageResponse:
         raise HTTPException(status_code=400, detail="仅草稿状态可删除")
 
     _BASELINE_STORE.pop(baseline_id, None)
+    await persist_runtime_state("baselines")
     return MessageResponse(message="基线已删除", success=True)

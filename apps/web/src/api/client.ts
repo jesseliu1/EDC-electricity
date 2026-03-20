@@ -31,6 +31,17 @@ function getRequestMeta(config?: InternalAxiosRequestConfig | ExtendedAxiosReque
   return requestConfig?.meta || {}
 }
 
+function resolveErrorMessage(error: AxiosError<{ message?: string; detail?: string }>) {
+  const payload = error.response?.data
+  if (typeof payload?.message === 'string' && payload.message.trim()) {
+    return payload.message
+  }
+  if (typeof payload?.detail === 'string' && payload.detail.trim()) {
+    return payload.detail
+  }
+  return '请求失败'
+}
+
 instance.interceptors.response.use(
   response => response.data,
   (error: AxiosError<{ message?: string }>) => {
@@ -41,12 +52,16 @@ instance.interceptors.response.use(
 
     if (!error.response) {
       if (!shouldMuteNetworkMessage()) {
-        ElMessage.warning('后端服务未连接，当前页面将回退为本地 Mock 数据')
+        ElMessage.warning(
+          error.code === 'ECONNABORTED'
+            ? '请求超时，请检查后端服务状态或接口性能'
+            : '后端服务未连接，请检查网络或服务状态'
+        )
       }
       return Promise.reject(error)
     }
 
-    ElMessage.error(error.response.data?.message || '请求失败')
+    ElMessage.error(resolveErrorMessage(error))
     return Promise.reject(error)
   }
 )

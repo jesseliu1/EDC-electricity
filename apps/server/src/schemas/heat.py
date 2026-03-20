@@ -35,6 +35,9 @@ class HeatResponse(BaseModel):
     blocked_by_issue: bool = Field(default=False, description="是否因重大事故阻断")
     status: str = Field(..., description="状态: normal/abnormal/pending")
     temperature: float | None = Field(default=None, description="出汤温度")
+    record_source: str = Field(default="demo_seed", description="炉次主记录来源")
+    current_curve_source: str = Field(default="demo_curve", description="当前曲线来源")
+    baseline_curve_source: str = Field(default="demo_curve", description="对比基线曲线来源")
     created_at: datetime = Field(..., description="创建时间")
 
     model_config = {"from_attributes": True}

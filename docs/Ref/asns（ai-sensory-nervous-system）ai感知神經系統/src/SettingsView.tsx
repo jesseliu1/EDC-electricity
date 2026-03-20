@@ -16,6 +16,21 @@ import {
   User,
 } from 'lucide-react';
 import { edcChannelSnapshot, edcSnapshotMeta } from './edcChannelSnapshot';
+import {
+  buildHostConnectivityDraft,
+  hostSettingsStorageKey,
+  restoreHostConnectivityDraft,
+  type HostEdcMeta,
+  type PersistedConnectionState,
+} from './hostConnectivityState';
+import {
+  buildDisconnectedConnectionState,
+  callHostApi,
+  getDefaultAddedChannelIds,
+  reconcileAddedChannelIds,
+  syncSelectionToBackend,
+  type HostChannelMappingItem,
+} from './hostConnectivitySync';
 
 export interface SettingsViewConfig {
   endpoint: string;
@@ -31,44 +46,10 @@ export interface SettingsViewProps {
   setIsConnected: (connected: boolean) => void;
 }
 
-interface ChannelMappingItem {
-  id: string;
-  deviceName: string;
-  deviceType: string;
-  area: string;
-  suid: string;
-  cuid: string;
-  channelName: string;
-  unit: string;
-  lastValue: string;
-  status: 'online' | 'idle';
-}
-
-interface HostEdcMeta {
-  source: string;
-  sensorCount: number;
-  channelCount: number;
-  enabledChannelCount: number;
-}
-
-interface HostEdcResponse {
-  ok: boolean;
-  nodeName: string;
-  checkedAt: string;
-  meta: HostEdcMeta;
-  channels?: ChannelMappingItem[];
-  message?: string;
-}
+type ChannelMappingItem = HostChannelMappingItem;
 
 const initialCatalog: ChannelMappingItem[] = [...edcChannelSnapshot];
-const hostSettingsStorageKey = 'asns-host-connectivity-draft';
-const appApiBase = 'http://127.0.0.1:8000/api';
-
-interface HostConnectivityDraft {
-  config: SettingsViewConfig;
-  addedChannelIds: string[];
-  savedAt: string;
-}
+const defaultAddedChannelIds = getDefaultAddedChannelIds(initialCatalog);
 
 export default function SettingsView({ config, setConfig, t, isConnected, setIsConnected }: SettingsViewProps) {
   const [loading, setLoading] = useState(false);
@@ -76,12 +57,19 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
   const [query, setQuery] = useState('');
   const [expandedDevices, setExpandedDevices] = useState<Record<string, boolean>>({});
   const [channelCatalog, setChannelCatalog] = useState<ChannelMappingItem[]>(initialCatalog);
-  const [addedChannelIds, setAddedChannelIds] = useState<string[]>(initialCatalog.slice(0, 6).map((item) => item.id));
+  const [addedChannelIds, setAddedChannelIds] = useState<string[]>(defaultAddedChannelIds);
   const [statusMessage, setStatusMessage] = useState('');
   const [saveFeedback, setSaveFeedback] = useState('');
   const [machineName, setMachineName] = useState('EDC Test Gateway');
   const [lastSyncLabel, setLastSyncLabel] = useState('2026-03-16 11:12');
   const [meta, setMeta] = useState<HostEdcMeta>(edcSnapshotMeta);
+
+  const currentConnectionState = (): PersistedConnectionState => ({
+    isConnected,
+    machineName,
+    lastSyncLabel,
+    meta,
+  });
 
   const filteredChannels = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -141,25 +129,36 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
       return;
     }
     try {
-      const raw = window.localStorage.getItem(hostSettingsStorageKey);
-      if (!raw) {
+      const restored = restoreHostConnectivityDraft(
+        window.localStorage.getItem(hostSettingsStorageKey),
+        initialCatalog.map((item) => item.id),
+        {
+          isConnected: false,
+          machineName: 'EDC Test Gateway',
+          lastSyncLabel: '2026-03-16 11:12',
+          meta: edcSnapshotMeta,
+        },
+      );
+      if (!restored) {
         return;
       }
-      const draft = JSON.parse(raw) as Partial<HostConnectivityDraft>;
-      if (draft.config?.endpoint && draft.config?.username && typeof draft.config.password === 'string') {
-        setConfig(draft.config);
+      if (restored.config) {
+        setConfig(restored.config);
       }
-      if (Array.isArray(draft.addedChannelIds)) {
-        const channelIds = new Set(initialCatalog.map((item) => item.id));
-        setAddedChannelIds(draft.addedChannelIds.filter((channelId) => channelIds.has(channelId)));
+      setAddedChannelIds(reconcileAddedChannelIds(restored.addedChannelIds, initialCatalog));
+      if (restored.connection) {
+        setIsConnected(restored.connection.isConnected);
+        setMachineName(restored.connection.machineName);
+        setLastSyncLabel(restored.connection.lastSyncLabel);
+        setMeta(restored.connection.meta);
       }
-      if (typeof draft.savedAt === 'string') {
-        setStatusMessage(`${t('draftRestored')} ${formatCheckedAt(draft.savedAt)}`);
+      if (typeof restored.savedAt === 'string') {
+        setStatusMessage(`${t('draftRestored')} ${formatCheckedAt(restored.savedAt)}`);
       }
     } catch {
       setStatusMessage(t('draftRestoreFailed'));
     }
-  }, [setConfig, t]);
+  }, [setConfig, setIsConnected, t]);
 
   useEffect(() => {
     if (!saveFeedback) {
@@ -202,30 +201,34 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
   };
 
   const syncAddedChannelsWithCatalog = (channels: ChannelMappingItem[]) => {
-    const channelIds = new Set(channels.map((item) => item.id));
-    setAddedChannelIds((prev) => prev.filter((channelId) => channelIds.has(channelId)));
+    const nextAddedChannelIds = reconcileAddedChannelIds(addedChannelIds, channels);
+    setAddedChannelIds(nextAddedChannelIds);
+    return nextAddedChannelIds;
   };
 
-  const callHostApi = async (path: string) => {
-    const response = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config),
-    });
-    return { response, data: (await response.json()) as HostEdcResponse };
+  const writeDraft = (savedAt: string, connection: PersistedConnectionState) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(
+      hostSettingsStorageKey,
+      JSON.stringify(
+        buildHostConnectivityDraft({
+          config,
+          addedChannelIds,
+          savedAt,
+          connection,
+        }),
+      ),
+    );
   };
 
-  const persistDraft = (mode: 'draft' | 'apply') => {
+  const persistDraft = (mode: 'draft' | 'apply', connection = currentConnectionState()) => {
     if (typeof window === 'undefined') {
       return;
     }
     const savedAt = new Date().toISOString();
-    const payload: HostConnectivityDraft = {
-      config,
-      addedChannelIds,
-      savedAt,
-    };
-    window.localStorage.setItem(hostSettingsStorageKey, JSON.stringify(payload));
+    writeDraft(savedAt, connection);
     const message =
       mode === 'draft'
         ? `${t('draftSaved')} ${formatCheckedAt(savedAt)}`
@@ -234,38 +237,17 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
     setSaveFeedback(message);
   };
 
-  const syncSelectionToBackend = async () => {
-    const selectedChannels = addedChannels.map((channel) => ({
-      id: channel.id,
-      device_name: channel.deviceName,
-      device_type: channel.deviceType,
-      area: channel.area,
-      suid: channel.suid,
-      cuid: channel.cuid,
-      channel_name: channel.channelName,
-      unit: channel.unit,
-      last_value: channel.lastValue,
-      status: channel.status,
-    }));
+  const persistConnectionState = (connection: PersistedConnectionState) => {
+    writeDraft(new Date().toISOString(), connection);
+  };
 
-    const saveConnection = fetch(`${appApiBase}/settings/edc-connection`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        base_url: config.endpoint,
-        username: config.username,
-        password: config.password,
-      }),
-    });
-
-    const saveChannels = fetch(`${appApiBase}/settings/host-channels`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: selectedChannels }),
-    });
-
-    const [connectionResponse, channelsResponse] = await Promise.all([saveConnection, saveChannels]);
-    if (!connectionResponse.ok || !channelsResponse.ok) {
+  const syncCurrentSelectionToBackend = async (channelIds = addedChannelIds, catalog = channelCatalog) => {
+    const selectedChannels = channelIds
+      .map((channelId) => catalog.find((item) => item.id === channelId))
+      .filter((item): item is ChannelMappingItem => Boolean(item));
+    try {
+      await syncSelectionToBackend(config, selectedChannels);
+    } catch {
       throw new Error(t('settingsSyncFailed'));
     }
   };
@@ -277,7 +259,7 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
     }
 
     try {
-      await syncSelectionToBackend();
+      await syncCurrentSelectionToBackend();
       const savedAt = new Date().toISOString();
       const message = `${t('settingsAppliedMessage')} ${formatCheckedAt(savedAt)}`;
       setStatusMessage(message);
@@ -292,18 +274,31 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
   const handleConnect = async () => {
     setLoading(true);
     try {
-      const { response, data } = await callHostApi('/host-api/edc/test-connection');
+      const { response, data } = await callHostApi('/host-api/edc/test-connection', config);
       if (!response.ok || !data.ok) {
         throw new Error(data.message || t('testFailed'));
       }
+      const connectedState: PersistedConnectionState = {
+        isConnected: true,
+        machineName: data.nodeName,
+        lastSyncLabel: formatCheckedAt(data.checkedAt),
+        meta: data.meta,
+      };
       setIsConnected(true);
-      setMachineName(data.nodeName);
-      setMeta(data.meta);
-      setLastSyncLabel(formatCheckedAt(data.checkedAt));
+      setMachineName(connectedState.machineName);
+      setMeta(connectedState.meta);
+      setLastSyncLabel(connectedState.lastSyncLabel);
+      await syncCurrentSelectionToBackend();
       setStatusMessage(data.message || t('testSuccess'));
+      persistConnectionState(connectedState);
     } catch (error) {
+      const disconnectedState = buildDisconnectedConnectionState(config.endpoint);
       setIsConnected(false);
+      setMachineName(disconnectedState.machineName);
+      setMeta(disconnectedState.meta);
+      setLastSyncLabel(disconnectedState.lastSyncLabel);
       setStatusMessage(error instanceof Error ? error.message : t('testFailed'));
+      persistConnectionState(disconnectedState);
     } finally {
       setLoading(false);
     }
@@ -312,23 +307,39 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
   const handleSyncChannels = async () => {
     setSyncing(true);
     try {
-      const { response, data } = await callHostApi('/host-api/edc/sync-channels');
+      const { response, data } = await callHostApi('/host-api/edc/sync-channels', config);
       if (!response.ok || !data.ok || !data.channels) {
         throw new Error(data.message || t('syncFailed'));
       }
+      const connectedState: PersistedConnectionState = {
+        isConnected: true,
+        machineName: data.nodeName,
+        lastSyncLabel: formatCheckedAt(data.checkedAt),
+        meta: data.meta,
+      };
       setIsConnected(true);
-      setMachineName(data.nodeName);
-      setMeta(data.meta);
-      setLastSyncLabel(formatCheckedAt(data.checkedAt));
+      setMachineName(connectedState.machineName);
+      setMeta(connectedState.meta);
+      setLastSyncLabel(connectedState.lastSyncLabel);
       setChannelCatalog(data.channels);
-      syncAddedChannelsWithCatalog(data.channels);
+      const nextAddedChannelIds = syncAddedChannelsWithCatalog(data.channels);
+      await syncCurrentSelectionToBackend(nextAddedChannelIds, data.channels);
       setStatusMessage(data.message || t('syncSuccess'));
+      persistConnectionState(connectedState);
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : t('syncFailed'));
     } finally {
       setSyncing(false);
     }
   };
+
+  const connectedMachineDisplay = isConnected ? machineName : '--';
+  const lastSyncDisplay = isConnected ? lastSyncLabel : '--';
+  const connectionMetaDisplay = isConnected
+    ? `${meta.sensorCount} devices / ${meta.channelCount} channels`
+    : '--';
+  const sourceDisplay = isConnected ? meta.source : '--';
+  const enabledChannelsDisplay = isConnected ? String(meta.enabledChannelCount) : '--';
 
   return (
     <div className="p-6 md:p-10 flex flex-col gap-6 md:gap-8 h-full bg-gradient-to-br from-transparent to-black/5 dark:to-white/5 overflow-y-auto custom-scrollbar">
@@ -405,12 +416,12 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
             <div className="rounded-[22px] bg-slate-100/80 dark:bg-white/5 border border-white/40 dark:border-white/10 p-4">
               <p className="text-[10px] uppercase tracking-widest opacity-40 font-black">{t('connectedMachine')}</p>
               <p className="mt-3 text-sm font-black">{config.endpoint}</p>
-              <p className="text-[10px] opacity-50 mt-1">{machineName}</p>
+              <p className="text-[10px] opacity-50 mt-1">{connectedMachineDisplay}</p>
             </div>
             <div className="rounded-[22px] bg-slate-100/80 dark:bg-white/5 border border-white/40 dark:border-white/10 p-4">
               <p className="text-[10px] uppercase tracking-widest opacity-40 font-black">{t('lastSync')}</p>
-              <p className="mt-3 text-sm font-black">{lastSyncLabel}</p>
-              <p className="text-[10px] opacity-50 mt-1">{meta.sensorCount} devices / {meta.channelCount} channels</p>
+              <p className="mt-3 text-sm font-black">{lastSyncDisplay}</p>
+              <p className="text-[10px] opacity-50 mt-1">{connectionMetaDisplay}</p>
             </div>
           </div>
 
@@ -452,11 +463,11 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="rounded-[22px] bg-black/5 dark:bg-white/5 border border-white/40 dark:border-white/10 p-4">
               <p className="text-[10px] uppercase tracking-widest opacity-40 font-black">{t('sourceRealtime')}</p>
-              <p className="mt-2 text-sm font-black">{meta.source}</p>
+              <p className="mt-2 text-sm font-black">{sourceDisplay}</p>
             </div>
             <div className="rounded-[22px] bg-black/5 dark:bg-white/5 border border-white/40 dark:border-white/10 p-4">
               <p className="text-[10px] uppercase tracking-widest opacity-40 font-black">{t('enabledChannels')}</p>
-              <p className="mt-2 text-sm font-black">{meta.enabledChannelCount}</p>
+              <p className="mt-2 text-sm font-black">{enabledChannelsDisplay}</p>
             </div>
           </div>
           <div className="mt-2 rounded-[22px] bg-black/5 dark:bg-white/5 border border-white/40 dark:border-white/10 p-4 space-y-3">

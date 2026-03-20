@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api.router import api_router
 from .config import settings
 from .database import init_db
+from .runtime_state import load_runtime_state
 
 
 @asynccontextmanager
@@ -16,6 +17,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """应用生命周期管理"""
     # 启动时初始化数据库
     await init_db()
+    await load_runtime_state()
     yield
     # 关闭时清理资源
 

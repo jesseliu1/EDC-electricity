@@ -21,6 +21,9 @@ const blockedCount = computed(
 const majorIssueCount = computed(
   () => heatStore.list.filter((item) => item.cutStatus === 'major_issue').length
 )
+const hasDemoHeatRecords = computed(
+  () => heatStore.list.some((item) => item.recordSource !== 'live_edc')
+)
 
 type StatusFilter = 'all' | HeatStatus
 
@@ -41,6 +44,14 @@ function statusText(status: HeatStatus) {
   if (status === 'normal') return t('heat.statusNormal')
   if (status === 'abnormal') return t('heat.statusAbnormal')
   return t('heat.statusPending')
+}
+
+function dataSourceText(source: HeatItem['recordSource']) {
+  if (source === 'live_edc') return t('heat.dataSource.liveEdc')
+  if (source === 'live_inferred') return t('heat.dataSource.liveInferred')
+  if (source === 'demo_curve') return t('heat.dataSource.demoCurve')
+  if (source === 'none') return t('heat.dataSource.none')
+  return t('heat.dataSource.demoSeed')
 }
 
 function getDeviationClass(val: number | null): string {
@@ -154,13 +165,6 @@ onMounted(() => {
           <span class="material-symbols-outlined text-[18px]">download</span>
           导出 Excel
         </button>
-        <button
-          class="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
-          @click="heatStore.ingestMockHeat"
-        >
-          <span class="material-symbols-outlined text-[18px]">add</span>
-          {{ t('heat.ingestMockHeat') }}
-        </button>
       </template>
     </PageHeader>
 
@@ -240,6 +244,22 @@ onMounted(() => {
       {{ t('heat.cuttingAlert', { major: majorIssueCount, blocked: blockedCount }) }}
     </div>
 
+    <div
+      v-if="hasDemoHeatRecords"
+      class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+      data-testid="heat-list-source-banner"
+    >
+      <span class="material-symbols-outlined text-amber-600">info</span>
+      <div>
+        <div class="font-semibold">
+          {{ t('heat.demoSeedBannerTitle') }}
+        </div>
+        <div class="mt-1 text-amber-700">
+          {{ t('heat.demoSeedBannerBody') }}
+        </div>
+      </div>
+    </div>
+
     <div class="bg-white rounded-xl border border-border-light shadow-card overflow-hidden">
       <div v-if="heatStore.list.length > 0">
         <table class="w-full">
@@ -287,6 +307,11 @@ onMounted(() => {
                   </div>
                   <div class="text-xs text-slate-400">
                     {{ item.description || 'Furnace-A01' }}
+                  </div>
+                  <div class="mt-2">
+                    <span class="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                      {{ dataSourceText(item.recordSource) }}
+                    </span>
                   </div>
                 </td>
                 <td class="px-4 py-4">
@@ -339,99 +364,102 @@ onMounted(() => {
                     class="rounded-xl border border-border-light bg-white p-5 shadow-subtle"
                     data-testid="heat-expanded-panel"
                   >
-                    <div class="grid grid-cols-1 gap-5 xl:grid-cols-[1.3fr_1fr]">
-                      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                        <div class="rounded-xl border border-border-light bg-slate-50 p-4">
-                          <div class="flex items-center justify-between">
-                            <div class="text-sm font-semibold text-slate-800">
-                              功率微缩曲线
-                            </div>
-                            <div class="text-xs text-slate-500">
-                              Peak {{ getPeakPower(item) }} kW
-                            </div>
+                    <div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_320px]">
+                      <div class="rounded-xl border border-border-light bg-slate-50 p-4">
+                        <div class="flex items-center justify-between">
+                          <div class="text-sm font-semibold text-slate-800">
+                            功率微缩曲线
                           </div>
-                          <svg
-                            viewBox="0 0 240 72"
-                            class="mt-3 h-[72px] w-full"
-                          >
-                            <path
-                              :d="buildSparklinePath(getPreviewPower(item))"
-                              fill="none"
-                              stroke="#1152d4"
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2.5"
-                            />
-                          </svg>
-                        </div>
-
-                        <div class="rounded-xl border border-border-light bg-slate-50 p-4">
-                          <div class="flex items-center justify-between">
-                            <div class="text-sm font-semibold text-slate-800">
-                              温度微缩曲线
-                            </div>
-                            <div class="text-xs text-slate-500">
-                              {{ item.temperature || '--' }} °C
-                            </div>
+                          <div class="text-xs text-slate-500">
+                            Peak {{ getPeakPower(item) }} kW
                           </div>
-                          <svg
-                            viewBox="0 0 240 72"
-                            class="mt-3 h-[72px] w-full"
-                          >
-                            <path
-                              :d="buildSparklinePath(getPreviewTemperature(item))"
-                              fill="none"
-                              stroke="#f97316"
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              stroke-width="2.5"
-                            />
-                          </svg>
                         </div>
+                        <svg
+                          viewBox="0 0 240 72"
+                          class="mt-3 h-[72px] w-full"
+                        >
+                          <path
+                            :d="buildSparklinePath(getPreviewPower(item))"
+                            fill="none"
+                            stroke="#1152d4"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2.5"
+                          />
+                        </svg>
                       </div>
 
-                      <div class="grid grid-cols-2 gap-4">
-                        <div class="rounded-xl border border-border-light bg-slate-50 p-4">
-                          <div class="text-xs uppercase tracking-wider text-slate-400">
-                            峰值功率
+                      <div class="rounded-xl border border-border-light bg-slate-50 p-4">
+                        <div class="flex items-center justify-between">
+                          <div class="text-sm font-semibold text-slate-800">
+                            温度微缩曲线
                           </div>
-                          <div class="mt-2 text-2xl font-bold text-slate-900">
-                            {{ getPeakPower(item) }}
-                          </div>
-                          <div class="mt-1 text-xs text-slate-500">
-                            kW
+                          <div class="text-xs text-slate-500">
+                            {{ item.temperature || '--' }} °C
                           </div>
                         </div>
-                        <div class="rounded-xl border border-border-light bg-slate-50 p-4">
-                          <div class="text-xs uppercase tracking-wider text-slate-400">
-                            熔炼时长
-                          </div>
-                          <div class="mt-2 text-2xl font-bold text-slate-900">
-                            {{ getDurationMinutes(item) }}
-                          </div>
-                          <div class="mt-1 text-xs text-slate-500">
-                            分钟
-                          </div>
+                        <svg
+                          viewBox="0 0 240 72"
+                          class="mt-3 h-[72px] w-full"
+                        >
+                          <path
+                            :d="buildSparklinePath(getPreviewTemperature(item))"
+                            fill="none"
+                            stroke="#f97316"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2.5"
+                          />
+                        </svg>
+                      </div>
+
+                      <div class="rounded-xl border border-border-light bg-slate-50 p-5">
+                        <div class="text-sm font-semibold text-slate-800">
+                          关键摘要
                         </div>
-                        <div class="rounded-xl border border-border-light bg-slate-50 p-4">
-                          <div class="text-xs uppercase tracking-wider text-slate-400">
-                            平均偏差
+                        <div class="mt-4 space-y-4">
+                          <div class="rounded-lg bg-white px-4 py-3">
+                            <div class="text-xs uppercase tracking-wider text-slate-400">
+                              峰值功率
+                            </div>
+                            <div class="mt-2 text-2xl font-bold text-slate-900">
+                              {{ getPeakPower(item) }}
+                            </div>
+                            <div class="mt-1 text-xs text-slate-500">
+                              kW
+                            </div>
                           </div>
-                          <div class="mt-2 text-2xl font-bold text-slate-900">
-                            {{ item.avgDeviationPercent !== null ? `${item.avgDeviationPercent}%` : '--' }}
+                          <div class="rounded-lg bg-white px-4 py-3">
+                            <div class="text-xs uppercase tracking-wider text-slate-400">
+                              熔炼时长
+                            </div>
+                            <div class="mt-2 text-2xl font-bold text-slate-900">
+                              {{ getDurationMinutes(item) }}
+                            </div>
+                            <div class="mt-1 text-xs text-slate-500">
+                              分钟
+                            </div>
                           </div>
-                          <div class="mt-1 text-xs text-slate-500">
-                            与黄金基线对比
+                          <div class="rounded-lg bg-white px-4 py-3">
+                            <div class="text-xs uppercase tracking-wider text-slate-400">
+                              平均偏差
+                            </div>
+                            <div class="mt-2 text-2xl font-bold text-slate-900">
+                              {{ item.avgDeviationPercent !== null ? `${item.avgDeviationPercent}%` : '--' }}
+                            </div>
+                            <div class="mt-1 text-xs text-slate-500">
+                              与默认黄金基线对比
+                            </div>
                           </div>
-                        </div>
-                        <div class="rounded-xl border border-border-light bg-slate-50 p-4">
-                          <div class="text-xs uppercase tracking-wider text-slate-400">
-                            切割状态
-                          </div>
-                          <div class="mt-3">
-                            <StatusBadge :type="statusBadgeType(item.status)">
-                              {{ statusText(item.status) }}
-                            </StatusBadge>
+                          <div class="rounded-lg bg-white px-4 py-3">
+                            <div class="text-xs uppercase tracking-wider text-slate-400">
+                              切割状态
+                            </div>
+                            <div class="mt-3">
+                              <StatusBadge :type="statusBadgeType(item.status)">
+                                {{ statusText(item.status) }}
+                              </StatusBadge>
+                            </div>
                           </div>
                         </div>
                       </div>

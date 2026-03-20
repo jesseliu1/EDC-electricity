@@ -13,6 +13,19 @@ import {
 } from 'lucide-react';  
 import { GoogleGenAI } from "@google/genai";
 import { edcChannelSnapshot, edcSnapshotMeta } from './edcChannelSnapshot';
+import {
+  buildHostConnectivityDraft,
+  hostSettingsStorageKey,
+  restoreHostConnectivityDraft,
+  toggleWindowState,
+  type PersistedConnectionState,
+} from './hostConnectivityState';
+import {
+  buildDisconnectedConnectionState,
+  callHostApi,
+  reconcileAddedChannelIds,
+  syncSelectionToBackend,
+} from './hostConnectivitySync';
 import HostSettingsView from './SettingsView';
   
 /**  
@@ -242,6 +255,279 @@ const hostI18n: Record<string, Record<string, string>> = {
   },
 };
 
+const entryI18n: Record<string, Record<string, string>> = {
+  'zh-TW': {
+    appStudio: '應用工作室',
+    aiCreator: 'AI Creator',
+    hostedApp: '宿主應用',
+    openApp: '打開應用',
+    storeIntro: '在 ASNS 宿主中安裝與打開業務應用，先完成宿主與應用的串聯。',
+    embeddedHint: '目前先以宿主內嵌方式串聯，方便確認應用商店、已安裝應用與業務頁面的整體關係。',
+    openInNewWindow: '新視窗打開',
+    edcElectricityDesc: '中頻爐熔煉偏差監控與基線分析應用，將作為 ASNS 應用商店中的已安裝業務應用提供。',
+    powerMatrixDesc: 'Python 清洗應用：負責將 RocksDB 原始電力流轉化為特徵 JSON。',
+    openclawExpertDesc: 'L3 診斷技能：馬達壽命預測、機電故障 RCA 分析。',
+    studioIntro: '輸入應用名稱，AI 將自動為您生成專屬圖示與智慧配圖。',
+    studioAppName: '應用名稱',
+    studioAppNamePlaceholder: '例如：智慧能源監控...',
+    studioDescription: '功能描述',
+    studioDescriptionPlaceholder: '描述應用的主要功能，AI 將以此構思視覺...',
+    studioGeneratingConcept: 'AI 正在構思應用視覺與功能...',
+    studioGeneratingIcon: '正在生成智慧圖示...',
+    studioGeneratingFeature: '正在生成智慧配圖...',
+    studioGenerateDone: '生成完成！',
+    studioGenerateFailed: '生成失敗，請檢查網路或 API 設定。',
+    studioGenerateAction: '開始 AI 自動生成',
+    studioGeneratingAction: 'AI 正在創作中...',
+    studioPreview: '生成預覽',
+    iconPreview: '圖示預覽',
+    featurePreview: '配圖預覽',
+  },
+  'zh-CN': {
+    appStudio: '应用工作室',
+    aiCreator: 'AI Creator',
+    hostedApp: '宿主应用',
+    openApp: '打开应用',
+    storeIntro: '在 ASNS 宿主中安装与打开业务应用，先完成宿主与应用的串联。',
+    embeddedHint: '目前先以宿主内嵌方式串联，方便确认应用商店、已安装应用与业务页面的整体关系。',
+    openInNewWindow: '新窗口打开',
+    edcElectricityDesc: '中频炉熔炼偏差监控与基线分析应用，将作为 ASNS 应用商店中的已安装业务应用提供。',
+    powerMatrixDesc: 'Python 清洗应用：负责将 RocksDB 原始电力流转化为特征 JSON。',
+    openclawExpertDesc: 'L3 诊断技能：电机寿命预测、机电故障 RCA 分析。',
+    studioIntro: '输入应用名称，AI 将自动为你生成专属图标与智慧配图。',
+    studioAppName: '应用名称',
+    studioAppNamePlaceholder: '例如：智慧能源监控...',
+    studioDescription: '功能描述',
+    studioDescriptionPlaceholder: '描述应用的主要功能，AI 将据此构思视觉...',
+    studioGeneratingConcept: 'AI 正在构思应用视觉与功能...',
+    studioGeneratingIcon: '正在生成智慧图标...',
+    studioGeneratingFeature: '正在生成智慧配图...',
+    studioGenerateDone: '生成完成！',
+    studioGenerateFailed: '生成失败，请检查网络或 API 设置。',
+    studioGenerateAction: '开始 AI 自动生成',
+    studioGeneratingAction: 'AI 正在创作中...',
+    studioPreview: '生成预览',
+    iconPreview: '图标预览',
+    featurePreview: '配图预览',
+  },
+  'en-US': {
+    appStudio: 'App Studio',
+    aiCreator: 'AI Creator',
+    hostedApp: 'Hosted App',
+    openApp: 'Open App',
+    storeIntro: 'Install and open business apps inside ASNS first, then complete the host-to-app integration flow.',
+    embeddedHint: 'The host currently embeds the business app so the store, installed entry, and business page flow can be validated together.',
+    openInNewWindow: 'Open in New Window',
+    edcElectricityDesc: 'Mid-frequency furnace deviation monitoring and baseline analysis, delivered as an installed business app inside the ASNS store.',
+    powerMatrixDesc: 'Python cleaning app that converts raw RocksDB power streams into feature JSON payloads.',
+    openclawExpertDesc: 'L3 diagnostic skill for motor lifetime prediction and electromechanical RCA analysis.',
+    studioIntro: 'Enter an app name and AI will generate a dedicated icon and feature artwork for it.',
+    studioAppName: 'App Name',
+    studioAppNamePlaceholder: 'Example: Smart Energy Monitor...',
+    studioDescription: 'Description',
+    studioDescriptionPlaceholder: 'Describe the main capabilities so AI can shape the visual direction...',
+    studioGeneratingConcept: 'AI is drafting the app concept and visuals...',
+    studioGeneratingIcon: 'Generating the icon...',
+    studioGeneratingFeature: 'Generating the feature artwork...',
+    studioGenerateDone: 'Generation complete.',
+    studioGenerateFailed: 'Generation failed. Check network or API settings.',
+    studioGenerateAction: 'Start AI Generation',
+    studioGeneratingAction: 'AI Generating...',
+    studioPreview: 'AI Preview',
+    iconPreview: 'Icon Preview',
+    featurePreview: 'Feature Preview',
+  },
+  'ja-JP': {
+    appStudio: 'アプリスタジオ',
+    aiCreator: 'AI Creator',
+    hostedApp: 'ホストアプリ',
+    openApp: 'アプリを開く',
+    storeIntro: 'まず ASNS ホスト内で業務アプリを導入して開き、ホストとアプリの連携を確認します。',
+    embeddedHint: '現在はホスト埋め込みで接続し、ストア、導入済みアプリ入口、業務画面の流れをまとめて確認します。',
+    openInNewWindow: '新しいウィンドウで開く',
+    edcElectricityDesc: '中周波炉の偏差監視と基準線分析を行う業務アプリで、ASNS ストアの導入済みアプリとして提供されます。',
+    powerMatrixDesc: 'RocksDB の生電力データを特徴量 JSON に変換する Python クレンジングアプリです。',
+    openclawExpertDesc: 'モーター寿命予測と電機故障 RCA を行う L3 診断スキルです。',
+    studioIntro: 'アプリ名を入力すると、AI が専用アイコンとキービジュアルを自動生成します。',
+    studioAppName: 'アプリ名',
+    studioAppNamePlaceholder: '例：スマートエネルギー監視...',
+    studioDescription: '機能説明',
+    studioDescriptionPlaceholder: '主要機能を入力すると、AI がビジュアル方向を考案します...',
+    studioGeneratingConcept: 'AI がアプリの構想とビジュアルを作成中です...',
+    studioGeneratingIcon: 'アイコンを生成中...',
+    studioGeneratingFeature: 'キービジュアルを生成中...',
+    studioGenerateDone: '生成が完了しました。',
+    studioGenerateFailed: '生成に失敗しました。ネットワークまたは API 設定を確認してください。',
+    studioGenerateAction: 'AI で自動生成',
+    studioGeneratingAction: 'AI が生成中...',
+    studioPreview: '生成プレビュー',
+    iconPreview: 'アイコンプレビュー',
+    featurePreview: 'ビジュアルプレビュー',
+  },
+  'ko-KR': {
+    appStudio: '앱 스튜디오',
+    aiCreator: 'AI Creator',
+    hostedApp: '호스트 앱',
+    openApp: '앱 열기',
+    storeIntro: '먼저 ASNS 호스트 안에서 업무 앱을 설치하고 열어 호스트와 앱의 연동을 확인합니다.',
+    embeddedHint: '현재는 호스트 내장 방식으로 연결하여 스토어, 설치된 앱 진입점, 업무 페이지 흐름을 함께 검증합니다.',
+    openInNewWindow: '새 창에서 열기',
+    edcElectricityDesc: '중주파 용해 편차 모니터링과 기준선 분석을 제공하는 업무 앱으로 ASNS 스토어의 설치형 앱으로 제공됩니다.',
+    powerMatrixDesc: 'RocksDB 원시 전력 스트림을 특징 JSON 으로 변환하는 Python 정제 앱입니다.',
+    openclawExpertDesc: '모터 수명 예측과 전기기계 고장 RCA 분석을 위한 L3 진단 스킬입니다.',
+    studioIntro: '앱 이름을 입력하면 AI 가 전용 아이콘과 피처 이미지를 자동 생성합니다.',
+    studioAppName: '앱 이름',
+    studioAppNamePlaceholder: '예: 스마트 에너지 모니터...',
+    studioDescription: '기능 설명',
+    studioDescriptionPlaceholder: '주요 기능을 설명하면 AI 가 시각 방향을 구성합니다...',
+    studioGeneratingConcept: 'AI 가 앱 컨셉과 비주얼을 구상 중입니다...',
+    studioGeneratingIcon: '아이콘 생성 중...',
+    studioGeneratingFeature: '피처 이미지 생성 중...',
+    studioGenerateDone: '생성이 완료되었습니다.',
+    studioGenerateFailed: '생성에 실패했습니다. 네트워크 또는 API 설정을 확인하세요.',
+    studioGenerateAction: 'AI 자동 생성 시작',
+    studioGeneratingAction: 'AI 생성 중...',
+    studioPreview: '생성 미리보기',
+    iconPreview: '아이콘 미리보기',
+    featurePreview: '피처 이미지 미리보기',
+  },
+  'fr-FR': {
+    appStudio: 'Studio d\'applications',
+    aiCreator: 'AI Creator',
+    hostedApp: 'Application hote',
+    openApp: 'Ouvrir l\'application',
+    storeIntro: 'Installez puis ouvrez les applications metier dans l\'hote ASNS afin de valider d\'abord l\'integration hote-application.',
+    embeddedHint: 'L\'hote integre pour l\'instant l\'application metier afin de verifier ensemble le store, l\'entree des applications installees et le flux des pages.',
+    openInNewWindow: 'Ouvrir dans une nouvelle fenetre',
+    edcElectricityDesc: 'Application metier de surveillance des ecarts de fusion et d\'analyse de ligne de base pour four MF, fournie comme application installee dans le store ASNS.',
+    powerMatrixDesc: 'Application Python de nettoyage qui convertit les flux electriques bruts de RocksDB en JSON de caracteristiques.',
+    openclawExpertDesc: 'Competence de diagnostic L3 pour la prediction de duree de vie moteur et l\'analyse RCA electromechanique.',
+    studioIntro: 'Saisissez un nom d\'application et l\'IA generera automatiquement une icone et un visuel dedies.',
+    studioAppName: 'Nom de l\'application',
+    studioAppNamePlaceholder: 'Exemple : Supervision energie intelligente...',
+    studioDescription: 'Description',
+    studioDescriptionPlaceholder: 'Decrivez les fonctions principales pour guider le style visuel...',
+    studioGeneratingConcept: 'L\'IA prepare le concept et les visuels de l\'application...',
+    studioGeneratingIcon: 'Generation de l\'icone...',
+    studioGeneratingFeature: 'Generation du visuel principal...',
+    studioGenerateDone: 'Generation terminee.',
+    studioGenerateFailed: 'La generation a echoue. Verifiez le reseau ou la configuration API.',
+    studioGenerateAction: 'Lancer la generation IA',
+    studioGeneratingAction: 'Generation IA en cours...',
+    studioPreview: 'Apercu IA',
+    iconPreview: 'Apercu de l\'icone',
+    featurePreview: 'Apercu du visuel',
+  },
+  'de-DE': {
+    appStudio: 'App Studio',
+    aiCreator: 'AI Creator',
+    hostedApp: 'Host-App',
+    openApp: 'App offnen',
+    storeIntro: 'Installieren und offnen Sie Geschaftsanwendungen zuerst im ASNS-Host, um die Host-App-Integration zu validieren.',
+    embeddedHint: 'Die Fachanwendung wird derzeit im Host eingebettet, damit Store, installierter Einstieg und Seitenfluss gemeinsam gepruft werden konnen.',
+    openInNewWindow: 'In neuem Fenster offnen',
+    edcElectricityDesc: 'Fachanwendung fur Abweichungsuberwachung und Baseline-Analyse im Mittelfrequenz-Schmelzprozess, bereitgestellt als installierte App im ASNS-Store.',
+    powerMatrixDesc: 'Python-Bereinigungsanwendung, die rohe RocksDB-Leistungsdaten in Feature-JSON umwandelt.',
+    openclawExpertDesc: 'L3-Diagnose-Skill fur Motorlebensdauer-Prognosen und elektromechanische RCA-Analysen.',
+    studioIntro: 'Geben Sie einen App-Namen ein und die KI erstellt automatisch ein Icon und ein Titelbild.',
+    studioAppName: 'App-Name',
+    studioAppNamePlaceholder: 'Beispiel: Intelligente Energieuberwachung...',
+    studioDescription: 'Beschreibung',
+    studioDescriptionPlaceholder: 'Beschreiben Sie die Hauptfunktionen, damit die KI die visuelle Richtung ableiten kann...',
+    studioGeneratingConcept: 'Die KI entwirft gerade Konzept und Visuals...',
+    studioGeneratingIcon: 'Icon wird erzeugt...',
+    studioGeneratingFeature: 'Titelbild wird erzeugt...',
+    studioGenerateDone: 'Erzeugung abgeschlossen.',
+    studioGenerateFailed: 'Erzeugung fehlgeschlagen. Bitte Netzwerk oder API-Einstellungen prufen.',
+    studioGenerateAction: 'KI-Generierung starten',
+    studioGeneratingAction: 'KI generiert...',
+    studioPreview: 'Vorschau',
+    iconPreview: 'Icon-Vorschau',
+    featurePreview: 'Bild-Vorschau',
+  },
+  'vi-VN': {
+    appStudio: 'Xuong ung dung',
+    aiCreator: 'AI Creator',
+    hostedApp: 'Ung dung chu',
+    openApp: 'Mo ung dung',
+    storeIntro: 'Hay cai dat va mo ung dung nghiep vu trong ASNS truoc de xac nhan luong tich hop giua host va app.',
+    embeddedHint: 'Hien tai host nhung truc tiep ung dung nghiep vu de kiem tra dong thoi cua hang, diem vao da cai dat va luong trang.',
+    openInNewWindow: 'Mo trong cua so moi',
+    edcElectricityDesc: 'Ung dung giam sat do lech nau luyen va phan tich duong co so cho lo trung tan, duoc cung cap nhu mot ung dung da cai trong ASNS Store.',
+    powerMatrixDesc: 'Ung dung Python lam sach du lieu, chuyen luong dien tho RocksDB thanh JSON dac trung.',
+    openclawExpertDesc: 'Ky nang chan doan L3 cho du bao tuoi tho dong co va phan tich RCA co dien.',
+    studioIntro: 'Nhap ten ung dung va AI se tu dong tao bieu tuong cung anh gioi thieu rieng.',
+    studioAppName: 'Ten ung dung',
+    studioAppNamePlaceholder: 'Vi du: Giam sat nang luong thong minh...',
+    studioDescription: 'Mo ta chuc nang',
+    studioDescriptionPlaceholder: 'Mo ta cac kha nang chinh de AI dinh huong giao dien...',
+    studioGeneratingConcept: 'AI dang phac thao y tuong va hinh anh ung dung...',
+    studioGeneratingIcon: 'Dang tao bieu tuong...',
+    studioGeneratingFeature: 'Dang tao anh gioi thieu...',
+    studioGenerateDone: 'Da tao xong.',
+    studioGenerateFailed: 'Tao that bai. Vui long kiem tra mang hoac cau hinh API.',
+    studioGenerateAction: 'Bat dau tao bang AI',
+    studioGeneratingAction: 'AI dang tao...',
+    studioPreview: 'Xem truoc',
+    iconPreview: 'Xem truoc bieu tuong',
+    featurePreview: 'Xem truoc anh',
+  },
+  'th-TH': {
+    appStudio: 'สตูดิโอแอป',
+    aiCreator: 'AI Creator',
+    hostedApp: 'แอปโฮสต์',
+    openApp: 'เปิดแอป',
+    storeIntro: 'ติดตั้งและเปิดแอปธุรกิจใน ASNS โฮสต์ก่อน เพื่อยืนยันลำดับการเชื่อมต่อระหว่างโฮสต์กับแอป',
+    embeddedHint: 'ขณะนี้โฮสต์ฝังแอปธุรกิจไว้ภายใน เพื่อให้ตรวจสอบสโตร์ จุดเข้าแอปที่ติดตั้ง และโฟลว์หน้าจอร่วมกันได้',
+    openInNewWindow: 'เปิดในหน้าต่างใหม่',
+    edcElectricityDesc: 'แอปสำหรับติดตามความเบี่ยงเบนการหลอมและวิเคราะห์เส้นฐานของเตาความถี่ปานกลาง ให้ใช้งานเป็นแอปที่ติดตั้งใน ASNS Store',
+    powerMatrixDesc: 'แอป Python สำหรับทำความสะอาดข้อมูล เปลี่ยนสตรีมพลังงานดิบจาก RocksDB ให้เป็น JSON คุณลักษณะ',
+    openclawExpertDesc: 'ทักษะวินิจฉัย L3 สำหรับพยากรณ์อายุมอเตอร์และวิเคราะห์ RCA ทางไฟฟ้ากล',
+    studioIntro: 'ใส่ชื่อแอป แล้ว AI จะสร้างไอคอนและภาพประกอบหลักให้โดยอัตโนมัติ',
+    studioAppName: 'ชื่อแอป',
+    studioAppNamePlaceholder: 'เช่น Smart Energy Monitor...',
+    studioDescription: 'คำอธิบาย',
+    studioDescriptionPlaceholder: 'อธิบายความสามารถหลักเพื่อให้ AI ออกแบบทิศทางภาพ...',
+    studioGeneratingConcept: 'AI กำลังร่างแนวคิดและภาพของแอป...',
+    studioGeneratingIcon: 'กำลังสร้างไอคอน...',
+    studioGeneratingFeature: 'กำลังสร้างภาพประกอบหลัก...',
+    studioGenerateDone: 'สร้างเสร็จแล้ว',
+    studioGenerateFailed: 'สร้างไม่สำเร็จ โปรดตรวจสอบเครือข่ายหรือการตั้งค่า API',
+    studioGenerateAction: 'เริ่มสร้างด้วย AI',
+    studioGeneratingAction: 'AI กำลังสร้าง...',
+    studioPreview: 'ตัวอย่าง',
+    iconPreview: 'ตัวอย่างไอคอน',
+    featurePreview: 'ตัวอย่างภาพ',
+  },
+  'id-ID': {
+    appStudio: 'Studio Aplikasi',
+    aiCreator: 'AI Creator',
+    hostedApp: 'Aplikasi Host',
+    openApp: 'Buka Aplikasi',
+    storeIntro: 'Pasang dan buka aplikasi bisnis di dalam host ASNS lebih dulu untuk memvalidasi alur integrasi host-ke-aplikasi.',
+    embeddedHint: 'Saat ini host menyematkan aplikasi bisnis agar alur store, entri aplikasi terpasang, dan halaman bisnis dapat divalidasi bersama.',
+    openInNewWindow: 'Buka di Jendela Baru',
+    edcElectricityDesc: 'Aplikasi bisnis untuk memantau deviasi peleburan dan analisis baseline tungku frekuensi menengah, disajikan sebagai aplikasi terpasang di ASNS Store.',
+    powerMatrixDesc: 'Aplikasi pembersihan Python yang mengubah aliran daya mentah RocksDB menjadi payload JSON fitur.',
+    openclawExpertDesc: 'Keahlian diagnostik L3 untuk prediksi umur motor dan analisis RCA elektromekanis.',
+    studioIntro: 'Masukkan nama aplikasi dan AI akan membuat ikon serta artwork fitur secara otomatis.',
+    studioAppName: 'Nama Aplikasi',
+    studioAppNamePlaceholder: 'Contoh: Monitor Energi Cerdas...',
+    studioDescription: 'Deskripsi',
+    studioDescriptionPlaceholder: 'Jelaskan kemampuan utama agar AI dapat menentukan arah visual...',
+    studioGeneratingConcept: 'AI sedang menyusun konsep dan visual aplikasi...',
+    studioGeneratingIcon: 'Sedang membuat ikon...',
+    studioGeneratingFeature: 'Sedang membuat artwork fitur...',
+    studioGenerateDone: 'Pembuatan selesai.',
+    studioGenerateFailed: 'Pembuatan gagal. Periksa jaringan atau pengaturan API.',
+    studioGenerateAction: 'Mulai Generasi AI',
+    studioGeneratingAction: 'AI Sedang Membuat...',
+    studioPreview: 'Pratinjau',
+    iconPreview: 'Pratinjau Ikon',
+    featurePreview: 'Pratinjau Gambar',
+  },
+};
+
 const mappingFieldDefinitions: Array<{
   key: MappingFieldKey;
   labelKey: string;
@@ -409,11 +695,82 @@ export default function App() {
       { suid: 'S02', name: 'Vibration_X', nickname: '', value: 0.08, unit: 'g' }  
     ]}  
   ]);  
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const fallbackConnection: PersistedConnectionState = {
+      isConnected: false,
+      machineName: 'EDC Test Gateway',
+      lastSyncLabel: '2026-03-16 11:12',
+      meta: edcSnapshotMeta,
+    };
+
+    const bootstrap = async () => {
+      try {
+        const restored = restoreHostConnectivityDraft(
+          window.localStorage.getItem(hostSettingsStorageKey),
+          edcChannelSnapshot.map((item) => item.id),
+          fallbackConnection,
+        );
+        if (!restored) {
+          return;
+        }
+        if (restored.config) {
+          setConfig(restored.config);
+        }
+        if (restored.connection) {
+          setIsConnected(restored.connection.isConnected);
+        }
+        if (!restored.config) {
+          return;
+        }
+
+        const restoredChannelIds = reconcileAddedChannelIds(restored.addedChannelIds, edcChannelSnapshot);
+        const selectedChannels = restoredChannelIds
+          .map((channelId) => edcChannelSnapshot.find((item) => item.id === channelId))
+          .filter((item): item is (typeof edcChannelSnapshot)[number] => Boolean(item));
+
+        await syncSelectionToBackend(restored.config, selectedChannels);
+
+        const { response, data } = await callHostApi('/host-api/edc/test-connection', restored.config);
+        const connectionState =
+          response.ok && data.ok
+            ? {
+                isConnected: true,
+                machineName: data.nodeName,
+                lastSyncLabel: new Date(data.checkedAt).toLocaleString('zh-CN', { hour12: false }),
+                meta: data.meta,
+              }
+            : buildDisconnectedConnectionState(restored.config.endpoint);
+        setIsConnected(connectionState.isConnected);
+        window.localStorage.setItem(
+          hostSettingsStorageKey,
+          JSON.stringify(
+            buildHostConnectivityDraft({
+              config: restored.config,
+              addedChannelIds: restoredChannelIds,
+              savedAt: new Date().toISOString(),
+              connection: connectionState,
+            }),
+          ),
+        );
+      } catch {
+        setIsConnected(false);
+      }
+    };
+
+    void bootstrap();
+  }, []);
   
   const t = (key: string) =>
     hostI18n[lang]?.[key] ||
+    entryI18n[lang]?.[key] ||
     translations[lang]?.[key] ||
     hostI18n['zh-CN']?.[key] ||
+    entryI18n['en-US']?.[key] ||
     translations['zh-CN']?.[key] ||
     key;  
   
@@ -426,7 +783,7 @@ export default function App() {
       name: 'EDC electricity',
       icon: <Zap className="w-full h-full" />,
       color: 'bg-gradient-to-br from-blue-600 to-cyan-500',
-      description: '中頻爐熔煉偏差監控與基線分析應用，將作為 ASNS 應用商店中的已安裝業務應用提供。',
+      description: t('edcElectricityDesc'),
       type: 'app',
       status: installedAppIds.includes('edc-electricity') ? 'installed' : 'deployable',
       kind: 'embedded',
@@ -435,7 +792,7 @@ export default function App() {
     {
       id: 'l2_cleaner',
       name: 'Power Matrix L2',
-      description: 'Python 清洗應用：負責將 RocksDB 原始電力流轉化為特徵 JSON。',
+      description: t('powerMatrixDesc'),
       type: 'py',
       status: 'deployable',
       color: 'bg-blue-500',
@@ -443,7 +800,7 @@ export default function App() {
     {
       id: 'l3_expert',
       name: 'OpenClaw Expert',
-      description: 'L3 診斷技能：馬達壽命預測、機電故障 RCA 分析。',
+      description: t('openclawExpertDesc'),
       type: 'md',
       status: 'ready',
       color: 'bg-purple-500',
@@ -456,7 +813,7 @@ export default function App() {
     { id: 'dash', name: t('dash'), icon: <Activity className="w-full h-full" />, color: 'bg-blue-500' },  
     { id: 'store', name: t('store'), icon: <Package className="w-full h-full" />, color: 'bg-orange-500' },  
     { id: 'devices', name: t('devices'), icon: <Database className="w-full h-full" />, color: 'bg-emerald-500' },  
-    { id: 'studio', name: 'App Studio', icon: <Cpu className="w-full h-full" />, color: 'bg-indigo-600' },
+    { id: 'studio', name: t('appStudio'), icon: <Cpu className="w-full h-full" />, color: 'bg-indigo-600' },
     { id: 'connect', name: t('connect'), icon: <Settings className="w-full h-full" />, color: 'bg-slate-600' },  
     ...installedStoreApps,
     ...customApps
@@ -464,11 +821,11 @@ export default function App() {
   
   const openWindows = openWindowIds.map(id => appIcons.find(app => app.id === id)).filter(Boolean) as AppWindow[];
 
-  const toggleWindow = (appId: string) => {  
-    if (openWindowIds.includes(appId)) setActiveWin(appId);  
-    else setOpenWindowIds([...openWindowIds, appId]);  
-    setActiveWin(appId);  
-  };  
+  const toggleWindow = (appId: string) => {
+    const nextState = toggleWindowState(openWindowIds, appId);
+    setOpenWindowIds(nextState.openWindowIds);
+    setActiveWin(nextState.activeWin);
+  };
 
   const installApp = (appId: string) => {
     if (installedAppIds.includes(appId)) {
@@ -611,6 +968,7 @@ export default function App() {
               <EmbeddedAppView
                 appName={win.name}
                 launchUrl={win.launchUrl}
+                t={t}
               />
             )}
           </WindowFrame>  
@@ -1172,7 +1530,7 @@ function StoreView({ t, items, installedAppIds, onInstall, onOpen }: StoreViewPr
     <div className="p-6 md:p-10 flex flex-col gap-6 md:gap-8 h-full bg-gradient-to-tr from-transparent to-blue-500/5 overflow-y-auto custom-scrollbar">  
       <div className="animate-in slide-in-from-left duration-500">
         <h2 className="text-2xl md:text-3xl font-black tracking-tight mb-2">{t('store')}</h2>  
-        <p className="text-[10px] md:text-xs opacity-50 font-medium">在 ASNS 宿主中安裝與打開業務應用，先完成宿主與應用的串聯。</p>
+        <p className="text-[10px] md:text-xs opacity-50 font-medium">{t('storeIntro')}</p>
       </div>
   
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">  
@@ -1190,7 +1548,7 @@ function StoreView({ t, items, installedAppIds, onInstall, onOpen }: StoreViewPr
                   px-3 md:px-4 py-1 md:py-1.5 rounded-full text-[9px] md:text-[10px] font-black uppercase tracking-widest shadow-sm border border-white/10
                   ${item.type === 'py' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' : item.type === 'app' ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'}
                 `}>  
-                  {item.type === 'py' ? t('pythonApp') : item.type === 'app' ? 'Hosted App' : t('skill')}  
+                  {item.type === 'py' ? t('pythonApp') : item.type === 'app' ? t('hostedApp') : t('skill')}  
                 </span>  
                 <div className="p-1.5 md:p-2 rounded-full bg-emerald-500/10 text-emerald-500">
                   <ShieldCheck className="w-4 h-4 md:w-5 md:h-5" />  
@@ -1214,7 +1572,7 @@ function StoreView({ t, items, installedAppIds, onInstall, onOpen }: StoreViewPr
                 <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300" />
                 {installedAppIds.includes(item.id) ? (
                   <>
-                    <Activity className="w-3.5 h-3.5 md:w-4 md:h-4" /> 打開應用
+                    <Activity className="w-3.5 h-3.5 md:w-4 md:h-4" /> {t('openApp')}
                   </>
                 ) : (
                   <>
@@ -1229,14 +1587,22 @@ function StoreView({ t, items, installedAppIds, onInstall, onOpen }: StoreViewPr
     );  
   }  
 
-function EmbeddedAppView({ appName, launchUrl }: { appName: string; launchUrl: string }) {
+function EmbeddedAppView({
+  appName,
+  launchUrl,
+  t,
+}: {
+  appName: string;
+  launchUrl: string;
+  t: (key: string) => string;
+}) {
   return (
     <div className="h-full bg-gradient-to-br from-transparent to-blue-500/5 p-4 md:p-6 flex flex-col gap-4">
       <div className="flex items-center justify-between gap-4 rounded-[24px] bg-white/60 dark:bg-white/5 border border-white/40 dark:border-white/10 px-5 py-4 backdrop-blur-xl shadow-sm">
         <div className="flex flex-col gap-1">
           <h2 className="text-lg md:text-xl font-black tracking-tight">{appName}</h2>
           <p className="text-[10px] md:text-xs opacity-60 font-medium">
-            目前先以宿主內嵌方式串聯，方便確認應用商店、已安裝應用與業務頁面的整體關係。
+            {t('embeddedHint')}
           </p>
         </div>
         <a
@@ -1245,7 +1611,7 @@ function EmbeddedAppView({ appName, launchUrl }: { appName: string; launchUrl: s
           rel="noreferrer"
           className="px-4 py-2 rounded-2xl bg-slate-900 dark:bg-white dark:text-slate-900 text-white text-[10px] md:text-xs font-black uppercase tracking-widest shadow-lg hover:opacity-90 transition-opacity"
         >
-          新視窗打開
+          {t('openInNewWindow')}
         </a>
       </div>
       <div className="flex-1 overflow-hidden rounded-[28px] border border-white/40 dark:border-white/10 bg-white/70 dark:bg-black/20 backdrop-blur-xl shadow-xl">
@@ -1271,13 +1637,13 @@ function AppStudioView({ t, onAddApp }: AppStudioViewProps) {
   const generateApp = async () => {
     if (!appName) return;
     setIsGenerating(true);
-    setStatus('AI 正在構思應用視覺與功能...');
+    setStatus(t('studioGeneratingConcept'));
     
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       
       // 1. 生成圖示
-      setStatus('正在生成智慧圖示 (Icon)...');
+      setStatus(t('studioGeneratingIcon'));
       const iconResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
@@ -1297,7 +1663,7 @@ function AppStudioView({ t, onAddApp }: AppStudioViewProps) {
       }
 
       // 2. 智慧配圖 (Feature Image)
-      setStatus('正在進行智慧配圖 (Feature Image)...');
+      setStatus(t('studioGeneratingFeature'));
       const featureResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
@@ -1316,7 +1682,7 @@ function AppStudioView({ t, onAddApp }: AppStudioViewProps) {
         }
       }
 
-      setStatus('生成完成！');
+      setStatus(t('studioGenerateDone'));
       
       const newApp: AppWindow = {
         id: `app_${Date.now()}`,
@@ -1332,7 +1698,7 @@ function AppStudioView({ t, onAddApp }: AppStudioViewProps) {
       
     } catch (error) {
       console.error('Generation failed:', error);
-      setStatus('生成失敗，請檢查網路或 API 設定。');
+      setStatus(t('studioGenerateFailed'));
     } finally {
       setIsGenerating(false);
     }
@@ -1343,30 +1709,30 @@ function AppStudioView({ t, onAddApp }: AppStudioViewProps) {
       <div className="animate-in slide-in-from-left duration-500">
         <h2 className="text-2xl md:text-3xl font-black tracking-tight mb-2 flex items-center gap-3">
           <Sparkles className="text-indigo-500" />
-          App Studio <span className="text-sm font-bold opacity-40 uppercase tracking-widest">AI Creator</span>
+          {t('appStudio')} <span className="text-sm font-bold opacity-40 uppercase tracking-widest">{t('aiCreator')}</span>
         </h2>
-        <p className="text-[10px] md:text-xs opacity-50 font-medium">輸入應用名稱，AI 將自動為您生成專屬圖示與智慧配圖</p>
+        <p className="text-[10px] md:text-xs opacity-50 font-medium">{t('studioIntro')}</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="space-y-6 animate-in slide-in-from-bottom duration-700">
           <div className="bg-white/50 dark:bg-black/20 p-6 rounded-[32px] border border-white/40 dark:border-white/5 shadow-xl space-y-6">
             <div>
-              <label className="text-[10px] font-black uppercase opacity-40 ml-1 mb-2 block tracking-wider">應用名稱 (App Name)</label>
+              <label className="text-[10px] font-black uppercase opacity-40 ml-1 mb-2 block tracking-wider">{t('studioAppName')}</label>
               <input 
                 type="text" 
                 value={appName}
                 onChange={e => setAppName(e.target.value)}
-                placeholder="例如：智慧能源監控..."
+                placeholder={t('studioAppNamePlaceholder')}
                 className="w-full bg-white/80 dark:bg-black/40 border-none rounded-2xl px-4 py-4 text-sm font-bold focus:ring-2 ring-indigo-500/50 transition-all shadow-inner"
               />
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase opacity-40 ml-1 mb-2 block tracking-wider">功能描述 (Description)</label>
+              <label className="text-[10px] font-black uppercase opacity-40 ml-1 mb-2 block tracking-wider">{t('studioDescription')}</label>
               <textarea 
                 value={appDesc}
                 onChange={e => setAppDesc(e.target.value)}
-                placeholder="描述應用的主要功能，AI 將以此構思視覺..."
+                placeholder={t('studioDescriptionPlaceholder')}
                 rows={4}
                 className="w-full bg-white/80 dark:bg-black/40 border-none rounded-2xl px-4 py-4 text-sm font-medium focus:ring-2 ring-indigo-500/50 transition-all shadow-inner resize-none"
               />
@@ -1380,7 +1746,7 @@ function AppStudioView({ t, onAddApp }: AppStudioViewProps) {
               `}
             >
               {isGenerating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-              {isGenerating ? 'AI 正在創作中...' : '開始 AI 自動生成'}
+              {isGenerating ? t('studioGeneratingAction') : t('studioGenerateAction')}
             </button>
             {status && <p className="text-[10px] text-center font-bold text-indigo-500 animate-pulse">{status}</p>}
           </div>
@@ -1388,18 +1754,18 @@ function AppStudioView({ t, onAddApp }: AppStudioViewProps) {
 
         <div className="space-y-6 animate-in slide-in-from-right duration-700">
           <div className="bg-white/50 dark:bg-black/20 p-6 rounded-[32px] border border-white/40 dark:border-white/5 shadow-xl h-full flex flex-col gap-6">
-            <h3 className="text-[10px] font-black uppercase opacity-40 tracking-widest">生成預覽 (AI Preview)</h3>
+            <h3 className="text-[10px] font-black uppercase opacity-40 tracking-widest">{t('studioPreview')}</h3>
             
             <div className="flex-1 flex flex-col gap-6">
               <div className="flex items-center gap-6">
                 <div className="w-24 h-24 md:w-32 md:h-32 rounded-[28px] bg-slate-100 dark:bg-white/5 border border-white/20 flex items-center justify-center overflow-hidden shadow-inner relative group">
                   {previewIcon ? (
-                    <img src={previewIcon} alt="Icon Preview" className="w-full h-full object-cover" />
+                    <img src={previewIcon} alt={t('iconPreview')} className="w-full h-full object-cover" />
                   ) : (
                     <ImageIcon className="w-8 h-8 opacity-20" />
                   )}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <span className="text-[8px] text-white font-bold uppercase tracking-widest">Icon</span>
+                    <span className="text-[8px] text-white font-bold uppercase tracking-widest">{t('iconPreview')}</span>
                   </div>
                 </div>
                 <div className="flex-1 space-y-2">
@@ -1411,12 +1777,12 @@ function AppStudioView({ t, onAddApp }: AppStudioViewProps) {
 
               <div className="aspect-video w-full rounded-[24px] bg-slate-100 dark:bg-white/5 border border-white/20 flex items-center justify-center overflow-hidden shadow-inner relative group">
                 {previewFeature ? (
-                  <img src={previewFeature} alt="Feature Preview" className="w-full h-full object-cover" />
+                  <img src={previewFeature} alt={t('featurePreview')} className="w-full h-full object-cover" />
                 ) : (
                   <ImageIcon className="w-12 h-12 opacity-20" />
                 )}
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <span className="text-[10px] text-white font-bold uppercase tracking-widest">Feature Image</span>
+                  <span className="text-[10px] text-white font-bold uppercase tracking-widest">{t('featurePreview')}</span>
                 </div>
               </div>
             </div>

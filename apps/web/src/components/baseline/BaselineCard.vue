@@ -10,6 +10,7 @@ const { t } = useI18n()
 
 interface Props {
   baseline: BaselineItem
+  isDefault?: boolean
 }
 
 const props = defineProps<Props>()
@@ -19,6 +20,7 @@ interface Emits {
   (e: 'delete', id: string): void
   (e: 'publish', id: string): void
   (e: 'disable', id: string): void
+  (e: 'activate', id: string): void
 }
 
 const emit = defineEmits<Emits>()
@@ -67,6 +69,9 @@ function handleCommand(command: string) {
     case 'disable':
       emit('disable', props.baseline.id)
       break
+    case 'activate':
+      emit('activate', props.baseline.id)
+      break
   }
 }
 </script>
@@ -90,6 +95,15 @@ function handleCommand(command: string) {
               class="shrink-0"
             >
               {{ statusText }}
+            </el-tag>
+            <el-tag
+              v-if="isDefault"
+              size="small"
+              type="warning"
+              effect="light"
+              class="shrink-0"
+            >
+              {{ t('baseline.defaultBadge') }}
             </el-tag>
           </div>
           <p class="text-sm text-gray-500 line-clamp-2 h-10">
@@ -126,6 +140,12 @@ function handleCommand(command: string) {
                 :icon="VideoPlay"
               >
                 {{ t('baseline.publish') }}
+              </el-dropdown-item>
+              <el-dropdown-item 
+                v-if="baseline.status === 'published'" 
+                command="activate"
+              >
+                {{ t('baseline.setDefault') }}
               </el-dropdown-item>
               <el-dropdown-item 
                 v-if="baseline.status === 'published'" 

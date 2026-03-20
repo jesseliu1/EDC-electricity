@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from ..schemas import DashboardStats, RecentHeat, RecentHeatsResponse
 from ..schemas.common import CurvePoint
@@ -15,6 +15,14 @@ from .baselines import _BASELINE_STORE
 from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE, get_edc_connection_config
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+
+async def _sorted_dashboard_heats() -> list[dict[str, Any]]:
+    from . import heats as heats_api
+
+    items = list((await heats_api._list_heat_store()).values())
+    items.sort(key=lambda item: item["start_time"], reverse=True)
+    return items
 
 
 def _resolve_host_channel(channel_id: str | None) -> dict[str, str] | None:
@@ -159,13 +167,29 @@ async def get_dashboard_stats() -> DashboardStats:
 
     返回当日生产概况：炉次数、平均偏差、待处理任务数等。
     """
-    # TODO: 实现真实逻辑，从数据库查询
+    from .tasks import _TASK_STORE
+
+    sources = _resolve_dashboard_sources()
+    heats = await _sorted_dashboard_heats()
+    today = datetime.now().date()
+    today_heats = [item for item in heats if item["start_time"].date() == today]
+    scoped_heats = today_heats or heats
+    deviations = [
+        float(item["deviation_percent"])
+        for item in scoped_heats
+        if item.get("deviation_percent") is not None
+    ]
+    normal_count = sum(1 for item in scoped_heats if item.get("status") == "normal")
+    pending_tasks = sum(
+        1 for item in _TASK_STORE.values() if item.get("status") in {"pending", "in_progress"}
+    )
+
     return DashboardStats(
-        today_heats=12,
-        avg_deviation=8.5,
-        pending_tasks=3,
-        active_baseline=_resolve_dashboard_sources()["baseline_name"] or "标准基线 v2.1",
-        normal_rate=85.0,
+        today_heats=len(today_heats),
+        avg_deviation=round(sum(deviations) / len(deviations), 3) if deviations else 0.0,
+        pending_tasks=pending_tasks,
+        active_baseline=sources["baseline_name"],
+        normal_rate=round((normal_count / len(scoped_heats)) * 100, 2) if scoped_heats else 0.0,
     )
 
 
@@ -200,29 +224,15 @@ async def get_realtime_data(
     )
 
     if realtime_curves is None:
-        points_map = {
-            "5m": 60,
-            "1h": 120,
-            "6h": 180,
-            "24h": 288,
-        }
-        points = points_map[duration]
-        power_curve: list[dict[str, float | int]] = []
-        voltage_curve: list[dict[str, float | int]] = []
-        baseline_power: list[dict[str, float | int]] = []
-        baseline_voltage: list[dict[str, float | int]] = []
+        raise HTTPException(
+            status_code=503,
+            detail="未获取到真实实时数据，请检查宿主连接和通道绑定",
+        )
 
-        for i in range(points):
-            ts = int((start_time + (delta / points) * i).timestamp() * 1000)
-            power_curve.append({"timestamp": ts, "value": 450 + ((i + points // 12) % 10) * 5})
-            voltage_curve.append({"timestamp": ts, "value": 380 + ((i + points // 24) % 5) * 2})
-            baseline_power.append({"timestamp": ts, "value": 460})
-            baseline_voltage.append({"timestamp": ts, "value": 385})
-    else:
-        power_curve = [item.model_dump() for item in realtime_curves["power"]]
-        voltage_curve = [item.model_dump() for item in realtime_curves["voltage"]]
-        baseline_power = [item.model_dump() for item in realtime_curves["baseline_power"]]
-        baseline_voltage = [item.model_dump() for item in realtime_curves["baseline_voltage"]]
+    power_curve = [item.model_dump() for item in realtime_curves["power"]]
+    voltage_curve = [item.model_dump() for item in realtime_curves["voltage"]]
+    baseline_power = [item.model_dump() for item in realtime_curves["baseline_power"]]
+    baseline_voltage = [item.model_dump() for item in realtime_curves["baseline_voltage"]]
 
     return {
         "timestamp": end_time.isoformat(),
@@ -247,21 +257,20 @@ async def get_recent_heats(limit: int = 10) -> RecentHeatsResponse:
     Returns:
         最近炉次列表
     """
-    # TODO: 实现真实逻辑，从数据库查询
-    now = datetime.now()
-    items = []
-    for i in range(min(limit, 10)):
-        start = now - timedelta(hours=i + 1)
-        end = start + timedelta(minutes=45)
-        items.append(
-            RecentHeat(
-                id=f"heat-{i + 1:03d}",
-                heat_no=f"H{now.strftime('%Y%m%d')}-{i + 1:03d}",
-                start_time=start,
-                end_time=end,
-                status="normal" if i % 3 != 0 else "abnormal",
-                deviation_percent=5.2 + i * 1.5 if i % 3 == 0 else 3.1 + i * 0.5,
-            )
+    heats = await _sorted_dashboard_heats()
+    items = [
+        RecentHeat(
+            id=str(item["id"]),
+            heat_no=str(item["heat_no"]),
+            start_time=item["start_time"],
+            end_time=item["end_time"],
+            status=str(item["status"]),
+            deviation_percent=(
+                float(item["deviation_percent"])
+                if item.get("deviation_percent") is not None
+                else None
+            ),
         )
-
+        for item in heats[: max(limit, 0)]
+    ]
     return RecentHeatsResponse(items=items)

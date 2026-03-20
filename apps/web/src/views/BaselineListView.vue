@@ -14,6 +14,7 @@ const router = useRouter()
 const route = useRoute()
 const baselineStore = useBaselineStore()
 const wizardVisible = ref(false)
+const wizardSubmitting = ref(false)
 const wizardPrefill = ref<{
   sourceHeatId?: string
   selectedStartTime?: string
@@ -77,6 +78,12 @@ async function handlePublish(id: string) {
   ElMessage.success(t('baseline.publishSuccess'))
 }
 
+async function handleActivate(id: string) {
+  const ok = await baselineStore.activateBaseline(id)
+  if (!ok) return
+  ElMessage.success(t('baseline.defaultSetSuccess'))
+}
+
 async function handleDisable(id: string) {
   await baselineStore.disableBaseline(id)
   ElMessage.success(t('baseline.disableSuccess'))
@@ -92,28 +99,36 @@ async function handleWizardSubmit(payload: {
   tolerancePercent: number
   mode: 'draft' | 'publish'
 }) {
-  await baselineStore.createBaseline(
-    {
-      name: payload.name,
-      description: payload.description,
-      definition_id: payload.definitionId,
-      source_heat_id: payload.sourceHeatId,
-      selected_start_time: payload.selectedStartTime,
-      selected_end_time: payload.selectedEndTime,
-      tolerance_percent: payload.tolerancePercent,
-    },
-    payload.mode
-  )
-  wizardVisible.value = false
-  ElMessage.success(
-    payload.mode === 'publish'
-      ? t('baseline.publishSuccess')
-      : t('baseline.saveDraftSuccess')
-  )
+  if (wizardSubmitting.value) return
+
+  wizardSubmitting.value = true
+  try {
+    const ok = await baselineStore.createBaseline(
+      {
+        name: payload.name,
+        description: payload.description,
+        definition_id: payload.definitionId,
+        source_heat_id: payload.sourceHeatId,
+        selected_start_time: payload.selectedStartTime,
+        selected_end_time: payload.selectedEndTime,
+        tolerance_percent: payload.tolerancePercent,
+      },
+      payload.mode
+    )
+    if (!ok) return
+    wizardVisible.value = false
+    ElMessage.success(
+      payload.mode === 'publish'
+        ? t('baseline.publishSuccess')
+        : t('baseline.saveDraftSuccess')
+    )
+  } finally {
+    wizardSubmitting.value = false
+  }
 }
 
 onMounted(() => {
-  baselineStore.fetchList()
+  void Promise.all([baselineStore.fetchList(), baselineStore.fetchActiveBaseline()])
   handlePrefillFromRoute()
 })
 </script>
@@ -202,9 +217,11 @@ onMounted(() => {
         v-for="baseline in baselineStore.filteredList"
         :key="baseline.id"
         :baseline="baseline"
+        :is-default="baselineStore.activeBaselineId === baseline.id"
         @edit="handleEdit"
         @delete="handleDelete"
         @publish="handlePublish"
+        @activate="handleActivate"
         @disable="handleDisable"
       />
     </div>
@@ -234,6 +251,7 @@ onMounted(() => {
         :initial-selected-start-time="wizardPrefill?.selectedStartTime"
         :initial-selected-end-time="wizardPrefill?.selectedEndTime"
         :initial-name="wizardPrefill?.name"
+        :submitting="wizardSubmitting"
         @cancel="wizardVisible = false"
         @submit="handleWizardSubmit"
       />
