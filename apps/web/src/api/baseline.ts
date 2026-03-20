@@ -1,6 +1,7 @@
 import { client } from './client'
 
 export type BaselineStatus = 'draft' | 'published' | 'disabled'
+export type BaselineCurveSource = 'live_edc' | 'demo_curve' | 'none'
 
 export interface CurvePoint {
   timestamp: number
@@ -30,6 +31,7 @@ export interface BaselineResponse {
   tolerance_percent: number
   status: BaselineStatus
   version: number
+  curve_source: BaselineCurveSource
   created_at: string
   updated_at: string
   published_at: string | null

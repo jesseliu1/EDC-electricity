@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { AxiosRequestConfig, AxiosError, InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
+import { isShowtimeMode } from '@/utils/showtime'
 
 const instance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
@@ -41,6 +42,24 @@ function resolveErrorMessage(error: AxiosError<{ message?: string; detail?: stri
   }
   return '请求失败'
 }
+
+instance.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const headers = config.headers
+  if (isShowtimeMode()) {
+    if (typeof headers.set === 'function') {
+      headers.set('X-Showtime', 'true')
+    } else {
+      ;(config.headers as Record<string, string>)['X-Showtime'] = 'true'
+    }
+  } else {
+    if (typeof headers.delete === 'function') {
+      headers.delete('X-Showtime')
+    } else {
+      delete (config.headers as Record<string, string>)['X-Showtime']
+    }
+  }
+  return config
+})
 
 instance.interceptors.response.use(
   response => response.data,

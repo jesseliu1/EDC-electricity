@@ -28,9 +28,25 @@ export interface HostChannelCollectionResponse {
   total: number
 }
 
+export interface HostConnectivityMetaResponse {
+  source: string
+  sensor_count: number
+  channel_count: number
+  enabled_channel_count: number
+}
+
+export interface HostConnectivityStatusResponse {
+  is_connected: boolean
+  machine_name: string
+  last_sync_label: string
+  meta: HostConnectivityMetaResponse
+}
+
 export const settingApi = {
   getAll: () => client.get<SettingsResponse>('/settings'),
   getHostChannels: () => client.get<HostChannelCollectionResponse>('/settings/host-channels'),
+  getHostConnectivityStatus: () =>
+    client.get<HostConnectivityStatusResponse>('/settings/host-connectivity-status'),
   updateBatch: (settings: Record<string, string>) => client.patch('/settings', { settings }),
   updateTolerance: (tolerance_percent: number) =>
     client.put('/settings/tolerance', { tolerance_percent }),

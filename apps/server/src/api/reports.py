@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from datetime import date as dt_date
-from datetime import datetime, timedelta
+from datetime import datetime
 from io import BytesIO
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from .tasks import _list_task_store
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
@@ -41,34 +44,99 @@ class DailyReportDetail(DailyReportSummary):
     top_deviations: list[dict] = Field(..., description="偏差最大的炉次")
 
 
-def _build_report(report_date: dt_date, offset: int = 0) -> DailyReportDetail:
-    total = 12 + offset
-    abnormal = 2 + (offset % 2)
-    normal = max(total - abnormal, 0)
-    normal_rate = round((normal / total) * 100, 2) if total else 0.0
-    avg_dev = round(5.3 + offset * 0.25, 3)
+def _task_anchor_date(task: dict[str, Any]) -> dt_date | None:
+    completed_at = task.get("completed_at")
+    if isinstance(completed_at, datetime):
+        return completed_at.date()
+
+    updated_at = task.get("updated_at")
+    if isinstance(updated_at, datetime):
+        return updated_at.date()
+
+    created_at = task.get("created_at")
+    if isinstance(created_at, datetime):
+        return created_at.date()
+    return None
+
+
+def _top_deviations_for_heats(heats: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sortable = [
+        item
+        for item in heats
+        if isinstance(item.get("deviation_percent"), (float, int))
+        and item.get("heat_no")
+    ]
+    sortable.sort(key=lambda item: float(item["deviation_percent"]), reverse=True)
+    return [
+        {
+            "heat_no": str(item["heat_no"]),
+            "deviation": round(float(item["deviation_percent"]), 3),
+        }
+        for item in sortable[:3]
+    ]
+
+
+def _build_daily_report(
+    *,
+    report_date: dt_date,
+    heats: list[dict[str, Any]],
+    tasks: list[dict[str, Any]],
+) -> DailyReportDetail:
+    scoped_heats = [item for item in heats if item["start_time"].date() == report_date]
+    if not scoped_heats:
+        raise HTTPException(status_code=404, detail="日报不存在")
+
+    scoped_tasks = [item for item in tasks if _task_anchor_date(item) == report_date]
+    deviations = [
+        float(item["deviation_percent"])
+        for item in scoped_heats
+        if isinstance(item.get("deviation_percent"), (float, int))
+    ]
+    normal_heats = sum(1 for item in scoped_heats if item.get("status") == "normal")
+    abnormal_heats = sum(1 for item in scoped_heats if item.get("status") == "abnormal")
+    total_heats = len(scoped_heats)
+    normal_rate = round((normal_heats / total_heats) * 100, 2) if total_heats else 0.0
+    effective_hours = round(
+        sum(
+            max((item["end_time"] - item["start_time"]).total_seconds(), 0) / 3600
+            for item in scoped_heats
+        ),
+        2,
+    )
+
+    generated_candidates = [
+        item["start_time"]
+        for item in scoped_heats
+        if isinstance(item.get("start_time"), datetime)
+    ] + [
+        item["updated_at"]
+        for item in scoped_tasks
+        if isinstance(item.get("updated_at"), datetime)
+    ]
+
     return DailyReportDetail(
         date=report_date,
-        total_heats=total,
-        normal_heats=normal,
-        abnormal_heats=abnormal,
-        avg_deviation=avg_dev,
-        pending_tasks=max(3 - offset, 0),
-        completed_tasks=6 + offset,
-        generated_at=datetime.combine(report_date, datetime.min.time()) + timedelta(hours=2),
+        total_heats=total_heats,
+        normal_heats=normal_heats,
+        abnormal_heats=abnormal_heats,
+        avg_deviation=round(sum(deviations) / len(deviations), 3) if deviations else 0.0,
+        pending_tasks=sum(
+            1 for item in scoped_tasks if item.get("status") in {"pending", "in_progress"}
+        ),
+        completed_tasks=sum(1 for item in scoped_tasks if item.get("status") == "completed"),
+        generated_at=max(generated_candidates) if generated_candidates else None,
         normal_rate=normal_rate,
-        effective_hours=round(18.0 + offset * 0.4, 2),
-        top_deviations=[
-            {
-                "heat_no": f"H{report_date.strftime('%Y%m%d')}-003",
-                "deviation": round(22.5 - offset, 3),
-            },
-            {
-                "heat_no": f"H{report_date.strftime('%Y%m%d')}-007",
-                "deviation": round(18.3 - offset * 0.5, 3),
-            },
-        ],
+        effective_hours=effective_hours,
+        top_deviations=_top_deviations_for_heats(scoped_heats),
     )
+
+
+async def _report_context() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    from . import heats as heats_api
+
+    heats = list((await heats_api._list_heat_store()).values())
+    tasks = list(_list_task_store().values())
+    return heats, tasks
 
 
 @router.get("/daily", response_model=DailyReportListResponse)
@@ -79,35 +147,38 @@ async def list_daily_reports(
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
 ) -> DailyReportListResponse:
     """获取日报列表。"""
-    today = dt_date.today()
-    all_items = [_build_report(today - timedelta(days=i), i) for i in range(30)]
+    heats, tasks = await _report_context()
+    report_dates = sorted({item["start_time"].date() for item in heats}, reverse=True)
 
     if start_date:
-        all_items = [item for item in all_items if item.date >= start_date]
+        report_dates = [item for item in report_dates if item >= start_date]
     if end_date:
-        all_items = [item for item in all_items if item.date <= end_date]
+        report_dates = [item for item in report_dates if item <= end_date]
 
-    total = len(all_items)
+    total = len(report_dates)
     start_idx = (page - 1) * page_size
     end_idx = start_idx + page_size
-    paged = all_items[start_idx:end_idx]
-
-    summaries = [DailyReportSummary(**item.model_dump()) for item in paged]
-    return DailyReportListResponse(items=summaries, total=total)
+    paged_dates = report_dates[start_idx:end_idx]
+    items = [
+        DailyReportSummary(
+            **_build_daily_report(report_date=item, heats=heats, tasks=tasks).model_dump()
+        )
+        for item in paged_dates
+    ]
+    return DailyReportListResponse(items=items, total=total)
 
 
 @router.get("/daily/{report_date}", response_model=DailyReportDetail)
 async def get_daily_report(report_date: dt_date) -> DailyReportDetail:
     """获取指定日期的日报详情。"""
-    if report_date > dt_date.today() + timedelta(days=1):
-        raise HTTPException(status_code=404, detail="日报不存在")
-    return _build_report(report_date, 0)
+    heats, tasks = await _report_context()
+    return _build_daily_report(report_date=report_date, heats=heats, tasks=tasks)
 
 
 @router.get("/daily/{report_date}/pdf")
 async def export_daily_report_pdf(report_date: dt_date) -> StreamingResponse:
     """导出日报 PDF（MVP 占位 PDF）。"""
-    report = _build_report(report_date)
+    report = await get_daily_report(report_date)
     content = (
         "%PDF-1.4\n"
         "1 0 obj<<>>endobj\n"
@@ -130,6 +201,6 @@ async def export_daily_report_pdf(report_date: dt_date) -> StreamingResponse:
 @router.post("/daily/{report_date}/generate", response_model=DailyReportDetail)
 async def generate_daily_report(report_date: dt_date) -> DailyReportDetail:
     """手动生成指定日期日报。"""
-    generated = _build_report(report_date)
-    generated.generated_at = datetime.now()
-    return generated
+    report = await get_daily_report(report_date)
+    report.generated_at = datetime.now()
+    return report

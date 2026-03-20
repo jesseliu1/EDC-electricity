@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 
 from ..config import settings as app_settings
 from ..runtime_state import persist_runtime_state
@@ -15,6 +15,8 @@ from ..schemas import (
     HostChannelCollectionResponse,
     HostChannelCollectionUpdateRequest,
     HostChannelItem,
+    HostConnectivityStatusResponse,
+    HostConnectivityStatusUpdateRequest,
     MessageResponse,
     ReportSettingRequest,
     SettingItem,
@@ -25,6 +27,7 @@ from ..schemas import (
 from ..services import EDCClient, EDCClientError
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
+_HOST_SYNC_HEADER = "x-asns-host-sync"
 
 _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     "default_tolerance_percent": {"value": "15.0", "description": "默认容许误差百分比"},
@@ -151,6 +154,17 @@ _HOST_CHANNEL_FALLBACKS: list[dict[str, str]] = [
 _HOST_CHANNEL_STORE: list[dict[str, str]] = [item.copy() for item in _HOST_CHANNEL_FALLBACKS]
 _HOST_CHANNEL_CATALOG_CACHE: list[dict[str, str]] = [item.copy() for item in _HOST_CHANNEL_FALLBACKS]
 _HOST_CHANNEL_LAST_SYNC_AT: datetime | None = None
+_HOST_CONNECTIVITY_STATUS: dict[str, object] = {
+    "is_connected": False,
+    "machine_name": "--",
+    "last_sync_label": "--",
+    "meta": {
+        "source": "--",
+        "sensor_count": 0,
+        "channel_count": 0,
+        "enabled_channel_count": 0,
+    },
+}
 
 
 def _stringify(value: object, default: str = "") -> str:
@@ -287,6 +301,15 @@ def _to_response() -> SettingsResponse:
     )
 
 
+def _host_connectivity_response() -> HostConnectivityStatusResponse:
+    return HostConnectivityStatusResponse.model_validate(_HOST_CONNECTIVITY_STATUS)
+
+
+def _assert_host_sync_request(request: Request) -> None:
+    if request.headers.get(_HOST_SYNC_HEADER, "").lower() != "true":
+        raise HTTPException(status_code=403, detail="该写接口仅允许宿主同步调用")
+
+
 def get_edc_connection_config() -> dict[str, str]:
     """读取当前 EDC 连接配置。"""
     base_url = str(_SETTINGS_STORE.get("edc_base_url", {}).get("value") or app_settings.edc_base_url)
@@ -316,13 +339,36 @@ async def get_host_channels() -> HostChannelCollectionResponse:
     return HostChannelCollectionResponse(items=items, total=len(items))
 
 
+@router.get("/host-connectivity-status", response_model=HostConnectivityStatusResponse)
+async def get_host_connectivity_status() -> HostConnectivityStatusResponse:
+    """获取宿主同步到后端的连接状态摘要。"""
+    return _host_connectivity_response()
+
+
 @router.put("/host-channels", response_model=MessageResponse)
-async def update_host_channels(data: HostChannelCollectionUpdateRequest) -> MessageResponse:
+async def update_host_channels(
+    data: HostChannelCollectionUpdateRequest,
+    request: Request,
+) -> MessageResponse:
     """保存宿主层已添加通道清单。"""
+    _assert_host_sync_request(request)
     _HOST_CHANNEL_STORE.clear()
     _HOST_CHANNEL_STORE.extend([item.model_dump() for item in data.items])
     await persist_runtime_state("host_channels")
     return MessageResponse(message=f"宿主通道清单已保存，共 {len(data.items)} 条", success=True)
+
+
+@router.put("/host-connectivity-status", response_model=HostConnectivityStatusResponse)
+async def update_host_connectivity_status(
+    data: HostConnectivityStatusUpdateRequest,
+    request: Request,
+) -> HostConnectivityStatusResponse:
+    """保存宿主同步到后端的连接状态摘要。"""
+    _assert_host_sync_request(request)
+    _HOST_CONNECTIVITY_STATUS.clear()
+    _HOST_CONNECTIVITY_STATUS.update(data.model_dump())
+    await persist_runtime_state("host_connectivity_status")
+    return _host_connectivity_response()
 
 
 @router.patch("", response_model=MessageResponse)
@@ -346,9 +392,10 @@ async def update_tolerance(data: ToleranceSettingRequest) -> MessageResponse:
 
 
 @router.put("/edc-connection", response_model=MessageResponse)
-async def update_edc_connection(data: EDCConnectionRequest) -> MessageResponse:
+async def update_edc_connection(data: EDCConnectionRequest, request: Request) -> MessageResponse:
     """更新 EDC 连接配置。"""
     global _HOST_CHANNEL_LAST_SYNC_AT
+    _assert_host_sync_request(request)
     _SETTINGS_STORE["edc_base_url"]["value"] = data.base_url
     if data.username is not None:
         _SETTINGS_STORE["edc_username"]["value"] = data.username

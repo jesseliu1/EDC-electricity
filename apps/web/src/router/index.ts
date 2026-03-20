@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
+import { getShowtimeQueryValue } from '@/utils/showtime'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -79,6 +80,24 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+})
+
+router.beforeEach((to) => {
+  const showtime = getShowtimeQueryValue()
+  if (!showtime || to.query.showtime === showtime) {
+    return true
+  }
+
+  return {
+    path: to.path,
+    hash: to.hash,
+    params: to.params,
+    query: {
+      ...to.query,
+      showtime,
+    },
+    replace: true,
+  }
 })
 
 export default router

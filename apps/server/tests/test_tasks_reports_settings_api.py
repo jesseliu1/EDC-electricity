@@ -4,14 +4,25 @@ import datetime as dt
 
 import pytest
 
+from src.services import EDCClient
+
+HOST_SYNC_HEADERS = {"X-ASNS-Host-Sync": "true"}
+
 
 @pytest.mark.asyncio
 async def test_tasks_crud_and_pdf(client) -> None:
     list_resp = await client.get("/api/tasks", params={"page_size": 5})
     assert list_resp.status_code == 200
-    first_id = list_resp.json()["items"][0]["id"]
+    assert list_resp.json()["items"] == []
 
-    detail_resp = await client.get(f"/api/tasks/{first_id}")
+    showtime_list_resp = await client.get(
+        "/api/tasks",
+        params={"page_size": 5, "showtime": "true"},
+    )
+    assert showtime_list_resp.status_code == 200
+    first_id = showtime_list_resp.json()["items"][0]["id"]
+
+    detail_resp = await client.get(f"/api/tasks/{first_id}", params={"showtime": "true"})
     assert detail_resp.status_code == 200
 
     create_resp = await client.post("/api/tasks", json={"heat_id": "heat-001"})
@@ -58,9 +69,18 @@ async def test_reports_list_detail_generate_pdf(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_settings_get_and_update(client) -> None:
+async def test_settings_get_and_update(client, monkeypatch) -> None:
+    async def _fake_login(self: EDCClient) -> None:
+        return None
+
+    monkeypatch.setattr(EDCClient, "login", _fake_login)
+
     get_resp = await client.get("/api/settings")
     assert get_resp.status_code == 200
+
+    host_status_resp = await client.get("/api/settings/host-connectivity-status")
+    assert host_status_resp.status_code == 200
+    assert host_status_resp.json()["is_connected"] is False
 
     patch_resp = await client.patch(
         "/api/settings", json={"settings": {"report_generation_hour": "3"}}
@@ -70,11 +90,40 @@ async def test_settings_get_and_update(client) -> None:
     tol_resp = await client.put("/api/settings/tolerance", json={"tolerance_percent": 12.5})
     assert tol_resp.status_code == 200
 
-    edc_resp = await client.put(
+    forbidden_edc_resp = await client.put(
         "/api/settings/edc-connection",
         json={"base_url": "http://localhost:8080", "api_key": "abc"},
     )
+    assert forbidden_edc_resp.status_code == 403
+
+    edc_resp = await client.put(
+        "/api/settings/edc-connection",
+        json={"base_url": "http://localhost:8080", "api_key": "abc"},
+        headers=HOST_SYNC_HEADERS,
+    )
     assert edc_resp.status_code == 200
+
+    update_host_status_resp = await client.put(
+        "/api/settings/host-connectivity-status",
+        json={
+            "is_connected": True,
+            "machine_name": "EDC Test Gateway",
+            "last_sync_label": "2026-03-20 15:30:00",
+            "meta": {
+                "source": "http://60.251.229.32",
+                "sensor_count": 26,
+                "channel_count": 2286,
+                "enabled_channel_count": 6,
+            },
+        },
+        headers=HOST_SYNC_HEADERS,
+    )
+    assert update_host_status_resp.status_code == 200
+    assert update_host_status_resp.json()["machine_name"] == "EDC Test Gateway"
+
+    host_status_resp = await client.get("/api/settings/host-connectivity-status")
+    assert host_status_resp.status_code == 200
+    assert host_status_resp.json()["meta"]["enabled_channel_count"] == 6
 
     test_resp = await client.post("/api/settings/edc-connection/test")
     assert test_resp.status_code == 200

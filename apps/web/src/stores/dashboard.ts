@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import dayjs from 'dayjs'
 import { dashboardApi } from '@/api/dashboard'
+import { taskApi } from '@/api/task'
 import type {
   CurvePoint,
   DashboardStatsResponse,
@@ -9,6 +10,7 @@ import type {
   RealtimeResponse,
   TimeRange
 } from '@/api/dashboard'
+import type { TaskItemResponse, TaskStatus } from '@/api/task'
 
 interface DashboardStats {
   todayHeats: number
@@ -37,6 +39,15 @@ export interface RecentHeatItem {
   endTime: string
   status: 'normal' | 'abnormal' | 'pending'
   deviationPercent: number | null
+}
+
+export interface DashboardTaskPreviewItem {
+  id: string
+  taskNo: string
+  heatId: string
+  deviationPercent: number
+  status: TaskStatus
+  updatedAt: string
 }
 
 const defaultStats: DashboardStats = {
@@ -94,11 +105,23 @@ function mapRecentHeats(data: RecentHeatsResponse): RecentHeatItem[] {
   }))
 }
 
+function mapTaskPreview(item: TaskItemResponse): DashboardTaskPreviewItem {
+  return {
+    id: item.id,
+    taskNo: item.task_no,
+    heatId: item.heat_id,
+    deviationPercent: item.deviation_percent,
+    status: item.status,
+    updatedAt: dayjs(item.updated_at).format('YYYY-MM-DD HH:mm')
+  }
+}
+
 export const useDashboardStore = defineStore('dashboard', {
   state: () => ({
     stats: { ...defaultStats },
     realtime: { ...defaultRealtime },
     recentHeats: [] as RecentHeatItem[],
+    pendingTaskPreview: [] as DashboardTaskPreviewItem[],
     timeRange: '1h' as TimeRange,
     loading: false
   }),
@@ -131,12 +154,28 @@ export const useDashboardStore = defineStore('dashboard', {
         this.recentHeats = []
       }
     },
+    async fetchPendingTaskPreview(limit = 3) {
+      try {
+        const [pending, inProgress] = await Promise.all([
+          taskApi.list({ status: 'pending', page: 1, page_size: limit }),
+          taskApi.list({ status: 'in_progress', page: 1, page_size: limit })
+        ])
+        const merged = [...pending.items, ...inProgress.items]
+          .sort((a, b) => dayjs(b.updated_at).valueOf() - dayjs(a.updated_at).valueOf())
+          .slice(0, limit)
+        this.pendingTaskPreview = merged.map(mapTaskPreview)
+      } catch (error) {
+        console.error('Dashboard task preview request failed.', error)
+        this.pendingTaskPreview = []
+      }
+    },
     async fetchAll() {
       this.loading = true
       await Promise.all([
         this.fetchStats(),
         this.fetchRealtime(this.timeRange),
-        this.fetchRecentHeats()
+        this.fetchRecentHeats(),
+        this.fetchPendingTaskPreview()
       ])
       this.loading = false
     }

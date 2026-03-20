@@ -19,6 +19,7 @@ _SECTION_TO_KEY = {
     "host_channels": "runtime_host_channels",
     "host_channel_catalog": "runtime_host_channel_catalog",
     "host_channel_last_sync_at": "runtime_host_channel_last_sync_at",
+    "host_connectivity_status": "runtime_host_connectivity_status",
     "baseline_definitions": "runtime_baseline_definitions",
     "baselines": "runtime_baselines",
     "heats": "runtime_heats",
@@ -71,6 +72,7 @@ async def persist_runtime_state(*sections: str) -> None:
         "host_channels": settings_api._HOST_CHANNEL_STORE,
         "host_channel_catalog": settings_api._HOST_CHANNEL_CATALOG_CACHE,
         "host_channel_last_sync_at": settings_api._HOST_CHANNEL_LAST_SYNC_AT,
+        "host_connectivity_status": settings_api._HOST_CONNECTIVITY_STATUS,
         "baseline_definitions": baseline_definitions_api._DEFINITION_STORE,
         "baselines": baselines_api._BASELINE_STORE,
         "heats": heats_api._HEAT_STORE,
@@ -124,6 +126,10 @@ async def load_runtime_state() -> None:
         settings_api._HOST_CHANNEL_CATALOG_CACHE.extend(payloads["host_channel_catalog"])
 
     settings_api._HOST_CHANNEL_LAST_SYNC_AT = payloads.get("host_channel_last_sync_at")
+
+    if isinstance(payloads.get("host_connectivity_status"), dict):
+        settings_api._HOST_CONNECTIVITY_STATUS.clear()
+        settings_api._HOST_CONNECTIVITY_STATUS.update(payloads["host_connectivity_status"])
 
     if isinstance(payloads.get("baseline_definitions"), dict):
         baseline_definitions_api._DEFINITION_STORE.clear()

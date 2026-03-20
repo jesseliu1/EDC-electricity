@@ -27,6 +27,10 @@ export interface HostEdcResponse {
 }
 
 export const appApiBase = 'http://127.0.0.1:8000/api';
+const hostSyncHeaders = {
+  'Content-Type': 'application/json',
+  'X-ASNS-Host-Sync': 'true',
+} as const;
 
 const preferredChannelIds = [
   '2349-199',
@@ -117,6 +121,7 @@ export async function callHostApi(path: string, config: HostConnectivityConfig) 
 export async function syncSelectionToBackend(
   config: HostConnectivityConfig,
   selectedChannels: HostChannelMappingItem[],
+  connection: PersistedConnectionState,
 ) {
   const payload = selectedChannels.map((channel) => ({
     id: channel.id,
@@ -131,9 +136,21 @@ export async function syncSelectionToBackend(
     status: channel.status,
   }));
 
+  const connectionStatusPayload = {
+    is_connected: connection.isConnected,
+    machine_name: connection.machineName,
+    last_sync_label: connection.lastSyncLabel,
+    meta: {
+      source: connection.meta.source,
+      sensor_count: connection.meta.sensorCount,
+      channel_count: connection.meta.channelCount,
+      enabled_channel_count: connection.meta.enabledChannelCount,
+    },
+  };
+
   const saveConnection = fetch(`${appApiBase}/settings/edc-connection`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: hostSyncHeaders,
     body: JSON.stringify({
       base_url: config.endpoint,
       username: config.username,
@@ -143,12 +160,22 @@ export async function syncSelectionToBackend(
 
   const saveChannels = fetch(`${appApiBase}/settings/host-channels`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: hostSyncHeaders,
     body: JSON.stringify({ items: payload }),
   });
 
-  const [connectionResponse, channelsResponse] = await Promise.all([saveConnection, saveChannels]);
-  if (!connectionResponse.ok || !channelsResponse.ok) {
+  const saveConnectivityStatus = fetch(`${appApiBase}/settings/host-connectivity-status`, {
+    method: 'PUT',
+    headers: hostSyncHeaders,
+    body: JSON.stringify(connectionStatusPayload),
+  });
+
+  const [connectionResponse, channelsResponse, connectivityStatusResponse] = await Promise.all([
+    saveConnection,
+    saveChannels,
+    saveConnectivityStatus,
+  ]);
+  if (!connectionResponse.ok || !channelsResponse.ok || !connectivityStatusResponse.ok) {
     throw new Error('Settings sync failed');
   }
 }

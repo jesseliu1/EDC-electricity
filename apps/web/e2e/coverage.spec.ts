@@ -52,7 +52,7 @@ async function mockBaselineDefinitionMutations(page: Page) {
     })
   })
 
-  await page.route('**/api/settings/host-channels', async route => {
+  await page.route('**/api/settings/host-channels**', async route => {
     await fulfillJson(route, {
       items: [
         {
@@ -64,6 +64,30 @@ async function mockBaselineDefinitionMutations(page: Page) {
           cuid: '199',
           channel_name: '总有功功率',
           unit: 'kW',
+          last_value: '--',
+          status: 'online'
+        },
+        {
+          id: '2349-128',
+          device_name: 'SSTW 380V-220V電力 · 三相智能电表',
+          device_type: '三相智能电表',
+          area: 'SSTW 380V-220V電力',
+          suid: '2349',
+          cuid: '128',
+          channel_name: 'A相电压',
+          unit: 'V',
+          last_value: '--',
+          status: 'online'
+        },
+        {
+          id: '2349-130',
+          device_name: 'SSTW 380V-220V電力 · 三相智能电表',
+          device_type: '三相智能电表',
+          area: 'SSTW 380V-220V電力',
+          suid: '2349',
+          cuid: '130',
+          channel_name: 'B相电压',
+          unit: 'V',
           last_value: '--',
           status: 'online'
         },
@@ -81,6 +105,115 @@ async function mockBaselineDefinitionMutations(page: Page) {
         }
       ],
       total: 2
+    })
+  })
+}
+
+async function mockReportsAndInbox(page: Page) {
+  await page.route('**/api/reports/daily?**', async route => {
+    await fulfillJson(route, {
+      items: [
+        {
+          date: '2026-03-19',
+          total_heats: 8,
+          normal_heats: 6,
+          abnormal_heats: 2,
+          avg_deviation: 12.4,
+          pending_tasks: 2,
+          completed_tasks: 3,
+          generated_at: '2026-03-19T23:00:00Z'
+        }
+      ],
+      total: 1
+    })
+  })
+
+  await page.route('**/api/reports/daily/2026-03-19', async route => {
+    await fulfillJson(route, {
+      date: '2026-03-19',
+      total_heats: 8,
+      normal_heats: 6,
+      abnormal_heats: 2,
+      avg_deviation: 12.4,
+      pending_tasks: 2,
+      completed_tasks: 3,
+      generated_at: '2026-03-19T23:00:00Z',
+      normal_rate: 75,
+      effective_hours: 6,
+      top_deviations: [
+        { heat_no: 'H20260319-007', deviation: 24.6 }
+      ]
+    })
+  })
+
+  await page.route('**/api/heats?**', async route => {
+    await fulfillJson(route, {
+      items: [
+        {
+          id: 'inbox-heat-1',
+          heat_no: 'H20260319-007',
+          description: null,
+          start_time: '2026-03-19T13:15:00Z',
+          end_time: '2026-03-19T14:00:00Z',
+          baseline_id: 'baseline-001',
+          deviation_percent: 24.6,
+          avg_deviation_percent: 11.2,
+          time_offset_percent: 5.8,
+          mismatch_duration_minutes: 4,
+          schedule_tag: 'work',
+          cut_reason: 'time_offset_exceed',
+          cut_status: 'normal',
+          major_issue: false,
+          blocked_by_issue: false,
+          status: 'abnormal',
+          temperature: 1458,
+          created_at: '2026-03-19T13:15:00Z',
+          record_source: 'historical_import',
+          current_curve_source: 'live_edc',
+          baseline_curve_source: 'none'
+        }
+      ],
+      total: 1,
+      page: 1,
+      page_size: 10
+    })
+  })
+
+  await page.route('**/api/heats/inbox-heat-1/compare', async route => {
+    await fulfillJson(route, {
+      heat: {
+        id: 'inbox-heat-1',
+        heat_no: 'H20260319-007',
+        description: null,
+        start_time: '2026-03-19T13:15:00Z',
+        end_time: '2026-03-19T14:00:00Z',
+        baseline_id: 'baseline-001',
+        deviation_percent: 24.6,
+        avg_deviation_percent: 11.2,
+        time_offset_percent: 5.8,
+        mismatch_duration_minutes: 4,
+        schedule_tag: 'work',
+        cut_reason: 'time_offset_exceed',
+        cut_status: 'normal',
+        major_issue: false,
+        blocked_by_issue: false,
+        status: 'abnormal',
+        temperature: 1458,
+        created_at: '2026-03-19T13:15:00Z',
+        power_curve: [],
+        voltage_curve: []
+      },
+      baselines: [],
+      deviation_ranges: [],
+      max_deviation: 24.6,
+      avg_deviation: 11.2
+    })
+  })
+
+  await page.route('**/api/heats/inbox-heat-1/cutting-timeline', async route => {
+    await fulfillJson(route, {
+      heat_id: 'inbox-heat-1',
+      events: []
     })
   })
 }
@@ -171,6 +304,20 @@ async function mockSettingsWorkflow(page: Page) {
     })
   })
 
+  await page.route('**/api/settings/host-connectivity-status', async route => {
+    await fulfillJson(route, {
+      is_connected: true,
+      machine_name: 'EDC Test Gateway',
+      last_sync_label: '2026-03-20 15:30:00',
+      meta: {
+        source: 'http://60.251.229.32',
+        sensor_count: 26,
+        channel_count: 2286,
+        enabled_channel_count: 6
+      }
+    })
+  })
+
   await page.route('**/api/settings/**', async route => {
     const method = route.request().method()
     if (method === 'PUT' || method === 'POST') {
@@ -213,9 +360,9 @@ test.describe('EDC web extended coverage', () => {
 
     await page.getByTestId('baseline-definition-manage-metrics-def-001').click()
     await page.getByTestId('baseline-definition-source-channel-select').click()
-    await page.getByRole('option', { name: /总有功功率/ }).click()
-    await expect(page.getByTestId('baseline-definition-metric-name-input')).toHaveValue('总有功功率')
-    await expect(page.getByTestId('baseline-definition-metric-unit-input')).toHaveValue('kW')
+    await page.getByRole('option', { name: /B相电压/ }).click()
+    await expect(page.getByTestId('baseline-definition-metric-name-input')).toHaveValue('B相电压')
+    await expect(page.getByTestId('baseline-definition-metric-unit-input')).toHaveValue('V')
     await page.getByTestId('baseline-definition-metric-name-input').fill('氧含量')
     await page.getByTestId('baseline-definition-metric-unit-input').fill('%')
     await page.getByTestId('baseline-definition-add-metric').click()
@@ -243,6 +390,7 @@ test.describe('EDC web extended coverage', () => {
   })
 
   test('reports and inbox pages can navigate into detail pages', async ({ page }) => {
+    await mockReportsAndInbox(page)
     await page.goto('reports')
     await expect(page.getByTestId('report-list-page')).toBeVisible()
     await page.getByTestId(/^report-row-/).first().click()
@@ -254,17 +402,15 @@ test.describe('EDC web extended coverage', () => {
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
   })
 
-  test('settings page can save edc, tolerance and cutting configuration', async ({ page }) => {
+  test('settings page shows host connectivity and can save tolerance and cutting configuration', async ({ page }) => {
     await mockSettingsWorkflow(page)
     await page.goto('settings')
 
     await expect(page.getByTestId('settings-page')).toBeVisible()
-
-    await page.getByTestId('settings-test-edc').click()
-    await expect(page.getByText('EDC 连接测试成功')).toBeVisible()
-
-    await page.getByTestId('settings-save-edc').click()
-    await expect(latestSuccessMessage(page)).toBeVisible()
+    await expect(page.getByTestId('settings-host-connectivity-card')).toBeVisible()
+    await expect(page.getByText('宿主系统连接')).toBeVisible()
+    await expect(page.getByText('EDC Test Gateway')).toBeVisible()
+    await expect(page.getByText('宿主已连入')).toBeVisible()
 
     await page.getByTestId('settings-save-report-time').click()
     await expect(latestSuccessMessage(page)).toBeVisible()

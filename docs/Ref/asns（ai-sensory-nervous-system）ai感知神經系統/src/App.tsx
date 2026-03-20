@@ -733,8 +733,6 @@ export default function App() {
           .map((channelId) => edcChannelSnapshot.find((item) => item.id === channelId))
           .filter((item): item is (typeof edcChannelSnapshot)[number] => Boolean(item));
 
-        await syncSelectionToBackend(restored.config, selectedChannels);
-
         const { response, data } = await callHostApi('/host-api/edc/test-connection', restored.config);
         const connectionState =
           response.ok && data.ok
@@ -745,6 +743,7 @@ export default function App() {
                 meta: data.meta,
               }
             : buildDisconnectedConnectionState(restored.config.endpoint);
+        await syncSelectionToBackend(restored.config, selectedChannels, connectionState);
         setIsConnected(connectionState.isConnected);
         window.localStorage.setItem(
           hostSettingsStorageKey,

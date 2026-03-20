@@ -2,25 +2,35 @@
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import dayjs from 'dayjs'
 import StatCard from '@/components/dashboard/StatCard.vue'
 import RealtimeChart from '@/components/dashboard/RealtimeChart.vue'
 import HeatList from '@/components/dashboard/HeatList.vue'
 import { useDashboardStore } from '@/stores/dashboard'
+import type { TaskStatus } from '@/api/task'
 
 const { t } = useI18n()
 const router = useRouter()
 
 const dashboardStore = useDashboardStore()
 
-// 统计卡片数据 — 使用 Material Symbols 图标名
+const inboxPreview = computed(() =>
+  dashboardStore.recentHeats
+    .filter(item => item.status === 'abnormal' || item.status === 'pending')
+    .slice(0, 3)
+)
+
 const stats = computed(() => [
   {
     id: 1,
     title: t('dashboard.todayHeats'),
     value: dashboardStore.stats.todayHeats,
     unit: t('dashboard.unit.heats'),
-    trend: 12,
-    description: '较昨日增加 14 炉',
+    trend: 0,
+    description:
+      dashboardStore.stats.todayHeats > 0
+        ? `${t('report.normalRate')}: ${dashboardStore.stats.normalRate}%`
+        : '',
     icon: 'monitoring',
     accentColor: 'primary' as const,
   },
@@ -29,8 +39,8 @@ const stats = computed(() => [
     title: t('dashboard.avgDeviation'),
     value: dashboardStore.stats.avgDeviation,
     unit: t('dashboard.unit.percent'),
-    trend: 0.5,
-    description: '控制在允许范围内 (5%)',
+    trend: 0,
+    description: '',
     icon: 'speed',
     accentColor: 'orange' as const,
   },
@@ -39,7 +49,7 @@ const stats = computed(() => [
     title: t('dashboard.pendingTasks'),
     value: dashboardStore.stats.pendingTasks,
     unit: t('dashboard.unit.tasks'),
-    trend: -1,
+    trend: 0,
     description: '',
     icon: 'assignment',
     accentColor: 'green' as const,
@@ -47,19 +57,18 @@ const stats = computed(() => [
   {
     id: 4,
     title: t('dashboard.baselineStatus'),
-    value:
-      dashboardStore.stats.activeBaseline ||
-      t('dashboard.baselineStatusNormal'),
+    value: dashboardStore.stats.activeBaseline || t('dashboard.baselineStatusNormal'),
     unit: '',
     trend: 0,
-    description: '上次校准: 2023-10-24',
+    description: dashboardStore.realtime.timestamp
+      ? dayjs(dashboardStore.realtime.timestamp).format('YYYY-MM-DD HH:mm')
+      : '',
     icon: 'verified',
     accentColor: 'green' as const,
   },
 ])
 
-// 快捷入口配置
-const quickLinks = [
+const quickLinks = computed(() => [
   {
     icon: 'dataset',
     label: '炉次浏览',
@@ -71,7 +80,7 @@ const quickLinks = [
     label: '偏差收件箱',
     route: '/inbox',
     color: 'bg-orange-100 text-orange-600',
-    badge: 3,
+    badge: inboxPreview.value.length || undefined,
   },
   {
     icon: 'assignment',
@@ -97,18 +106,31 @@ const quickLinks = [
     route: '/reports',
     color: 'bg-red-100 text-red-600',
   },
-]
+])
 
 const handleRangeChange = (range: '5m' | '1h' | '6h' | '24h') => {
-  dashboardStore.fetchRealtime(range)
+  void dashboardStore.fetchRealtime(range)
 }
 
 const navigateTo = (route: string) => {
-  router.push(route)
+  void router.push(route)
+}
+
+const taskStatusClass = (status: TaskStatus) => {
+  if (status === 'pending') return 'bg-red-500 text-white'
+  if (status === 'in_progress') return 'bg-orange-500 text-white'
+  return 'bg-slate-200 text-slate-600'
+}
+
+const taskStatusLabel = (status: TaskStatus) => {
+  if (status === 'pending') return t('task.statusPending')
+  if (status === 'in_progress') return t('task.statusInProgress')
+  if (status === 'completed') return t('task.statusCompleted')
+  return t('task.statusCancelled')
 }
 
 onMounted(() => {
-  dashboardStore.fetchAll()
+  void dashboardStore.fetchAll()
 })
 </script>
 
@@ -117,7 +139,6 @@ onMounted(() => {
     class="flex flex-col gap-6"
     data-testid="dashboard-page"
   >
-    <!-- 统计卡片 -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
       <StatCard
         v-for="stat in stats"
@@ -132,7 +153,6 @@ onMounted(() => {
       />
     </div>
 
-    <!-- 快捷入口 -->
     <div class="grid grid-cols-3 md:grid-cols-6 gap-4">
       <button
         v-for="link in quickLinks"
@@ -141,7 +161,6 @@ onMounted(() => {
         class="relative flex flex-col items-center gap-3 py-5 px-3 bg-white rounded-xl border border-border-light shadow-subtle hover:shadow-card hover:border-primary/20 transition-all duration-200 group cursor-pointer"
         @click="navigateTo(link.route)"
       >
-        <!-- 角标 -->
         <span
           v-if="link.badge"
           class="absolute top-2 right-2 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center"
@@ -154,9 +173,7 @@ onMounted(() => {
             link.color,
           ]"
         >
-          <span class="material-symbols-outlined text-[24px]">{{
-            link.icon
-          }}</span>
+          <span class="material-symbols-outlined text-[24px]">{{ link.icon }}</span>
         </span>
         <span
           class="text-sm font-medium text-slate-700 group-hover:text-primary transition-colors"
@@ -164,7 +181,6 @@ onMounted(() => {
       </button>
     </div>
 
-    <!-- 实时曲线 (全宽) -->
     <div class="h-[500px]">
       <RealtimeChart
         :power="dashboardStore.realtime.power"
@@ -177,103 +193,106 @@ onMounted(() => {
       />
     </div>
 
-    <!-- 底部三列: 最近炉次 + 偏差收件箱 + 纠偏待办 -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
       <div class="lg:col-span-5">
         <HeatList :heats="dashboardStore.recentHeats" />
       </div>
       <div class="lg:col-span-4">
-        <div
-          class="bg-white rounded-xl border border-border-light shadow-card p-6 h-full"
-        >
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-6 h-full">
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-2">
-              <span
-                class="material-symbols-outlined text-orange-500 text-[20px]"
-              >mail</span>
+              <span class="material-symbols-outlined text-orange-500 text-[20px]">mail</span>
               <h3 class="text-base font-bold text-slate-800">
-                偏差收件箱预览
+                {{ t('nav.inbox') }}
               </h3>
             </div>
           </div>
-          <div class="space-y-3">
+          <div
+            v-if="inboxPreview.length > 0"
+            class="space-y-3"
+          >
             <div
+              v-for="item in inboxPreview"
+              :key="item.id"
               class="p-3 bg-slate-50 rounded-lg border border-border-light hover:border-primary/30 transition-colors cursor-pointer"
+              @click="navigateTo(`/heats/${item.id}`)"
             >
               <div class="flex items-center justify-between mb-1">
-                <span class="text-sm font-semibold text-slate-700">Cluster #C-882</span>
+                <span class="text-sm font-semibold text-slate-700">{{ item.heatNo }}</span>
                 <span
-                  class="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 font-medium"
-                >未命名</span>
+                  :class="[
+                    'text-xs px-2 py-0.5 rounded-full font-medium',
+                    item.status === 'abnormal'
+                      ? 'bg-orange-100 text-orange-600'
+                      : 'bg-slate-100 text-slate-500',
+                  ]"
+                >{{ item.status === 'abnormal' ? t('heat.statusAbnormal') : t('heat.statusPending') }}</span>
               </div>
               <p class="text-xs text-slate-500">
-                出现 5 次 · 相似度 92%
+                {{ item.startTime }}
               </p>
-              <div class="h-1 bg-red-400 rounded-full mt-2" />
+              <div
+                :class="[
+                  'h-1 rounded-full mt-2',
+                  item.status === 'abnormal' ? 'bg-red-400' : 'bg-slate-300',
+                ]"
+              />
             </div>
-            <div
-              class="p-3 bg-slate-50 rounded-lg border border-border-light hover:border-primary/30 transition-colors cursor-pointer"
-            >
-              <div class="flex items-center justify-between mb-1">
-                <span class="text-sm font-semibold text-slate-700">Cluster #C-881</span>
-                <span
-                  class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-600 font-medium"
-                >已归档</span>
-              </div>
-              <p class="text-xs text-slate-500">
-                出现 3 次 · 相似度 87%
-              </p>
-              <div class="h-1 bg-green-400 rounded-full mt-2 w-3/4" />
-            </div>
+          </div>
+          <div
+            v-else
+            class="h-full min-h-[180px] flex items-center justify-center text-sm text-slate-400"
+          >
+            {{ t('common.noData') }}
           </div>
         </div>
       </div>
       <div class="lg:col-span-3">
-        <div
-          class="bg-white rounded-xl border border-border-light shadow-card p-6 h-full"
-        >
+        <div class="bg-white rounded-xl border border-border-light shadow-card p-6 h-full">
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-2">
-              <span
-                class="material-symbols-outlined text-primary text-[20px]"
-              >task_alt</span>
+              <span class="material-symbols-outlined text-primary text-[20px]">task_alt</span>
               <h3 class="text-base font-bold text-slate-800">
-                纠偏任务待办
+                {{ t('task.title') }}
               </h3>
             </div>
             <span
+              v-if="dashboardStore.pendingTaskPreview.length > 0"
               class="w-6 h-6 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center"
-            >3</span>
+            >{{ dashboardStore.pendingTaskPreview.length }}</span>
           </div>
-          <div class="space-y-3">
-            <div class="p-3 bg-slate-50 rounded-lg">
+          <div
+            v-if="dashboardStore.pendingTaskPreview.length > 0"
+            class="space-y-3"
+          >
+            <div
+              v-for="item in dashboardStore.pendingTaskPreview"
+              :key="item.id"
+              class="p-3 bg-slate-50 rounded-lg cursor-pointer"
+              @click="navigateTo(`/tasks/${item.id}`)"
+            >
               <p class="text-sm font-semibold text-slate-700 mb-1">
-                供氧参数调整
+                {{ item.taskNo }}
               </p>
               <p class="text-xs text-slate-500">
-                机台: 2#炉
+                Heat: {{ item.heatId }}
               </p>
               <div class="flex items-center justify-between mt-2">
-                <span class="text-xs text-slate-400">李工</span>
+                <span class="text-xs text-slate-400">{{ item.updatedAt }}</span>
                 <span
-                  class="text-xs px-2 py-0.5 rounded bg-primary text-white font-medium"
-                >Dev: +12%</span>
+                  :class="[
+                    'text-xs px-2 py-0.5 rounded font-medium',
+                    taskStatusClass(item.status),
+                  ]"
+                >{{ taskStatusLabel(item.status) }} · {{ item.deviationPercent }}%</span>
               </div>
             </div>
-            <div class="p-3 bg-slate-50 rounded-lg">
-              <p class="text-sm font-semibold text-slate-700 mb-1">
-                废气阀门检查
-              </p>
-              <p class="text-xs text-slate-500">
-                机台: 1#炉
-              </p>
-              <div class="flex items-center justify-between mt-2">
-                <span class="text-xs text-slate-400">王工</span>
-                <span
-                  class="text-xs px-2 py-0.5 rounded bg-orange-500 text-white font-medium"
-                >Dev: +8%</span>
-              </div>
-            </div>
+          </div>
+          <div
+            v-else
+            class="h-full min-h-[180px] flex items-center justify-center text-sm text-slate-400"
+          >
+            {{ t('common.noData') }}
           </div>
         </div>
       </div>

@@ -58,6 +58,7 @@ class BaselineResponse(BaseModel):
     tolerance_percent: float = Field(..., description="容许误差百分比")
     status: str = Field(..., description="状态: draft/published/disabled")
     version: int = Field(..., description="版本号")
+    curve_source: str = Field(default="none", description="基线曲线来源")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
     published_at: datetime | None = Field(default=None, description="发布时间")

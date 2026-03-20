@@ -22,6 +22,9 @@
 - [x] 已收口“宿主显示离线 / 从宿主进入 EDC 首屏实时数据 503”两项新增联调问题
 - [x] 已完成“炉次浏览 / 基线向导 Step 2 仍拿不到真实炉次”原因分析，确认当前是“真实炉次推断开关关闭 + `/api/heats` 40 秒级慢查询 + 前端 10 秒超时误报”为叠加问题
 - [x] 已完成“普通接口 mock fallback 统一收口”第一轮改造：普通接口不再隐式回退 mock，前端不再本地拼接 mock 数据
+- [x] 已完成 `showtime` 在 Dashboard / 任务 / 报表链路的第二轮扩展，默认模式下不再展示演示任务、演示日报和 Dashboard 硬编码演示卡片
+- [x] 已完成 `showtime` 第三轮文案与来源提示收口，默认模式下不再提示用户开启 mock，炉次列表演示 banner 仅对明确 demo/mock 来源生效
+- [x] 已完成 `showtime` 第四轮收口：baseline 详情默认模式不再泄露 demo 曲线，前端残留 `ingestMock` 演示入口已清理，并补齐默认模式 vs `showtime` 的基线边界回归
 
 ---
 
@@ -832,6 +835,155 @@
   - [x] `pnpm --dir apps/web test:i18n`
   - [x] `pnpm --dir apps/web build`
 
+### 2026-03-20（showtime 请求级切换：默认真实 only，显式 showtime 才允许 mock）
+- [x] 已新增请求级 `showtime` 模式
+  - [x] 后端新增 `apps/server/src/request_mode.py`
+  - [x] `apps/server/src/main.py` 新增 middleware，从 query/header 解析 `showtime`
+  - [x] `apps/server/src/mock_dataset.py` 不再读取进程级 mock 开关，改为只认当前请求是否处于 `showtime`
+- [x] 前端已统一透传 `showtime`
+  - [x] `apps/web/src/utils/showtime.ts` 统一读取 URL `showtime=true`
+  - [x] `apps/web/src/api/client.ts` 统一透传 `X-Showtime: true`
+  - [x] `apps/web/src/router/index.ts` 已在路由跳转时保持 `showtime=true`
+- [x] 普通 `/api/heats` 已切为默认真实 only
+  - [x] 默认模式只返回真实推断炉次，不再漏出 `demo_seed/mock_stream`
+  - [x] `showtime=true` 时，普通 `/api/heats` 会切到 mock 炉次集合
+  - [x] 显式 mock 流接口 `/api/heats/stream/mock*` 也改为只接受 `showtime` 请求
+- [x] 前端炉次页已兼容新口径
+  - [x] `apps/web/src/api/heat.ts` 已补 `mock_stream/mock_curve` 数据源类型
+  - [x] `apps/web/src/views/HeatListView.vue` 只在 `showtime` 模式下显示演示来源提示
+- [x] 后端测试夹具已改为默认 live 口径
+  - [x] `apps/server/tests/conftest.py` 改为预置 `live_inferred` 缓存，不再用 demo seed 充当普通链路
+  - [x] `apps/server/tests/test_heats_api.py` 已补 `showtime` 请求断言与默认真实列表断言
+- [x] 验证通过：
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_heats_api.py -x -vv`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py -x -vv`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
+
+### 2026-03-20（阶段 1：宿主入口与 EDC 统一状态收敛整理）
+- [x] 已完成当前状态源审计
+  - [x] 宿主本地草稿态：`hostSettingsStorageKey`
+  - [x] 宿主运行时内存态：`config / isConnected / meta / addedChannelIds`
+  - [x] 后端统一读取面：`_SETTINGS_STORE / _HOST_CHANNEL_STORE / runtime_state`
+  - [x] EDC 前端重复写入口：`SettingsView.vue -> /settings/edc-connection`
+- [x] 已确认当前 4 个关键真源冲突：
+  - [x] 宿主和 EDC 设置页都能写系统连接配置
+  - [x] 连接在线摘要主要存在宿主本地，没有后端统一只读视图
+  - [x] 宿主草稿态与后端运行态可能短时漂移
+  - [x] `showtime` 还没扩到全部页面和演示 UI
+- [x] 已新增状态收敛文档：
+  - [x] `docs/HOST_EDC_STATE_CONSOLIDATION_PLAN.md`
+- [x] 已明确下一阶段顺序：
+  - [x] 先补后端统一宿主状态视图
+  - [x] 再收掉 EDC 设置页系统连接双写
+  - [x] 再把 `showtime` 扩到全系统
+
+### 2026-03-20（阶段 2：补后端统一宿主连接状态视图）
+- [x] 已新增后端统一宿主连接状态模型与接口
+  - [x] `apps/server/src/schemas/setting.py` 新增 `HostConnectivityStatus*`
+  - [x] `apps/server/src/api/settings.py` 新增 `GET/PUT /api/settings/host-connectivity-status`
+  - [x] `apps/server/src/runtime_state.py` 已持久化 `host_connectivity_status`
+- [x] 宿主回写链路已补齐“配置 + 通道 + 连接摘要”
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/SettingsView.tsx`
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/App.tsx`
+- [x] 测试已收口，不再依赖本地 `localhost:8080`
+  - [x] `apps/server/tests/test_tasks_reports_settings_api.py` 改为 monkeypatch `EDCClient.login`
+  - [x] `apps/server/tests/conftest.py` 已补 `_HOST_CONNECTIVITY_STATUS` 隔离恢复
+- [x] 验证通过：
+  - [x] `apps/server/.venv/Scripts/ruff.exe check src tests`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_tasks_reports_settings_api.py tests/test_heats_api.py tests/test_baselines_dashboard_api.py -x -vv`
+  - [x] 宿主 `npm run lint`
+  - [x] 宿主 `npm run build`
+
+### 2026-03-20（阶段 3：收掉 EDC 设置页系统连接双写）
+- [x] EDC 设置页已改为只读展示宿主状态
+  - [x] `apps/web/src/views/SettingsView.vue` 不再提供 `test/save edc` 按钮
+  - [x] `apps/web/src/stores/setting.ts` 改为读取 `/settings + /settings/host-connectivity-status`
+  - [x] `apps/web/src/api/setting.ts` 已补宿主连接摘要读取接口
+- [x] 后端已把宿主同步写入口收成专用 header
+  - [x] `PUT /api/settings/edc-connection`
+  - [x] `PUT /api/settings/host-channels`
+  - [x] `PUT /api/settings/host-connectivity-status`
+  - [x] 以上接口现在都要求 `X-ASNS-Host-Sync: true`
+- [x] 宿主同步链路已补 header
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`
+- [x] 相关回归已更新：
+  - [x] `apps/server/tests/test_tasks_reports_settings_api.py`
+  - [x] `apps/server/tests/test_baselines_dashboard_api.py`
+  - [x] `apps/web/e2e/coverage.spec.ts`
+- [x] 验证通过：
+  - [x] `apps/server/.venv/Scripts/ruff.exe check src tests`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_tasks_reports_settings_api.py tests/test_heats_api.py tests/test_baselines_dashboard_api.py -x -vv`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "settings page shows host connectivity" e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
+  - [x] 宿主 `npm run lint`
+  - [x] 宿主 `npm run build`
+
+### 2026-03-20（showtime 第二轮扩展：Dashboard / 任务 / 报表默认真实 only）
+- [x] 任务链路已按请求级 `showtime` 拆分真实与演示数据源
+  - [x] `apps/server/src/api/tasks.py` 默认 `_TASK_STORE` 改为空的真实运行态任务库
+  - [x] showtime 请求才会切到 `_SHOWTIME_TASK_STORE` 的 seeded mock 任务
+  - [x] Dashboard 待处理任务统计已改为按当前请求模式下的任务库计算
+- [x] 报表链路已去掉合成日报，默认改为基于当前炉次/任务数据实时汇总
+  - [x] `apps/server/src/api/reports.py` 不再用 `_build_report()` 生成 30 天假报表
+  - [x] `/api/reports/daily` 与详情改为按当前请求模式下的 heat/task store 动态汇总
+  - [x] 默认模式下无真实炉次时返回空列表/404，不再露出合成日报
+- [x] Dashboard 默认模式下的演示 UI 已清理
+  - [x] 统计卡片移除硬编码“较昨日增加 14 炉 / 上次校准 2023-10-24”等演示文案
+  - [x] 偏差收件箱预览改为基于真实异常/待分析炉次派生，没有数据就显示空态
+  - [x] 纠偏任务待办改为基于真实任务列表派生，没有数据就显示空态
+  - [x] 快捷入口角标改为按当前真实异常炉次数动态显示
+- [x] E2E 已改为确定性口径
+  - [x] `coverage.spec.ts` 的日报/收件箱走显式 mock 桩，不再依赖当前本地后端运行态一定有数据
+  - [x] 基线定义“选择宿主通道”用例已改成选择真正可用的剩余通道，不再依赖被占用的演示选项
+- [x] 验证通过：
+  - [x] `apps/server/.venv/Scripts/ruff.exe check src tests`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_tasks_reports_settings_api.py tests/test_baselines_dashboard_api.py -x -vv`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/coverage.spec.ts e2e/issue-acceptance.spec.ts`
+
+### 2026-03-20（showtime 第三轮收口：默认模式文案去 mock，演示 banner 判定收紧）
+- [x] 基线向导默认模式错误文案已去掉“检查 mock 开关 / 显式开启 mock 数据集”
+  - [x] `baseline.wizard.previewUnavailable` 改为只提示宿主连接与通道绑定
+  - [x] `baseline.wizard.heatCandidatesUnavailable` 改为只提示后端数据源
+  - [x] `zh-CN / zh-TW / en-US / ja-JP` 已同步
+- [x] 炉次列表演示来源提示已收紧为 showtime 专用
+  - [x] `HeatListView.vue` 中 `hasDemoHeatRecords` 不再用“非 live_edc”粗暴判定
+  - [x] 当前仅当 `record_source` 明确属于 `demo_seed / mock_stream / demo_curve / mock_curve` 且 URL 带 `showtime=true` 时才显示演示 banner
+  - [x] 数据来源文案兜底已改为 `none`，避免把未知来源误标成“演示炉次台账”
+  - [x] `HeatDetailView.vue` 的数据来源映射已与列表页对齐，不再把 `mock_stream` 或未知来源默认落到“演示炉次台账”
+- [x] 验证通过：
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web build`
+
+### 2026-03-20（showtime 第四轮收口：baseline 默认真实 only，演示曲线仅限显式 showtime）
+- [x] baseline 后端曲线 hydrate 已改为请求级来源解析，不再把 showtime 的 demo 曲线写回共享 store
+  - [x] `apps/server/src/api/baselines.py` 新增 `curve_source` 显式返回
+  - [x] 默认模式下若无真实基线曲线则返回 `curve_source=none`
+  - [x] 仅在 `showtime=true` 请求下才允许返回 `curve_source=demo_curve`
+  - [x] 已补回归，验证 showtime 请求不会污染后续默认模式
+- [x] baseline 详情页已与 heat 页面统一来源口径
+  - [x] `apps/web/src/views/BaselineDetailView.vue` 新增曲线来源说明
+  - [x] 仅在 `showtime=true` 且命中 `demo_curve` 时显示演示提示 banner
+  - [x] 默认模式下无真实曲线时明确显示“暂无曲线”，不再暗示演示数据
+- [x] 前端残留演示入口已继续清理
+  - [x] 删除 `apps/web/src/api/heat.ts` 的 `ingestMock`
+  - [x] 删除 `apps/web/src/stores/heat.ts` 的 `ingestMockHeat`
+  - [x] 四套 locale 已去掉 `ingestMockHeat` 文案
+- [x] 边界验证已补齐并通过
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py -x -vv`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/coverage.spec.ts e2e/issue-acceptance.spec.ts`
+
 ---
 
 ## 进行中
@@ -860,6 +1012,9 @@
 
 - 当前炉次主记录已进入“真实曲线推断”阶段，不再只靠 Mock；但仍不是上游官方炉次台账
 - 当前普通 `/api/heats` 已与 demo/mock 主记录解耦；剩余“拿不到真实数据”问题主要转到真实推断开关与列表性能链路
+- 当前 mock 治理已进入请求级 showtime 模式：默认真实 only，`showtime=true` 才允许普通业务接口切到 mock 数据集
+- 当前 `showtime/mock` 第一阶段收口已完成：默认模式不再暴露 baseline demo 曲线与前端演示入口，后续可回到“宿主为入口、后端统一读取面”的大目标推进
+- 当前“宿主为入口、后端为统一读取面、EDC 只读消费”的主干方向已确认；剩余关键问题是系统连接配置仍存在宿主和 EDC 设置页双写
 - 炉次详情链已做前端请求去重；若后续仍慢，下一步应转到后端 `compare` 与详情聚合链路继续收重
 - 单台 EDC 设备，架构预留多台扩展能力
 - 模块化设计，支持按插件销售

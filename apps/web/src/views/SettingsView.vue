@@ -21,16 +21,6 @@ async function saveTolerance() {
   ElMessage.success(t('common.success'))
 }
 
-async function saveEdc() {
-  await settingStore.saveEdc()
-  ElMessage.success(t('common.success'))
-}
-
-async function testEdc() {
-  await settingStore.testEdc()
-  ElMessage.success(t('settings.edcTestSuccess'))
-}
-
 async function saveReport() {
   await settingStore.saveReport()
   ElMessage.success(t('common.success'))
@@ -91,49 +81,99 @@ onMounted(() => {
       <!-- 右侧设置内容 -->
       <div class="lg:col-span-3 space-y-6">
         <!-- EDC 数据提取配置 -->
-        <div class="bg-white rounded-xl border border-border-light shadow-card p-6">
+        <div
+          class="bg-white rounded-xl border border-border-light shadow-card p-6"
+          data-testid="settings-host-connectivity-card"
+        >
           <div class="flex items-center justify-between mb-6">
             <div>
               <h3 class="text-lg font-bold text-slate-800">
-                EDC 数据提取
+                {{ t('settings.hostManagedConnection') }}
               </h3>
               <p class="text-sm text-slate-500 mt-0.5">
-                配置工程数据采集系统的连接参数
+                {{ t('settings.hostManagedConnectionDesc') }}
               </p>
             </div>
-            <span class="text-xs px-2.5 py-1 rounded-full bg-green-50 text-green-700 border border-green-200 font-medium">Active</span>
+            <span
+              class="text-xs px-2.5 py-1 rounded-full border font-medium"
+              :class="
+                settingStore.hostConnectivity.isConnected
+                  ? 'bg-green-50 text-green-700 border-green-200'
+                  : 'bg-slate-100 text-slate-600 border-slate-200'
+              "
+            >
+              {{
+                settingStore.hostConnectivity.isConnected
+                  ? t('settings.hostOnline')
+                  : t('settings.hostOffline')
+              }}
+            </span>
           </div>
-          <el-form label-position="top">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <el-form-item :label="t('settings.edcBaseUrl')">
-                <el-input v-model="settingStore.data.edcBaseUrl" />
-              </el-form-item>
-              <el-form-item :label="t('settings.edcApiKey')">
-                <el-input
-                  v-model="settingStore.data.edcApiKey"
-                  type="password"
-                  show-password
-                />
-              </el-form-item>
+
+          <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 mb-6">
+            {{ t('settings.hostManagedConnectionNotice') }}
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-border-light bg-slate-50 px-4 py-3">
+              <p class="text-xs font-semibold text-slate-500">
+                {{ t('settings.edcBaseUrl') }}
+              </p>
+              <p class="mt-1 font-mono text-sm text-slate-800 break-all">
+                {{ settingStore.data.edcBaseUrl || '--' }}
+              </p>
             </div>
-          </el-form>
-          <div class="flex justify-end gap-3 mt-4">
-            <button
-              type="button"
-              data-testid="settings-test-edc"
-              class="px-4 py-2 bg-white border border-border-light text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
-              @click="testEdc"
-            >
-              {{ t('settings.testConnection') }}
-            </button>
-            <button
-              type="button"
-              data-testid="settings-save-edc"
-              class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
-              @click="saveEdc"
-            >
-              {{ t('common.save') }}
-            </button>
+            <div class="rounded-lg border border-border-light bg-slate-50 px-4 py-3">
+              <p class="text-xs font-semibold text-slate-500">
+                {{ t('settings.hostMachineName') }}
+              </p>
+              <p class="mt-1 text-sm text-slate-800">
+                {{ settingStore.hostConnectivity.machineName || '--' }}
+              </p>
+            </div>
+            <div class="rounded-lg border border-border-light bg-slate-50 px-4 py-3">
+              <p class="text-xs font-semibold text-slate-500">
+                {{ t('settings.hostLastSync') }}
+              </p>
+              <p class="mt-1 text-sm text-slate-800">
+                {{ settingStore.hostConnectivity.lastSyncLabel || '--' }}
+              </p>
+            </div>
+            <div class="rounded-lg border border-border-light bg-slate-50 px-4 py-3">
+              <p class="text-xs font-semibold text-slate-500">
+                {{ t('settings.hostSource') }}
+              </p>
+              <p class="mt-1 text-sm text-slate-800 break-all">
+                {{ settingStore.hostConnectivity.source || '--' }}
+              </p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div class="rounded-lg border border-border-light bg-white px-4 py-3">
+              <p class="text-xs font-semibold text-slate-500">
+                {{ t('settings.hostSensorCount') }}
+              </p>
+              <p class="mt-1 text-lg font-bold text-slate-800">
+                {{ settingStore.hostConnectivity.sensorCount }}
+              </p>
+            </div>
+            <div class="rounded-lg border border-border-light bg-white px-4 py-3">
+              <p class="text-xs font-semibold text-slate-500">
+                {{ t('settings.hostChannelCount') }}
+              </p>
+              <p class="mt-1 text-lg font-bold text-slate-800">
+                {{ settingStore.hostConnectivity.channelCount }}
+              </p>
+            </div>
+            <div class="rounded-lg border border-border-light bg-white px-4 py-3">
+              <p class="text-xs font-semibold text-slate-500">
+                {{ t('settings.hostEnabledChannelCount') }}
+              </p>
+              <p class="mt-1 text-lg font-bold text-slate-800">
+                {{ settingStore.hostConnectivity.enabledChannelCount }}
+              </p>
+            </div>
           </div>
         </div>
 

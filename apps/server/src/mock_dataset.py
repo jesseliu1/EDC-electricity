@@ -1,10 +1,11 @@
 from fastapi import HTTPException
 
-from .config import settings
+from .request_mode import is_showtime_mode
 
 
 def is_mock_dataset_enabled() -> bool:
-    return bool(settings.enable_mock_dataset)
+    """仅在显式 showtime 请求中开放 mock 数据集。"""
+    return is_showtime_mode()
 
 
 def ensure_mock_dataset_enabled(detail: str) -> None:

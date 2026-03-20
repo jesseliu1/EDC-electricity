@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api.router import api_router
 from .config import settings
 from .database import init_db
+from .request_mode import reset_showtime_mode, resolve_showtime_mode, set_showtime_mode
 from .runtime_state import load_runtime_state
 
 
@@ -42,6 +43,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def bind_request_mode(request, call_next):
+    """为每个请求绑定 showtime 模式。"""
+    token = set_showtime_mode(resolve_showtime_mode(request))
+    try:
+        return await call_next(request)
+    finally:
+        reset_showtime_mode(token)
 
 # 注册路由
 app.include_router(api_router, prefix="/api")

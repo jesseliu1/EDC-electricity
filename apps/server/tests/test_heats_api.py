@@ -7,7 +7,6 @@ import pytest
 from src.api.baseline_definitions import _resolve_preview_window
 from src.api.baselines import _resolve_baseline_time_window
 from src.api.settings import _SETTINGS_STORE
-from src.config import settings
 from src.schemas.common import CurvePoint
 
 
@@ -27,6 +26,16 @@ def _build_live_power_points(start: datetime) -> list[CurvePoint]:
     append_block(52, 28, 129.0)
     append_block(80, 10, 38.0)
     return points
+
+
+async def _pick_heat_id(client, *, require_baseline: bool = True) -> str:
+    list_resp = await client.get("/api/heats", params={"page_size": 20})
+    assert list_resp.status_code == 200
+    return next(
+        item["id"]
+        for item in list_resp.json()["items"]
+        if not require_baseline or item.get("baseline_id") is not None
+    )
 
 
 @pytest.mark.asyncio
@@ -93,13 +102,15 @@ async def test_get_heat_curve_and_compare(client) -> None:
 
 @pytest.mark.asyncio
 async def test_heat_list_and_compare_follow_active_default_baseline(client) -> None:
+    source_heat_id = await _pick_heat_id(client)
+
     create_resp = await client.post(
         "/api/baselines",
         json={
             "name": "默认黄金基线测试",
             "description": "用于验证炉次默认基线口径",
             "definition_id": "def-001",
-            "source_heat_id": "heat-001",
+            "source_heat_id": source_heat_id,
             "tolerance_percent": 9.5,
         },
     )
@@ -127,8 +138,6 @@ async def test_heat_list_and_compare_follow_active_default_baseline(client) -> N
 
 @pytest.mark.asyncio
 async def test_mock_stream_endpoints_are_disabled_when_mock_dataset_is_off(client) -> None:
-    settings.enable_mock_dataset = False
-
     list_response = await client.get("/api/heats/stream/mock")
     assert list_response.status_code == 503
     assert "mock 数据集未开启" in list_response.json()["detail"]
@@ -359,34 +368,39 @@ async def test_list_heats_does_not_surface_mock_stream_records(client) -> None:
     response = await client.get("/api/heats", params={"page_size": 20})
     assert response.status_code == 200
     payload = response.json()
-    assert payload["items"] == []
-    assert payload["total"] == 0
+    assert payload["total"] > 0
+    assert all(item["record_source"] != "mock_stream" for item in payload["items"])
 
 
 @pytest.mark.asyncio
 async def test_mock_stream_endpoints_use_dedicated_store(client) -> None:
-    settings.enable_mock_dataset = True
-
     import src.api.heats as heats_module
 
     heats_module._HEAT_STORE.clear()
     list_response = await client.get("/api/heats")
     assert list_response.status_code == 200
-    assert list_response.json()["total"] == 0
+    assert list_response.json()["total"] > 0
 
-    mock_list_response = await client.get("/api/heats/stream/mock", params={"page_size": 5})
+    mock_list_response = await client.get(
+        "/api/heats/stream/mock",
+        params={"page_size": 5, "showtime": "true"},
+    )
     assert mock_list_response.status_code == 200
     mock_payload = mock_list_response.json()
     assert mock_payload["total"] > 0
     assert all(item["record_source"] == "mock_stream" for item in mock_payload["items"])
 
-    ingest_response = await client.post("/api/heats/stream/mock/ingest")
+    ingest_response = await client.post("/api/heats/stream/mock/ingest?showtime=true")
     assert ingest_response.status_code == 200
     assert ingest_response.json()["record_source"] == "mock_stream"
 
     ordinary_after_ingest = await client.get("/api/heats")
     assert ordinary_after_ingest.status_code == 200
-    assert ordinary_after_ingest.json()["total"] == 0
+    assert ordinary_after_ingest.json()["total"] > 0
+
+    ordinary_showtime = await client.get("/api/heats", params={"showtime": "true"})
+    assert ordinary_showtime.status_code == 200
+    assert ordinary_showtime.json()["items"][0]["record_source"] == "mock_stream"
 
 
 @pytest.mark.asyncio
@@ -486,7 +500,8 @@ async def test_heat_compare_hydrates_each_baseline_only_once(client, monkeypatch
         fake_load_channel_curves_from_edc,
     )
 
-    compare_resp = await client.get("/api/heats/heat-001/compare")
+    heat_id = await _pick_heat_id(client)
+    compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert compare_resp.status_code == 200
     assert hydrate_calls.count("baseline-001") == 1
     assert hydrate_calls.count("baseline-002") == 1
@@ -568,8 +583,9 @@ async def test_heat_compare_reuses_short_ttl_cache(client, monkeypatch) -> None:
     )
     monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fake_load_heat_curves_from_edc)
 
-    first_resp = await client.get("/api/heats/heat-001/compare")
-    second_resp = await client.get("/api/heats/heat-001/compare")
+    heat_id = await _pick_heat_id(client)
+    first_resp = await client.get(f"/api/heats/{heat_id}/compare")
+    second_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert first_resp.status_code == 200
     assert second_resp.status_code == 200
     assert first_resp.json() == second_resp.json()

@@ -32,9 +32,7 @@ router = APIRouter(prefix="/baselines", tags=["Baselines"])
 
 
 def _build_curve(seed: int, length: int = 100) -> list[dict[str, float]]:
-    """生成稳定的模拟曲线数据。"""
-    if not is_mock_dataset_enabled():
-        return []
+    """生成稳定的演示曲线数据。"""
     return [
         {"timestamp": 1000.0 * i, "value": float(430 + ((i + seed) % 12) * 3)}
         for i in range(length)
@@ -97,6 +95,68 @@ def _now() -> datetime:
     return datetime.now()
 
 
+def _resolve_curve_seed(item: dict[str, Any], fallback: int = 1) -> int:
+    seed = item.get("curve_seed")
+    if isinstance(seed, int):
+        return seed
+
+    item_id = str(item.get("id") or "")
+    if not item_id:
+        return fallback
+
+    return sum(ord(char) for char in item_id) % 97 + fallback
+
+
+def _empty_curve_payload() -> dict[str, Any]:
+    return {
+        "power_curve": [],
+        "voltage_curve": [],
+        "curves_data": [],
+        "curve_source": "none",
+    }
+
+
+def _build_demo_curve_payload(item: dict[str, Any]) -> dict[str, Any]:
+    seed = _resolve_curve_seed(item)
+    definition_id = str(item.get("definition_id") or "")
+    curves_data = _build_curves_data(definition_id, seed)
+    power_curve = next(
+        (
+            curve["points"]
+            for curve in curves_data
+            if "功率" in str(curve.get("metric_name") or "") or str(curve.get("unit") or "") == "kW"
+        ),
+        _build_curve(seed),
+    )
+    voltage_curve = next(
+        (
+            curve["points"]
+            for curve in curves_data
+            if (
+                "电压" in str(curve.get("metric_name") or "")
+                or "電壓" in str(curve.get("metric_name") or "")
+                or str(curve.get("unit") or "") == "V"
+            )
+        ),
+        _build_curve(seed + 2),
+    )
+    return {
+        "power_curve": power_curve,
+        "voltage_curve": voltage_curve,
+        "curves_data": curves_data,
+        "curve_source": "demo_curve",
+    }
+
+
+def _with_curve_payload(item: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    hydrated = dict(item)
+    hydrated["power_curve"] = payload.get("power_curve", [])
+    hydrated["voltage_curve"] = payload.get("voltage_curve", [])
+    hydrated["curves_data"] = payload.get("curves_data", [])
+    hydrated["curve_source"] = payload.get("curve_source", "none")
+    return hydrated
+
+
 _BASELINE_STORE: dict[str, dict[str, Any]] = {
     "baseline-001": {
         "id": "baseline-001",
@@ -109,14 +169,15 @@ _BASELINE_STORE: dict[str, dict[str, Any]] = {
         "tolerance_percent": 15.0,
         "status": "published",
         "version": 2,
+        "curve_seed": 1,
         "created_at": _now(),
         "updated_at": _now(),
         "published_at": _now(),
-        "power_curve": _build_curve(1),
-        "voltage_curve": _build_curve(3),
+        "power_curve": [],
+        "voltage_curve": [],
         "temperature": 1450.0,
-        "curve_source": "demo_curve" if is_mock_dataset_enabled() else "none",
-        "curves_data": _build_curves_data("def-001", 1),
+        "curve_source": "none",
+        "curves_data": [],
     },
     "baseline-002": {
         "id": "baseline-002",
@@ -129,14 +190,15 @@ _BASELINE_STORE: dict[str, dict[str, Any]] = {
         "tolerance_percent": 12.0,
         "status": "draft",
         "version": 1,
+        "curve_seed": 5,
         "created_at": _now(),
         "updated_at": _now(),
         "published_at": None,
-        "power_curve": _build_curve(5),
-        "voltage_curve": _build_curve(7),
+        "power_curve": [],
+        "voltage_curve": [],
         "temperature": 1460.0,
-        "curve_source": "demo_curve" if is_mock_dataset_enabled() else "none",
-        "curves_data": _build_curves_data("def-002", 5),
+        "curve_source": "none",
+        "curves_data": [],
     },
 }
 
@@ -171,6 +233,7 @@ def _to_baseline_response(item: dict[str, Any]) -> BaselineResponse:
         tolerance_percent=item["tolerance_percent"],
         status=item["status"],
         version=item["version"],
+        curve_source=str(item.get("curve_source") or "none"),
         created_at=item["created_at"],
         updated_at=item["updated_at"],
         published_at=item["published_at"],
@@ -204,6 +267,7 @@ def _to_baseline_with_curve(item: dict[str, Any]) -> BaselineWithCurve:
         tolerance_percent=item["tolerance_percent"],
         status=item["status"],
         version=item["version"],
+        curve_source=str(item.get("curve_source") or "none"),
         created_at=item["created_at"],
         updated_at=item["updated_at"],
         published_at=item["published_at"],
@@ -322,16 +386,15 @@ async def _load_baseline_curves_from_edc(
 
 
 async def _hydrate_baseline_item(item: dict[str, Any]) -> dict[str, Any]:
-    """为基线实例补齐真实曲线。"""
+    """为当前请求解析基线曲线来源，不把 showtime 演示曲线污染回共享 store。"""
     curves = await _load_baseline_curves_from_edc(item)
-    if not curves:
-        return item
+    if curves:
+        return _with_curve_payload(item, curves)
 
-    item["curves_data"] = curves["curves_data"]
-    item["power_curve"] = curves["power_curve"]
-    item["voltage_curve"] = curves["voltage_curve"]
-    item["curve_source"] = curves["curve_source"]
-    return item
+    if is_mock_dataset_enabled():
+        return _with_curve_payload(item, _build_demo_curve_payload(item))
+
+    return _with_curve_payload(item, _empty_curve_payload())
 
 
 def _get_or_404(baseline_id: str) -> dict[str, Any]:
@@ -455,8 +518,8 @@ async def activate_baseline(baseline_id: str) -> BaselineSummary:
 async def get_baseline(baseline_id: str) -> BaselineWithCurve:
     """获取基线详情（含曲线数据）。"""
     item = _get_or_404(baseline_id)
-    await _hydrate_baseline_item(item)
-    return _to_baseline_with_curve(item)
+    hydrated = await _hydrate_baseline_item(item)
+    return _to_baseline_with_curve(hydrated)
 
 
 @router.post("", response_model=BaselineResponse, status_code=201)
@@ -477,16 +540,16 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
         "tolerance_percent": data.tolerance_percent,
         "status": "draft",
         "version": 1,
+        "curve_seed": sum(ord(char) for char in baseline_id) % 97 + 9,
         "created_at": now,
         "updated_at": now,
         "published_at": None,
-        "power_curve": _build_curve(9),
-        "voltage_curve": _build_curve(11),
+        "power_curve": [],
+        "voltage_curve": [],
         "temperature": 1455.0,
-        "curve_source": "demo_curve" if is_mock_dataset_enabled() else "none",
-        "curves_data": _build_curves_data(data.definition_id, 9),
+        "curve_source": "none",
+        "curves_data": [],
     }
-    await _hydrate_baseline_item(item)
     _BASELINE_STORE[baseline_id] = item
     await persist_runtime_state("baselines")
     return _to_baseline_response(item)
@@ -510,7 +573,6 @@ async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineRes
     if data.tolerance_percent is not None:
         item["tolerance_percent"] = data.tolerance_percent
     item["updated_at"] = _now()
-    await _hydrate_baseline_item(item)
     await persist_runtime_state("baselines")
 
     return _to_baseline_response(item)

@@ -10,6 +10,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from ..request_mode import is_showtime_mode
 from ..schemas import (
     TaskCompleteRequest,
     TaskCreate,
@@ -60,7 +61,12 @@ def _seed_tasks() -> dict[str, dict[str, Any]]:
     return seeded
 
 
-_TASK_STORE: dict[str, dict[str, Any]] = _seed_tasks()
+_TASK_STORE: dict[str, dict[str, Any]] = {}
+_SHOWTIME_TASK_STORE: dict[str, dict[str, Any]] = _seed_tasks()
+
+
+def _list_task_store() -> dict[str, dict[str, Any]]:
+    return _SHOWTIME_TASK_STORE if is_showtime_mode() else _TASK_STORE
 
 
 def _to_task_response(item: dict[str, Any]) -> TaskResponse:
@@ -88,7 +94,7 @@ def _to_task_detail(item: dict[str, Any]) -> TaskDetailResponse:
 
 
 def _get_or_404(task_id: str) -> dict[str, Any]:
-    item = _TASK_STORE.get(task_id)
+    item = _list_task_store().get(task_id)
     if not item:
         raise HTTPException(status_code=404, detail="任务不存在")
     return item
@@ -103,7 +109,7 @@ async def list_tasks(
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
 ) -> TaskListResponse:
     """获取任务列表。"""
-    items = list(_TASK_STORE.values())
+    items = list(_list_task_store().values())
     items.sort(key=lambda x: x["updated_at"], reverse=True)
     if status:
         items = [item for item in items if item["status"] == status]
@@ -151,7 +157,7 @@ async def create_task(data: TaskCreate) -> TaskResponse:
         "updated_at": now,
         "completed_at": None,
     }
-    _TASK_STORE[task_id] = item
+    _list_task_store()[task_id] = item
     return _to_task_response(item)
 
 

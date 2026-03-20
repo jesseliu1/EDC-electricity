@@ -222,9 +222,11 @@ const statusText = computed(() => {
 function dataSourceText(source: HeatDataSource) {
   if (source === 'live_edc') return t('heat.dataSource.liveEdc')
   if (source === 'live_inferred') return t('heat.dataSource.liveInferred')
+  if (source === 'mock_curve') return t('heat.dataSource.demoCurve')
+  if (source === 'mock_stream') return t('heat.dataSource.demoSeed')
   if (source === 'demo_curve') return t('heat.dataSource.demoCurve')
   if (source === 'none') return t('heat.dataSource.none')
-  return t('heat.dataSource.demoSeed')
+  return t('heat.dataSource.none')
 }
 
 const shouldShowSourceBanner = computed(() => {

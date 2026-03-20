@@ -1,7 +1,14 @@
 import { client } from './client'
 
 export type HeatStatus = 'normal' | 'abnormal' | 'pending'
-export type HeatDataSource = 'live_edc' | 'live_inferred' | 'demo_seed' | 'demo_curve' | 'none'
+export type HeatDataSource =
+  | 'live_edc'
+  | 'live_inferred'
+  | 'demo_seed'
+  | 'demo_curve'
+  | 'mock_stream'
+  | 'mock_curve'
+  | 'none'
 
 export interface HeatResponseItem {
   id: string
@@ -121,7 +128,6 @@ export interface HeatResumeCuttingPayload {
 
 export const heatApi = {
   list: (query: HeatListQuery) => client.get<HeatListResponse>('/heats', { params: query }),
-  ingestMock: () => client.post<HeatResponseItem>('/heats/stream/mock/ingest'),
   get: (id: string) => client.get<HeatResponseItem>(`/heats/${id}`),
   getCurve: (id: string) => client.get<HeatWithCurveResponse>(`/heats/${id}/curve`),
   getCompare: (id: string) => client.get<HeatCompareResponse>(`/heats/${id}/compare`),

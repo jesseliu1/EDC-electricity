@@ -6,6 +6,9 @@ from src.api.settings import _HOST_CHANNEL_STORE
 from src.config import settings
 from src.schemas.common import CurvePoint
 
+HOST_SYNC_HEADERS = {"X-ASNS-Host-Sync": "true"}
+SHOWTIME_HEADERS = {"X-Showtime": "true"}
+
 
 @pytest.mark.asyncio
 async def test_dashboard_endpoints(client) -> None:
@@ -141,6 +144,12 @@ async def test_settings_host_channels_endpoint(client, monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_settings_host_channels_can_be_saved(client) -> None:
+    forbidden_response = await client.put(
+        "/api/settings/host-channels",
+        json={"items": []},
+    )
+    assert forbidden_response.status_code == 403
+
     response = await client.put(
         "/api/settings/host-channels",
         json={
@@ -159,6 +168,7 @@ async def test_settings_host_channels_can_be_saved(client) -> None:
                 }
             ]
         },
+        headers=HOST_SYNC_HEADERS,
     )
     assert response.status_code == 200
 
@@ -373,9 +383,12 @@ async def test_baseline_crud_publish_disable_and_delete(client) -> None:
     assert detail_resp.status_code == 200
     detail_data = detail_resp.json()
     assert detail_data["definition_id"] == "def-001"
-    assert len(detail_data["curves_data"]) > 0
-    assert all("edc_channel_id" in curve for curve in detail_data["curves_data"])
-    assert all("source_channel_label" in curve for curve in detail_data["curves_data"])
+    assert detail_data["curve_source"] in {"live_edc", "none"}
+    assert detail_data["curve_source"] != "demo_curve"
+    if detail_data["curve_source"] == "none":
+        assert detail_data["curves_data"] == []
+        assert detail_data["power_curve"] == []
+        assert detail_data["voltage_curve"] == []
 
     update_resp = await client.patch(
         f"/api/baselines/{baseline_id}",
@@ -458,24 +471,79 @@ async def test_baseline_delete_draft_and_reject_disabled_definition(client) -> N
 @pytest.mark.asyncio
 async def test_baseline_detail_prefers_edc_curves_when_available(client, monkeypatch) -> None:
     async def fake_hydrate_baseline_item(item):
-        item["power_curve"] = [
+        curves_data = item.get("curves_data") or [
+            {
+                "metric_id": "metric-power",
+                "metric_name": "总有功功率",
+                "unit": "kW",
+                "color": "#1152d4",
+                "edc_channel_id": "2349-199",
+                "source_channel_name": "总有功功率",
+                "source_channel_label": "测试设备 / 总有功功率 / kW",
+                "points": [],
+            }
+        ]
+        curves_data[0]["points"] = [
             {"timestamp": 1000, "value": 301.0},
             {"timestamp": 2000, "value": 302.0},
         ]
-        item["voltage_curve"] = [
-            {"timestamp": 1000, "value": 211.0},
-            {"timestamp": 2000, "value": 212.0},
-        ]
-        item["curves_data"][0]["points"] = [
-            {"timestamp": 1000, "value": 301.0},
-            {"timestamp": 2000, "value": 302.0},
-        ]
-        return item
+        return {
+            **item,
+            "curve_source": "live_edc",
+            "power_curve": [
+                {"timestamp": 1000, "value": 301.0},
+                {"timestamp": 2000, "value": 302.0},
+            ],
+            "voltage_curve": [
+                {"timestamp": 1000, "value": 211.0},
+                {"timestamp": 2000, "value": 212.0},
+            ],
+            "curves_data": curves_data,
+        }
 
     monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fake_hydrate_baseline_item)
 
     response = await client.get("/api/baselines/baseline-001")
     assert response.status_code == 200
     payload = response.json()
+    assert payload["curve_source"] == "live_edc"
     assert payload["power_curve"][0]["value"] == 301.0
     assert payload["curves_data"][0]["points"][1]["value"] == 302.0
+
+
+@pytest.mark.asyncio
+async def test_baseline_detail_only_uses_demo_curves_in_showtime_mode(client, monkeypatch) -> None:
+    async def fake_load_baseline_curves_from_edc(_item):
+        return None
+
+    monkeypatch.setattr(
+        "src.api.baselines._load_baseline_curves_from_edc",
+        fake_load_baseline_curves_from_edc,
+    )
+
+    default_response = await client.get("/api/baselines/baseline-001")
+    assert default_response.status_code == 200
+    default_payload = default_response.json()
+    assert default_payload["curve_source"] == "none"
+    assert default_payload["curves_data"] == []
+    assert default_payload["power_curve"] == []
+    assert default_payload["voltage_curve"] == []
+
+    showtime_response = await client.get(
+        "/api/baselines/baseline-001",
+        headers=SHOWTIME_HEADERS,
+    )
+    assert showtime_response.status_code == 200
+    showtime_payload = showtime_response.json()
+    assert showtime_payload["curve_source"] == "demo_curve"
+    assert len(showtime_payload["curves_data"]) > 0
+    assert len(showtime_payload["power_curve"]) > 0
+    assert len(showtime_payload["voltage_curve"]) > 0
+
+    default_again_response = await client.get("/api/baselines/baseline-001")
+    assert default_again_response.status_code == 200
+    default_again_payload = default_again_response.json()
+    assert default_again_payload["curve_source"] == "none"
+    assert default_again_payload["curves_data"] == []
+    assert default_again_payload["power_curve"] == []
+    assert default_again_payload["voltage_curve"] == []

@@ -1,6 +1,7 @@
 """测试配置"""
 
 import copy
+from datetime import datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -19,20 +20,21 @@ from src.api.settings import (
     _HOST_CHANNEL_CATALOG_CACHE,
     _HOST_CHANNEL_LAST_SYNC_AT,
     _HOST_CHANNEL_STORE,
+    _HOST_CONNECTIVITY_STATUS,
     _SETTINGS_STORE,
 )
-from src.api.tasks import _TASK_STORE
+from src.api.tasks import _SHOWTIME_TASK_STORE, _TASK_STORE
 from src.config import settings
 from src.main import app
 
 
 def _build_test_reference_heats() -> dict[str, dict]:
-    """测试专用：构造一组非 mock 的参考炉次。"""
+    """测试专用：构造一组可作为真实推断缓存的参考炉次。"""
     seeded = copy.deepcopy(_seed_heats())
     for item in seeded.values():
-        item["record_source"] = "historical_import"
-        item["current_curve_source"] = "historical_curve"
-        item["baseline_curve_source"] = "historical_curve"
+        item["record_source"] = "live_inferred"
+        item["current_curve_source"] = "live_edc"
+        item["baseline_curve_source"] = "none"
     return seeded
 
 
@@ -53,18 +55,19 @@ def reset_in_memory_stores():
     heat_compare_cache_snapshot = copy.deepcopy(_HEAT_COMPARE_CACHE)
     mock_heat_snapshot = copy.deepcopy(_MOCK_HEAT_STREAM_STORE)
     task_snapshot = copy.deepcopy(_TASK_STORE)
+    showtime_task_snapshot = copy.deepcopy(_SHOWTIME_TASK_STORE)
     settings_snapshot = copy.deepcopy(_SETTINGS_STORE)
     host_channel_snapshot = copy.deepcopy(_HOST_CHANNEL_STORE)
     host_channel_catalog_snapshot = copy.deepcopy(_HOST_CHANNEL_CATALOG_CACHE)
     host_channel_last_sync_snapshot = _HOST_CHANNEL_LAST_SYNC_AT
+    host_connectivity_status_snapshot = copy.deepcopy(_HOST_CONNECTIVITY_STATUS)
     next_heat_index_snapshot = _NEXT_MOCK_HEAT_INDEX
     enable_mock_dataset_snapshot = settings.enable_mock_dataset
     _HEAT_STORE.clear()
-    _HEAT_STORE.update(_build_test_reference_heats())
-    _LIVE_HEAT_CACHE["expires_at"] = None
-    _LIVE_HEAT_CACHE["items"] = {}
+    _LIVE_HEAT_CACHE["expires_at"] = datetime.now() + timedelta(hours=1)
+    _LIVE_HEAT_CACHE["items"] = _build_test_reference_heats()
     _HEAT_COMPARE_CACHE["entries"] = {}
-    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "false"
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
 
     yield
 
@@ -89,6 +92,9 @@ def reset_in_memory_stores():
     _TASK_STORE.clear()
     _TASK_STORE.update(copy.deepcopy(task_snapshot))
 
+    _SHOWTIME_TASK_STORE.clear()
+    _SHOWTIME_TASK_STORE.update(copy.deepcopy(showtime_task_snapshot))
+
     _SETTINGS_STORE.clear()
     _SETTINGS_STORE.update(copy.deepcopy(settings_snapshot))
 
@@ -97,6 +103,9 @@ def reset_in_memory_stores():
 
     _HOST_CHANNEL_CATALOG_CACHE.clear()
     _HOST_CHANNEL_CATALOG_CACHE.extend(copy.deepcopy(host_channel_catalog_snapshot))
+
+    _HOST_CONNECTIVITY_STATUS.clear()
+    _HOST_CONNECTIVITY_STATUS.update(copy.deepcopy(host_connectivity_status_snapshot))
 
     import src.api.settings as settings_module
 

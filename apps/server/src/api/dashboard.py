@@ -167,7 +167,7 @@ async def get_dashboard_stats() -> DashboardStats:
 
     返回当日生产概况：炉次数、平均偏差、待处理任务数等。
     """
-    from .tasks import _TASK_STORE
+    from .tasks import _list_task_store
 
     sources = _resolve_dashboard_sources()
     heats = await _sorted_dashboard_heats()
@@ -181,7 +181,9 @@ async def get_dashboard_stats() -> DashboardStats:
     ]
     normal_count = sum(1 for item in scoped_heats if item.get("status") == "normal")
     pending_tasks = sum(
-        1 for item in _TASK_STORE.values() if item.get("status") in {"pending", "in_progress"}
+        1
+        for item in _list_task_store().values()
+        if item.get("status") in {"pending", "in_progress"}
     )
 
     return DashboardStats(

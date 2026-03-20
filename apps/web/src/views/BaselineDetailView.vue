@@ -42,6 +42,12 @@ const editForm = reactive({
 const baselineId = computed(() => String(route.params.id || ''))
 const baseline = computed(() => baselineStore.current)
 const isDefaultBaseline = computed(() => baselineStore.activeBaselineId === baseline.value?.id)
+const showtimeMode = computed(() => {
+  const raw = route.query.showtime
+  const values = Array.isArray(raw) ? raw : [raw]
+  return values.some(value => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase()))
+})
+const isDemoCurveSource = computed(() => baseline.value?.curveSource === 'demo_curve')
 
 const statusType = computed(() => {
   if (!baseline.value) return 'info'
@@ -130,6 +136,20 @@ const curveBindingSummary = computed(() => {
       sourceLabel: item.source_channel_label || item.source_channel_name || ''
     }))
   }
+})
+
+const curveSourceLabel = computed(() => {
+  if (!baseline.value) return t('heat.dataSource.none')
+  if (baseline.value.curveSource === 'live_edc') return t('heat.dataSource.liveEdc')
+  if (baseline.value.curveSource === 'demo_curve') return t('heat.dataSource.demoCurve')
+  return t('heat.dataSource.none')
+})
+
+const curveSourceHint = computed(() => {
+  if (!baseline.value) return t('baseline.detail.curveSourceNoneHint')
+  if (baseline.value.curveSource === 'live_edc') return t('baseline.detail.curveSourceLiveHint')
+  if (baseline.value.curveSource === 'demo_curve') return t('baseline.detail.curveSourceDemoHint')
+  return t('baseline.detail.curveSourceNoneHint')
 })
 
 function handleEdit() {
@@ -281,6 +301,17 @@ onMounted(async () => {
             {{ t('baseline.detail.curveTitle') }}
           </h3>
         </div>
+        <div
+          v-if="showtimeMode && isDemoCurveSource"
+          class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700"
+        >
+          <div class="font-semibold">
+            {{ t('baseline.detail.curveSourceDemoBanner') }}
+          </div>
+          <div class="mt-1 text-xs text-amber-600">
+            {{ t('baseline.detail.curveSourceDemoBannerHint') }}
+          </div>
+        </div>
         <v-chart
           :option="curveOption"
           autoresize
@@ -320,6 +351,17 @@ onMounted(async () => {
               <span class="font-semibold">
                 {{ curveBindingSummary.boundCount }}/{{ curveBindingSummary.total }}
               </span>
+            </div>
+            <div class="flex justify-between items-start gap-4">
+              <span class="text-slate-500">{{ t('baseline.detail.curveSource') }}</span>
+              <div class="text-right">
+                <div class="font-semibold">
+                  {{ curveSourceLabel }}
+                </div>
+                <div class="mt-1 max-w-[220px] text-xs text-slate-500">
+                  {{ curveSourceHint }}
+                </div>
+              </div>
             </div>
             <div class="pt-4 border-t border-border-light">
               <span class="text-slate-500 block mb-1 flex items-center gap-1">

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { baselineApi } from '@/api/baseline'
 import type {
   BaselineCreatePayload,
+  BaselineCurveSource,
   BaselineUpdatePayload,
   CurveData,
   CurvePoint,
@@ -22,6 +23,7 @@ export interface BaselineItem {
   tolerancePercent: number
   createdAt: string
   publishedAt: string | null
+  curveSource: BaselineCurveSource
   sourceHeatId: string
   selectedStartTime: string | null
   selectedEndTime: string | null
@@ -46,6 +48,7 @@ function mapBaseline(item: BaselineResponse): BaselineItem {
     tolerancePercent: item.tolerance_percent,
     createdAt: item.created_at,
     publishedAt: item.published_at,
+    curveSource: item.curve_source,
     sourceHeatId: item.source_heat_id,
     selectedStartTime: item.selected_start_time || null,
     selectedEndTime: item.selected_end_time || null

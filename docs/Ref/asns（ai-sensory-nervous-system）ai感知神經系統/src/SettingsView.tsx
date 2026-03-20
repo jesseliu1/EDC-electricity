@@ -241,12 +241,16 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
     writeDraft(new Date().toISOString(), connection);
   };
 
-  const syncCurrentSelectionToBackend = async (channelIds = addedChannelIds, catalog = channelCatalog) => {
+  const syncCurrentSelectionToBackend = async (
+    channelIds = addedChannelIds,
+    catalog = channelCatalog,
+    connection = currentConnectionState(),
+  ) => {
     const selectedChannels = channelIds
       .map((channelId) => catalog.find((item) => item.id === channelId))
       .filter((item): item is ChannelMappingItem => Boolean(item));
     try {
-      await syncSelectionToBackend(config, selectedChannels);
+      await syncSelectionToBackend(config, selectedChannels, connection);
     } catch {
       throw new Error(t('settingsSyncFailed'));
     }
@@ -259,7 +263,7 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
     }
 
     try {
-      await syncCurrentSelectionToBackend();
+      await syncCurrentSelectionToBackend(addedChannelIds, channelCatalog, currentConnectionState());
       const savedAt = new Date().toISOString();
       const message = `${t('settingsAppliedMessage')} ${formatCheckedAt(savedAt)}`;
       setStatusMessage(message);
@@ -288,7 +292,7 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
       setMachineName(connectedState.machineName);
       setMeta(connectedState.meta);
       setLastSyncLabel(connectedState.lastSyncLabel);
-      await syncCurrentSelectionToBackend();
+      await syncCurrentSelectionToBackend(addedChannelIds, channelCatalog, connectedState);
       setStatusMessage(data.message || t('testSuccess'));
       persistConnectionState(connectedState);
     } catch (error) {
@@ -298,6 +302,11 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
       setMeta(disconnectedState.meta);
       setLastSyncLabel(disconnectedState.lastSyncLabel);
       setStatusMessage(error instanceof Error ? error.message : t('testFailed'));
+      try {
+        await syncCurrentSelectionToBackend(addedChannelIds, channelCatalog, disconnectedState);
+      } catch {
+        // 连接校验失败时，后端断线摘要尽量同步；失败则保留原始提示。
+      }
       persistConnectionState(disconnectedState);
     } finally {
       setLoading(false);
@@ -323,7 +332,7 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
       setLastSyncLabel(connectedState.lastSyncLabel);
       setChannelCatalog(data.channels);
       const nextAddedChannelIds = syncAddedChannelsWithCatalog(data.channels);
-      await syncCurrentSelectionToBackend(nextAddedChannelIds, data.channels);
+      await syncCurrentSelectionToBackend(nextAddedChannelIds, data.channels, connectedState);
       setStatusMessage(data.message || t('syncSuccess'));
       persistConnectionState(connectedState);
     } catch (error) {

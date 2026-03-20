@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
-from ..mock_dataset import ensure_mock_dataset_enabled
+from ..mock_dataset import ensure_mock_dataset_enabled, is_mock_dataset_enabled
 from ..runtime_state import persist_runtime_state
 from ..schemas import (
     BaselineCompareItem,
@@ -608,8 +608,11 @@ async def _get_live_inferred_heat_store() -> dict[str, dict[str, Any]]:
 
 
 async def resolve_heat_record(heat_id: str) -> dict[str, Any] | None:
+    if is_mock_dataset_enabled():
+        return _MOCK_HEAT_STREAM_STORE.get(heat_id)
+
     stored_item = _HEAT_STORE.get(heat_id)
-    if stored_item:
+    if stored_item and _is_real_heat_record(stored_item):
         return stored_item
 
     live_items = await _get_live_inferred_heat_store()
@@ -624,13 +627,18 @@ async def resolve_heat_time_window(heat_id: str) -> tuple[datetime, datetime] | 
 
 
 async def _list_heat_store() -> dict[str, dict[str, Any]]:
+    if is_mock_dataset_enabled():
+        return dict(_MOCK_HEAT_STREAM_STORE)
+
     live_items = await _get_live_inferred_heat_store()
     if not live_items:
-        return _HEAT_STORE
+        return {}
 
-    merged = dict(_HEAT_STORE)
-    for heat_id, item in live_items.items():
-        if heat_id not in merged:
+    merged = dict(live_items)
+    for heat_id, item in _HEAT_STORE.items():
+        if not _is_real_heat_record(item):
+            continue
+        if heat_id in merged:
             merged[heat_id] = item
     return merged
 
@@ -1269,6 +1277,10 @@ def _is_mock_heat_record(item: dict[str, Any]) -> bool:
     return str(item.get("record_source") or "").strip().lower() in {"demo_seed", "mock_stream"}
 
 
+def _is_real_heat_record(item: dict[str, Any]) -> bool:
+    return str(item.get("record_source") or "").strip().lower() in {"live_inferred", "live_edc"}
+
+
 _HEAT_STORE: dict[str, dict[str, Any]] = {}
 _MOCK_HEAT_STREAM_STORE: dict[str, dict[str, Any]] = _seed_mock_stream_heats()
 _NEXT_MOCK_HEAT_INDEX = len(_MOCK_HEAT_STREAM_STORE) + 1
@@ -1293,9 +1305,9 @@ def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
         blocked_by_issue=item.get("blocked_by_issue", False),
         status=item["status"],
         temperature=item["temperature"],
-        record_source=str(item.get("record_source") or "demo_seed"),
-        current_curve_source=str(item.get("current_curve_source") or "demo_curve"),
-        baseline_curve_source=str(item.get("baseline_curve_source") or "demo_curve"),
+        record_source=str(item.get("record_source") or "none"),
+        current_curve_source=str(item.get("current_curve_source") or "none"),
+        baseline_curve_source=str(item.get("baseline_curve_source") or "none"),
         created_at=item["created_at"],
     )
 
@@ -1310,13 +1322,24 @@ def _to_heat_with_curve(item: dict[str, Any]) -> HeatWithCurve:
 
 def _ensure_persisted_heat(item: dict[str, Any]) -> dict[str, Any]:
     heat_id = str(item["id"])
-    stored_item = _HEAT_STORE.get(heat_id)
+    target_store = _MOCK_HEAT_STREAM_STORE if is_mock_dataset_enabled() else _HEAT_STORE
+    stored_item = target_store.get(heat_id)
     if stored_item:
         return stored_item
 
     persisted_item = dict(item)
-    _HEAT_STORE[heat_id] = persisted_item
+    target_store[heat_id] = persisted_item
     return persisted_item
+
+
+def _mutable_heat_store() -> dict[str, dict[str, Any]]:
+    return _MOCK_HEAT_STREAM_STORE if is_mock_dataset_enabled() else _HEAT_STORE
+
+
+def _runtime_heat_sections() -> tuple[str, ...]:
+    if is_mock_dataset_enabled():
+        return ("mock_heats", "next_heat_index")
+    return ("heats",)
 
 
 async def _get_or_404(heat_id: str) -> dict[str, Any]:
@@ -1523,14 +1546,14 @@ async def update_heat(heat_id: str, data: HeatUpdate) -> HeatResponse:
         delta = data.start_time - original_start
         # 以开始时间顺序调整后续炉次
         current_start = item["start_time"]
-        for other in _HEAT_STORE.values():
+        for other in _mutable_heat_store().values():
             if other["id"] == heat_id:
                 continue
             if other["start_time"] > current_start:
                 other["start_time"] = other["start_time"] + delta
                 other["end_time"] = other["end_time"] + delta
 
-    await persist_runtime_state("heats")
+    await persist_runtime_state(*_runtime_heat_sections())
     _invalidate_heat_compare_cache(heat_id)
     return _to_heat_response(item)
 
@@ -1552,7 +1575,7 @@ async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatRe
 
     if data.adjust_subsequent:
         current_start = item["start_time"]
-        for other in _HEAT_STORE.values():
+        for other in _mutable_heat_store().values():
             if other["id"] == heat_id:
                 continue
             if other["start_time"] > current_start and other.get("cut_status") == "blocked":
@@ -1566,7 +1589,7 @@ async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatRe
                     other["status"] = "normal"
                 other["time_offset_percent"] = 6.0
 
-    await persist_runtime_state("heats")
+    await persist_runtime_state(*_runtime_heat_sections())
     _invalidate_heat_compare_cache(heat_id)
     return _to_heat_response(item)
 
@@ -1792,7 +1815,7 @@ async def analyze_heat(heat_id: str, data: HeatAnalyzeRequest) -> HeatAnalyzeRes
     item["deviation_percent"] = result["max_deviation"]
     item["avg_deviation_percent"] = result["avg_deviation"]
     item["status"] = result["status"]
-    await persist_runtime_state("heats")
+    await persist_runtime_state(*_runtime_heat_sections())
     _invalidate_heat_compare_cache(heat_id)
 
     return HeatAnalyzeResponse(

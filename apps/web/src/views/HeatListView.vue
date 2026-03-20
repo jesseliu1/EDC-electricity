@@ -9,11 +9,19 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useHeatStore } from '@/stores/heat'
 import type { HeatStatus } from '@/api/heat'
 import type { HeatItem } from '@/stores/heat'
+import { isShowtimeMode } from '@/utils/showtime'
 
 const { t } = useI18n()
 const router = useRouter()
 const heatStore = useHeatStore()
 const expandedHeatId = ref('')
+const showtimeMode = isShowtimeMode()
+const demoRecordSources = new Set<HeatItem['recordSource']>([
+  'demo_seed',
+  'mock_stream',
+  'demo_curve',
+  'mock_curve'
+])
 
 const blockedCount = computed(
   () => heatStore.list.filter((item) => item.cutStatus === 'blocked').length
@@ -22,7 +30,7 @@ const majorIssueCount = computed(
   () => heatStore.list.filter((item) => item.cutStatus === 'major_issue').length
 )
 const hasDemoHeatRecords = computed(
-  () => heatStore.list.some((item) => item.recordSource !== 'live_edc')
+  () => showtimeMode && heatStore.list.some((item) => demoRecordSources.has(item.recordSource))
 )
 
 type StatusFilter = 'all' | HeatStatus
@@ -49,9 +57,11 @@ function statusText(status: HeatStatus) {
 function dataSourceText(source: HeatItem['recordSource']) {
   if (source === 'live_edc') return t('heat.dataSource.liveEdc')
   if (source === 'live_inferred') return t('heat.dataSource.liveInferred')
+  if (source === 'mock_curve') return t('heat.dataSource.demoCurve')
+  if (source === 'mock_stream') return t('heat.dataSource.demoSeed')
   if (source === 'demo_curve') return t('heat.dataSource.demoCurve')
   if (source === 'none') return t('heat.dataSource.none')
-  return t('heat.dataSource.demoSeed')
+  return t('heat.dataSource.none')
 }
 
 function getDeviationClass(val: number | null): string {

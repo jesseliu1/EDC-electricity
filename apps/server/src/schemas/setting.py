@@ -45,6 +45,33 @@ class HostChannelCollectionUpdateRequest(BaseModel):
     items: list[HostChannelItem] = Field(..., description="宿主层保存的已添加通道列表")
 
 
+class HostConnectivityMeta(BaseModel):
+    """宿主连接摘要元信息"""
+
+    source: str = Field(..., description="宿主直连来源描述")
+    sensor_count: int = Field(..., ge=0, description="已发现设备数")
+    channel_count: int = Field(..., ge=0, description="已发现通道总数")
+    enabled_channel_count: int = Field(..., ge=0, description="已启用通道数")
+
+
+class HostConnectivityStatusResponse(BaseModel):
+    """宿主连接状态响应"""
+
+    is_connected: bool = Field(..., description="宿主当前是否已连入 EDC")
+    machine_name: str = Field(..., description="宿主最近一次验证通过的节点名称")
+    last_sync_label: str = Field(..., description="宿主显示用最近同步时间")
+    meta: HostConnectivityMeta = Field(..., description="宿主连接摘要元信息")
+
+
+class HostConnectivityStatusUpdateRequest(BaseModel):
+    """宿主连接状态更新请求"""
+
+    is_connected: bool = Field(..., description="宿主当前是否已连入 EDC")
+    machine_name: str = Field(..., description="宿主最近一次验证通过的节点名称")
+    last_sync_label: str = Field(..., description="宿主显示用最近同步时间")
+    meta: HostConnectivityMeta = Field(..., description="宿主连接摘要元信息")
+
+
 class SettingsUpdateRequest(BaseModel):
     """批量更新设置请求"""
 
