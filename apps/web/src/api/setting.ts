@@ -80,6 +80,7 @@ export interface RuntimeStatusResponse {
     tasks: RuntimePipelineStatusResponse
     reports: RuntimePipelineStatusResponse
     baselines: RuntimePipelineStatusResponse
+    settings: RuntimePipelineStatusResponse
   }
 }
 

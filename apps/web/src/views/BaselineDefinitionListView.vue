@@ -24,6 +24,7 @@ import {
   ElOptionGroup
 } from 'element-plus'
 import { Plus, Delete, Edit, CircleClose, CircleCheck } from '@element-plus/icons-vue'
+import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import { useBaselineDefinitionStore } from '@/stores/baselineDefinition'
 import type { MetricItem } from '@/stores/baselineDefinition'
 import type { MetricDefinitionCreate } from '@/api/baselineDefinition'
@@ -379,6 +380,11 @@ onMounted(() => {
         {{ t('baselineDefinition.createDefinition') }}
       </el-button>
     </div>
+
+    <SystemReadinessBanner
+      section="baselines"
+      test-id="baseline-definition-runtime-banner"
+    />
 
     <!-- 筛选栏 -->
     <div class="rounded-xl border border-gray-200 bg-white p-4">

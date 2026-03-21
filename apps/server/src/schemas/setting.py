@@ -114,6 +114,7 @@ class RuntimePipelinesSummary(BaseModel):
     tasks: RuntimePipelineStatus = Field(..., description="纠偏任务链路")
     reports: RuntimePipelineStatus = Field(..., description="日报与审计链路")
     baselines: RuntimePipelineStatus = Field(..., description="黄金基线链路")
+    settings: RuntimePipelineStatus = Field(..., description="系统设置链路")
 
 
 class RuntimeStatusResponse(BaseModel):

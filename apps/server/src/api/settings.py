@@ -400,6 +400,10 @@ def _build_runtime_status_response() -> RuntimeStatusResponse:
                     "code": _pipeline_code("baselines"),
                     "ready": _pipeline_code("baselines") == "ready",
                 },
+                "settings": {
+                    "code": _pipeline_code("settings"),
+                    "ready": _pipeline_code("settings") == "ready",
+                },
             },
         }
     )

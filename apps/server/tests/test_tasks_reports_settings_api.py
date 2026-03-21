@@ -89,6 +89,8 @@ async def test_settings_get_and_update(client, monkeypatch) -> None:
     assert runtime_resp.json()["pipelines"]["inbox"]["code"] == "host_disconnected"
     assert runtime_resp.json()["pipelines"]["tasks"]["code"] == "host_disconnected"
     assert runtime_resp.json()["pipelines"]["reports"]["code"] == "host_disconnected"
+    assert runtime_resp.json()["pipelines"]["baselines"]["code"] == "host_disconnected"
+    assert runtime_resp.json()["pipelines"]["settings"]["code"] == "host_disconnected"
 
     patch_resp = await client.patch(
         "/api/settings", json={"settings": {"report_generation_hour": "3"}}
@@ -141,12 +143,15 @@ async def test_settings_get_and_update(client, monkeypatch) -> None:
     assert runtime_resp.json()["pipelines"]["inbox"]["code"] == "ready"
     assert runtime_resp.json()["pipelines"]["tasks"]["code"] == "ready"
     assert runtime_resp.json()["pipelines"]["reports"]["code"] == "ready"
+    assert runtime_resp.json()["pipelines"]["baselines"]["code"] == "ready"
+    assert runtime_resp.json()["pipelines"]["settings"]["code"] == "ready"
     assert runtime_resp.json()["active_baseline"]["id"] == "baseline-001"
 
     runtime_showtime_resp = await client.get("/api/settings/runtime-status", params={"showtime": "true"})
     assert runtime_showtime_resp.status_code == 200
     assert runtime_showtime_resp.json()["overall_code"] == "showtime"
     assert runtime_showtime_resp.json()["pipelines"]["dashboard"]["code"] == "showtime"
+    assert runtime_showtime_resp.json()["pipelines"]["settings"]["code"] == "showtime"
 
     test_resp = await client.post("/api/settings/edc-connection/test")
     assert test_resp.status_code == 200

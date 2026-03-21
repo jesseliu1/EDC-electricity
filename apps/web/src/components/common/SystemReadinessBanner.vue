@@ -3,7 +3,14 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRuntimeStatusStore } from '@/stores/runtimeStatus'
 
-type Section = 'dashboard' | 'heats' | 'inbox' | 'tasks' | 'reports' | 'baselines'
+type Section =
+  | 'dashboard'
+  | 'heats'
+  | 'inbox'
+  | 'tasks'
+  | 'reports'
+  | 'baselines'
+  | 'settings'
 
 const props = defineProps<{
   section: Section

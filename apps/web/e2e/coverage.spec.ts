@@ -46,7 +46,8 @@ async function mockRuntimeStatus(page: Page, body?: Record<string, unknown>) {
         inbox: { code: 'ready', ready: true },
         tasks: { code: 'ready', ready: true },
         reports: { code: 'ready', ready: true },
-        baselines: { code: 'ready', ready: true }
+        baselines: { code: 'ready', ready: true },
+        settings: { code: 'ready', ready: true }
       },
       ...body
     })
@@ -55,6 +56,29 @@ async function mockRuntimeStatus(page: Page, body?: Record<string, unknown>) {
 
 async function mockBaselineDefinitionMutations(page: Page) {
   await page.route('**/api/baseline-definitions', async route => {
+    if (route.request().method() === 'GET') {
+      await fulfillJson(route, {
+        items: [
+          {
+            id: 'def-001',
+            definition_name: '标准熔炼基线',
+            description: '中频炉标准熔炼过程，适用于常规铸铁生产',
+            expected_duration_minutes: 30,
+            status: 'active',
+            metrics: [
+              { id: 'metric-001', name: '功率', unit: 'kW', color: '#409EFF', sort_order: 1, edc_channel_id: null },
+              { id: 'metric-002', name: '电压', unit: 'V', color: '#67C23A', sort_order: 2, edc_channel_id: null },
+              { id: 'metric-003', name: '炉温', unit: '°C', color: '#E6A23C', sort_order: 3, edc_channel_id: null }
+            ],
+            instance_count: 0,
+            created_at: '2026-03-12T08:00:00Z',
+            updated_at: '2026-03-12T08:00:00Z'
+          }
+        ]
+      })
+      return
+    }
+
     if (route.request().method() !== 'POST') {
       await route.fallback()
       return
@@ -416,7 +440,11 @@ test.describe('EDC web extended coverage', () => {
       pipelines: {
         dashboard: { code: 'host_disconnected', ready: false },
         heats: { code: 'host_disconnected', ready: false },
-        baselines: { code: 'host_disconnected', ready: false }
+        inbox: { code: 'host_disconnected', ready: false },
+        tasks: { code: 'host_disconnected', ready: false },
+        reports: { code: 'host_disconnected', ready: false },
+        baselines: { code: 'host_disconnected', ready: false },
+        settings: { code: 'host_disconnected', ready: false }
       }
     })
 
@@ -471,6 +499,7 @@ test.describe('EDC web extended coverage', () => {
     await page.goto('baseline-definitions')
 
     await expect(page.getByTestId('baseline-definition-page')).toBeVisible()
+    await expect(page.getByTestId('baseline-definition-runtime-banner')).toHaveCount(0)
     await page.getByTestId('baseline-definition-create-button').click()
     await page.getByTestId('baseline-definition-name-input').fill('E2E 基线定义')
     await page.getByTestId('baseline-definition-submit').click()
@@ -530,6 +559,7 @@ test.describe('EDC web extended coverage', () => {
     await page.goto('settings')
 
     await expect(page.getByTestId('settings-page')).toBeVisible()
+    await expect(page.getByTestId('settings-runtime-banner')).toHaveCount(0)
     await expect(page.getByTestId('settings-host-connectivity-card')).toBeVisible()
     await expect(page.getByText('宿主系统连接')).toBeVisible()
     await expect(page.getByText('EDC Test Gateway')).toBeVisible()
@@ -545,5 +575,47 @@ test.describe('EDC web extended coverage', () => {
 
     await page.getByTestId('settings-save-cutting').click()
     await expect(latestSuccessMessage(page)).toBeVisible()
+  })
+
+  test('baseline definitions and settings pages reuse unified runtime attention state', async ({ page }) => {
+    await mockRuntimeStatus(page, {
+      overall_code: 'host_disconnected',
+      host: {
+        is_connected: false,
+        machine_name: '--',
+        last_sync_label: '--',
+        meta: {
+          source: '--',
+          sensor_count: 0,
+          channel_count: 0,
+          enabled_channel_count: 0
+        }
+      },
+      edc: {
+        configured: true,
+        base_url: 'http://60.251.229.32',
+        username_present: true,
+        host_channel_total: 0,
+        enabled_channel_count: 0
+      },
+      pipelines: {
+        dashboard: { code: 'host_disconnected', ready: false },
+        heats: { code: 'host_disconnected', ready: false },
+        inbox: { code: 'host_disconnected', ready: false },
+        tasks: { code: 'host_disconnected', ready: false },
+        reports: { code: 'host_disconnected', ready: false },
+        baselines: { code: 'host_disconnected', ready: false },
+        settings: { code: 'host_disconnected', ready: false }
+      }
+    })
+    await mockSettingsWorkflow(page)
+
+    await page.goto('baseline-definitions')
+    await expect(page.getByTestId('baseline-definition-page')).toBeVisible()
+    await expect(page.getByTestId('baseline-definition-runtime-banner')).toContainText('宿主尚未同步真实连接状态')
+
+    await page.goto('settings')
+    await expect(page.getByTestId('settings-page')).toBeVisible()
+    await expect(page.getByTestId('settings-runtime-banner')).toContainText('宿主尚未同步真实连接状态')
   })
 })

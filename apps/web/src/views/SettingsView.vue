@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ElForm,
@@ -11,10 +11,16 @@ import {
   ElRadioGroup,
 } from 'element-plus'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
+import { useRuntimeStatusStore } from '@/stores/runtimeStatus'
 import { useSettingStore } from '@/stores/setting'
 
 const { t } = useI18n()
 const settingStore = useSettingStore()
+const runtimeStatusStore = useRuntimeStatusStore()
+
+const hostConnectivity = computed(() => runtimeStatusStore.data.host)
+const edcSummary = computed(() => runtimeStatusStore.data.edc)
 
 async function saveTolerance() {
   await settingStore.saveTolerance()
@@ -45,6 +51,11 @@ onMounted(() => {
     <PageHeader
       :title="t('settings.title')"
       subtitle="System Configuration"
+    />
+
+    <SystemReadinessBanner
+      section="settings"
+      test-id="settings-runtime-banner"
     />
 
     <!-- 两栏布局: 左侧导航 + 右侧内容 -->
@@ -97,13 +108,13 @@ onMounted(() => {
             <span
               class="text-xs px-2.5 py-1 rounded-full border font-medium"
               :class="
-                settingStore.hostConnectivity.isConnected
+                hostConnectivity.isConnected
                   ? 'bg-green-50 text-green-700 border-green-200'
                   : 'bg-slate-100 text-slate-600 border-slate-200'
               "
             >
               {{
-                settingStore.hostConnectivity.isConnected
+                hostConnectivity.isConnected
                   ? t('settings.hostOnline')
                   : t('settings.hostOffline')
               }}
@@ -120,7 +131,7 @@ onMounted(() => {
                 {{ t('settings.edcBaseUrl') }}
               </p>
               <p class="mt-1 font-mono text-sm text-slate-800 break-all">
-                {{ settingStore.data.edcBaseUrl || '--' }}
+                {{ edcSummary.baseUrl || settingStore.data.edcBaseUrl || '--' }}
               </p>
             </div>
             <div class="rounded-lg border border-border-light bg-slate-50 px-4 py-3">
@@ -128,7 +139,7 @@ onMounted(() => {
                 {{ t('settings.hostMachineName') }}
               </p>
               <p class="mt-1 text-sm text-slate-800">
-                {{ settingStore.hostConnectivity.machineName || '--' }}
+                {{ hostConnectivity.machineName || '--' }}
               </p>
             </div>
             <div class="rounded-lg border border-border-light bg-slate-50 px-4 py-3">
@@ -136,7 +147,7 @@ onMounted(() => {
                 {{ t('settings.hostLastSync') }}
               </p>
               <p class="mt-1 text-sm text-slate-800">
-                {{ settingStore.hostConnectivity.lastSyncLabel || '--' }}
+                {{ hostConnectivity.lastSyncLabel || '--' }}
               </p>
             </div>
             <div class="rounded-lg border border-border-light bg-slate-50 px-4 py-3">
@@ -144,7 +155,7 @@ onMounted(() => {
                 {{ t('settings.hostSource') }}
               </p>
               <p class="mt-1 text-sm text-slate-800 break-all">
-                {{ settingStore.hostConnectivity.source || '--' }}
+                {{ hostConnectivity.source || '--' }}
               </p>
             </div>
           </div>
@@ -155,7 +166,7 @@ onMounted(() => {
                 {{ t('settings.hostSensorCount') }}
               </p>
               <p class="mt-1 text-lg font-bold text-slate-800">
-                {{ settingStore.hostConnectivity.sensorCount }}
+                {{ hostConnectivity.sensorCount }}
               </p>
             </div>
             <div class="rounded-lg border border-border-light bg-white px-4 py-3">
@@ -163,7 +174,7 @@ onMounted(() => {
                 {{ t('settings.hostChannelCount') }}
               </p>
               <p class="mt-1 text-lg font-bold text-slate-800">
-                {{ settingStore.hostConnectivity.channelCount }}
+                {{ hostConnectivity.channelCount }}
               </p>
             </div>
             <div class="rounded-lg border border-border-light bg-white px-4 py-3">
@@ -171,7 +182,7 @@ onMounted(() => {
                 {{ t('settings.hostEnabledChannelCount') }}
               </p>
               <p class="mt-1 text-lg font-bold text-slate-800">
-                {{ settingStore.hostConnectivity.enabledChannelCount }}
+                {{ hostConnectivity.enabledChannelCount }}
               </p>
             </div>
           </div>

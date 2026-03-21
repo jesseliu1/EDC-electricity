@@ -7,14 +7,15 @@
 ## 当前状态
 
 - 当前阶段：MVP 完成，进入联调整体验收与真实 EDC 替换收口阶段
-- 主分支状态：当前 `master` 已比 `origin/master` 超前 `14` 个提交；本轮新增统一运行态读取面改动尚未提交
-- 当前工作区：本轮“后端统一运行态摘要 + EDC 主页面统一消费 + 回归通过”已完成，待切本地阶段提交；另保留 2 个未跟踪参考文件不会纳入版本控制
+- 主分支状态：当前 `master` 已比 `origin/master` 超前 `19` 个提交；本轮“基线定义页/设置页补齐统一运行态”改动待提交
+- 当前工作区：本轮已把基线定义页与设置页也接入统一运行态摘要，前端构建与 E2E 已通过；另保留 2 个未跟踪参考文件不会纳入版本控制
 - 已完成交接 issue 1-9、新增 issue 1-3、第二轮联调问题的一轮收口、真实曲线推断炉次第一版、宿主恢复同步、实时数据链路修复、炉次详情 compare 第三刀性能优化，以及 `showtime` 在 Dashboard / 任务 / 报表链路的第二轮统一，并已通过关键回归
 - 已继续收 `showtime` 第三轮尾巴：默认模式下的基线向导错误文案已去掉 mock 引导，炉次列表演示 banner 改为仅对明确 demo/mock 来源生效
 - 已完成 `showtime` 第四轮尾巴：baseline 详情默认模式不再泄露 demo 曲线，前端残留 `ingestMock` 入口已移除，并补齐 baseline 默认模式 vs `showtime` 的边界回归
 - 已完成“宿主为入口、后端统一读取面、EDC 只消费后端状态”的第一阶段页面接入：`/api/settings/runtime-status` 已上线，Header 与 Dashboard / Heat / Baseline 主页面已切到统一运行态摘要
 - Heat / Baseline 详情页也已继续接入统一运行态摘要 banner，入口页与详情页的宿主同步提示口径已对齐
 - 已继续把统一运行态摘要扩展到 `Tasks / Reports / Inbox` 与相应详情页，主业务导航页已基本切到同一套后端状态读取面
+- 已继续把统一运行态摘要补齐到 `BaselineDefinitionListView / SettingsView`，主导航入口页现已全部消费统一运行态摘要
 - 已补基线向导 Step 2 的 preview loading 与整日曲线口径提示，避免同日切炉次时误判成“图没刷新”
 - 已修基线向导 preview 图的多指标渲染方式：不再先按 timestamp 硬合并，不同指标直接按各自原始时序绘制
 - 已收掉 Dashboard 默认模式下的演示统计卡与两块硬编码预览；当前任务/报表默认模式已改为真实派生数据或空态
@@ -152,6 +153,10 @@
    - 评估 `Tasks / Reports` 是否需要单独的业务摘要，而不仅是复用宿主同步就绪态
    - 继续清点是否还有页面仍在本地推断系统状态而非读取 `runtime-status`
 9. 若后续还发现零星演示语义，继续按“请求级 showtime、默认模式真实 only”的原则点状清理，不要重新引入页面级 mock 决策
+10. 当前大目标下一步建议：
+   - 以“宿主为入口、后端统一读取面、EDC 只消费后端状态”为主线，开始做跨页面整链路回归
+   - 优先走 `宿主启动 -> 同步 -> 打开 EDC -> Dashboard / Heats / Baseline Definitions / Settings` 的一致性验证
+   - 若发现页面仍在本地推断状态，再继续点状下沉到对应 store 或视图
 
 ### 已确认的阶段性测试结论
 
@@ -276,6 +281,21 @@
   - `InboxView.vue / TaskListView.vue / TaskDetailView.vue / ReportListView.vue / ReportDetailView.vue` 已接入统一状态 banner
   - `apps/web/e2e/coverage.spec.ts` 已补“Reports 复用统一运行态 banner”回归
   - 目前主业务导航页与主要详情页都已接到统一运行态读取面
+- 本轮已完成“宿主入口与 EDC 统一状态收敛”的阶段 6 第一刀：
+  - 后端 `runtime-status` 已新增 `pipelines.settings`
+  - `apps/web/src/views/BaselineDefinitionListView.vue` 已接 `section="baselines"` 统一 banner
+  - `apps/web/src/views/SettingsView.vue` 已接 `section="settings"` 统一 banner
+  - `apps/web/src/stores/setting.ts` 已不再额外读取 `/settings/host-connectivity-status`
+  - 设置页宿主连接卡现直接读取 `runtimeStatusStore.data.host / edc`
+  - `apps/web/e2e/coverage.spec.ts` 已补“baseline definitions and settings pages reuse unified runtime attention state”
+  - 基线定义 coverage 用例已补 GET `/api/baseline-definitions` 桩，避免依赖本地后端常驻
+  - 当前主导航入口页已全部接入同一套统一运行态读取面
+- 本轮验证补充：
+  - `apps/server/.venv/Scripts/ruff.exe check apps/server/src apps/server/tests`
+  - `npm.cmd run lint`（`apps/web`）
+  - `npm.cmd run build`（`apps/web`，提权运行）
+  - `npx.cmd playwright test e2e/coverage.spec.ts e2e/app.spec.ts e2e/issue-acceptance.spec.ts`（`apps/web`，提权运行）
+  - `apps/server` 的 `pytest` 当前被失效的 uv Python 解释器阻塞，需修复 `.venv` 后再恢复
 - 普通 `/api/heats` 已不再默认返回 `demo_seed`；当前 demo/mock 炉次只保留在显式 `/api/heats/stream/mock*`
 - 运行态恢复已兼容旧 `runtime_heats`：加载时会自动过滤 `demo_seed/mock_stream`，避免旧脏数据再次进入普通接口
 - 基线向导 Step 2 的“未获取到真实炉次候选”来自 `loadHeatCandidates()` 捕获到请求失败，不是正常空列表
