@@ -934,8 +934,10 @@
   - [x] `apps/web/src/App.vue` 在应用启动、路由切换与 30 秒轮询时刷新运行态
   - [x] `apps/web/src/components/layout/AppHeader.vue` 已改为消费统一运行态，不再硬编码“系统运行正常”
 - [x] Dashboard / 炉次浏览 / 黄金基线库已改为消费统一运行态 banner
+- [x] Heat / Baseline 详情页也已接入统一运行态 banner
   - [x] `apps/web/src/components/common/SystemReadinessBanner.vue` 新增统一状态提示组件
   - [x] `DashboardView.vue / HeatListView.vue / BaselineListView.vue` 已接入统一 banner
+  - [x] `HeatDetailView.vue / BaselineDetailView.vue` 已继续接入统一 banner
   - [x] 当前页面不再各自猜测“宿主是否已同步 / 是否可走真实链路”，统一以 `/api/settings/runtime-status` 为准
 - [x] 前端 E2E 已补统一运行态覆盖
   - [x] `apps/web/e2e/coverage.spec.ts` 新增 Dashboard 统一运行态 banner 校验
@@ -946,6 +948,7 @@
   - [x] `pnpm --dir apps/web test:i18n`
   - [x] `pnpm --dir apps/web build`
   - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/coverage.spec.ts e2e/issue-acceptance.spec.ts`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
 
 ### 2026-03-20（showtime 第二轮扩展：Dashboard / 任务 / 报表默认真实 only）
 - [x] 任务链路已按请求级 `showtime` 拆分真实与演示数据源

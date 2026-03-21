@@ -22,6 +22,7 @@ import type { EChartsOption } from 'echarts'
 import dayjs from 'dayjs'
 import { useBaselineStore } from '@/stores/baseline'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
@@ -234,6 +235,11 @@ onMounted(async () => {
 
 <template>
   <div class="flex flex-col gap-6">
+    <SystemReadinessBanner
+      section="baselines"
+      test-id="baseline-detail-runtime-banner"
+    />
+
     <!-- 页面头部 -->
     <PageHeader
       :title="baseline?.name || '--'"

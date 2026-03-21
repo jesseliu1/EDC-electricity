@@ -28,6 +28,7 @@ import dayjs from 'dayjs'
 import type { HeatDataSource } from '@/api/heat'
 import { useHeatStore } from '@/stores/heat'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 
 use([
@@ -725,6 +726,11 @@ onMounted(() => {
     class="flex flex-col gap-6"
     data-testid="heat-detail-page"
   >
+    <SystemReadinessBanner
+      section="heats"
+      test-id="heat-detail-runtime-banner"
+    />
+
     <PageHeader
       :title="current?.base.heatNo || '--'"
       :subtitle="`ID: ${heatId}`"
