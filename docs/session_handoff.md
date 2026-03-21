@@ -7,11 +7,12 @@
 ## 当前状态
 
 - 当前阶段：MVP 完成，进入联调整体验收与真实 EDC 替换收口阶段
-- 主分支状态：本轮本地提交后，`master` 将比 `origin/master` 超前 `14` 个提交
-- 当前工作区：本轮 `showtime` 收口、宿主状态收敛与文档更新已准备提交；另保留 2 个未跟踪参考文件不会纳入版本控制
+- 主分支状态：当前 `master` 已比 `origin/master` 超前 `14` 个提交；本轮新增统一运行态读取面改动尚未提交
+- 当前工作区：本轮“后端统一运行态摘要 + EDC 主页面统一消费 + 回归通过”已完成，待切本地阶段提交；另保留 2 个未跟踪参考文件不会纳入版本控制
 - 已完成交接 issue 1-9、新增 issue 1-3、第二轮联调问题的一轮收口、真实曲线推断炉次第一版、宿主恢复同步、实时数据链路修复、炉次详情 compare 第三刀性能优化，以及 `showtime` 在 Dashboard / 任务 / 报表链路的第二轮统一，并已通过关键回归
 - 已继续收 `showtime` 第三轮尾巴：默认模式下的基线向导错误文案已去掉 mock 引导，炉次列表演示 banner 改为仅对明确 demo/mock 来源生效
 - 已完成 `showtime` 第四轮尾巴：baseline 详情默认模式不再泄露 demo 曲线，前端残留 `ingestMock` 入口已移除，并补齐 baseline 默认模式 vs `showtime` 的边界回归
+- 已完成“宿主为入口、后端统一读取面、EDC 只消费后端状态”的第一阶段页面接入：`/api/settings/runtime-status` 已上线，Header 与 Dashboard / Heat / Baseline 主页面已切到统一运行态摘要
 - 已补基线向导 Step 2 的 preview loading 与整日曲线口径提示，避免同日切炉次时误判成“图没刷新”
 - 已修基线向导 preview 图的多指标渲染方式：不再先按 timestamp 硬合并，不同指标直接按各自原始时序绘制
 - 已收掉 Dashboard 默认模式下的演示统计卡与两块硬编码预览；当前任务/报表默认模式已改为真实派生数据或空态
@@ -130,26 +131,21 @@
 ### 当前下一步建议
 
 1. 继续做真实 EDC 联调整体验收，重点走查“宿主在线 -> 创建基线 preview -> 炉次浏览 -> 炉次详情 / 手动调整”的整链路
-2. `showtime/mock` 第一阶段已基本收完，下一轮优先回到“宿主为入口、后端统一读取面、EDC 只读消费”的大目标推进
+2. 在“后端统一读取面”基础上继续扩到详情页与其余页面，优先看 BaselineDetail / HeatDetail / Reports / Tasks 是否也要消费统一运行态摘要
 3. 继续校准 `live_inferred` 规则，重点关注阈值、长连续段拆分、异常/待分析判定，避免把连续生产长段均分得过于机械
-4. 如果准备提交，新增一笔提交可按“showtime 第一阶段收口完成”切分
-5. 如继续优化性能，可优先关注 `apps/web` 与宿主原型构建中的大 chunk warning
-6. 如果下一轮要继续修“炉次浏览拿不到真实数据”，优先顺序应是：
+4. 如继续优化性能，可优先关注 `apps/web` 与宿主原型构建中的大 chunk warning
+5. 如果下一轮要继续修“炉次浏览拿不到真实数据”，优先顺序应是：
    - 先确认为什么 `settings` 里持久化成了 `live_heat_inference_enabled=false`
    - 再继续拆 `/api/heats` 剩余慢链路，目前已去掉列表级逐条基线 hydrate
    - 最后再修前端错误语义，把“超时/网关失败”和“后端未启动”区分开
-7. 如果下一轮继续收炉次详情性能，重点应转向：
+6. 如果下一轮继续收炉次详情性能，重点应转向：
    - 继续压 `get_heat_compare()` 首包，当前仍是 `2.8s ~ 3.2s`
    - 评估 `cutting-timeline` 是否要并行缓存或与详情接口再聚合一层
    - 评估是否要把 compare 的短 TTL 响应缓存下沉成更细粒度的 EDC 通道曲线缓存
-8. 如果下一轮继续收基线向导体验，重点应转向：
+7. 如果下一轮继续收基线向导体验，重点应转向：
    - 评估 preview 是否仍需要按整日口径，还是改成默认聚焦所选炉次窗口
    - 如果保留整日口径，继续加强当前炉次选区高亮，避免用户只看到“图形主体没变”
-9. 若后续还发现零星演示语义，继续按“请求级 showtime、默认模式真实 only”的原则点状清理，不要重新引入页面级 mock 决策
-8. 如果下一轮继续收 `showtime` 剩余支路，重点看：
-   - 基线详情、其余残留演示提示和专用演示入口是否也要切成“默认隐藏，showtime 才显示”
-   - `settings/edc-connection/test` 的失败语义和测试桩要不要与现网不可达场景解耦
-   - 普通接口统一来源字段后，前端是否要把“historical_import / live_inferred / live_edc / showtime mock”展示层再细分
+8. 若后续还发现零星演示语义，继续按“请求级 showtime、默认模式真实 only”的原则点状清理，不要重新引入页面级 mock 决策
 
 ### 已确认的阶段性测试结论
 
@@ -242,6 +238,29 @@
   - 后端已把宿主同步写接口收成专用 header：`X-ASNS-Host-Sync: true`
   - 宿主 `hostConnectivitySync.ts` 已携带该 header 回写 `edc-connection / host-channels / host-connectivity-status`
   - 这一步已经把“宿主写、EDC 读”的边界从 UI 层推进到了接口层
+- 本轮已完成“宿主入口与 EDC 统一状态收敛”的阶段 4 第一刀：
+  - 后端新增 `GET /api/settings/runtime-status`
+  - 该接口统一返回：
+    - 宿主连接摘要
+    - EDC 配置摘要
+    - 激活基线摘要
+    - 运行模式（`showtime / live_heat_inference_enabled / baseline_length_scope_mode`）
+    - `dashboard / heats / baselines` 三条业务链路的统一状态码
+  - 前端新增 `apps/web/src/stores/runtimeStatus.ts`
+  - `apps/web/src/App.vue` 已在启动、路由切换和 30 秒轮询时刷新统一运行态
+  - `apps/web/src/components/layout/AppHeader.vue` 已改为消费统一运行态，不再硬编码“系统运行正常”
+  - `apps/web/src/components/common/SystemReadinessBanner.vue` 已接入：
+    - `DashboardView.vue`
+    - `HeatListView.vue`
+    - `BaselineListView.vue`
+  - 当前这三处业务页不再各自猜测“宿主是否已同步 / 是否允许真实链路”，统一按 `/api/settings/runtime-status` 渲染提示
+- 本轮新增验证：
+  - `apps/server/.venv/Scripts/ruff.exe check apps/server/src apps/server/tests`
+  - `apps/server/.venv/Scripts/pytest.exe tests/test_tasks_reports_settings_api.py tests/test_heats_api.py tests/test_baselines_dashboard_api.py -x -vv`
+  - `pnpm --dir apps/web lint`
+  - `pnpm --dir apps/web test:i18n`
+  - `pnpm --dir apps/web build`
+  - `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/coverage.spec.ts e2e/issue-acceptance.spec.ts`
 - 普通 `/api/heats` 已不再默认返回 `demo_seed`；当前 demo/mock 炉次只保留在显式 `/api/heats/stream/mock*`
 - 运行态恢复已兼容旧 `runtime_heats`：加载时会自动过滤 `demo_seed/mock_stream`，避免旧脏数据再次进入普通接口
 - 基线向导 Step 2 的“未获取到真实炉次候选”来自 `loadHeatCandidates()` 捕获到请求失败，不是正常空列表

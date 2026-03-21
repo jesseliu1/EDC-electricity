@@ -25,6 +25,7 @@
 - [x] 已完成 `showtime` 在 Dashboard / 任务 / 报表链路的第二轮扩展，默认模式下不再展示演示任务、演示日报和 Dashboard 硬编码演示卡片
 - [x] 已完成 `showtime` 第三轮文案与来源提示收口，默认模式下不再提示用户开启 mock，炉次列表演示 banner 仅对明确 demo/mock 来源生效
 - [x] 已完成 `showtime` 第四轮收口：baseline 详情默认模式不再泄露 demo 曲线，前端残留 `ingestMock` 演示入口已清理，并补齐默认模式 vs `showtime` 的基线边界回归
+- [x] 已完成“宿主为入口、后端统一读取面、EDC 只消费后端状态”的第一阶段接入：新增统一运行态摘要接口，Dashboard / 炉次 / 基线主页面已消费统一状态
 
 ---
 
@@ -923,6 +924,29 @@
   - [x] 宿主 `npm run lint`
   - [x] 宿主 `npm run build`
 
+### 2026-03-21（阶段 4：统一运行态读取面接入 Dashboard / Heat / Baseline）
+- [x] 后端新增统一运行态摘要接口
+  - [x] `apps/server/src/api/settings.py` 新增 `GET /api/settings/runtime-status`
+  - [x] 返回统一状态：宿主连接摘要、EDC 配置摘要、激活基线摘要、运行模式，以及 `dashboard / heats / baselines` 三条业务链路的就绪码
+  - [x] `apps/server/tests/test_tasks_reports_settings_api.py` 已补默认模式与 `showtime=true` 两条断言
+- [x] 前端新增统一运行态 store，并由应用根层持续刷新
+  - [x] `apps/web/src/stores/runtimeStatus.ts` 新增统一运行态 store
+  - [x] `apps/web/src/App.vue` 在应用启动、路由切换与 30 秒轮询时刷新运行态
+  - [x] `apps/web/src/components/layout/AppHeader.vue` 已改为消费统一运行态，不再硬编码“系统运行正常”
+- [x] Dashboard / 炉次浏览 / 黄金基线库已改为消费统一运行态 banner
+  - [x] `apps/web/src/components/common/SystemReadinessBanner.vue` 新增统一状态提示组件
+  - [x] `DashboardView.vue / HeatListView.vue / BaselineListView.vue` 已接入统一 banner
+  - [x] 当前页面不再各自猜测“宿主是否已同步 / 是否可走真实链路”，统一以 `/api/settings/runtime-status` 为准
+- [x] 前端 E2E 已补统一运行态覆盖
+  - [x] `apps/web/e2e/coverage.spec.ts` 新增 Dashboard 统一运行态 banner 校验
+- [x] 验证通过：
+  - [x] `apps/server/.venv/Scripts/ruff.exe check apps/server/src apps/server/tests`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_tasks_reports_settings_api.py tests/test_heats_api.py tests/test_baselines_dashboard_api.py -x -vv`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/coverage.spec.ts e2e/issue-acceptance.spec.ts`
+
 ### 2026-03-20（showtime 第二轮扩展：Dashboard / 任务 / 报表默认真实 only）
 - [x] 任务链路已按请求级 `showtime` 拆分真实与演示数据源
   - [x] `apps/server/src/api/tasks.py` 默认 `_TASK_STORE` 改为空的真实运行态任务库
@@ -1014,7 +1038,7 @@
 - 当前普通 `/api/heats` 已与 demo/mock 主记录解耦；剩余“拿不到真实数据”问题主要转到真实推断开关与列表性能链路
 - 当前 mock 治理已进入请求级 showtime 模式：默认真实 only，`showtime=true` 才允许普通业务接口切到 mock 数据集
 - 当前 `showtime/mock` 第一阶段收口已完成：默认模式不再暴露 baseline demo 曲线与前端演示入口，后续可回到“宿主为入口、后端统一读取面”的大目标推进
-- 当前“宿主为入口、后端为统一读取面、EDC 只读消费”的主干方向已确认；剩余关键问题是系统连接配置仍存在宿主和 EDC 设置页双写
+- 当前“宿主为入口、后端为统一读取面、EDC 只读消费”的主干方向已继续推进到统一运行态摘要：Header 与 Dashboard / Heat / Baseline 主页面已切到后端统一读取面
 - 炉次详情链已做前端请求去重；若后续仍慢，下一步应转到后端 `compare` 与详情聚合链路继续收重
 - 单台 EDC 设备，架构预留多台扩展能力
 - 模块化设计，支持按插件销售
