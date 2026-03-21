@@ -26,6 +26,7 @@
 - [x] 已完成 `showtime` 第三轮文案与来源提示收口，默认模式下不再提示用户开启 mock，炉次列表演示 banner 仅对明确 demo/mock 来源生效
 - [x] 已完成 `showtime` 第四轮收口：baseline 详情默认模式不再泄露 demo 曲线，前端残留 `ingestMock` 演示入口已清理，并补齐默认模式 vs `showtime` 的基线边界回归
 - [x] 已完成“宿主为入口、后端统一读取面、EDC 只消费后端状态”的第一阶段接入：新增统一运行态摘要接口，Dashboard / 炉次 / 基线主页面已消费统一状态
+- [x] 已继续把统一运行态摘要扩到 Tasks / Reports / Inbox 与相关详情页，主业务导航页已基本切到同一状态读取面
 
 ---
 
@@ -950,6 +951,25 @@
   - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/coverage.spec.ts e2e/issue-acceptance.spec.ts`
   - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
 
+### 2026-03-21（阶段 5：统一运行态读取面扩展到 Tasks / Reports / Inbox）
+- [x] 后端统一运行态摘要已扩展到剩余业务页
+  - [x] `runtime-status` 的 `pipelines` 新增 `inbox / tasks / reports`
+  - [x] `Inbox` 复用 `heats` 链路状态
+  - [x] `Tasks / Reports` 当前复用统一宿主同步与 EDC 配置就绪状态
+- [x] 剩余业务页与详情页已接入统一 banner
+  - [x] `InboxView.vue`
+  - [x] `TaskListView.vue`
+  - [x] `TaskDetailView.vue`
+  - [x] `ReportListView.vue`
+  - [x] `ReportDetailView.vue`
+- [x] E2E 已补一条“Reports 复用统一运行态 attention”回归
+- [x] 验证通过：
+  - [x] `apps/server/.venv/Scripts/ruff.exe check apps/server/src apps/server/tests`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_tasks_reports_settings_api.py tests/test_heats_api.py tests/test_baselines_dashboard_api.py -x -vv`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts e2e/app.spec.ts e2e/issue-acceptance.spec.ts`
+
 ### 2026-03-20（showtime 第二轮扩展：Dashboard / 任务 / 报表默认真实 only）
 - [x] 任务链路已按请求级 `showtime` 拆分真实与演示数据源
   - [x] `apps/server/src/api/tasks.py` 默认 `_TASK_STORE` 改为空的真实运行态任务库
@@ -1042,6 +1062,7 @@
 - 当前 mock 治理已进入请求级 showtime 模式：默认真实 only，`showtime=true` 才允许普通业务接口切到 mock 数据集
 - 当前 `showtime/mock` 第一阶段收口已完成：默认模式不再暴露 baseline demo 曲线与前端演示入口，后续可回到“宿主为入口、后端统一读取面”的大目标推进
 - 当前“宿主为入口、后端为统一读取面、EDC 只读消费”的主干方向已继续推进到统一运行态摘要：Header 与 Dashboard / Heat / Baseline 主页面已切到后端统一读取面
+- 当前统一运行态读取面已继续扩到 `Tasks / Reports / Inbox` 与详情页，主业务导航页基本都已不再各自猜宿主同步状态
 - 炉次详情链已做前端请求去重；若后续仍慢，下一步应转到后端 `compare` 与详情聚合链路继续收重
 - 单台 EDC 设备，架构预留多台扩展能力
 - 模块化设计，支持按插件销售

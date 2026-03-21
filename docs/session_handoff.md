@@ -14,6 +14,7 @@
 - 已完成 `showtime` 第四轮尾巴：baseline 详情默认模式不再泄露 demo 曲线，前端残留 `ingestMock` 入口已移除，并补齐 baseline 默认模式 vs `showtime` 的边界回归
 - 已完成“宿主为入口、后端统一读取面、EDC 只消费后端状态”的第一阶段页面接入：`/api/settings/runtime-status` 已上线，Header 与 Dashboard / Heat / Baseline 主页面已切到统一运行态摘要
 - Heat / Baseline 详情页也已继续接入统一运行态摘要 banner，入口页与详情页的宿主同步提示口径已对齐
+- 已继续把统一运行态摘要扩展到 `Tasks / Reports / Inbox` 与相应详情页，主业务导航页已基本切到同一套后端状态读取面
 - 已补基线向导 Step 2 的 preview loading 与整日曲线口径提示，避免同日切炉次时误判成“图没刷新”
 - 已修基线向导 preview 图的多指标渲染方式：不再先按 timestamp 硬合并，不同指标直接按各自原始时序绘制
 - 已收掉 Dashboard 默认模式下的演示统计卡与两块硬编码预览；当前任务/报表默认模式已改为真实派生数据或空态
@@ -146,7 +147,11 @@
 7. 如果下一轮继续收基线向导体验，重点应转向：
    - 评估 preview 是否仍需要按整日口径，还是改成默认聚焦所选炉次窗口
    - 如果保留整日口径，继续加强当前炉次选区高亮，避免用户只看到“图形主体没变”
-8. 若后续还发现零星演示语义，继续按“请求级 showtime、默认模式真实 only”的原则点状清理，不要重新引入页面级 mock 决策
+8. 下一轮可继续推进的大目标重点：
+   - 把统一运行态读取面再沉到需要更细粒度状态的页面（例如是否需要区分“任务页可读但实时链路未就绪”）
+   - 评估 `Tasks / Reports` 是否需要单独的业务摘要，而不仅是复用宿主同步就绪态
+   - 继续清点是否还有页面仍在本地推断系统状态而非读取 `runtime-status`
+9. 若后续还发现零星演示语义，继续按“请求级 showtime、默认模式真实 only”的原则点状清理，不要重新引入页面级 mock 决策
 
 ### 已确认的阶段性测试结论
 
@@ -263,6 +268,14 @@
   - `pnpm --dir apps/web test:i18n`
   - `pnpm --dir apps/web build`
   - `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/coverage.spec.ts e2e/issue-acceptance.spec.ts`
+- 本轮已完成“宿主入口与 EDC 统一状态收敛”的阶段 5 第一刀：
+  - 后端 `runtime-status` 已新增：
+    - `pipelines.inbox`
+    - `pipelines.tasks`
+    - `pipelines.reports`
+  - `InboxView.vue / TaskListView.vue / TaskDetailView.vue / ReportListView.vue / ReportDetailView.vue` 已接入统一状态 banner
+  - `apps/web/e2e/coverage.spec.ts` 已补“Reports 复用统一运行态 banner”回归
+  - 目前主业务导航页与主要详情页都已接到统一运行态读取面
 - 普通 `/api/heats` 已不再默认返回 `demo_seed`；当前 demo/mock 炉次只保留在显式 `/api/heats/stream/mock*`
 - 运行态恢复已兼容旧 `runtime_heats`：加载时会自动过滤 `demo_seed/mock_stream`，避免旧脏数据再次进入普通接口
 - 基线向导 Step 2 的“未获取到真实炉次候选”来自 `loadHeatCandidates()` 捕获到请求失败，不是正常空列表
