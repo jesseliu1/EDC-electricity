@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useRuntimeStatusStore } from '@/stores/runtimeStatus'
 
 interface Emits {
   (e: 'toggle-sidebar'): void
@@ -11,6 +12,7 @@ const emit = defineEmits<Emits>()
 
 const { t } = useI18n()
 const route = useRoute()
+const runtimeStatusStore = useRuntimeStatusStore()
 
 // 根据当前路由获取页面标题
 const pageTitle = computed(() => {
@@ -21,11 +23,39 @@ const pageTitle = computed(() => {
   return t('nav.dashboard')
 })
 
-// 系统状态（后续可从 store 获取）
-const systemStatus = computed(() => ({
-  isOnline: true,
-  label: t('common.systemNormal', '系统运行正常'),
-}))
+const systemStatus = computed(() => {
+  if (!runtimeStatusStore.loaded) {
+    return {
+      isVisible: false,
+      className: '',
+      dotClass: '',
+      label: ''
+    }
+  }
+  const code = runtimeStatusStore.headerCode
+  if (code === 'showtime') {
+    return {
+      isVisible: true,
+      className: 'hidden md:flex items-center gap-2 text-xs font-medium px-2 py-1 rounded bg-amber-100 text-amber-700 border border-amber-200',
+      dotClass: 'w-2 h-2 rounded-full bg-amber-500',
+      label: t('runtime.header.showtime')
+    }
+  }
+  if (code === 'ready') {
+    return {
+      isVisible: true,
+      className: 'hidden md:flex items-center gap-2 text-xs font-medium px-2 py-1 rounded bg-green-100 text-green-700 border border-green-200',
+      dotClass: 'w-2 h-2 rounded-full bg-green-500 animate-pulse',
+      label: t('runtime.header.ready')
+    }
+  }
+  return {
+    isVisible: true,
+    className: 'hidden md:flex items-center gap-2 text-xs font-medium px-2 py-1 rounded bg-orange-100 text-orange-700 border border-orange-200',
+    dotClass: 'w-2 h-2 rounded-full bg-orange-500',
+    label: t(`runtime.header.${code}`)
+  }
+})
 
 const handleToggleSidebar = () => {
   emit('toggle-sidebar')
@@ -56,10 +86,10 @@ const handleToggleSidebar = () => {
 
       <!-- 系统状态指示器 -->
       <span
-        v-if="systemStatus.isOnline"
-        class="hidden md:flex items-center gap-2 text-xs font-medium px-2 py-1 rounded bg-green-100 text-green-700 border border-green-200"
+        v-if="systemStatus.isVisible"
+        :class="systemStatus.className"
       >
-        <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+        <span :class="systemStatus.dotClass" />
         {{ systemStatus.label }}
       </span>
     </div>

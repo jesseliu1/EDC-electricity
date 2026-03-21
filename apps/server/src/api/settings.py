@@ -7,6 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 
 from ..config import settings as app_settings
+from ..request_mode import is_showtime_mode
 from ..runtime_state import persist_runtime_state
 from ..schemas import (
     BaselineLengthScopeSettingRequest,
@@ -19,6 +20,7 @@ from ..schemas import (
     HostConnectivityStatusUpdateRequest,
     MessageResponse,
     ReportSettingRequest,
+    RuntimeStatusResponse,
     SettingItem,
     SettingsResponse,
     SettingsUpdateRequest,
@@ -305,6 +307,92 @@ def _host_connectivity_response() -> HostConnectivityStatusResponse:
     return HostConnectivityStatusResponse.model_validate(_HOST_CONNECTIVITY_STATUS)
 
 
+def _build_runtime_status_response() -> RuntimeStatusResponse:
+    """构建业务页统一消费的运行态摘要。"""
+    from .baselines import _BASELINE_STORE
+
+    host_response = _host_connectivity_response()
+    host_connected = host_response.is_connected
+    edc_config = get_edc_connection_config()
+    edc_configured = bool(
+        edc_config["base_url"] and edc_config["username"] and edc_config["password"]
+    )
+    enabled_channel_count = host_response.meta.enabled_channel_count
+    host_channel_total = len(_HOST_CHANNEL_STORE)
+    live_heat_inference_enabled = (
+        str(_SETTINGS_STORE.get("live_heat_inference_enabled", {}).get("value") or "true")
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+    )
+    showtime_enabled = is_showtime_mode()
+    active_baseline_id = str(_SETTINGS_STORE.get("active_baseline_id", {}).get("value") or "").strip()
+    active_baseline_item = _BASELINE_STORE.get(active_baseline_id) if active_baseline_id else None
+
+    def _pipeline_code(section: str) -> str:
+        if showtime_enabled:
+            return "showtime"
+        if not host_connected:
+            return "host_disconnected"
+        if not edc_configured:
+            return "edc_unconfigured"
+        if enabled_channel_count <= 0:
+            return "no_enabled_channels"
+        if section == "heats" and not live_heat_inference_enabled:
+            return "heat_inference_disabled"
+        return "ready"
+
+    overall_code = "ready"
+    if showtime_enabled:
+        overall_code = "showtime"
+    elif not host_connected:
+        overall_code = "host_disconnected"
+    elif not edc_configured:
+        overall_code = "edc_unconfigured"
+    elif enabled_channel_count <= 0:
+        overall_code = "no_enabled_channels"
+
+    return RuntimeStatusResponse.model_validate(
+        {
+            "overall_code": overall_code,
+            "host": host_response.model_dump(),
+            "edc": {
+                "configured": edc_configured,
+                "base_url": edc_config["base_url"],
+                "username_present": bool(edc_config["username"]),
+                "host_channel_total": host_channel_total,
+                "enabled_channel_count": enabled_channel_count,
+            },
+            "active_baseline": {
+                "id": active_baseline_item["id"] if active_baseline_item else None,
+                "name": active_baseline_item["name"] if active_baseline_item else None,
+                "status": active_baseline_item["status"] if active_baseline_item else None,
+            },
+            "runtime": {
+                "showtime_enabled": showtime_enabled,
+                "live_heat_inference_enabled": live_heat_inference_enabled,
+                "baseline_length_scope_mode": str(
+                    _SETTINGS_STORE.get("baseline_length_scope_mode", {}).get("value") or "definition"
+                ),
+            },
+            "pipelines": {
+                "dashboard": {
+                    "code": _pipeline_code("dashboard"),
+                    "ready": _pipeline_code("dashboard") == "ready",
+                },
+                "heats": {
+                    "code": _pipeline_code("heats"),
+                    "ready": _pipeline_code("heats") == "ready",
+                },
+                "baselines": {
+                    "code": _pipeline_code("baselines"),
+                    "ready": _pipeline_code("baselines") == "ready",
+                },
+            },
+        }
+    )
+
+
 def _assert_host_sync_request(request: Request) -> None:
     if request.headers.get(_HOST_SYNC_HEADER, "").lower() != "true":
         raise HTTPException(status_code=403, detail="该写接口仅允许宿主同步调用")
@@ -343,6 +431,12 @@ async def get_host_channels() -> HostChannelCollectionResponse:
 async def get_host_connectivity_status() -> HostConnectivityStatusResponse:
     """获取宿主同步到后端的连接状态摘要。"""
     return _host_connectivity_response()
+
+
+@router.get("/runtime-status", response_model=RuntimeStatusResponse)
+async def get_runtime_status() -> RuntimeStatusResponse:
+    """获取业务页统一消费的运行态摘要。"""
+    return _build_runtime_status_response()
 
 
 @router.put("/host-channels", response_model=MessageResponse)

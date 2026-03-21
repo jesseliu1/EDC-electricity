@@ -36,6 +36,37 @@
     "settings": "系統設定",
     "baselineDefinitions": "基線定義"
   },
+  "runtime": {
+    "header": {
+      "ready": "宿主已連入 · 真實鏈路就緒",
+      "showtime": "Showtime 展示模式",
+      "host_disconnected": "等待宿主同步",
+      "edc_unconfigured": "等待宿主設定連線",
+      "no_enabled_channels": "等待宿主同步通道"
+    },
+    "banner": {
+      "showtime": {
+        "title": "目前為 Showtime 展示模式",
+        "body": "目前頁面正在讀取展示鏈路，用於展示與聯調，不代表真實生產運行態。"
+      },
+      "host_disconnected": {
+        "title": "宿主尚未同步真實連線狀態",
+        "body": "請先在 ASNS 宿主完成 EDC 連線並開啟應用，業務頁面才會進入統一真實鏈路。"
+      },
+      "edc_unconfigured": {
+        "title": "後端尚未拿到完整 EDC 連線設定",
+        "body": "請返回宿主系統的連線設定，確認位址、帳號與密碼已同步到後端。"
+      },
+      "no_enabled_channels": {
+        "title": "宿主尚未同步可用通道",
+        "body": "目前後端還沒有可用宿主通道，真實曲線、爐次推斷與基線預覽都不會就緒。"
+      },
+      "heat_inference_disabled": {
+        "title": "真實爐次推斷目前未啟用",
+        "body": "爐次瀏覽鏈路已切到統一讀取面，但真實爐次台帳推斷開關仍為關閉狀態。"
+      }
+    }
+  },
   "dashboard": {
     "title": "總覽",
     "todayHeats": "今日爐數",

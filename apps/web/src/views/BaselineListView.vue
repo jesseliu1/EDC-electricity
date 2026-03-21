@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElDialog } from 'element-plus'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import BaselineCard from '@/components/baseline/BaselineCard.vue'
 import BaselineWizard from '@/components/baseline/BaselineWizard.vue'
 import { useBaselineStore } from '@/stores/baseline'
@@ -164,6 +165,11 @@ onMounted(() => {
         </button>
       </template>
     </PageHeader>
+
+    <SystemReadinessBanner
+      section="baselines"
+      test-id="baseline-runtime-banner"
+    />
 
     <!-- 筛选区 -->
     <div

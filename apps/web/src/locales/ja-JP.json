@@ -36,6 +36,37 @@
     "settings": "設定",
     "baselineDefinitions": "ベースライン定義"
   },
+  "runtime": {
+    "header": {
+      "ready": "ホスト接続済み・実データ経路準備完了",
+      "showtime": "Showtime デモモード",
+      "host_disconnected": "ホスト同期待ち",
+      "edc_unconfigured": "ホスト接続設定待ち",
+      "no_enabled_channels": "ホスト通道同期待ち"
+    },
+    "banner": {
+      "showtime": {
+        "title": "現在は Showtime デモモードです",
+        "body": "このページはデモ用の経路を参照しています。表示・連携確認用であり、実際の本番運転状態ではありません。"
+      },
+      "host_disconnected": {
+        "title": "ホストが実接続状態をまだ同期していません",
+        "body": "ASNS ホストで EDC 接続を完了し、アプリを開き直してから、業務ページを統一された実データ経路に入れてください。"
+      },
+      "edc_unconfigured": {
+        "title": "バックエンドに完全な EDC 接続設定がまだありません",
+        "body": "ホストの接続設定画面に戻り、アドレス・ユーザー名・パスワードがバックエンドへ同期済みか確認してください。"
+      },
+      "no_enabled_channels": {
+        "title": "ホストが利用可能な通道をまだ同期していません",
+        "body": "バックエンドに利用可能なホスト通道がまだないため、実カーブ・炉次推定・ベースラインプレビューは未準備です。"
+      },
+      "heat_inference_disabled": {
+        "title": "実炉次推定は現在無効です",
+        "body": "炉次閲覧は統一読取面へ切り替わりましたが、実炉次台帳推定のスイッチはまだオフです。"
+      }
+    }
+  },
   "dashboard": {
     "title": "ダッシュボード",
     "todayHeats": "本日のヒート数",

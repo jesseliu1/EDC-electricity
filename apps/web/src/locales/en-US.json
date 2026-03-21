@@ -36,6 +36,37 @@
     "settings": "Settings",
     "baselineDefinitions": "Baseline Definitions"
   },
+  "runtime": {
+    "header": {
+      "ready": "Host Connected · Real Pipeline Ready",
+      "showtime": "Showtime Demo Mode",
+      "host_disconnected": "Waiting for Host Sync",
+      "edc_unconfigured": "Waiting for Host Connection Setup",
+      "no_enabled_channels": "Waiting for Host Channels"
+    },
+    "banner": {
+      "showtime": {
+        "title": "Showtime demo mode is active",
+        "body": "This page is reading the demo pipeline for showcase and integration, not the real production runtime."
+      },
+      "host_disconnected": {
+        "title": "The host has not synced a real connection state yet",
+        "body": "Finish the EDC connection in the ASNS host and reopen the app before business pages can enter the unified real-data pipeline."
+      },
+      "edc_unconfigured": {
+        "title": "The backend does not have a complete EDC connection config yet",
+        "body": "Return to the host connection settings and confirm the address, username, and password have all been synced."
+      },
+      "no_enabled_channels": {
+        "title": "The host has not synced usable channels yet",
+        "body": "There are no usable host channels in the backend yet, so real curves, heat inference, and baseline preview are not ready."
+      },
+      "heat_inference_disabled": {
+        "title": "Real heat inference is currently disabled",
+        "body": "The heat browser now uses the unified runtime read model, but the real heat ledger inference switch is still turned off."
+      }
+    }
+  },
   "dashboard": {
     "title": "Dashboard",
     "todayHeats": "Today's Heats",

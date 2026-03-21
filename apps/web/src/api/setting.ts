@@ -42,11 +42,50 @@ export interface HostConnectivityStatusResponse {
   meta: HostConnectivityMetaResponse
 }
 
+export interface RuntimeEDCConnectionSummaryResponse {
+  configured: boolean
+  base_url: string
+  username_present: boolean
+  host_channel_total: number
+  enabled_channel_count: number
+}
+
+export interface RuntimeActiveBaselineSummaryResponse {
+  id: string | null
+  name: string | null
+  status: string | null
+}
+
+export interface RuntimeFlagsSummaryResponse {
+  showtime_enabled: boolean
+  live_heat_inference_enabled: boolean
+  baseline_length_scope_mode: 'definition' | 'system' | 'production_line'
+}
+
+export interface RuntimePipelineStatusResponse {
+  code: 'ready' | 'showtime' | 'host_disconnected' | 'edc_unconfigured' | 'no_enabled_channels' | 'heat_inference_disabled'
+  ready: boolean
+}
+
+export interface RuntimeStatusResponse {
+  overall_code: 'ready' | 'showtime' | 'host_disconnected' | 'edc_unconfigured' | 'no_enabled_channels'
+  host: HostConnectivityStatusResponse
+  edc: RuntimeEDCConnectionSummaryResponse
+  active_baseline: RuntimeActiveBaselineSummaryResponse
+  runtime: RuntimeFlagsSummaryResponse
+  pipelines: {
+    dashboard: RuntimePipelineStatusResponse
+    heats: RuntimePipelineStatusResponse
+    baselines: RuntimePipelineStatusResponse
+  }
+}
+
 export const settingApi = {
   getAll: () => client.get<SettingsResponse>('/settings'),
   getHostChannels: () => client.get<HostChannelCollectionResponse>('/settings/host-channels'),
   getHostConnectivityStatus: () =>
     client.get<HostConnectivityStatusResponse>('/settings/host-connectivity-status'),
+  getRuntimeStatus: () => client.get<RuntimeStatusResponse>('/settings/runtime-status'),
   updateBatch: (settings: Record<string, string>) => client.patch('/settings', { settings }),
   updateTolerance: (tolerance_percent: number) =>
     client.put('/settings/tolerance', { tolerance_percent }),

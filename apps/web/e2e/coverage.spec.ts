@@ -8,6 +8,48 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   })
 }
 
+async function mockRuntimeStatus(page: Page, body?: Record<string, unknown>) {
+  await page.route('**/api/settings/runtime-status**', async route => {
+    await fulfillJson(route, {
+      overall_code: 'ready',
+      host: {
+        is_connected: true,
+        machine_name: 'EDC Test Gateway',
+        last_sync_label: '2026-03-20 15:30:00',
+        meta: {
+          source: 'http://60.251.229.32',
+          sensor_count: 26,
+          channel_count: 2286,
+          enabled_channel_count: 6
+        }
+      },
+      edc: {
+        configured: true,
+        base_url: 'http://60.251.229.32',
+        username_present: true,
+        host_channel_total: 6,
+        enabled_channel_count: 6
+      },
+      active_baseline: {
+        id: 'baseline-001',
+        name: '标准基线 v2.1',
+        status: 'published'
+      },
+      runtime: {
+        showtime_enabled: false,
+        live_heat_inference_enabled: true,
+        baseline_length_scope_mode: 'definition'
+      },
+      pipelines: {
+        dashboard: { code: 'ready', ready: true },
+        heats: { code: 'ready', ready: true },
+        baselines: { code: 'ready', ready: true }
+      },
+      ...body
+    })
+  })
+}
+
 async function mockBaselineDefinitionMutations(page: Page) {
   await page.route('**/api/baseline-definitions', async route => {
     if (route.request().method() !== 'POST') {
@@ -333,6 +375,7 @@ test.describe('EDC web extended coverage', () => {
     page.locator('.el-message__content').filter({ hasText: '成功' }).last()
 
   test('dashboard quick links and sidebar routes are reachable', async ({ page }) => {
+    await mockRuntimeStatus(page)
     await page.goto('')
     await expect(page.getByTestId('dashboard-page')).toBeVisible()
 
@@ -346,7 +389,42 @@ test.describe('EDC web extended coverage', () => {
     await expect(page.getByTestId('settings-page')).toBeVisible()
   })
 
+  test('dashboard reads unified runtime status and surfaces host sync attention', async ({ page }) => {
+    await mockRuntimeStatus(page, {
+      overall_code: 'host_disconnected',
+      host: {
+        is_connected: false,
+        machine_name: '--',
+        last_sync_label: '--',
+        meta: {
+          source: '--',
+          sensor_count: 0,
+          channel_count: 0,
+          enabled_channel_count: 0
+        }
+      },
+      edc: {
+        configured: true,
+        base_url: 'http://60.251.229.32',
+        username_present: true,
+        host_channel_total: 0,
+        enabled_channel_count: 0
+      },
+      pipelines: {
+        dashboard: { code: 'host_disconnected', ready: false },
+        heats: { code: 'host_disconnected', ready: false },
+        baselines: { code: 'host_disconnected', ready: false }
+      }
+    })
+
+    await page.goto('')
+    await expect(page.getByTestId('dashboard-page')).toBeVisible()
+    await expect(page.getByTestId('dashboard-runtime-banner')).toContainText('宿主尚未同步真实连接状态')
+    await expect(page.getByText('等待宿主同步')).toBeVisible()
+  })
+
   test('can create a baseline definition and add a metric', async ({ page }) => {
+    await mockRuntimeStatus(page)
     await mockBaselineDefinitionMutations(page)
     await page.goto('baseline-definitions')
 
@@ -374,6 +452,7 @@ test.describe('EDC web extended coverage', () => {
   })
 
   test('task list can open detail and complete a task', async ({ page }) => {
+    await mockRuntimeStatus(page)
     await mockTaskWorkflow(page)
     await page.goto('tasks')
 
@@ -390,6 +469,7 @@ test.describe('EDC web extended coverage', () => {
   })
 
   test('reports and inbox pages can navigate into detail pages', async ({ page }) => {
+    await mockRuntimeStatus(page)
     await mockReportsAndInbox(page)
     await page.goto('reports')
     await expect(page.getByTestId('report-list-page')).toBeVisible()
@@ -403,6 +483,7 @@ test.describe('EDC web extended coverage', () => {
   })
 
   test('settings page shows host connectivity and can save tolerance and cutting configuration', async ({ page }) => {
+    await mockRuntimeStatus(page)
     await mockSettingsWorkflow(page)
     await page.goto('settings')
 
@@ -410,7 +491,9 @@ test.describe('EDC web extended coverage', () => {
     await expect(page.getByTestId('settings-host-connectivity-card')).toBeVisible()
     await expect(page.getByText('宿主系统连接')).toBeVisible()
     await expect(page.getByText('EDC Test Gateway')).toBeVisible()
-    await expect(page.getByText('宿主已连入')).toBeVisible()
+    await expect(
+      page.getByTestId('settings-host-connectivity-card').getByText('宿主已连入')
+    ).toBeVisible()
 
     await page.getByTestId('settings-save-report-time').click()
     await expect(latestSuccessMessage(page)).toBeVisible()

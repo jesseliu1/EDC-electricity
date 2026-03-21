@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ElDatePicker, ElPagination } from 'element-plus'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useHeatStore } from '@/stores/heat'
 import type { HeatStatus } from '@/api/heat'
@@ -177,6 +178,11 @@ onMounted(() => {
         </button>
       </template>
     </PageHeader>
+
+    <SystemReadinessBanner
+      section="heats"
+      test-id="heat-runtime-banner"
+    />
 
     <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
       <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 items-end">

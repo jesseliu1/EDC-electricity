@@ -36,6 +36,37 @@
     "settings": "系统设置",
     "baselineDefinitions": "基线定义"
   },
+  "runtime": {
+    "header": {
+      "ready": "宿主已连入 · 真实链路就绪",
+      "showtime": "Showtime 演示模式",
+      "host_disconnected": "等待宿主同步",
+      "edc_unconfigured": "等待宿主配置连接",
+      "no_enabled_channels": "等待宿主同步通道"
+    },
+    "banner": {
+      "showtime": {
+        "title": "当前为 Showtime 演示模式",
+        "body": "当前页面正在读取演示链路，用于展示和联调，不代表真实生产运行态。"
+      },
+      "host_disconnected": {
+        "title": "宿主尚未同步真实连接状态",
+        "body": "请先在 ASNS 宿主完成 EDC 连线并打开应用，业务页面才会进入统一真实链路。"
+      },
+      "edc_unconfigured": {
+        "title": "后端尚未拿到完整 EDC 连接配置",
+        "body": "请返回宿主系统的连接设置，确认地址、账号和密码已同步到后端。"
+      },
+      "no_enabled_channels": {
+        "title": "宿主尚未同步可用通道",
+        "body": "当前后端还没有可用宿主通道，真实曲线、炉次推断和基线预览都不会就绪。"
+      },
+      "heat_inference_disabled": {
+        "title": "真实炉次推断当前未启用",
+        "body": "炉次浏览链路已切到统一读取面，但真实炉次台账推断开关仍为关闭状态。"
+      }
+    }
+  },
   "dashboard": {
     "title": "总览",
     "todayHeats": "今日炉数",

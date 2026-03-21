@@ -6,6 +6,7 @@ import dayjs from 'dayjs'
 import StatCard from '@/components/dashboard/StatCard.vue'
 import RealtimeChart from '@/components/dashboard/RealtimeChart.vue'
 import HeatList from '@/components/dashboard/HeatList.vue'
+import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import { useDashboardStore } from '@/stores/dashboard'
 import type { TaskStatus } from '@/api/task'
 
@@ -139,6 +140,11 @@ onMounted(() => {
     class="flex flex-col gap-6"
     data-testid="dashboard-page"
   >
+    <SystemReadinessBanner
+      section="dashboard"
+      test-id="dashboard-runtime-banner"
+    />
+
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
       <StatCard
         v-for="stat in stats"

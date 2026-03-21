@@ -72,6 +72,58 @@ class HostConnectivityStatusUpdateRequest(BaseModel):
     meta: HostConnectivityMeta = Field(..., description="宿主连接摘要元信息")
 
 
+class RuntimeEDCConnectionSummary(BaseModel):
+    """后端统一读取面的 EDC 连接摘要"""
+
+    configured: bool = Field(..., description="EDC 连接配置是否完整")
+    base_url: str = Field(..., description="当前 EDC 地址")
+    username_present: bool = Field(..., description="是否存在账号配置")
+    host_channel_total: int = Field(..., ge=0, description="宿主已同步通道总数")
+    enabled_channel_count: int = Field(..., ge=0, description="宿主启用通道数")
+
+
+class RuntimeActiveBaselineSummary(BaseModel):
+    """统一运行态中的激活基线摘要"""
+
+    id: str | None = Field(default=None, description="当前激活基线 ID")
+    name: str | None = Field(default=None, description="当前激活基线名称")
+    status: str | None = Field(default=None, description="当前激活基线状态")
+
+
+class RuntimeFlagsSummary(BaseModel):
+    """统一运行态中的关键布尔/模式配置"""
+
+    showtime_enabled: bool = Field(..., description="当前请求是否处于 Showtime 模式")
+    live_heat_inference_enabled: bool = Field(..., description="是否启用真实炉次推断")
+    baseline_length_scope_mode: str = Field(..., description="基线等长校验范围")
+
+
+class RuntimePipelineStatus(BaseModel):
+    """业务链路就绪状态"""
+
+    code: str = Field(..., description="链路状态码")
+    ready: bool = Field(..., description="链路是否就绪")
+
+
+class RuntimePipelinesSummary(BaseModel):
+    """各业务页面应消费的统一链路状态"""
+
+    dashboard: RuntimePipelineStatus = Field(..., description="Dashboard 实时链路")
+    heats: RuntimePipelineStatus = Field(..., description="炉次浏览链路")
+    baselines: RuntimePipelineStatus = Field(..., description="黄金基线链路")
+
+
+class RuntimeStatusResponse(BaseModel):
+    """统一运行态读取面响应"""
+
+    overall_code: str = Field(..., description="整体系统状态码")
+    host: HostConnectivityStatusResponse = Field(..., description="宿主连接状态")
+    edc: RuntimeEDCConnectionSummary = Field(..., description="EDC 连接摘要")
+    active_baseline: RuntimeActiveBaselineSummary = Field(..., description="当前激活基线摘要")
+    runtime: RuntimeFlagsSummary = Field(..., description="运行模式与关键设置")
+    pipelines: RuntimePipelinesSummary = Field(..., description="关键业务链路就绪状态")
+
+
 class SettingsUpdateRequest(BaseModel):
     """批量更新设置请求"""
 
