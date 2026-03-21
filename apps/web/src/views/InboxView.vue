@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useHeatStore } from '@/stores/heat'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -27,6 +28,11 @@ onMounted(async () => {
     class="flex flex-col gap-6"
     data-testid="inbox-page"
   >
+    <SystemReadinessBanner
+      section="inbox"
+      test-id="inbox-runtime-banner"
+    />
+
     <PageHeader
       :title="t('inbox.title')"
       description="Require immediate attention and analysis for process deviations."

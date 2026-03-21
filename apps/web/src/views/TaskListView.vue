@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElPagination } from 'element-plus'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useTaskStore } from '@/stores/task'
 import type { TaskStatus } from '@/api/task'
@@ -52,6 +53,11 @@ onMounted(() => {
     class="flex flex-col gap-6"
     data-testid="task-list-page"
   >
+    <SystemReadinessBanner
+      section="tasks"
+      test-id="task-list-runtime-banner"
+    />
+
     <!-- 页面头部 -->
     <PageHeader
       :title="t('task.title')"

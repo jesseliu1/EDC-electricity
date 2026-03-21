@@ -76,6 +76,9 @@ export interface RuntimeStatusResponse {
   pipelines: {
     dashboard: RuntimePipelineStatusResponse
     heats: RuntimePipelineStatusResponse
+    inbox: RuntimePipelineStatusResponse
+    tasks: RuntimePipelineStatusResponse
+    reports: RuntimePipelineStatusResponse
     baselines: RuntimePipelineStatusResponse
   }
 }

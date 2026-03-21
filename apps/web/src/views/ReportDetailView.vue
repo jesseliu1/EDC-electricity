@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useReportStore } from '@/stores/report'
 import { reportApi } from '@/api/report'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -29,6 +30,11 @@ onMounted(() => {
     class="flex flex-col gap-6"
     data-testid="report-detail-page"
   >
+    <SystemReadinessBanner
+      section="reports"
+      test-id="report-detail-runtime-banner"
+    />
+
     <PageHeader
       :title="`${t('report.dailyReport')} - ${reportDate}`"
       subtitle="Data compiled from 00:00 to 23:59"

@@ -6,6 +6,7 @@ import { ElMessage } from 'element-plus'
 import { useTaskStore } from '@/stores/task'
 import { taskApi } from '@/api/task'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -67,6 +68,11 @@ onMounted(() => {
     class="flex flex-col gap-6"
     data-testid="task-detail-page"
   >
+    <SystemReadinessBanner
+      section="tasks"
+      test-id="task-detail-runtime-banner"
+    />
+
     <PageHeader
       :title="`${t('task.title')} - ${task?.taskNo || '--'}`"
       :subtitle="`ID: ${taskId}`"

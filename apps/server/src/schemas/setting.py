@@ -110,6 +110,9 @@ class RuntimePipelinesSummary(BaseModel):
 
     dashboard: RuntimePipelineStatus = Field(..., description="Dashboard 实时链路")
     heats: RuntimePipelineStatus = Field(..., description="炉次浏览链路")
+    inbox: RuntimePipelineStatus = Field(..., description="偏差收件箱链路")
+    tasks: RuntimePipelineStatus = Field(..., description="纠偏任务链路")
+    reports: RuntimePipelineStatus = Field(..., description="日报与审计链路")
     baselines: RuntimePipelineStatus = Field(..., description="黄金基线链路")
 
 

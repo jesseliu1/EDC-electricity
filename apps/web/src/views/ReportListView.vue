@@ -3,6 +3,7 @@ import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useReportStore } from '@/stores/report'
 
@@ -24,6 +25,11 @@ onMounted(() => {
     class="flex flex-col gap-6"
     data-testid="report-list-page"
   >
+    <SystemReadinessBanner
+      section="reports"
+      test-id="report-list-runtime-banner"
+    />
+
     <!-- 页面头部 -->
     <PageHeader
       :title="t('report.title')"

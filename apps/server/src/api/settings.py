@@ -384,6 +384,18 @@ def _build_runtime_status_response() -> RuntimeStatusResponse:
                     "code": _pipeline_code("heats"),
                     "ready": _pipeline_code("heats") == "ready",
                 },
+                "inbox": {
+                    "code": _pipeline_code("heats"),
+                    "ready": _pipeline_code("heats") == "ready",
+                },
+                "tasks": {
+                    "code": _pipeline_code("dashboard"),
+                    "ready": _pipeline_code("dashboard") == "ready",
+                },
+                "reports": {
+                    "code": _pipeline_code("dashboard"),
+                    "ready": _pipeline_code("dashboard") == "ready",
+                },
                 "baselines": {
                     "code": _pipeline_code("baselines"),
                     "ready": _pipeline_code("baselines") == "ready",

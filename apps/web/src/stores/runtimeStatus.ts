@@ -45,6 +45,9 @@ export interface RuntimeStatusState {
   pipelines: {
     dashboard: RuntimePipelineStatus
     heats: RuntimePipelineStatus
+    inbox: RuntimePipelineStatus
+    tasks: RuntimePipelineStatus
+    reports: RuntimePipelineStatus
     baselines: RuntimePipelineStatus
   }
 }
@@ -85,6 +88,9 @@ const defaultState = (): RuntimeStatusState => ({
   pipelines: {
     dashboard: defaultPipeline(),
     heats: defaultPipeline(),
+    inbox: defaultPipeline(),
+    tasks: defaultPipeline(),
+    reports: defaultPipeline(),
     baselines: defaultPipeline()
   }
 })
@@ -134,6 +140,9 @@ export const useRuntimeStatusStore = defineStore('runtime-status', {
           pipelines: {
             dashboard: response.pipelines.dashboard,
             heats: response.pipelines.heats,
+            inbox: response.pipelines.inbox,
+            tasks: response.pipelines.tasks,
+            reports: response.pipelines.reports,
             baselines: response.pipelines.baselines
           }
         }

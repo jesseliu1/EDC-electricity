@@ -43,6 +43,9 @@ async function mockRuntimeStatus(page: Page, body?: Record<string, unknown>) {
       pipelines: {
         dashboard: { code: 'ready', ready: true },
         heats: { code: 'ready', ready: true },
+        inbox: { code: 'ready', ready: true },
+        tasks: { code: 'ready', ready: true },
+        reports: { code: 'ready', ready: true },
         baselines: { code: 'ready', ready: true }
       },
       ...body
@@ -421,6 +424,45 @@ test.describe('EDC web extended coverage', () => {
     await expect(page.getByTestId('dashboard-page')).toBeVisible()
     await expect(page.getByTestId('dashboard-runtime-banner')).toContainText('宿主尚未同步真实连接状态')
     await expect(page.getByText('等待宿主同步')).toBeVisible()
+  })
+
+  test('reports page reuses unified runtime attention state', async ({ page }) => {
+    await mockRuntimeStatus(page, {
+      overall_code: 'host_disconnected',
+      host: {
+        is_connected: false,
+        machine_name: '--',
+        last_sync_label: '--',
+        meta: {
+          source: '--',
+          sensor_count: 0,
+          channel_count: 0,
+          enabled_channel_count: 0
+        }
+      },
+      edc: {
+        configured: true,
+        base_url: 'http://60.251.229.32',
+        username_present: true,
+        host_channel_total: 0,
+        enabled_channel_count: 0
+      },
+      pipelines: {
+        dashboard: { code: 'host_disconnected', ready: false },
+        heats: { code: 'host_disconnected', ready: false },
+        inbox: { code: 'host_disconnected', ready: false },
+        tasks: { code: 'host_disconnected', ready: false },
+        reports: { code: 'host_disconnected', ready: false },
+        baselines: { code: 'host_disconnected', ready: false }
+      }
+    })
+    await page.route('**/api/reports/daily?**', async route => {
+      await fulfillJson(route, { items: [], total: 0 })
+    })
+
+    await page.goto('reports')
+    await expect(page.getByTestId('report-list-page')).toBeVisible()
+    await expect(page.getByTestId('report-list-runtime-banner')).toContainText('宿主尚未同步真实连接状态')
   })
 
   test('can create a baseline definition and add a metric', async ({ page }) => {
