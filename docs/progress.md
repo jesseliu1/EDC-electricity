@@ -28,10 +28,31 @@
 - [x] 已完成“宿主为入口、后端统一读取面、EDC 只消费后端状态”的第一阶段接入：新增统一运行态摘要接口，Dashboard / 炉次 / 基线主页面已消费统一状态
 - [x] 已继续把统一运行态摘要扩到 Tasks / Reports / Inbox 与相关详情页，主业务导航页已基本切到同一状态读取面
 - [x] 已继续把统一运行态摘要补齐到基线定义页与设置页，主导航入口页现已全部接到统一运行态读取面
+- [x] 已完成 `live_inferred` 炉次 ID 稳定化：后端改为 canonical ID + legacy 兼容解析，旧详情链接/基线来源炉次不再因重新推断直接失效
 
 ---
 
 ## 已完成
+
+### 2026-03-21（live_inferred 炉次 ID 稳定化）
+
+- [x] 修复 `live_inferred` 炉次 ID 随重新推断漂移
+  - [x] `apps/server/src/api/heats.py` 已把推断炉次主键改为稳定 canonical 格式：`live-heat-{ctx8}-{anchor_ms}-{dur5}`
+  - [x] live inference cache 已改为按推断上下文分桶，详情解析不再永远绑死当前 active baseline
+  - [x] 旧 `live-heat-{start}-{end}` 链接已可继续解析到当前 canonical 记录，不再直接 `404`
+- [x] 收口 canonical ID 在后续链路中的传播
+  - [x] `compare / analyze / cutting-timeline / update / resume-cutting` 已统一按 resolved canonical `heat_id` 处理缓存与返回值
+  - [x] 已补 persisted live heat alias 合并，运行态残留旧 legacy key 时不会直接丢失已写状态
+- [x] 收口基线侧 `source_heat_id` 与时间窗解析
+  - [x] 新建基线时会先解析来源炉次并落 canonical `source_heat_id`
+  - [x] baseline preview / baseline 时间窗解析已优先使用定义自身的功率通道上下文，不再依赖当前 active baseline
+- [x] 后端回归通过
+  - [x] `apps/server/.venv/Scripts/ruff.exe check src tests`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_heats_api.py -x -vv`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py -x -vv`
+- [x] 额外说明
+  - [x] `tests/test_api_edge_cases.py` 仍有与本轮无关的既有失败：`test_task_invalid_state_transitions_and_validation` 当前返回 `404` 而非预期 `400`
+  - [x] 本地 `http://127.0.0.1:8000/health` 仍在线，但当前运行中的服务尚未热更新到新的 canonical ID 实现，直接请求 `/api/heats` 仍能看到旧 `live-heat-{start}-{end}` 形式
 
 ### 2026-03-20（宿主恢复同步与实时数据链路收口）
 
@@ -996,6 +1017,21 @@
   - [x] `npm.cmd run build`（`apps/web`，提权运行）
   - [x] `npx.cmd playwright test e2e/coverage.spec.ts e2e/app.spec.ts e2e/issue-acceptance.spec.ts`（`apps/web`，提权运行）
   - [ ] `apps/server` pytest 当前被本地失效的 uv Python 解释器阻塞，需先修复 `.venv` 再恢复
+
+### 2026-03-21（联调收口：报表详情成功后仍卡 loading）
+- [x] 修复报表详情页把“未加载 / 加载失败 / 成功空列表”混成同一 loading 占位的问题
+  - [x] `apps/web/src/stores/report.ts` 已拆分 `listLoading / detailLoading / detailError`，并给详情请求补 token，避免旧响应覆盖新日期
+  - [x] `apps/web/src/views/ReportDetailView.vue` 已改为明确的成功 / loading / 错误三态，不再仅凭 `current === null` 永久显示“加载中...”
+  - [x] 报表详情成功响应中的 `top_deviations=[]` 现会渲染明确空态，不再因空数组场景停留在加载占位
+  - [x] 报表详情在 404/失败场景下现会显示明确错误态，而不是继续展示 `pending`
+- [x] 报表详情文案与回归已补齐
+  - [x] 四套 locale 已新增报表详情副标题、空偏差文案、失败提示与刷新提示
+  - [x] `apps/web/e2e/coverage.spec.ts` 已补“空 `top_deviations` 成功态”和“详情接口失败错误态”两条回归
+- [x] 验证通过
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "reports and inbox pages can navigate into detail pages|report detail shows explicit error state when detail request fails"`
 
 ### 2026-03-20（showtime 第二轮扩展：Dashboard / 任务 / 报表默认真实 only）
 - [x] 任务链路已按请求级 `showtime` 拆分真实与演示数据源

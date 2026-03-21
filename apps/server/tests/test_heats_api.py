@@ -28,6 +28,44 @@ def _build_live_power_points(start: datetime) -> list[CurvePoint]:
     return points
 
 
+def _shift_curve_points(points: list[CurvePoint], *, seconds: int) -> list[CurvePoint]:
+    delta_ms = seconds * 1000
+    return [
+        CurvePoint(timestamp=int(point.timestamp) + delta_ms, value=float(point.value))
+        for point in points
+    ]
+
+
+def _build_legacy_live_heat_id(*, start_time: str, end_time: str) -> str:
+    start_timestamp = int(datetime.fromisoformat(start_time).timestamp() * 1000)
+    end_timestamp = int(datetime.fromisoformat(end_time).timestamp() * 1000)
+    return f"live-heat-{start_timestamp}-{end_timestamp}"
+
+
+def _build_test_live_context(
+    *,
+    baseline_id: str | None = "baseline-001",
+    suid: str = "2349",
+    cuid: str = "199",
+    channel_id: str = "2349-199",
+    expected_duration_minutes: int = 30,
+) -> dict[str, object]:
+    import src.api.heats as heats_module
+
+    return heats_module._build_live_heat_context(
+        channel={
+            "id": channel_id,
+            "suid": suid,
+            "cuid": cuid,
+            "device_name": "测试设备",
+            "channel_name": "功率",
+            "unit": "kW",
+        },
+        baseline_id=baseline_id,
+        expected_duration_minutes=expected_duration_minutes,
+    )
+
+
 async def _pick_heat_id(client, *, require_baseline: bool = True) -> str:
     list_resp = await client.get("/api/heats", params={"page_size": 20})
     assert list_resp.status_code == 200
@@ -304,7 +342,7 @@ async def test_list_heats_prefers_live_inferred_records_when_enabled(client, mon
     )
     monkeypatch.setattr(
         "src.api.heats._resolve_live_heat_inference_context",
-        lambda: ({"id": "2349-199", "suid": "2349", "cuid": "199"}, "baseline-001", 30),
+        lambda: _build_test_live_context(),
     )
     monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
     monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fake_hydrate_baseline_item)
@@ -312,8 +350,7 @@ async def test_list_heats_prefers_live_inferred_records_when_enabled(client, mon
     import src.api.heats as heats_module
 
     heats_module._HEAT_STORE.clear()
-    heats_module._LIVE_HEAT_CACHE["expires_at"] = None
-    heats_module._LIVE_HEAT_CACHE["items"] = {}
+    heats_module._LIVE_HEAT_CACHE["contexts"] = {}
 
     response = await client.get("/api/heats", params={"page_size": 20})
     assert response.status_code == 200
@@ -322,6 +359,7 @@ async def test_list_heats_prefers_live_inferred_records_when_enabled(client, mon
     assert all(item["record_source"] == "live_inferred" for item in payload["items"])
     assert all(item["current_curve_source"] == "live_edc" for item in payload["items"])
     assert payload["items"][0]["id"].startswith("live-heat-")
+    assert len(payload["items"][0]["id"]) <= 36
 
 
 @pytest.mark.asyncio
@@ -340,24 +378,211 @@ async def test_live_inferred_heat_ids_can_resolve_preview_and_baseline_windows(
     )
     monkeypatch.setattr(
         "src.api.heats._resolve_live_heat_inference_context",
-        lambda: ({"id": "2349-199", "suid": "2349", "cuid": "199"}, "baseline-001", 30),
+        lambda: _build_test_live_context(),
     )
     monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
 
     import src.api.heats as heats_module
 
     heats_module._HEAT_STORE.clear()
-    heats_module._LIVE_HEAT_CACHE["expires_at"] = None
-    heats_module._LIVE_HEAT_CACHE["items"] = {}
+    heats_module._LIVE_HEAT_CACHE["contexts"] = {}
 
     list_response = await client.get("/api/heats", params={"page_size": 20})
     heat_id = list_response.json()["items"][0]["id"]
 
     baseline_window = await _resolve_baseline_time_window({"source_heat_id": heat_id})
-    preview_window = await _resolve_preview_window(heat_id)
+    preview_window = await _resolve_preview_window(heat_id, definition_id="def-001")
     assert (baseline_window[1] - baseline_window[0]).total_seconds() >= 20 * 60
     assert preview_window[0].hour == 0
     assert preview_window[0].date() == baseline_window[0].date()
+
+
+@pytest.mark.asyncio
+async def test_live_inferred_canonical_id_stays_stable_across_small_boundary_changes(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    live_points_v1 = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
+    live_points_v2 = _shift_curve_points(live_points_v1, seconds=20)
+    current_points = live_points_v1
+
+    async def fake_load_live_heat_inference_power_points(_channel):
+        return current_points
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._LIVE_HEAT_CACHE["contexts"] = {}
+
+    first_response = await client.get("/api/heats", params={"page_size": 20})
+    assert first_response.status_code == 200
+    first_ids = [item["id"] for item in first_response.json()["items"]]
+
+    current_points = live_points_v2
+    heats_module._LIVE_HEAT_CACHE["contexts"] = {}
+
+    second_response = await client.get("/api/heats", params={"page_size": 20})
+    assert second_response.status_code == 200
+    second_ids = [item["id"] for item in second_response.json()["items"]]
+
+    assert second_ids == first_ids
+
+
+@pytest.mark.asyncio
+async def test_live_inferred_legacy_id_remains_resolvable_and_returns_canonical_ids(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    live_points_v1 = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
+    live_points_v2 = _shift_curve_points(live_points_v1, seconds=20)
+    current_points = live_points_v1
+
+    async def fake_load_live_heat_inference_power_points(_channel):
+        return current_points
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._LIVE_HEAT_CACHE["contexts"] = {}
+
+    list_response = await client.get("/api/heats", params={"page_size": 20})
+    assert list_response.status_code == 200
+    canonical_item = list_response.json()["items"][0]
+    legacy_heat_id = _build_legacy_live_heat_id(
+        start_time=canonical_item["start_time"],
+        end_time=canonical_item["end_time"],
+    )
+
+    current_points = live_points_v2
+    heats_module._LIVE_HEAT_CACHE["contexts"] = {}
+
+    detail_response = await client.get(f"/api/heats/{legacy_heat_id}")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["id"] == canonical_item["id"]
+
+    compare_response = await client.get(f"/api/heats/{legacy_heat_id}/compare")
+    assert compare_response.status_code == 200
+    assert compare_response.json()["heat"]["id"] == canonical_item["id"]
+
+    analyze_response = await client.post(f"/api/heats/{legacy_heat_id}/analyze", json={})
+    assert analyze_response.status_code == 200
+    assert analyze_response.json()["heat_id"] == canonical_item["id"]
+
+    timeline_response = await client.get(f"/api/heats/{legacy_heat_id}/cutting-timeline")
+    assert timeline_response.status_code == 200
+    assert timeline_response.json()["heat_id"] == canonical_item["id"]
+
+
+@pytest.mark.asyncio
+async def test_create_baseline_canonicalizes_legacy_live_inferred_source_heat_id(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    live_points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
+
+    async def fake_load_live_heat_inference_power_points(_channel):
+        return live_points
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._LIVE_HEAT_CACHE["contexts"] = {}
+
+    list_response = await client.get("/api/heats", params={"page_size": 20})
+    assert list_response.status_code == 200
+    canonical_item = list_response.json()["items"][0]
+    legacy_heat_id = _build_legacy_live_heat_id(
+        start_time=canonical_item["start_time"],
+        end_time=canonical_item["end_time"],
+    )
+
+    create_response = await client.post(
+        "/api/baselines",
+        json={
+            "name": "legacy source baseline",
+            "description": "验证旧推断炉次 ID 会落成 canonical",
+            "definition_id": "def-001",
+            "source_heat_id": legacy_heat_id,
+            "tolerance_percent": 12.0,
+        },
+    )
+    assert create_response.status_code == 201
+    assert create_response.json()["source_heat_id"] == canonical_item["id"]
+
+
+@pytest.mark.asyncio
+async def test_preview_and_baseline_time_window_use_definition_context_for_live_heat_resolution(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    def1_points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
+    def2_points = _build_live_power_points(datetime(2026, 3, 19, 11, 0))
+
+    async def fake_load_live_heat_inference_power_points(channel):
+        if channel["cuid"] == "199":
+            return def1_points
+        if channel["cuid"] == "142":
+            return def2_points
+        return []
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._LIVE_HEAT_CACHE["contexts"] = {}
+
+    list_response = await client.get("/api/heats", params={"page_size": 20})
+    assert list_response.status_code == 200
+    canonical_item = list_response.json()["items"][0]
+    legacy_heat_id = _build_legacy_live_heat_id(
+        start_time=canonical_item["start_time"],
+        end_time=canonical_item["end_time"],
+    )
+
+    _SETTINGS_STORE["active_baseline_id"]["value"] = "baseline-002"
+    heats_module._LIVE_HEAT_CACHE["contexts"] = {}
+
+    preview_window = await _resolve_preview_window(legacy_heat_id, definition_id="def-001")
+    baseline_window = await _resolve_baseline_time_window(
+        {"definition_id": "def-001", "source_heat_id": legacy_heat_id}
+    )
+    assert preview_window[0].date() == baseline_window[0].date()
+    assert baseline_window[0].hour == 8
 
 
 @pytest.mark.asyncio

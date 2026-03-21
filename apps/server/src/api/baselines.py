@@ -285,9 +285,15 @@ async def _resolve_baseline_time_window(item: dict[str, Any]) -> tuple[datetime,
     if isinstance(selected_start, datetime) and isinstance(selected_end, datetime):
         return selected_start, selected_end
 
-    from .heats import resolve_heat_time_window
+    from .heats import build_live_heat_lookup_context, resolve_heat_time_window
 
-    source_window = await resolve_heat_time_window(str(item.get("source_heat_id") or ""))
+    preferred_live_context = build_live_heat_lookup_context(
+        definition_id=str(item.get("definition_id") or "") or None
+    )
+    source_window = await resolve_heat_time_window(
+        str(item.get("source_heat_id") or ""),
+        preferred_live_context=preferred_live_context,
+    )
     if source_window:
         return source_window
 
@@ -527,6 +533,16 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
     """创建新基线实例，默认草稿状态。"""
     _validate_definition(data.definition_id)
 
+    from .heats import build_live_heat_lookup_context, resolve_heat_record
+
+    preferred_live_context = build_live_heat_lookup_context(definition_id=data.definition_id)
+    source_heat = await resolve_heat_record(
+        data.source_heat_id,
+        preferred_live_context=preferred_live_context,
+    )
+    if not source_heat:
+        raise HTTPException(status_code=400, detail="来源炉次不存在")
+
     now = _now()
     baseline_id = f"baseline-{uuid4()}"
     item = {
@@ -534,7 +550,7 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
         "name": data.name,
         "description": data.description,
         "definition_id": data.definition_id,
-        "source_heat_id": data.source_heat_id,
+        "source_heat_id": str(source_heat["id"]),
         "selected_start_time": data.selected_start_time,
         "selected_end_time": data.selected_end_time,
         "tolerance_percent": data.tolerance_percent,

@@ -19,6 +19,8 @@
 - 已补基线向导 Step 2 的 preview loading 与整日曲线口径提示，避免同日切炉次时误判成“图没刷新”
 - 已修基线向导 preview 图的多指标渲染方式：不再先按 timestamp 硬合并，不同指标直接按各自原始时序绘制
 - 已收掉 Dashboard 默认模式下的演示统计卡与两块硬编码预览；当前任务/报表默认模式已改为真实派生数据或空态
+- 已修复报表详情页“接口 200 但正文长期卡在 loading”问题：前端已拆出成功 / loading / 错误三态，`top_deviations=[]` 与 404 都不会再伪装成 `pending`
+- 已完成 `live_inferred` 炉次 ID 稳定化：后端已改用 canonical ID，并兼容旧 `live-heat-{start}-{end}` 详情链接与基线来源炉次解析
 - 未纳入版本控制的参考文件：
   - `docs/Ref/EDC AI通信基座API使用說明書.docx`
   - `docs/Ref/install_asns_server-m-1.sh`
@@ -130,6 +132,24 @@
 24. 基线详情页已补齐曲线来源说明，且仅在 `showtime=true` 命中 demo 曲线时显示演示 banner
 25. 前端残留 `ingestMock` / `ingestMockHeat` 与对应 locale 文案已删除
 26. baseline 边界回归已补齐：已验证 showtime 请求不会把 demo 曲线污染回后续默认模式
+27. 已完成报表详情 loading 收口：`report` store 新增详情错误态与请求 token，详情页已支持成功 / loading / 错误分支
+28. 报表详情回归已补“空 `top_deviations` 成功态”和“接口 404 错误态”，不再只验证“能进入详情页”
+
+### 本轮刚完成（2026-03-21）
+
+1. `apps/server/src/api/heats.py` 已把 `live_inferred` 主键从 `live-heat-{start}-{end}` 改为稳定 canonical 格式：`live-heat-{ctx8}-{anchor_ms}-{dur5}`
+2. live inference cache 已改为按推断上下文分桶，详情解析不再只认当前 active baseline 的那一份 live store
+3. 旧 `live-heat-{start}-{end}` 链接已兼容解析到当前 canonical 记录，`compare / analyze / cutting-timeline` 返回值也会统一回 canonical `heat_id`
+4. persisted live heat 若仍保留旧 legacy key，列表与详情会按 alias 合并回当前 canonical 记录，避免已分析状态直接丢失
+5. 新建基线时会先解析来源炉次并落 canonical `source_heat_id`
+6. baseline preview / baseline 时间窗已优先按定义自身功率通道做 live heat 解析，避免 active baseline 切换后旧 live source 失联
+7. 后端回归已通过：
+   - `apps/server/.venv/Scripts/ruff.exe check src tests`
+   - `apps/server/.venv/Scripts/pytest.exe tests/test_heats_api.py -x -vv`
+   - `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py -x -vv`
+8. 当前额外观察：
+   - `apps/server/.venv/Scripts/pytest.exe tests/test_api_edge_cases.py -x -vv` 仍有与本轮无关的既有失败：`test_task_invalid_state_transitions_and_validation`
+   - 本地 `http://127.0.0.1:8000/health` 仍是 `200`，但当前运行中的 `8000` 服务尚未热更新到 canonical ID 实现，直接访问 `/api/heats` 仍可见旧 `live-heat-{start}-{end}` 形式
 
 ### 当前下一步建议
 
@@ -224,6 +244,7 @@
   - `pnpm --dir apps/web build`
   - `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py -x -vv`
   - `pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "can expand a heat row and navigate to detail"`
+  - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "reports and inbox pages can navigate into detail pages|report detail shows explicit error state when detail request fails"`
 - 本轮已完成“宿主入口与 EDC 统一状态收敛”的阶段 1 整理：
   - 已新增 `docs/HOST_EDC_STATE_CONSOLIDATION_PLAN.md`
   - 已把当前状态源拆成三层：

@@ -14,6 +14,8 @@ from src.api.heats import (
     _LIVE_HEAT_CACHE,
     _MOCK_HEAT_STREAM_STORE,
     _NEXT_MOCK_HEAT_INDEX,
+    _get_live_heat_cache_entry,
+    _resolve_live_heat_inference_context,
     _seed_heats,
 )
 from src.api.settings import (
@@ -64,8 +66,13 @@ def reset_in_memory_stores():
     next_heat_index_snapshot = _NEXT_MOCK_HEAT_INDEX
     enable_mock_dataset_snapshot = settings.enable_mock_dataset
     _HEAT_STORE.clear()
-    _LIVE_HEAT_CACHE["expires_at"] = datetime.now() + timedelta(hours=1)
-    _LIVE_HEAT_CACHE["items"] = _build_test_reference_heats()
+    _LIVE_HEAT_CACHE.clear()
+    _LIVE_HEAT_CACHE["contexts"] = {}
+    default_context = _resolve_live_heat_inference_context()
+    if default_context:
+        cache_entry = _get_live_heat_cache_entry(default_context)
+        cache_entry["expires_at"] = datetime.now() + timedelta(hours=1)
+        cache_entry["items"] = _build_test_reference_heats()
     _HEAT_COMPARE_CACHE["entries"] = {}
     _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
 

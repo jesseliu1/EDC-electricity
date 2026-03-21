@@ -160,10 +160,15 @@ def _format_host_channel_label(channel: dict[str, str] | None) -> str | None:
     )
 
 
-async def _resolve_preview_window(heat_id: str) -> tuple[datetime, datetime]:
-    from .heats import resolve_heat_record
+async def _resolve_preview_window(
+    heat_id: str,
+    *,
+    definition_id: str | None = None,
+) -> tuple[datetime, datetime]:
+    from .heats import build_live_heat_lookup_context, resolve_heat_record
 
-    heat = await resolve_heat_record(heat_id)
+    preferred_live_context = build_live_heat_lookup_context(definition_id=definition_id)
+    heat = await resolve_heat_record(heat_id, preferred_live_context=preferred_live_context)
     if not heat:
         raise HTTPException(status_code=404, detail="来源炉次不存在")
 
@@ -268,7 +273,7 @@ async def get_definition_preview_curves(
 ) -> BaselinePreviewResponse:
     """按定义与炉次返回基线向导候选曲线预览。"""
     definition = _get_or_404(definition_id)
-    range_start, range_end = await _resolve_preview_window(heat_id)
+    range_start, range_end = await _resolve_preview_window(heat_id, definition_id=definition_id)
     curves = await _build_preview_curves(
         definition=definition,
         range_start=range_start,

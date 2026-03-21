@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import re
 from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -39,14 +41,17 @@ deviation_service = DeviationService()
 _LIVE_HEAT_LOOKBACK_HOURS = 72
 _LIVE_HEAT_CACHE_TTL_SECONDS = 30
 _LIVE_HEAT_GAP_MINUTES = 3
+_LIVE_HEAT_ID_BUCKET_MINUTES = 5
 _HEAT_COMPARE_CACHE_TTL_SECONDS = 20
 _LIVE_HEAT_CACHE: dict[str, Any] = {
-    "expires_at": None,
-    "items": {},
+    "contexts": {},
 }
 _HEAT_COMPARE_CACHE: dict[str, Any] = {
     "entries": {},
 }
+
+_LIVE_HEAT_LEGACY_ID_PATTERN = re.compile(r"^live-heat-(\d+)-(\d+)$")
+_LIVE_HEAT_CANONICAL_ID_PATTERN = re.compile(r"^live-heat-([0-9a-f]{8})-(\d+)-(\d+)$")
 
 
 def _as_cache_token(value: Any) -> str:
@@ -231,6 +236,93 @@ def _format_host_channel_label(channel: dict[str, str] | None) -> str | None:
     return f'{channel["device_name"]} / {channel["channel_name"]} / {channel["unit"] or "--"}'
 
 
+def _live_heat_bucket_ms() -> int:
+    return _LIVE_HEAT_ID_BUCKET_MINUTES * 60_000
+
+
+def _round_timestamp_to_live_bucket(timestamp: int) -> int:
+    bucket_ms = _live_heat_bucket_ms()
+    return int(((timestamp + bucket_ms / 2) // bucket_ms) * bucket_ms)
+
+
+def _round_duration_to_live_bucket_minutes(duration_minutes: float) -> int:
+    bucket_minutes = _LIVE_HEAT_ID_BUCKET_MINUTES
+    rounded = int(((duration_minutes + bucket_minutes / 2) // bucket_minutes) * bucket_minutes)
+    return max(rounded, bucket_minutes)
+
+
+def _live_heat_channel_key(channel: dict[str, str]) -> str:
+    return f'{channel["suid"]}:{channel["cuid"]}'
+
+
+def _live_heat_context_hash(channel_key: str) -> str:
+    return hashlib.sha1(channel_key.encode("utf-8")).hexdigest()[:8]
+
+
+def _build_live_heat_context(
+    *,
+    channel: dict[str, str],
+    baseline_id: str | None,
+    expected_duration_minutes: int,
+) -> dict[str, Any]:
+    channel_key = _live_heat_channel_key(channel)
+    return {
+        "channel": channel,
+        "channel_key": channel_key,
+        "context_hash": _live_heat_context_hash(channel_key),
+        "cache_key": f"{channel_key}|{expected_duration_minutes}",
+        "baseline_id": baseline_id,
+        "expected_duration_minutes": expected_duration_minutes,
+    }
+
+
+def _parse_live_heat_id(heat_id: str) -> dict[str, Any] | None:
+    canonical_match = _LIVE_HEAT_CANONICAL_ID_PATTERN.fullmatch(heat_id)
+    if canonical_match:
+        context_hash, anchor_ms, duration_bucket = canonical_match.groups()
+        return {
+            "format": "canonical",
+            "context_hash": context_hash,
+            "anchor_ms": int(anchor_ms),
+            "duration_bucket_minutes": int(duration_bucket),
+        }
+
+    legacy_match = _LIVE_HEAT_LEGACY_ID_PATTERN.fullmatch(heat_id)
+    if legacy_match:
+        start_ts, end_ts = legacy_match.groups()
+        start_timestamp = int(start_ts)
+        end_timestamp = int(end_ts)
+        midpoint = start_timestamp + (end_timestamp - start_timestamp) // 2
+        return {
+            "format": "legacy",
+            "start_timestamp": start_timestamp,
+            "end_timestamp": end_timestamp,
+            "anchor_ms": midpoint,
+            "duration_bucket_minutes": _round_duration_to_live_bucket_minutes(
+                max((end_timestamp - start_timestamp) / 60000, 1)
+            ),
+        }
+
+    return None
+
+
+def _build_live_heat_canonical_id(
+    *, context_hash: str, anchor_ms: int, duration_bucket_minutes: int
+) -> str:
+    return f"live-heat-{context_hash}-{anchor_ms}-{duration_bucket_minutes}"
+
+
+def _clone_live_heat_context(context: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "channel": dict(context["channel"]),
+        "channel_key": str(context["channel_key"]),
+        "context_hash": str(context["context_hash"]),
+        "cache_key": str(context["cache_key"]),
+        "baseline_id": str(context["baseline_id"]) if context.get("baseline_id") else None,
+        "expected_duration_minutes": int(context["expected_duration_minutes"]),
+    }
+
+
 def _infer_metric_key(metric: dict[str, Any], index: int) -> str:
     name = str(metric.get("name") or "").lower()
     unit = str(metric.get("unit") or "")
@@ -357,6 +449,7 @@ def _split_live_segment(
 def _build_live_heat_item(
     *,
     index: int,
+    context: dict[str, Any],
     baseline_id: str | None,
     power_curve: list[CurvePoint],
     expected_duration_minutes: int,
@@ -367,7 +460,17 @@ def _build_live_heat_item(
     schedule_tag = _schedule_tag_of(start_time, _get_cutting_config())
     duration_ratio = duration_minutes / max(expected_duration_minutes, 1)
     status = "abnormal" if duration_ratio < 0.6 or duration_ratio > 1.5 else "normal"
-    heat_id = f"live-heat-{int(power_curve[0].timestamp)}-{int(power_curve[-1].timestamp)}"
+    original_start_ts = int(power_curve[0].timestamp)
+    original_end_ts = int(power_curve[-1].timestamp)
+    anchor_ms = _round_timestamp_to_live_bucket(
+        original_start_ts + (original_end_ts - original_start_ts) // 2
+    )
+    duration_bucket_minutes = _round_duration_to_live_bucket_minutes(duration_minutes)
+    heat_id = _build_live_heat_canonical_id(
+        context_hash=str(context["context_hash"]),
+        anchor_ms=anchor_ms,
+        duration_bucket_minutes=duration_bucket_minutes,
+    )
 
     return {
         "id": heat_id,
@@ -397,11 +500,18 @@ def _build_live_heat_item(
         "baseline_power_curve": [],
         "baseline_voltage_curve": [],
         "inference_rank": index,
+        "_live_context_key": str(context["channel_key"]),
+        "_live_context_hash": str(context["context_hash"]),
+        "_live_anchor_ms": anchor_ms,
+        "_live_duration_bucket_minutes": duration_bucket_minutes,
+        "_live_original_start_ts": original_start_ts,
+        "_live_original_end_ts": original_end_ts,
     }
 
 
 def _infer_live_heat_items(
     *,
+    context: dict[str, Any],
     points: list[CurvePoint],
     baseline_id: str | None,
     expected_duration_minutes: int,
@@ -463,6 +573,7 @@ def _infer_live_heat_items(
             inferred.append(
                 _build_live_heat_item(
                     index=len(inferred) + 1,
+                    context=context,
                     baseline_id=baseline_id,
                     power_curve=split_segment,
                     expected_duration_minutes=expected_duration_minutes,
@@ -514,7 +625,9 @@ def _resolve_definition_metrics(item: dict[str, Any]) -> tuple[str | None, list[
     return baseline_id, list(definition.get("metrics", [])) if definition else []
 
 
-def _resolve_live_heat_inference_context() -> tuple[dict[str, str], str | None, int] | None:
+def _iter_live_heat_inference_contexts() -> list[dict[str, Any]]:
+    contexts: list[dict[str, Any]] = []
+    seen_cache_keys: set[str] = set()
     candidates: list[tuple[str | None, dict[str, Any]]] = []
     active_baseline = _resolve_active_baseline_item()
     if active_baseline:
@@ -543,12 +656,65 @@ def _resolve_live_heat_inference_context() -> tuple[dict[str, str], str | None, 
         if not channel:
             continue
         expected_duration = int(definition.get("expected_duration_minutes") or 45)
-        return channel, baseline_id, expected_duration
+        context = _build_live_heat_context(
+            channel=channel,
+            baseline_id=baseline_id,
+            expected_duration_minutes=expected_duration,
+        )
+        if context["cache_key"] in seen_cache_keys:
+            continue
+        seen_cache_keys.add(context["cache_key"])
+        contexts.append(context)
 
     fallback_channel = next((item for item in _HOST_CHANNEL_STORE if item.get("unit") == "kW"), None)
-    if not fallback_channel:
+    if fallback_channel:
+        fallback_context = _build_live_heat_context(
+            channel=fallback_channel,
+            baseline_id=None,
+            expected_duration_minutes=45,
+        )
+        if fallback_context["cache_key"] not in seen_cache_keys:
+            contexts.append(fallback_context)
+    return contexts
+
+
+def _resolve_live_heat_inference_context() -> dict[str, Any] | None:
+    contexts = _iter_live_heat_inference_contexts()
+    if not contexts:
         return None
-    return fallback_channel, None, 45
+    return _clone_live_heat_context(contexts[0])
+
+
+def build_live_heat_lookup_context(
+    *,
+    definition_id: str | None,
+    baseline_id: str | None = None,
+) -> dict[str, Any] | None:
+    if not definition_id:
+        return None
+
+    definition = _DEFINITION_STORE.get(str(definition_id))
+    if not definition:
+        return None
+
+    metrics = list(definition.get("metrics", []))
+    power_metric = next(
+        (
+            metric
+            for index, metric in enumerate(metrics)
+            if _infer_metric_key(metric, index) == "power"
+        ),
+        None,
+    )
+    channel = _resolve_host_channel(power_metric.get("edc_channel_id")) if power_metric else None
+    if not channel:
+        return None
+
+    return _build_live_heat_context(
+        channel=channel,
+        baseline_id=baseline_id,
+        expected_duration_minutes=int(definition.get("expected_duration_minutes") or 45),
+    )
 
 
 async def _load_live_heat_inference_power_points(
@@ -572,12 +738,33 @@ async def _load_live_heat_inference_power_points(
         return []
 
 
-async def _get_live_inferred_heat_store() -> dict[str, dict[str, Any]]:
+def _get_live_heat_cache_entry(context: dict[str, Any]) -> dict[str, Any]:
+    contexts = _LIVE_HEAT_CACHE.setdefault("contexts", {})
+    if not isinstance(contexts, dict):
+        contexts = {}
+        _LIVE_HEAT_CACHE["contexts"] = contexts
+    entry = contexts.get(context["cache_key"])
+    if not isinstance(entry, dict):
+        entry = {"expires_at": None, "items": {}}
+        contexts[context["cache_key"]] = entry
+    return entry
+
+
+async def _get_live_inferred_heat_store(
+    preferred_context: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
     if not _is_live_heat_inference_enabled():
         return {}
 
-    expires_at = _LIVE_HEAT_CACHE.get("expires_at")
-    cached_items = _LIVE_HEAT_CACHE.get("items")
+    context = _clone_live_heat_context(preferred_context) if preferred_context else None
+    if context is None:
+        context = _resolve_live_heat_inference_context()
+    if not context:
+        return {}
+
+    cache_entry = _get_live_heat_cache_entry(context)
+    expires_at = cache_entry.get("expires_at")
+    cached_items = cache_entry.get("items")
     if (
         isinstance(expires_at, datetime)
         and expires_at > datetime.now()
@@ -585,29 +772,156 @@ async def _get_live_inferred_heat_store() -> dict[str, dict[str, Any]]:
     ):
         return cached_items
 
-    context = _resolve_live_heat_inference_context()
-    if not context:
-        _LIVE_HEAT_CACHE["items"] = {}
-        _LIVE_HEAT_CACHE["expires_at"] = datetime.now() + timedelta(
-            seconds=_LIVE_HEAT_CACHE_TTL_SECONDS
-        )
-        return {}
-
-    channel, baseline_id, expected_duration_minutes = context
-    points = await _load_live_heat_inference_power_points(channel)
+    points = await _load_live_heat_inference_power_points(context["channel"])
     inferred_items = _infer_live_heat_items(
+        context=context,
         points=points,
-        baseline_id=baseline_id,
-        expected_duration_minutes=expected_duration_minutes,
+        baseline_id=context["baseline_id"],
+        expected_duration_minutes=int(context["expected_duration_minutes"]),
     )
-    _LIVE_HEAT_CACHE["items"] = inferred_items
-    _LIVE_HEAT_CACHE["expires_at"] = datetime.now() + timedelta(
+    cache_entry["items"] = inferred_items
+    cache_entry["expires_at"] = datetime.now() + timedelta(
         seconds=_LIVE_HEAT_CACHE_TTL_SECONDS
     )
     return inferred_items
 
 
-async def resolve_heat_record(heat_id: str) -> dict[str, Any] | None:
+def _live_heat_match_sort_key(
+    *, candidate: dict[str, Any], target_anchor_ms: int, target_duration_bucket_minutes: int
+) -> tuple[int, int, int]:
+    start_ts = int(candidate.get("_live_original_start_ts") or 0)
+    end_ts = int(candidate.get("_live_original_end_ts") or 0)
+    overlap_penalty = 0 if start_ts <= target_anchor_ms <= end_ts else 1
+    anchor_delta = abs(int(candidate.get("_live_anchor_ms") or 0) - target_anchor_ms)
+    duration_delta = abs(
+        int(candidate.get("_live_duration_bucket_minutes") or 0) - target_duration_bucket_minutes
+    )
+    return overlap_penalty, anchor_delta, duration_delta
+
+
+def _resolve_live_heat_candidate(
+    heat_id: str, live_items: dict[str, dict[str, Any]]
+) -> dict[str, Any] | None:
+    if heat_id in live_items:
+        return live_items[heat_id]
+
+    parsed = _parse_live_heat_id(heat_id)
+    if not parsed:
+        return None
+
+    if parsed["format"] == "canonical":
+        matching_context_items = [
+            item
+            for item in live_items.values()
+            if str(item.get("_live_context_hash") or "") == parsed["context_hash"]
+        ]
+        if not matching_context_items:
+            return None
+        return min(
+            matching_context_items,
+            key=lambda item: _live_heat_match_sort_key(
+                candidate=item,
+                target_anchor_ms=int(parsed["anchor_ms"]),
+                target_duration_bucket_minutes=int(parsed["duration_bucket_minutes"]),
+            ),
+        )
+
+    legacy_candidates: list[dict[str, Any]] = []
+    for item in live_items.values():
+        start_ts = int(item.get("_live_original_start_ts") or 0)
+        end_ts = int(item.get("_live_original_end_ts") or 0)
+        if start_ts <= int(parsed["end_timestamp"]) and int(parsed["start_timestamp"]) <= end_ts:
+            legacy_candidates.append(item)
+    if legacy_candidates:
+        return min(
+            legacy_candidates,
+            key=lambda item: _live_heat_match_sort_key(
+                candidate=item,
+                target_anchor_ms=int(parsed["anchor_ms"]),
+                target_duration_bucket_minutes=int(parsed["duration_bucket_minutes"]),
+            ),
+        )
+
+    if not live_items:
+        return None
+    return min(
+        live_items.values(),
+        key=lambda item: _live_heat_match_sort_key(
+            candidate=item,
+            target_anchor_ms=int(parsed["anchor_ms"]),
+            target_duration_bucket_minutes=int(parsed["duration_bucket_minutes"]),
+        ),
+    )
+
+
+def _merge_live_heat_with_persisted_state(
+    live_item: dict[str, Any], persisted_item: dict[str, Any]
+) -> dict[str, Any]:
+    merged = dict(live_item)
+    merged.update(persisted_item)
+    merged["id"] = live_item["id"]
+    for key in (
+        "_live_context_key",
+        "_live_context_hash",
+        "_live_anchor_ms",
+        "_live_duration_bucket_minutes",
+        "_live_original_start_ts",
+        "_live_original_end_ts",
+    ):
+        merged[key] = live_item.get(key)
+    return merged
+
+
+def _find_persisted_live_heat_alias(live_item: dict[str, Any]) -> dict[str, Any] | None:
+    canonical_heat_id = str(live_item["id"])
+    exact_item = _HEAT_STORE.get(canonical_heat_id)
+    if exact_item and _is_real_heat_record(exact_item):
+        return exact_item
+
+    candidate_store = {canonical_heat_id: live_item}
+    for heat_id, stored_item in _HEAT_STORE.items():
+        if not _is_real_heat_record(stored_item):
+            continue
+        if heat_id == canonical_heat_id:
+            return stored_item
+        if _resolve_live_heat_candidate(heat_id, candidate_store):
+            return stored_item
+    return None
+
+
+def _collect_live_heat_lookup_contexts(
+    *, heat_id: str, preferred_context: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    ordered_contexts: list[dict[str, Any]] = []
+    seen_cache_keys: set[str] = set()
+    parsed = _parse_live_heat_id(heat_id)
+    target_context_hash = parsed.get("context_hash") if parsed else None
+
+    def push(context: dict[str, Any] | None) -> None:
+        if not context:
+            return
+        cloned = _clone_live_heat_context(context)
+        if target_context_hash and cloned["context_hash"] != target_context_hash:
+            return
+        if cloned["cache_key"] in seen_cache_keys:
+            return
+        seen_cache_keys.add(cloned["cache_key"])
+        ordered_contexts.append(cloned)
+
+    push(preferred_context)
+    push(_resolve_live_heat_inference_context())
+    if not parsed:
+        return ordered_contexts
+    for context in _iter_live_heat_inference_contexts():
+        push(context)
+    return ordered_contexts
+
+
+async def resolve_heat_record(
+    heat_id: str,
+    *,
+    preferred_live_context: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     if is_mock_dataset_enabled():
         return _MOCK_HEAT_STREAM_STORE.get(heat_id)
 
@@ -615,12 +929,26 @@ async def resolve_heat_record(heat_id: str) -> dict[str, Any] | None:
     if stored_item and _is_real_heat_record(stored_item):
         return stored_item
 
-    live_items = await _get_live_inferred_heat_store()
-    return live_items.get(heat_id)
+    for context in _collect_live_heat_lookup_contexts(
+        heat_id=heat_id,
+        preferred_context=preferred_live_context,
+    ):
+        live_items = await _get_live_inferred_heat_store(context)
+        candidate = _resolve_live_heat_candidate(heat_id, live_items)
+        if candidate:
+            persisted_alias = _find_persisted_live_heat_alias(candidate)
+            if persisted_alias:
+                return _merge_live_heat_with_persisted_state(candidate, persisted_alias)
+            return candidate
+    return None
 
 
-async def resolve_heat_time_window(heat_id: str) -> tuple[datetime, datetime] | None:
-    item = await resolve_heat_record(heat_id)
+async def resolve_heat_time_window(
+    heat_id: str,
+    *,
+    preferred_live_context: dict[str, Any] | None = None,
+) -> tuple[datetime, datetime] | None:
+    item = await resolve_heat_record(heat_id, preferred_live_context=preferred_live_context)
     if not item:
         return None
     return item["start_time"], item["end_time"]
@@ -634,12 +962,16 @@ async def _list_heat_store() -> dict[str, dict[str, Any]]:
     if not live_items:
         return {}
 
-    merged = dict(live_items)
-    for heat_id, item in _HEAT_STORE.items():
-        if not _is_real_heat_record(item):
+    merged: dict[str, dict[str, Any]] = {}
+    for live_item in live_items.values():
+        persisted_alias = _find_persisted_live_heat_alias(live_item)
+        if persisted_alias:
+            merged[str(live_item["id"])] = _merge_live_heat_with_persisted_state(
+                live_item,
+                persisted_alias,
+            )
             continue
-        if heat_id in merged:
-            merged[heat_id] = item
+        merged[str(live_item["id"])] = live_item
     return merged
 
 
@@ -1533,6 +1865,7 @@ async def get_heat(heat_id: str) -> HeatResponse:
 async def update_heat(heat_id: str, data: HeatUpdate) -> HeatResponse:
     """更新炉次信息（描述、起止时间）。"""
     item = _ensure_persisted_heat(await _get_or_404(heat_id))
+    canonical_heat_id = str(item["id"])
     original_start = item["start_time"]
 
     if data.description is not None:
@@ -1547,14 +1880,14 @@ async def update_heat(heat_id: str, data: HeatUpdate) -> HeatResponse:
         # 以开始时间顺序调整后续炉次
         current_start = item["start_time"]
         for other in _mutable_heat_store().values():
-            if other["id"] == heat_id:
+            if other["id"] == canonical_heat_id:
                 continue
             if other["start_time"] > current_start:
                 other["start_time"] = other["start_time"] + delta
                 other["end_time"] = other["end_time"] + delta
 
     await persist_runtime_state(*_runtime_heat_sections())
-    _invalidate_heat_compare_cache(heat_id)
+    _invalidate_heat_compare_cache(canonical_heat_id)
     return _to_heat_response(item)
 
 
@@ -1562,6 +1895,7 @@ async def update_heat(heat_id: str, data: HeatUpdate) -> HeatResponse:
 async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatResponse:
     """恢复重大事故后的炉次切割。"""
     item = _ensure_persisted_heat(await _get_or_404(heat_id))
+    canonical_heat_id = str(item["id"])
 
     item["cut_status"] = "normal"
     item["major_issue"] = False
@@ -1576,7 +1910,7 @@ async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatRe
     if data.adjust_subsequent:
         current_start = item["start_time"]
         for other in _mutable_heat_store().values():
-            if other["id"] == heat_id:
+            if other["id"] == canonical_heat_id:
                 continue
             if other["start_time"] > current_start and other.get("cut_status") == "blocked":
                 other["cut_status"] = "normal"
@@ -1590,7 +1924,7 @@ async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatRe
                 other["time_offset_percent"] = 6.0
 
     await persist_runtime_state(*_runtime_heat_sections())
-    _invalidate_heat_compare_cache(heat_id)
+    _invalidate_heat_compare_cache(canonical_heat_id)
     return _to_heat_response(item)
 
 
@@ -1598,6 +1932,7 @@ async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatRe
 async def get_cutting_timeline(heat_id: str) -> CuttingTimelineResponse:
     """获取炉次切割判定时间轴。"""
     item = await _get_or_404(heat_id)
+    canonical_heat_id = str(item["id"])
     config = _get_cutting_config()
 
     start_time: datetime = item["start_time"]
@@ -1663,7 +1998,7 @@ async def get_cutting_timeline(heat_id: str) -> CuttingTimelineResponse:
             )
         )
 
-    return CuttingTimelineResponse(heat_id=heat_id, events=events)
+    return CuttingTimelineResponse(heat_id=canonical_heat_id, events=events)
 
 
 @router.get("/{heat_id}/curve", response_model=HeatWithCurve)
@@ -1679,6 +2014,7 @@ async def get_heat_curve(heat_id: str) -> HeatWithCurve:
 async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     """获取炉次与基线对比数据。"""
     item = await _get_or_404(heat_id)
+    canonical_heat_id = str(item["id"])
     baseline_id = _resolve_primary_baseline_id(item)
     baseline_ids = _resolve_compare_baseline_ids(item)
     cache_key = _build_heat_compare_cache_key(item, baseline_ids)
@@ -1790,7 +2126,7 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         max_deviation=max_deviation,
         avg_deviation=avg_deviation,
     )
-    _set_cached_heat_compare(cache_key=cache_key, heat_id=heat_id, response=response)
+    _set_cached_heat_compare(cache_key=cache_key, heat_id=canonical_heat_id, response=response)
     return response
 
 
@@ -1798,6 +2134,7 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
 async def analyze_heat(heat_id: str, data: HeatAnalyzeRequest) -> HeatAnalyzeResponse:
     """触发炉次偏差分析。"""
     item = _ensure_persisted_heat(await _get_or_404(heat_id))
+    canonical_heat_id = str(item["id"])
     await _hydrate_heat_item(item)
     baseline_id = data.baseline_id or _resolve_primary_baseline_id(item) or "baseline-001"
 
@@ -1816,10 +2153,10 @@ async def analyze_heat(heat_id: str, data: HeatAnalyzeRequest) -> HeatAnalyzeRes
     item["avg_deviation_percent"] = result["avg_deviation"]
     item["status"] = result["status"]
     await persist_runtime_state(*_runtime_heat_sections())
-    _invalidate_heat_compare_cache(heat_id)
+    _invalidate_heat_compare_cache(canonical_heat_id)
 
     return HeatAnalyzeResponse(
-        heat_id=heat_id,
+        heat_id=canonical_heat_id,
         baseline_id=baseline_id,
         max_deviation=result["max_deviation"],
         avg_deviation=result["avg_deviation"],
