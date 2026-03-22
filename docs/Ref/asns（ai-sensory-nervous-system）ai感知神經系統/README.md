@@ -1,20 +1,45 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# ASNS 宿主“神经系统”参考工程
 
-# Run and deploy your AI Studio app
+此目录是 `EDC electricity` 使用的宿主参考工程，默认开发端口为 `3001`。
 
-This contains everything you need to run your app locally.
+统一部署说明见：
 
-View your app in AI Studio: https://ai.studio/apps/50f8d21b-84ce-463c-bbdf-630d314ec3b6
+- `../../DEPLOYMENT.md`
 
-## Run Locally
+## 本地运行
 
-**Prerequisites:**  Node.js
+前置：
 
+- Node.js 20 LTS
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+安装依赖：
+
+```bash
+npm install
+```
+
+开发运行：
+
+```bash
+npm run dev
+```
+
+## 构建与预览
+
+构建：
+
+```bash
+npm run build
+```
+
+预览运行：
+
+```bash
+npm run preview -- --host 0.0.0.0 --port 3001
+```
+
+## 说明
+
+- 当前项目不再使用 AI Studio / Gemini 的部署口径
+- 当前宿主通过 Vite middleware 提供 `/host-api/edc/*` 接口，生产环境建议保留 `vite preview` 进程
+- 如果只部署 `dist/` 到纯静态服务器，宿主的 EDC 测试连接与同步通道功能将不可用

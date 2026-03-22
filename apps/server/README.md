@@ -2,6 +2,10 @@
 
 ASNS AI老师傅智慧熔炼系统后端服务
 
+统一部署说明见：
+
+- `../../docs/DEPLOYMENT.md`
+
 ## 开发
 
 ```bash
@@ -17,4 +21,19 @@ uv run pytest
 # 代码检查
 uv run ruff check src tests
 uv run ruff format src tests
+```
+
+## 生产启动
+
+```bash
+uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
+```
+
+常用环境变量前缀为 `ASNS_`，例如：
+
+```bash
+ASNS_DATABASE_URL=sqlite+aiosqlite:///./data/asns.db
+ASNS_EDC_BASE_URL=http://localhost:8080
+ASNS_EDC_USERNAME=<username>
+ASNS_EDC_PASSWORD=<password>
 ```

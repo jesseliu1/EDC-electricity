@@ -1212,6 +1212,17 @@
   - [x] 新增 `docs/AI_TIMEOUT_TRACE_GUIDE.md`，供 AI 直接按 request_id 链路定位偶发超时
   - [x] 已更新 `docs/session_handoff.md`，纳入本轮性能收口、超时追踪和当前验证限制
 
+### 2026-03-22（部署文档收口与旧部署资料清理）
+- [x] 已新增统一部署文档
+  - [x] 新增 `docs/DEPLOYMENT.md`，统一说明 `apps/server`、`apps/web` 与宿主“神经系统”的部署口径
+  - [x] 已明确当前生产拓扑推荐：`/` 指向宿主、`/edc/` 指向业务前端、`/api` 指向 FastAPI
+- [x] 已收口陈旧部署说明入口
+  - [x] `apps/server/README.md` 已补统一部署文档入口与生产启动命令
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/README.md` 已去掉 AI Studio / Gemini 旧说明，改为当前宿主参考工程口径
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/.env.example` 已改为“当前无必填环境变量”的说明
+- [x] 已清理明显陈旧的旧单体安装脚本
+  - [x] `docs/Ref/install_asns_server-m-1.sh` 不再保留在当前工作区
+
 ---
 
 ## 进行中
