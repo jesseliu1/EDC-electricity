@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from time import perf_counter
 from typing import Any
 
 import httpx
 
+from ..observability import log_event
 from ..schemas.common import CurvePoint
 
 
@@ -75,6 +77,7 @@ class EDCClient:
         end_time: datetime,
     ) -> list[CurvePoint]:
         """获取指定通道历史曲线。"""
+        started_at = perf_counter()
         payload = await self._systemcfg_request(
             "getLocalDatas",
             {
@@ -84,7 +87,17 @@ class EDCClient:
                 "endTime": str(int(end_time.timestamp() * 1000)),
             },
         )
-        return self._parse_curve_text(payload.get("data"))
+        points = self._parse_curve_text(payload.get("data"))
+        log_event(
+            "edc_get_local_datas",
+            suid=suid,
+            cuid=cuid,
+            start_time=start_time,
+            end_time=end_time,
+            duration_ms=round((perf_counter() - started_at) * 1000, 1),
+            points_count=len(points),
+        )
+        return points
 
     async def _systemcfg_request(self, request_name: str, value: object) -> dict[str, Any]:
         """调用 systemcfg 指令式接口。"""

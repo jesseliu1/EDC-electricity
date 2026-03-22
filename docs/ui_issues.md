@@ -1002,7 +1002,7 @@
   3. 不再出现“只有按钮高亮变化，内容完全不动”的伪导航
 
 ### P1 真实推断炉次 ID 会随重新推断漂移，旧详情链接很快失效为“炉次不存在”
-- **状态**: 已修复（2026-03-21）
+- **状态**: 代码已修复，待服务重启后现场验证（2026-03-21）
 - **页面/模块**: 炉次浏览 / 炉次详情 / 推断炉次主记录
 - **复现步骤**:
   1. 记录炉次列表中的某条 `live_inferred` 炉次 ID
@@ -1023,6 +1023,7 @@
   - 后端已将 `live_inferred` 主键改为稳定 canonical 格式 `live-heat-{ctx8}-{anchor_ms}-{dur5}`
   - 旧 `live-heat-{start}-{end}` 已保留兼容解析，详情 / compare / analyze / cutting timeline / baseline source heat 都会回落到当前 canonical 记录
   - 基线 preview 与 baseline 时间窗解析已按 definition 自身功率通道优先匹配，避免 active baseline 切换后旧 live source 失联
+  - 当前代码侧回归已通过，但本地运行中的 `8000` 服务尚未热更新到新实现，仍需在服务重启后做一次现场验证
 - **严重程度**: 中
 - **如何测试**:
   1. 从炉次列表复制一条 `live_inferred` 详情链接

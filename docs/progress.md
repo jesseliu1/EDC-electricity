@@ -28,13 +28,13 @@
 - [x] 已完成“宿主为入口、后端统一读取面、EDC 只消费后端状态”的第一阶段接入：新增统一运行态摘要接口，Dashboard / 炉次 / 基线主页面已消费统一状态
 - [x] 已继续把统一运行态摘要扩到 Tasks / Reports / Inbox 与相关详情页，主业务导航页已基本切到同一状态读取面
 - [x] 已继续把统一运行态摘要补齐到基线定义页与设置页，主导航入口页现已全部接到统一运行态读取面
-- [x] 已完成 `live_inferred` 炉次 ID 稳定化：后端改为 canonical ID + legacy 兼容解析，旧详情链接/基线来源炉次不再因重新推断直接失效
+- [x] 已完成 `live_inferred` 炉次 ID 稳定化代码修复：后端改为 canonical ID + legacy 兼容解析；待服务重启后现场验证旧详情链接与基线来源炉次链路
 
 ---
 
 ## 已完成
 
-### 2026-03-21（live_inferred 炉次 ID 稳定化）
+### 2026-03-21（live_inferred 炉次 ID 稳定化代码修复）
 
 - [x] 修复 `live_inferred` 炉次 ID 随重新推断漂移
   - [x] `apps/server/src/api/heats.py` 已把推断炉次主键改为稳定 canonical 格式：`live-heat-{ctx8}-{anchor_ms}-{dur5}`
@@ -53,6 +53,101 @@
 - [x] 额外说明
   - [x] `tests/test_api_edge_cases.py` 仍有与本轮无关的既有失败：`test_task_invalid_state_transitions_and_validation` 当前返回 `404` 而非预期 `400`
   - [x] 本地 `http://127.0.0.1:8000/health` 仍在线，但当前运行中的服务尚未热更新到新的 canonical ID 实现，直接请求 `/api/heats` 仍能看到旧 `live-heat-{start}-{end}` 形式
+
+### 2026-03-21（性能定位与第一轮性能收口）
+
+- [x] 已完成 Dashboard / 炉次详情首屏变慢问题的代码级定位
+  - [x] 前端调用面确认：Dashboard 首屏固定请求 `runtime-status + stats + realtime + recent-heats + 2 条 tasks`，炉次详情首屏固定请求 `runtime-status + compare + cutting-timeline`
+  - [x] 当前未发现炉次详情重新回到 `get + getCurve + getCompare` 的前端重复请求回归
+  - [x] 已确认 Dashboard 不是“前端重复发很多次”，而是多个聚合接口在冷态下会各自触发同一轮 live inference 重计算
+- [x] 已量化后端热点链路（代码内直测）
+  - [x] `_get_live_inferred_heat_store()` 冷态约 `5.36s`，热态约 `0.2ms`
+  - [x] `get_heat_compare()` 冷态约 `9.28s`，热态约 `44.4ms`
+  - [x] 已确认 compare 短 TTL cache 命中后效果正常，当前主要问题不在 cache key 漂移
+- [x] 已确认两个最可能瓶颈并完成低风险修复
+  - [x] `apps/server/src/api/heats.py` 已给 live inference cache 增加同 context 的并发去重，避免 Dashboard 冷态并发请求各自重复拉 72 小时功率历史
+  - [x] `apps/server/src/api/heats.py` 已改为显式消费 `_hydrate_baseline_item()` 返回值，不再沿用旧的“函数内部回写 store”假设
+  - [x] compare 路径的 baseline hydrate 现会把 hydrated 结果在当前请求内复用，不再白做重链路后仍读到空基线曲线
+  - [x] `_load_live_heat_inference_power_points()` 已补更稳妥的异常兜底，避免底层连接错误直接把 compare 打成 500
+- [x] 回归已通过
+  - [x] `apps/server/.venv/Scripts/ruff.exe check src/api/heats.py tests/test_heats_api.py`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_heats_api.py -q`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py -q`
+- [ ] 现场联调待补
+  - [ ] 当前本地重启后的 `8000` 运行态仅恢复到 1 条宿主通道，外部 `/api/heats` 现返回空列表，导致无法在“当前重启后的本地服务”上完整复现 issue 文档里的 Dashboard / HeatDetail UI 超时场景
+  - [ ] 下一步需在保留真实宿主通道集合的运行态下，再做一次页面级冷启动验证，补齐 `GET /api/heats?page=1&page_size=50`、`GET /api/heats/{id}/compare`、`GET /api/dashboard/realtime?duration=1h` 与首屏前端请求总数的现场值
+
+### 2026-03-21（性能定位第二轮：现场 HTTP 量化与前端轻量去重）
+
+- [x] 已恢复本地联调运行态，补齐页面级与 HTTP 级现场值
+  - [x] 通过宿主专用写接口把本地 `host-channels` 恢复为 fallback 8 条关键通道，`def-001` 已重新启用，`/api/heats` 恢复为 52 条 `live_inferred` 记录
+  - [x] 已在冷启动进程上单独量化关键接口：
+    - [x] `GET /api/heats?page=1&page_size=50` 冷态约 `4746.8ms`，热态约 `133.2ms`
+    - [x] `GET /api/heats/{id}/compare` 冷态约 `10433.8ms`，热态约 `39.8ms`
+    - [x] `GET /api/dashboard/realtime?duration=1h` 冷态约 `909.9ms`，热态约 `1050.1ms`
+  - [x] 已用浏览器实测首屏 API 请求总数：
+    - [x] Dashboard 首屏为 6 条：`runtime-status + stats + realtime + recent-heats + 2 条 tasks`
+    - [x] HeatDetail 首屏已收口为 3 条：`runtime-status + compare + cutting-timeline`
+- [x] 已补一个低风险前端收口点
+  - [x] `apps/web/src/App.vue` 已改为单一路由监听触发运行态刷新，不再同时用 `onMounted + watch`
+  - [x] `apps/web/src/stores/runtimeStatus.ts` 已补 in-flight + 1 秒短窗去重，避免直达详情页时 `runtime-status` 连续打两次
+  - [x] `pnpm --dir apps/web exec eslint src/App.vue src/stores/runtimeStatus.ts` 已通过
+- [x] 现场结论已进一步明确
+  - [x] Dashboard 首屏慢的主因仍是 live inference 冷态约 4.7-5.3 秒，不是前端重复请求
+  - [x] HeatDetail 首屏慢的主因仍是 compare 冷态约 10.4 秒；前端重复请求只剩一个已修掉的轻量 `runtime-status`
+  - [x] 当前 `runtime-status` 仍可能在“宿主连接摘要仍是 ready，但已选通道集合不足”时给出误导性 ready，后续可继续收口统一运行态判定口径
+
+### 2026-03-22（性能定位第三轮：compare 冷态深挖与 runtime-status 误判收口）
+
+- [x] 已拆解 `compare` 冷态子步骤并定位真正放大点
+  - [x] `_hydrate_compare_baselines()` 旧链路量级约 `9.57s`，`_load_channel_curves_from_edc()` 约 `6.05s`，`_build_metric_curve_series()` 仅毫秒级
+  - [x] 已确认 baseline hydrate 的主要放大点不是偏差计算，而是某些 baseline 在 `_resolve_baseline_time_window()` 里拿着无效 `source_heat_id` 继续回退到 live inference
+  - [x] 原型验证表明：只要跳过这类无效 source heat 的 live lookup，`compare` 单次耗时可从约 `7.7s` 降到约 `2.4s`
+- [x] 已实施低风险后端修复
+  - [x] `apps/server/src/api/baselines.py` 已在 `_resolve_baseline_time_window()` 增加快路径：默认真实模式下，若 `source_heat_id` 既不在本地 heat store、也不是 live heat ID，则直接回退最近一小时窗口，不再白跑 live inference
+  - [x] `apps/server/src/api/settings.py` 已把 `runtime-status` 的 ready 判定改为基于“后端当前已选且可用于业务的通道”，不再直接信宿主摘要里的 `enabled_channel_count`
+- [x] 修复后量化结果
+  - [x] 代码内打点显示 `baseline-001 / baseline-002` 时间窗解析已降为 `0ms`
+  - [x] `_hydrate_compare_baselines()` 当前约 `1253.7ms`
+  - [x] `_load_channel_curves_from_edc()` 当前约 `847.6ms`
+  - [x] `get_heat_compare()` 代码内冷态约 `5936.6ms`，热态约 `16.5ms`
+  - [x] 外部 HTTP 已验证：当宿主摘要仍上报 `enabled_channel_count=2127`、但后端当前仅保存 1 条电压通道时，`runtime-status` 现返回 `overall_code=no_enabled_channels`
+- [x] 回归已通过
+  - [x] `apps/server/.venv/Scripts/ruff.exe check apps/server/src/api/baselines.py apps/server/src/api/settings.py apps/server/tests/test_heats_api.py apps/server/tests/test_tasks_reports_settings_api.py`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_heats_api.py tests/test_tasks_reports_settings_api.py -q`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py -q`
+
+### 2026-03-22（性能定位第四轮：compare 子链路共享缓存收口）
+
+- [x] 已按 `compare` 子链路补两层短 TTL 共享缓存
+  - [x] `apps/server/src/api/heats.py` 已为 baseline hydrate 增加跨请求共享缓存，key 仅使用稳定身份字段、选区与指标绑定，不再重复对白名单内 baseline 做同一轮 hydrate
+  - [x] `apps/server/src/api/heats.py` 已为 compare 当前曲线批量读取增加短 TTL 共享缓存与 in-flight 去重，同一时间窗/同一通道集的并发请求不再重复打 EDC
+- [x] 已补回归并量化收益口径
+  - [x] `tests/test_heats_api.py` 已新增“跨两个不同炉次 compare 复用 baseline hydrate”断言
+  - [x] `tests/test_heats_api.py` 已新增“同一通道批量取数并发去重 + TTL 复用”断言
+  - [x] 当前代码级收益已确认：
+    - [x] 两次不同炉次 compare 共享同一组 baseline 时，baseline hydrate 由每次都跑降为每个 baseline 仅 1 次
+    - [x] 两次并发同窗口通道取数时，底层 `get_local_datas` 由 4 次降为 2 次；后续同窗口再读 0 次新增取数
+- [x] 回归已通过
+  - [x] `apps/server/.venv/Scripts/ruff.exe check apps/server/src/api/heats.py apps/server/tests/conftest.py apps/server/tests/test_heats_api.py`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_heats_api.py -q`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py -q`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_tasks_reports_settings_api.py -q`
+
+### 2026-03-22（性能定位第五轮：compare 配置失效与 draft 口径收口）
+
+- [x] 已确认 compare 剩余两个可修风险并完成最小修复
+  - [x] `apps/server/src/api/heats.py` 已新增统一 compare runtime cache invalidation helper；heat 自身修改继续按 heat 维度失效，baseline / host-channel / edc-connection 变更改为整组 compare cache 一次性失效
+  - [x] `apps/server/src/api/heats.py` 的 `_resolve_compare_baseline_ids()` 已收紧为“主基线 + 其他已发布基线”，默认 compare 不再额外带 draft baseline
+  - [x] `apps/server/src/api/baselines.py` 的 `create / update / publish / disable / delete / activate` 已联动清 compare 相关缓存
+  - [x] `apps/server/src/api/settings.py` 的 `host-channels / edc-connection` 更新已联动清 compare 相关缓存
+- [x] 已补回归
+  - [x] `tests/test_heats_api.py` 已更新默认 compare 口径断言：当前默认样本仅返回 `baseline-001`，不再附带 draft `baseline-002`
+  - [x] `tests/test_baselines_dashboard_api.py` 已补 baseline 变更会清 compare caches 的断言
+  - [x] `tests/test_tasks_reports_settings_api.py` 已补 `host-channels / edc-connection` 更新会清 compare caches 的断言
+- [x] 回归已通过
+  - [x] `apps/server/.venv/Scripts/ruff.exe check apps/server/src/api/heats.py apps/server/src/api/baselines.py apps/server/src/api/settings.py apps/server/tests/test_heats_api.py apps/server/tests/test_baselines_dashboard_api.py apps/server/tests/test_tasks_reports_settings_api.py`
+  - [x] `apps/server/.venv/Scripts/pytest.exe tests/test_heats_api.py tests/test_baselines_dashboard_api.py tests/test_tasks_reports_settings_api.py -q`
 
 ### 2026-03-20（宿主恢复同步与实时数据链路收口）
 
@@ -1093,6 +1188,29 @@
   - [x] `pnpm --dir apps/web test:i18n`
   - [x] `pnpm --dir apps/web build`
   - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts e2e/coverage.spec.ts e2e/issue-acceptance.spec.ts`
+
+### 2026-03-22（偶发超时追踪：request_id + 慢请求/超时诊断最小链路）
+- [x] 前端已补最小诊断链路
+  - [x] `apps/web/src/api/client.ts` 为每个请求生成 `X-Request-ID`
+  - [x] 慢请求（`>=4s`）、超时、网络错误、`5xx` 会写入 `window.__ASNS_NETWORK_DIAGNOSTICS__`
+  - [x] 诊断记录已包含 `route / method / url / request_id / duration / outcome`
+- [x] 后端已补统一 request_id 与结构化耗时日志
+  - [x] `apps/server/src/observability.py` 新增最小日志 helper
+  - [x] `apps/server/src/main.py` 中间件会回传 `X-Request-ID`，并记录重点接口慢请求
+  - [x] `apps/server/src/api/heats.py` 已记录 `/api/heats`、`/api/heats/{id}/compare` 以及 compare 子步骤耗时
+  - [x] `apps/server/src/api/dashboard.py` 已记录 `/api/dashboard/realtime` 聚合耗时
+  - [x] `apps/server/src/services/edc_client.py` 已记录 `get_local_datas` 子调用耗时和点数
+- [x] 已补最小回归
+  - [x] `apps/server/tests/test_tasks_reports_settings_api.py` 新增 `X-Request-ID` 回传验证
+- [x] 已完成本地静态验证
+  - [x] `apps/server/.venv/Scripts/ruff.exe check src/observability.py src/main.py src/services/edc_client.py src/api/heats.py src/api/dashboard.py tests/test_tasks_reports_settings_api.py`
+  - [x] `npm.cmd exec eslint src/api/client.ts`
+- [ ] 后端 pytest 暂未在当前环境跑通
+  - [ ] 当前 `apps/server/.venv/pyvenv.cfg` 指向丢失的 `uv` Python 3.11 路径，`python.exe / pytest.exe` 都无法启动
+  - [ ] 代码层已静态检查通过，待本地 3.11 运行时恢复后再补回归执行
+- [x] 已补新 session 交接材料
+  - [x] 新增 `docs/AI_TIMEOUT_TRACE_GUIDE.md`，供 AI 直接按 request_id 链路定位偶发超时
+  - [x] 已更新 `docs/session_handoff.md`，纳入本轮性能收口、超时追踪和当前验证限制
 
 ---
 

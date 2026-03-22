@@ -285,13 +285,28 @@ async def _resolve_baseline_time_window(item: dict[str, Any]) -> tuple[datetime,
     if isinstance(selected_start, datetime) and isinstance(selected_end, datetime):
         return selected_start, selected_end
 
-    from .heats import build_live_heat_lookup_context, resolve_heat_time_window
+    from .heats import (
+        _HEAT_STORE,
+        _parse_live_heat_id,
+        build_live_heat_lookup_context,
+        resolve_heat_time_window,
+    )
+
+    source_heat_id = str(item.get("source_heat_id") or "").strip()
+    if (
+        not is_mock_dataset_enabled()
+        and source_heat_id
+        and source_heat_id not in _HEAT_STORE
+        and _parse_live_heat_id(source_heat_id) is None
+    ):
+        end_time = datetime.now()
+        return end_time - timedelta(hours=1), end_time
 
     preferred_live_context = build_live_heat_lookup_context(
         definition_id=str(item.get("definition_id") or "") or None
     )
     source_window = await resolve_heat_time_window(
-        str(item.get("source_heat_id") or ""),
+        source_heat_id,
         preferred_live_context=preferred_live_context,
     )
     if source_window:
@@ -461,6 +476,12 @@ def _validate_equal_length(definition_id: str, current_id: str | None = None) ->
             raise HTTPException(status_code=400, detail="同一定义下黄金基线实例曲线长度不一致")
 
 
+def _invalidate_compare_runtime_caches() -> None:
+    from .heats import invalidate_compare_runtime_caches
+
+    invalidate_compare_runtime_caches(include_shared=True)
+
+
 @router.get("", response_model=BaselineListResponse)
 async def list_baselines(
     status: Literal["draft", "published", "disabled"] | None = Query(
@@ -511,6 +532,7 @@ async def activate_baseline(baseline_id: str) -> BaselineSummary:
         raise HTTPException(status_code=400, detail="仅已发布基线可设为默认黄金基线")
 
     _SETTINGS_STORE["active_baseline_id"]["value"] = baseline_id
+    _invalidate_compare_runtime_caches()
     await persist_runtime_state("settings_store")
     return BaselineSummary(
         id=item["id"],
@@ -567,6 +589,7 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
         "curves_data": [],
     }
     _BASELINE_STORE[baseline_id] = item
+    _invalidate_compare_runtime_caches()
     await persist_runtime_state("baselines")
     return _to_baseline_response(item)
 
@@ -589,6 +612,7 @@ async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineRes
     if data.tolerance_percent is not None:
         item["tolerance_percent"] = data.tolerance_percent
     item["updated_at"] = _now()
+    _invalidate_compare_runtime_caches()
     await persist_runtime_state("baselines")
 
     return _to_baseline_response(item)
@@ -610,6 +634,7 @@ async def publish_baseline(baseline_id: str) -> BaselineResponse:
     active_item = _resolve_active_baseline_item()
     if active_item is None:
         _SETTINGS_STORE["active_baseline_id"]["value"] = baseline_id
+    _invalidate_compare_runtime_caches()
     await persist_runtime_state("baselines", "settings_store")
 
     return _to_baseline_response(item)
@@ -629,6 +654,7 @@ async def disable_baseline(baseline_id: str) -> BaselineResponse:
         _SETTINGS_STORE["active_baseline_id"]["value"] = (
             str(next_active["id"]) if next_active else ""
         )
+    _invalidate_compare_runtime_caches()
     await persist_runtime_state("baselines", "settings_store")
 
     return _to_baseline_response(item)
@@ -642,5 +668,6 @@ async def delete_baseline(baseline_id: str) -> MessageResponse:
         raise HTTPException(status_code=400, detail="仅草稿状态可删除")
 
     _BASELINE_STORE.pop(baseline_id, None)
+    _invalidate_compare_runtime_caches()
     await persist_runtime_state("baselines")
     return MessageResponse(message="基线已删除", success=True)

@@ -315,7 +315,11 @@
     "totalHeats": "Total Heats",
     "normalRate": "Normal Rate",
     "exportPdf": "Export PDF",
-    "topDeviationHeats": "Top Deviation Heats"
+    "topDeviationHeats": "Top Deviation Heats",
+    "detailSubtitle": "Statistics compiled from 00:00 to 23:59",
+    "noDeviations": "No deviation heats were recorded for this day",
+    "detailLoadFailed": "Failed to load report details",
+    "detailReloadHint": "Refresh the page or check the backend report API."
   },
   "settings": {
     "title": "Settings",

@@ -2,12 +2,21 @@
 
 import pytest
 
+from src.api.heats import _COMPARE_BASELINE_CACHE, _COMPARE_CHANNEL_CURVE_CACHE, _HEAT_COMPARE_CACHE
 from src.api.settings import _HOST_CHANNEL_STORE
 from src.config import settings
 from src.schemas.common import CurvePoint
 
 HOST_SYNC_HEADERS = {"X-ASNS-Host-Sync": "true"}
 SHOWTIME_HEADERS = {"X-Showtime": "true"}
+
+
+def _seed_compare_caches() -> None:
+    _HEAT_COMPARE_CACHE["entries"] = {"heat-001": {"heat_id": "heat-001"}}
+    _COMPARE_BASELINE_CACHE["entries"] = {"baseline-001": {"payload": {"id": "baseline-001"}}}
+    _COMPARE_CHANNEL_CURVE_CACHE["entries"] = {
+        "curve-001": {"payload": {"2349:199": []}}
+    }
 
 
 @pytest.mark.asyncio
@@ -429,6 +438,28 @@ async def test_baseline_crud_publish_disable_and_delete(client) -> None:
 
     delete_disabled_resp = await client.delete(f"/api/baselines/{baseline_id}")
     assert delete_disabled_resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_baseline_mutations_invalidate_compare_caches(client) -> None:
+    _seed_compare_caches()
+
+    update_resp = await client.patch(
+        "/api/baselines/baseline-002",
+        json={"name": "高功率基线 v2"},
+    )
+    assert update_resp.status_code == 200
+    assert _HEAT_COMPARE_CACHE["entries"] == {}
+    assert _COMPARE_BASELINE_CACHE["entries"] == {}
+    assert _COMPARE_CHANNEL_CURVE_CACHE["entries"] == {}
+
+    _seed_compare_caches()
+
+    publish_resp = await client.post("/api/baselines/baseline-002/publish")
+    assert publish_resp.status_code == 200
+    assert _HEAT_COMPARE_CACHE["entries"] == {}
+    assert _COMPARE_BASELINE_CACHE["entries"] == {}
+    assert _COMPARE_CHANNEL_CURVE_CACHE["entries"] == {}
 
 
 @pytest.mark.asyncio

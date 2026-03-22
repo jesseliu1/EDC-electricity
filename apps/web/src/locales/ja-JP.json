@@ -315,7 +315,11 @@
     "totalHeats": "総ヒート数",
     "normalRate": "正常率",
     "exportPdf": "PDF出力",
-    "topDeviationHeats": "偏差上位ヒート"
+    "topDeviationHeats": "偏差上位ヒート",
+    "detailSubtitle": "集計範囲 00:00 から 23:59",
+    "noDeviations": "当日の偏差炉次はありません",
+    "detailLoadFailed": "レポート詳細の読み込みに失敗しました",
+    "detailReloadHint": "ページを再読み込みするか、バックエンドのレポート API を確認してください。"
   },
   "settings": {
     "title": "設定",

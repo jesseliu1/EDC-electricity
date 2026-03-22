@@ -7,11 +7,13 @@ import hashlib
 import re
 from copy import deepcopy
 from datetime import datetime, timedelta
+from time import perf_counter
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
 from ..mock_dataset import ensure_mock_dataset_enabled, is_mock_dataset_enabled
+from ..observability import log_event
 from ..runtime_state import persist_runtime_state
 from ..schemas import (
     BaselineCompareItem,
@@ -43,10 +45,18 @@ _LIVE_HEAT_CACHE_TTL_SECONDS = 30
 _LIVE_HEAT_GAP_MINUTES = 3
 _LIVE_HEAT_ID_BUCKET_MINUTES = 5
 _HEAT_COMPARE_CACHE_TTL_SECONDS = 20
+_COMPARE_BASELINE_CACHE_TTL_SECONDS = 20
+_COMPARE_CHANNEL_CURVE_CACHE_TTL_SECONDS = 20
 _LIVE_HEAT_CACHE: dict[str, Any] = {
     "contexts": {},
 }
 _HEAT_COMPARE_CACHE: dict[str, Any] = {
+    "entries": {},
+}
+_COMPARE_BASELINE_CACHE: dict[str, Any] = {
+    "entries": {},
+}
+_COMPARE_CHANNEL_CURVE_CACHE: dict[str, Any] = {
     "entries": {},
 }
 
@@ -142,6 +152,130 @@ def _invalidate_heat_compare_cache(*heat_ids: str) -> None:
     ]
     for cache_key in cache_keys:
         entries.pop(cache_key, None)
+
+
+def _clear_compare_shared_caches() -> None:
+    baseline_entries = _COMPARE_BASELINE_CACHE.get("entries")
+    if isinstance(baseline_entries, dict):
+        baseline_entries.clear()
+
+    channel_entries = _COMPARE_CHANNEL_CURVE_CACHE.get("entries")
+    if isinstance(channel_entries, dict):
+        channel_entries.clear()
+
+
+def invalidate_compare_runtime_caches(*heat_ids: str, include_shared: bool = False) -> None:
+    if include_shared:
+        _invalidate_heat_compare_cache()
+        _clear_compare_shared_caches()
+        return
+
+    _invalidate_heat_compare_cache(*heat_ids)
+
+
+def _get_compare_baseline_cache_entry(cache_key: str) -> dict[str, Any]:
+    entries = _COMPARE_BASELINE_CACHE.setdefault("entries", {})
+    if not isinstance(entries, dict):
+        entries = {}
+        _COMPARE_BASELINE_CACHE["entries"] = entries
+
+    entry = entries.get(cache_key)
+    if not isinstance(entry, dict):
+        entry = {"expires_at": None, "payload": None, "inflight": None}
+        entries[cache_key] = entry
+    return entry
+
+
+def _get_cached_compare_baseline(cache_key: str) -> dict[str, Any] | None:
+    entry = _get_compare_baseline_cache_entry(cache_key)
+    expires_at = entry.get("expires_at")
+    payload = entry.get("payload")
+    if (
+        not isinstance(expires_at, datetime)
+        or expires_at <= datetime.now()
+        or not isinstance(payload, dict)
+    ):
+        entry["payload"] = None
+        return None
+
+    return deepcopy(payload)
+
+
+def _build_compare_baseline_cache_key(item: dict[str, Any]) -> str:
+    definition_id = str(item.get("definition_id") or "")
+    definition = _DEFINITION_STORE.get(definition_id)
+    metrics = list(definition.get("metrics", [])) if definition else []
+    metric_tokens: list[str] = []
+    for metric in metrics:
+        channel = _resolve_metric_channel(metric)
+        metric_tokens.append(
+            ":".join(
+                [
+                    _as_cache_token(metric.get("id")),
+                    _as_cache_token(metric.get("edc_channel_id")),
+                    _as_cache_token(_channel_curve_cache_key(channel)),
+                ]
+            )
+        )
+
+    return "|".join(
+        [
+            _as_cache_token(item.get("id")),
+            definition_id,
+            _as_cache_token(item.get("source_heat_id")),
+            _as_cache_token(item.get("selected_start_time")),
+            _as_cache_token(item.get("selected_end_time")),
+            _as_cache_token(item.get("updated_at")),
+            str(is_mock_dataset_enabled()).lower(),
+            ",".join(metric_tokens),
+        ]
+    )
+
+
+def _get_compare_channel_curve_cache_entry(cache_key: str) -> dict[str, Any]:
+    entries = _COMPARE_CHANNEL_CURVE_CACHE.setdefault("entries", {})
+    if not isinstance(entries, dict):
+        entries = {}
+        _COMPARE_CHANNEL_CURVE_CACHE["entries"] = entries
+
+    entry = entries.get(cache_key)
+    if not isinstance(entry, dict):
+        entry = {"expires_at": None, "payload": None, "inflight": None}
+        entries[cache_key] = entry
+    return entry
+
+
+def _get_cached_compare_channel_curves(
+    cache_key: str,
+) -> dict[str, list[CurvePoint]] | None:
+    entry = _get_compare_channel_curve_cache_entry(cache_key)
+    expires_at = entry.get("expires_at")
+    payload = entry.get("payload")
+    if (
+        not isinstance(expires_at, datetime)
+        or expires_at <= datetime.now()
+        or not isinstance(payload, dict)
+    ):
+        entry["payload"] = None
+        return None
+
+    return deepcopy(payload)
+
+
+def _build_compare_channel_curve_cache_key(
+    channel_keys: list[str],
+    *,
+    start_time: datetime,
+    end_time: datetime,
+) -> str:
+    ordered_channel_keys = sorted({key for key in channel_keys if key})
+    return "|".join(
+        [
+            _as_cache_token(start_time),
+            _as_cache_token(end_time),
+            ",".join(ordered_channel_keys),
+        ]
+    )
 
 
 def _get_cutting_config() -> dict[str, Any]:
@@ -599,18 +733,7 @@ def _resolve_compare_baseline_ids(item: dict[str, Any]) -> list[str]:
         key=lambda baseline: baseline["published_at"] or baseline["updated_at"],
         reverse=True,
     )
-    drafts = sorted(
-        [
-            baseline
-            for baseline in _BASELINE_STORE.values()
-            if baseline["status"] == "draft" and baseline["id"] != primary_baseline_id
-        ],
-        key=lambda baseline: baseline["updated_at"],
-        reverse=True,
-    )
-
     ordered_ids.extend(str(baseline["id"]) for baseline in published)
-    ordered_ids.extend(str(baseline["id"]) for baseline in drafts)
     return ordered_ids
 
 
@@ -734,7 +857,7 @@ async def _load_live_heat_inference_power_points(
                 start_time=start_time,
                 end_time=end_time,
             )
-    except EDCClientError:
+    except Exception:
         return []
 
 
@@ -745,7 +868,7 @@ def _get_live_heat_cache_entry(context: dict[str, Any]) -> dict[str, Any]:
         _LIVE_HEAT_CACHE["contexts"] = contexts
     entry = contexts.get(context["cache_key"])
     if not isinstance(entry, dict):
-        entry = {"expires_at": None, "items": {}}
+        entry = {"expires_at": None, "items": {}, "inflight": None}
         contexts[context["cache_key"]] = entry
     return entry
 
@@ -772,18 +895,31 @@ async def _get_live_inferred_heat_store(
     ):
         return cached_items
 
-    points = await _load_live_heat_inference_power_points(context["channel"])
-    inferred_items = _infer_live_heat_items(
-        context=context,
-        points=points,
-        baseline_id=context["baseline_id"],
-        expected_duration_minutes=int(context["expected_duration_minutes"]),
-    )
-    cache_entry["items"] = inferred_items
-    cache_entry["expires_at"] = datetime.now() + timedelta(
-        seconds=_LIVE_HEAT_CACHE_TTL_SECONDS
-    )
-    return inferred_items
+    inflight = cache_entry.get("inflight")
+    if isinstance(inflight, asyncio.Task):
+        return await inflight
+
+    async def _refresh_live_items() -> dict[str, dict[str, Any]]:
+        points = await _load_live_heat_inference_power_points(context["channel"])
+        inferred_items = _infer_live_heat_items(
+            context=context,
+            points=points,
+            baseline_id=context["baseline_id"],
+            expected_duration_minutes=int(context["expected_duration_minutes"]),
+        )
+        cache_entry["items"] = inferred_items
+        cache_entry["expires_at"] = datetime.now() + timedelta(
+            seconds=_LIVE_HEAT_CACHE_TTL_SECONDS
+        )
+        return inferred_items
+
+    inflight_task = asyncio.create_task(_refresh_live_items())
+    cache_entry["inflight"] = inflight_task
+    try:
+        return await inflight_task
+    finally:
+        if cache_entry.get("inflight") is inflight_task:
+            cache_entry["inflight"] = None
 
 
 def _live_heat_match_sort_key(
@@ -1050,13 +1186,14 @@ async def _hydrate_heat_item(item: dict[str, Any]) -> dict[str, Any]:
     if baseline_item:
         from .baselines import _hydrate_baseline_item
 
-        await _hydrate_baseline_item(baseline_item)
-        baseline_power_curve = _coerce_curve_points(baseline_item.get("power_curve"))
-        baseline_voltage_curve = _coerce_curve_points(baseline_item.get("voltage_curve"))
+        hydrated_baseline = await _hydrate_baseline_item(baseline_item)
+        baseline_power_curve = _coerce_curve_points(hydrated_baseline.get("power_curve"))
+        baseline_voltage_curve = _coerce_curve_points(hydrated_baseline.get("voltage_curve"))
         if baseline_power_curve:
             item["baseline_power_curve"] = baseline_power_curve
         if baseline_voltage_curve:
             item["baseline_voltage_curve"] = baseline_voltage_curve
+        item["baseline_curve_source"] = str(hydrated_baseline.get("curve_source") or "none")
 
     return item
 
@@ -1115,17 +1252,17 @@ async def _build_heat_response_view(item: dict[str, Any]) -> dict[str, Any]:
 
     from .baselines import _hydrate_baseline_item
 
-    await _hydrate_baseline_item(baseline_item)
+    hydrated_baseline = await _hydrate_baseline_item(baseline_item)
 
-    baseline_power_curve = _coerce_curve_points(baseline_item.get("power_curve"))
-    baseline_voltage_curve = _coerce_curve_points(baseline_item.get("voltage_curve"))
+    baseline_power_curve = _coerce_curve_points(hydrated_baseline.get("power_curve"))
+    baseline_voltage_curve = _coerce_curve_points(hydrated_baseline.get("voltage_curve"))
     current_power_curve = _coerce_curve_points(response_item.get("power_curve"))
 
     if baseline_power_curve:
         response_item["baseline_power_curve"] = baseline_power_curve
     if baseline_voltage_curve:
         response_item["baseline_voltage_curve"] = baseline_voltage_curve
-    response_item["baseline_curve_source"] = str(baseline_item.get("curve_source") or "none")
+    response_item["baseline_curve_source"] = str(hydrated_baseline.get("curve_source") or "none")
 
     if item.get("status") == "pending" or not baseline_power_curve or not current_power_curve:
         return response_item
@@ -1189,12 +1326,13 @@ def _build_heat_compare_view(item: dict[str, Any]) -> dict[str, Any]:
 def _resolve_baseline_metric_curve(
     baseline_id: str,
     metric_id: str,
+    baseline_item: dict[str, Any] | None = None,
 ) -> list[CurvePoint]:
-    baseline_item = _BASELINE_STORE.get(baseline_id)
-    if not baseline_item:
+    resolved_baseline_item = baseline_item or _BASELINE_STORE.get(baseline_id)
+    if not resolved_baseline_item:
         return []
 
-    curves_data = baseline_item.get("curves_data")
+    curves_data = resolved_baseline_item.get("curves_data")
     if not isinstance(curves_data, list):
         return []
 
@@ -1302,6 +1440,7 @@ async def _load_channel_curves_from_edc(
     end_time: datetime,
 ) -> dict[str, list[CurvePoint]]:
     """按唯一通道批量读取当前曲线，供 compare 路径多个基线共享。"""
+    started_at = perf_counter()
     unique_channels: dict[str, dict[str, str]] = {}
     for channel in channels:
         cache_key = _channel_curve_cache_key(channel)
@@ -1309,35 +1448,100 @@ async def _load_channel_curves_from_edc(
             unique_channels[cache_key] = channel
 
     if not unique_channels:
+        log_event(
+            "compare_shared_curves",
+            unique_channel_count=0,
+            duration_ms=round((perf_counter() - started_at) * 1000, 1),
+            cache_hit=False,
+        )
         return {}
+
+    cache_key = _build_compare_channel_curve_cache_key(
+        list(unique_channels.keys()),
+        start_time=start_time,
+        end_time=end_time,
+    )
+    cached_curves = _get_cached_compare_channel_curves(cache_key)
+    if cached_curves is not None:
+        log_event(
+            "compare_shared_curves",
+            unique_channel_count=len(unique_channels),
+            curve_group_count=len(cached_curves),
+            duration_ms=round((perf_counter() - started_at) * 1000, 1),
+            cache_hit=True,
+        )
+        return cached_curves
+
+    cache_entry = _get_compare_channel_curve_cache_entry(cache_key)
+    inflight = cache_entry.get("inflight")
+    if isinstance(inflight, asyncio.Task):
+        curves = deepcopy(await inflight)
+        log_event(
+            "compare_shared_curves",
+            unique_channel_count=len(unique_channels),
+            curve_group_count=len(curves),
+            duration_ms=round((perf_counter() - started_at) * 1000, 1),
+            cache_hit=True,
+            inflight_reused=True,
+        )
+        return curves
 
     config = get_edc_connection_config()
     if not config["base_url"] or not config["username"] or not config["password"]:
+        log_event(
+            "compare_shared_curves",
+            unique_channel_count=len(unique_channels),
+            duration_ms=round((perf_counter() - started_at) * 1000, 1),
+            cache_hit=False,
+            edc_available=False,
+        )
         return {}
 
-    try:
-        async with EDCClient(**config) as client:
-            tasks = {
-                cache_key: asyncio.create_task(
-                    client.get_local_datas(
-                        suid=channel["suid"],
-                        cuid=channel["cuid"],
-                        start_time=start_time,
-                        end_time=end_time,
+    async def _refresh_shared_curves() -> dict[str, list[CurvePoint]]:
+        try:
+            async with EDCClient(**config) as client:
+                tasks = {
+                    channel_key: asyncio.create_task(
+                        client.get_local_datas(
+                            suid=channel["suid"],
+                            cuid=channel["cuid"],
+                            start_time=start_time,
+                            end_time=end_time,
+                        )
                     )
-                )
-                for cache_key, channel in unique_channels.items()
-            }
-            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-    except EDCClientError:
-        return {}
+                    for channel_key, channel in unique_channels.items()
+                }
+                results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        except EDCClientError:
+            return {}
 
-    curves: dict[str, list[CurvePoint]] = {}
-    for cache_key, result in zip(tasks.keys(), results, strict=False):
-        if isinstance(result, Exception) or not result:
-            continue
-        curves[cache_key] = result
-    return curves
+        curves: dict[str, list[CurvePoint]] = {}
+        for channel_key, result in zip(tasks.keys(), results, strict=False):
+            if isinstance(result, Exception) or not result:
+                continue
+            curves[channel_key] = result
+
+        cache_entry["payload"] = deepcopy(curves)
+        cache_entry["expires_at"] = datetime.now() + timedelta(
+            seconds=_COMPARE_CHANNEL_CURVE_CACHE_TTL_SECONDS
+        )
+        return curves
+
+    inflight_task = asyncio.create_task(_refresh_shared_curves())
+    cache_entry["inflight"] = inflight_task
+    try:
+        curves = deepcopy(await inflight_task)
+        log_event(
+            "compare_shared_curves",
+            unique_channel_count=len(unique_channels),
+            curve_group_count=len(curves),
+            duration_ms=round((perf_counter() - started_at) * 1000, 1),
+            cache_hit=False,
+        )
+        return curves
+    finally:
+        if cache_entry.get("inflight") is inflight_task:
+            cache_entry["inflight"] = None
 
 
 def _resolve_heat_curves_from_shared_channels(
@@ -1373,10 +1577,11 @@ async def _build_metric_curve_series(
     power_curve: list[CurvePoint],
     voltage_curve: list[CurvePoint],
     current_curves_by_channel: dict[str, list[CurvePoint]] | None = None,
+    hydrated_baseline_item: dict[str, Any] | None = None,
     hydrate_baseline: bool = True,
 ) -> list[MetricCompareSeries]:
     """按基线定义动态构造炉次详情多指标对比曲线。"""
-    baseline_item = _BASELINE_STORE.get(baseline_id)
+    baseline_item = hydrated_baseline_item or _BASELINE_STORE.get(baseline_id)
     definition = (
         _DEFINITION_STORE.get(str(baseline_item.get("definition_id")))
         if baseline_item
@@ -1404,18 +1609,21 @@ async def _build_metric_curve_series(
             end_time=end_time,
         )
     )
-    baseline_item = _BASELINE_STORE.get(baseline_id)
     if baseline_item and hydrate_baseline:
         from .baselines import _hydrate_baseline_item
 
-        await _hydrate_baseline_item(baseline_item)
+        baseline_item = await _hydrate_baseline_item(baseline_item)
 
     series: list[MetricCompareSeries] = []
     for index, metric in enumerate(metrics):
         metric_key = _infer_metric_key(metric, index)
         host_channel = _resolve_metric_channel(metric)
         metric_id = str(metric.get("id") or "")
-        baseline_curve = _resolve_baseline_metric_curve(baseline_id, metric_id)
+        baseline_curve = _resolve_baseline_metric_curve(
+            baseline_id,
+            metric_id,
+            baseline_item=baseline_item,
+        )
         current_metric_curve = (
             current_curves_by_channel.get(_channel_curve_cache_key(host_channel) or "", [])
             if current_curves_by_channel is not None
@@ -1457,16 +1665,61 @@ def _collect_compare_metric_channels(baseline_ids: list[str]) -> list[dict[str, 
     return channels
 
 
-async def _hydrate_compare_baselines(baseline_ids: list[str]) -> None:
+async def _hydrate_compare_baselines(
+    baseline_ids: list[str],
+) -> dict[str, dict[str, Any]]:
     from .baselines import _hydrate_baseline_item
 
-    await asyncio.gather(
-        *(
-            _hydrate_baseline_item(baseline_item)
-            for baseline_id in baseline_ids
-            if (baseline_item := _BASELINE_STORE.get(baseline_id)) is not None
+    started_at = perf_counter()
+
+    async def _hydrate_with_shared_cache(baseline_item: dict[str, Any]) -> dict[str, Any]:
+        cache_key = _build_compare_baseline_cache_key(baseline_item)
+        cached_payload = _get_cached_compare_baseline(cache_key)
+        if cached_payload is not None:
+            return cached_payload
+
+        cache_entry = _get_compare_baseline_cache_entry(cache_key)
+        inflight = cache_entry.get("inflight")
+        if isinstance(inflight, asyncio.Task):
+            return deepcopy(await inflight)
+
+        async def _refresh_baseline() -> dict[str, Any]:
+            hydrated = await _hydrate_baseline_item(dict(baseline_item))
+            cache_entry["payload"] = deepcopy(hydrated)
+            cache_entry["expires_at"] = datetime.now() + timedelta(
+                seconds=_COMPARE_BASELINE_CACHE_TTL_SECONDS
+            )
+            return hydrated
+
+        inflight_task = asyncio.create_task(_refresh_baseline())
+        cache_entry["inflight"] = inflight_task
+        try:
+            return deepcopy(await inflight_task)
+        finally:
+            if cache_entry.get("inflight") is inflight_task:
+                cache_entry["inflight"] = None
+
+    tasks = {
+        baseline_id: _hydrate_with_shared_cache(baseline_item)
+        for baseline_id in baseline_ids
+        if (baseline_item := _BASELINE_STORE.get(baseline_id)) is not None
+    }
+    if not tasks:
+        log_event(
+            "compare_hydrate_baselines",
+            baseline_count=0,
+            duration_ms=round((perf_counter() - started_at) * 1000, 1),
         )
+        return {}
+
+    results = await asyncio.gather(*tasks.values())
+    hydrated = dict(zip(tasks.keys(), results, strict=False))
+    log_event(
+        "compare_hydrate_baselines",
+        baseline_count=len(tasks),
+        duration_ms=round((perf_counter() - started_at) * 1000, 1),
     )
+    return hydrated
 
 
 def _ensure_deviation_ranges(
@@ -1831,6 +2084,7 @@ async def list_heats(
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
 ) -> HeatListResponse:
     """获取炉次列表（支持状态和日期范围筛选）。"""
+    started_at = perf_counter()
     items = list((await _list_heat_store()).values())
     items.sort(key=lambda x: x["start_time"], reverse=True)
 
@@ -1846,12 +2100,24 @@ async def list_heats(
     end_idx = start_idx + page_size
     paged = items[start_idx:end_idx]
 
-    return HeatListResponse(
+    response = HeatListResponse(
         items=[_to_heat_response(_build_heat_list_view(item)) for item in paged],
         total=total,
         page=page,
         page_size=page_size,
     )
+    log_event(
+        "api_heats_list",
+        status=status,
+        start_date=start_date,
+        end_date=end_date,
+        total=total,
+        page=page,
+        page_size=page_size,
+        returned_count=len(response.items),
+        duration_ms=round((perf_counter() - started_at) * 1000, 1),
+    )
+    return response
 
 
 @router.get("/{heat_id}", response_model=HeatResponse)
@@ -1887,7 +2153,7 @@ async def update_heat(heat_id: str, data: HeatUpdate) -> HeatResponse:
                 other["end_time"] = other["end_time"] + delta
 
     await persist_runtime_state(*_runtime_heat_sections())
-    _invalidate_heat_compare_cache(canonical_heat_id)
+    invalidate_compare_runtime_caches(canonical_heat_id)
     return _to_heat_response(item)
 
 
@@ -1924,7 +2190,7 @@ async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatRe
                 other["time_offset_percent"] = 6.0
 
     await persist_runtime_state(*_runtime_heat_sections())
-    _invalidate_heat_compare_cache(canonical_heat_id)
+    invalidate_compare_runtime_caches(canonical_heat_id)
     return _to_heat_response(item)
 
 
@@ -2013,6 +2279,7 @@ async def get_heat_curve(heat_id: str) -> HeatWithCurve:
 @router.get("/{heat_id}/compare", response_model=HeatCompareResponse)
 async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     """获取炉次与基线对比数据。"""
+    started_at = perf_counter()
     item = await _get_or_404(heat_id)
     canonical_heat_id = str(item["id"])
     baseline_id = _resolve_primary_baseline_id(item)
@@ -2020,9 +2287,16 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     cache_key = _build_heat_compare_cache_key(item, baseline_ids)
     cached_response = _get_cached_heat_compare(cache_key)
     if cached_response is not None:
+        log_event(
+            "api_heat_compare",
+            heat_id=canonical_heat_id,
+            baseline_count=len(baseline_ids),
+            cache_hit=True,
+            duration_ms=round((perf_counter() - started_at) * 1000, 1),
+        )
         return cached_response
 
-    _, shared_current_curves = await asyncio.gather(
+    hydrated_baselines, shared_current_curves = await asyncio.gather(
         _hydrate_compare_baselines(baseline_ids),
         _load_channel_curves_from_edc(
             channels=_collect_compare_metric_channels(baseline_ids),
@@ -2042,7 +2316,7 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         item["current_curve_source"] = "live_edc"
 
     if baseline_id:
-        baseline_item = _BASELINE_STORE.get(baseline_id)
+        baseline_item = hydrated_baselines.get(baseline_id) or _BASELINE_STORE.get(baseline_id)
         if baseline_item:
             baseline_power_curve = _coerce_curve_points(baseline_item.get("power_curve"))
             baseline_voltage_curve = _coerce_curve_points(baseline_item.get("voltage_curve"))
@@ -2064,9 +2338,10 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
             power_curve=response_item["power_curve"],
             voltage_curve=response_item["voltage_curve"],
             current_curves_by_channel=shared_current_curves,
+            hydrated_baseline_item=hydrated_baselines.get(baseline_id),
             hydrate_baseline=False,
         )
-        baseline_item = _BASELINE_STORE.get(baseline_id)
+        baseline_item = hydrated_baselines.get(baseline_id) or _BASELINE_STORE.get(baseline_id)
         baseline_name = (
             str(baseline_item.get("name"))
             if baseline_item and baseline_item.get("name")
@@ -2127,6 +2402,14 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         avg_deviation=avg_deviation,
     )
     _set_cached_heat_compare(cache_key=cache_key, heat_id=canonical_heat_id, response=response)
+    log_event(
+        "api_heat_compare",
+        heat_id=canonical_heat_id,
+        baseline_count=len(baseline_ids),
+        current_curve_points=len(response.heat.power_curve),
+        cache_hit=False,
+        duration_ms=round((perf_counter() - started_at) * 1000, 1),
+    )
     return response
 
 
@@ -2153,7 +2436,7 @@ async def analyze_heat(heat_id: str, data: HeatAnalyzeRequest) -> HeatAnalyzeRes
     item["avg_deviation_percent"] = result["avg_deviation"]
     item["status"] = result["status"]
     await persist_runtime_state(*_runtime_heat_sections())
-    _invalidate_heat_compare_cache(canonical_heat_id)
+    invalidate_compare_runtime_caches(canonical_heat_id)
 
     return HeatAnalyzeResponse(
         heat_id=canonical_heat_id,

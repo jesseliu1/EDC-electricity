@@ -7,11 +7,21 @@
 ## 当前状态
 
 - 当前阶段：MVP 完成，进入联调整体验收与真实 EDC 替换收口阶段
-- 主分支状态：当前 `master` 已比 `origin/master` 超前 `19` 个提交；本轮“基线定义页/设置页补齐统一运行态”改动待提交
-- 当前工作区：本轮已把基线定义页与设置页也接入统一运行态摘要，前端构建与 E2E 已通过；另保留 2 个未跟踪参考文件不会纳入版本控制
+- 主分支状态：当前 `master` 已比 `origin/master` 超前 `1` 个提交；本轮工作区仍有未提交改动
+- 当前工作区：本轮主要是性能收口与超时可观测性补强，相关后端/前端/文档改动均仍在工作区；另保留 2 个未跟踪参考文件不会纳入版本控制
 - 已完成交接 issue 1-9、新增 issue 1-3、第二轮联调问题的一轮收口、真实曲线推断炉次第一版、宿主恢复同步、实时数据链路修复、炉次详情 compare 第三刀性能优化，以及 `showtime` 在 Dashboard / 任务 / 报表链路的第二轮统一，并已通过关键回归
 - 已继续收 `showtime` 第三轮尾巴：默认模式下的基线向导错误文案已去掉 mock 引导，炉次列表演示 banner 改为仅对明确 demo/mock 来源生效
 - 已完成 `showtime` 第四轮尾巴：baseline 详情默认模式不再泄露 demo 曲线，前端残留 `ingestMock` 入口已移除，并补齐 baseline 默认模式 vs `showtime` 的边界回归
+- 已完成最近一轮性能收口：
+  - Dashboard 首屏慢的主要瓶颈已确认是 `live_inferred` 冷态推断
+  - 炉次详情首屏慢的主要瓶颈已确认并收口到 `compare` 冷态链路
+  - 已补 compare 子链路共享缓存、配置变更主动失效，以及默认 compare 不再混入额外 draft baselines
+- 已新增一版“偶发超时追踪”最小链路：
+  - 前端 `client.ts` 已补 `X-Request-ID`
+  - 浏览器可从 `window.__ASNS_NETWORK_DIAGNOSTICS__` 读取慢请求/超时诊断
+  - 后端已补 request 级 JSON 日志，以及 `compare / heats / realtime / edc get_local_datas` 子步骤耗时
+- 已新增 `docs/AI_TIMEOUT_TRACE_GUIDE.md`
+  - 供新 session 的 AI 直接按步骤读取前端诊断和后端日志，不必重新摸索这套追踪链路
 - 已完成“宿主为入口、后端统一读取面、EDC 只消费后端状态”的第一阶段页面接入：`/api/settings/runtime-status` 已上线，Header 与 Dashboard / Heat / Baseline 主页面已切到统一运行态摘要
 - Heat / Baseline 详情页也已继续接入统一运行态摘要 banner，入口页与详情页的宿主同步提示口径已对齐
 - 已继续把统一运行态摘要扩展到 `Tasks / Reports / Inbox` 与相应详情页，主业务导航页已基本切到同一套后端状态读取面
@@ -20,7 +30,7 @@
 - 已修基线向导 preview 图的多指标渲染方式：不再先按 timestamp 硬合并，不同指标直接按各自原始时序绘制
 - 已收掉 Dashboard 默认模式下的演示统计卡与两块硬编码预览；当前任务/报表默认模式已改为真实派生数据或空态
 - 已修复报表详情页“接口 200 但正文长期卡在 loading”问题：前端已拆出成功 / loading / 错误三态，`top_deviations=[]` 与 404 都不会再伪装成 `pending`
-- 已完成 `live_inferred` 炉次 ID 稳定化：后端已改用 canonical ID，并兼容旧 `live-heat-{start}-{end}` 详情链接与基线来源炉次解析
+- 已完成 `live_inferred` 炉次 ID 稳定化代码修复：后端已改用 canonical ID，并兼容旧 `live-heat-{start}-{end}` 详情链接与基线来源炉次解析；待服务重启后现场验证
 - 未纳入版本控制的参考文件：
   - `docs/Ref/EDC AI通信基座API使用說明書.docx`
   - `docs/Ref/install_asns_server-m-1.sh`
@@ -135,7 +145,7 @@
 27. 已完成报表详情 loading 收口：`report` store 新增详情错误态与请求 token，详情页已支持成功 / loading / 错误分支
 28. 报表详情回归已补“空 `top_deviations` 成功态”和“接口 404 错误态”，不再只验证“能进入详情页”
 
-### 本轮刚完成（2026-03-21）
+### 本轮刚完成（2026-03-21，代码已修复待现场验证）
 
 1. `apps/server/src/api/heats.py` 已把 `live_inferred` 主键从 `live-heat-{start}-{end}` 改为稳定 canonical 格式：`live-heat-{ctx8}-{anchor_ms}-{dur5}`
 2. live inference cache 已改为按推断上下文分桶，详情解析不再只认当前 active baseline 的那一份 live store
@@ -372,6 +382,7 @@
 - `apps/server/src/api/baselines.py`
 - `apps/server/src/api/baseline_definitions.py`
 - `apps/server/src/api/dashboard.py`
+- `apps/server/src/observability.py`
 - `apps/server/src/runtime_state.py`
 - `apps/server/tests/test_heats_api.py`
 - `apps/server/tests/test_baselines_dashboard_api.py`
@@ -394,6 +405,7 @@
 
 - `docs/progress.md`
 - `docs/lessons.md`
+- `docs/AI_TIMEOUT_TRACE_GUIDE.md`
 - `docs/HOST_EDC_STATE_CONSOLIDATION_PLAN.md`
 - `docs/ui_issues.md`
 - `docs/ASNS_INTEGRATION_PLAN.md`
@@ -420,6 +432,8 @@
 - 后端回归补充：`apps/server/.venv/Scripts/pytest.exe tests/test_tasks_reports_settings_api.py tests/test_heats_api.py tests/test_baselines_dashboard_api.py -x -vv`
 - 后端全量：`apps/server/.venv/Scripts/pytest.exe tests -x -vv`
 - 当前已知说明：
+  - 当前 `apps/server/.venv/pyvenv.cfg` 仍指向失效的 `uv` Python 3.11 路径；本机若未先修复 3.11 运行时，`python.exe / pytest.exe` 可能直接启动失败
+  - 本轮“超时追踪”改动已通过 `ruff`、`eslint`、`vue-tsc`、`py_compile`，但后端 pytest 尚未在当前环境补跑
   - `tests/test_tasks_reports_settings_api.py::test_settings_get_and_update` 已改为 monkeypatch `EDCClient.login`，不再真实依赖 `localhost:8080`
 - 宿主测试：在 `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統` 下运行 `npm test`
 - 宿主类型检查：在 `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統` 下运行 `npm run lint`
@@ -433,8 +447,10 @@
    - `docs/session_handoff.md`
    - `docs/progress.md`
    - `docs/lessons.md`
+   - `docs/AI_TIMEOUT_TRACE_GUIDE.md`
 2. 确认当前目标：
-   - 继续真实 EDC 联调整体验收或整理本轮修复的提交边界
+   - 若是偶发超时/首屏慢，优先按 `AI_TIMEOUT_TRACE_GUIDE.md` 的 request_id 链路追踪
+   - 若是一般联调问题，再继续真实 EDC 联调整体验收或整理本轮修复的提交边界
 3. 开工前先看：
    - `git status --short --branch`
    - `git log --oneline -12`

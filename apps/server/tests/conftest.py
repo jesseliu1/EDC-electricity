@@ -9,6 +9,8 @@ from httpx import ASGITransport, AsyncClient
 from src.api.baseline_definitions import _DEFINITION_STORE
 from src.api.baselines import _BASELINE_STORE
 from src.api.heats import (
+    _COMPARE_BASELINE_CACHE,
+    _COMPARE_CHANNEL_CURVE_CACHE,
     _HEAT_COMPARE_CACHE,
     _HEAT_STORE,
     _LIVE_HEAT_CACHE,
@@ -55,6 +57,8 @@ def reset_in_memory_stores():
     heat_snapshot = copy.deepcopy(_HEAT_STORE)
     live_heat_cache_snapshot = copy.deepcopy(_LIVE_HEAT_CACHE)
     heat_compare_cache_snapshot = copy.deepcopy(_HEAT_COMPARE_CACHE)
+    compare_baseline_cache_snapshot = copy.deepcopy(_COMPARE_BASELINE_CACHE)
+    compare_channel_curve_cache_snapshot = copy.deepcopy(_COMPARE_CHANNEL_CURVE_CACHE)
     mock_heat_snapshot = copy.deepcopy(_MOCK_HEAT_STREAM_STORE)
     task_snapshot = copy.deepcopy(_TASK_STORE)
     showtime_task_snapshot = copy.deepcopy(_SHOWTIME_TASK_STORE)
@@ -74,6 +78,8 @@ def reset_in_memory_stores():
         cache_entry["expires_at"] = datetime.now() + timedelta(hours=1)
         cache_entry["items"] = _build_test_reference_heats()
     _HEAT_COMPARE_CACHE["entries"] = {}
+    _COMPARE_BASELINE_CACHE["entries"] = {}
+    _COMPARE_CHANNEL_CURVE_CACHE["entries"] = {}
     _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
 
     yield
@@ -92,6 +98,12 @@ def reset_in_memory_stores():
 
     _HEAT_COMPARE_CACHE.clear()
     _HEAT_COMPARE_CACHE.update(copy.deepcopy(heat_compare_cache_snapshot))
+
+    _COMPARE_BASELINE_CACHE.clear()
+    _COMPARE_BASELINE_CACHE.update(copy.deepcopy(compare_baseline_cache_snapshot))
+
+    _COMPARE_CHANNEL_CURVE_CACHE.clear()
+    _COMPARE_CHANNEL_CURVE_CACHE.update(copy.deepcopy(compare_channel_curve_cache_snapshot))
 
     _MOCK_HEAT_STREAM_STORE.clear()
     _MOCK_HEAT_STREAM_STORE.update(copy.deepcopy(mock_heat_snapshot))

@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import { settingApi } from '@/api/setting'
 
+let runtimeStatusPendingRequest: Promise<void> | null = null
+let runtimeStatusLastLoadedAt = 0
+
 export type RuntimeStatusCode =
   | 'ready'
   | 'showtime'
@@ -108,54 +111,68 @@ export const useRuntimeStatusStore = defineStore('runtime-status', {
   },
   actions: {
     async fetchRuntimeStatus() {
-      this.loading = true
-      try {
-        const response = await settingApi.getRuntimeStatus()
-        this.data = {
-          overallCode: response.overall_code,
-          host: {
-            isConnected: response.host.is_connected,
-            machineName: response.host.machine_name,
-            lastSyncLabel: response.host.last_sync_label,
-            source: response.host.meta.source,
-            sensorCount: response.host.meta.sensor_count,
-            channelCount: response.host.meta.channel_count,
-            enabledChannelCount: response.host.meta.enabled_channel_count
-          },
-          edc: {
-            configured: response.edc.configured,
-            baseUrl: response.edc.base_url,
-            usernamePresent: response.edc.username_present,
-            hostChannelTotal: response.edc.host_channel_total,
-            enabledChannelCount: response.edc.enabled_channel_count
-          },
-          activeBaseline: {
-            id: response.active_baseline.id,
-            name: response.active_baseline.name,
-            status: response.active_baseline.status
-          },
-          runtime: {
-            showtimeEnabled: response.runtime.showtime_enabled,
-            liveHeatInferenceEnabled: response.runtime.live_heat_inference_enabled,
-            baselineLengthScopeMode: response.runtime.baseline_length_scope_mode
-          },
-          pipelines: {
-            dashboard: response.pipelines.dashboard,
-            heats: response.pipelines.heats,
-            inbox: response.pipelines.inbox,
-            tasks: response.pipelines.tasks,
-            reports: response.pipelines.reports,
-            baselines: response.pipelines.baselines,
-            settings: response.pipelines.settings
-          }
-        }
-        this.loaded = true
-      } catch (error) {
-        console.warn('Runtime status fallback to default.', error)
-        this.data = defaultState()
-      } finally {
-        this.loading = false
+      if (this.loaded && Date.now() - runtimeStatusLastLoadedAt < 1000) {
+        return
       }
+
+      if (runtimeStatusPendingRequest) {
+        return runtimeStatusPendingRequest
+      }
+
+      runtimeStatusPendingRequest = (async () => {
+        this.loading = true
+        try {
+          const response = await settingApi.getRuntimeStatus()
+          this.data = {
+            overallCode: response.overall_code,
+            host: {
+              isConnected: response.host.is_connected,
+              machineName: response.host.machine_name,
+              lastSyncLabel: response.host.last_sync_label,
+              source: response.host.meta.source,
+              sensorCount: response.host.meta.sensor_count,
+              channelCount: response.host.meta.channel_count,
+              enabledChannelCount: response.host.meta.enabled_channel_count
+            },
+            edc: {
+              configured: response.edc.configured,
+              baseUrl: response.edc.base_url,
+              usernamePresent: response.edc.username_present,
+              hostChannelTotal: response.edc.host_channel_total,
+              enabledChannelCount: response.edc.enabled_channel_count
+            },
+            activeBaseline: {
+              id: response.active_baseline.id,
+              name: response.active_baseline.name,
+              status: response.active_baseline.status
+            },
+            runtime: {
+              showtimeEnabled: response.runtime.showtime_enabled,
+              liveHeatInferenceEnabled: response.runtime.live_heat_inference_enabled,
+              baselineLengthScopeMode: response.runtime.baseline_length_scope_mode
+            },
+            pipelines: {
+              dashboard: response.pipelines.dashboard,
+              heats: response.pipelines.heats,
+              inbox: response.pipelines.inbox,
+              tasks: response.pipelines.tasks,
+              reports: response.pipelines.reports,
+              baselines: response.pipelines.baselines,
+              settings: response.pipelines.settings
+            }
+          }
+          this.loaded = true
+          runtimeStatusLastLoadedAt = Date.now()
+        } catch (error) {
+          console.warn('Runtime status fallback to default.', error)
+          this.data = defaultState()
+        } finally {
+          this.loading = false
+          runtimeStatusPendingRequest = null
+        }
+      })()
+
+      return runtimeStatusPendingRequest
     }
   }
 })

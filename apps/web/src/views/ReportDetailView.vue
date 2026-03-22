@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useReportStore } from '@/stores/report'
@@ -13,16 +13,29 @@ const reportStore = useReportStore()
 
 const reportDate = computed(() => String(route.params.date || ''))
 const detail = computed(() => reportStore.current)
+const detailLoading = computed(() => reportStore.detailLoading)
+const detailError = computed(() => reportStore.detailError)
 
 function handleExport() {
   if (!reportDate.value) return
   window.open(reportApi.exportPdfUrl(reportDate.value), '_blank')
 }
 
-onMounted(() => {
-  if (!reportDate.value) return
-  void reportStore.fetchDetail(reportDate.value)
-})
+async function loadDetail(date: string) {
+  if (!date) {
+    reportStore.clearDetail()
+    return
+  }
+  await reportStore.fetchDetail(date)
+}
+
+watch(
+  reportDate,
+  date => {
+    void loadDetail(date)
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -37,7 +50,7 @@ onMounted(() => {
 
     <PageHeader
       :title="`${t('report.dailyReport')} - ${reportDate}`"
-      subtitle="Data compiled from 00:00 to 23:59"
+      :subtitle="t('report.detailSubtitle')"
     >
       <template #actions>
         <button
@@ -51,7 +64,10 @@ onMounted(() => {
     </PageHeader>
 
     <template v-if="detail">
-      <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+      <div
+        class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4"
+        data-testid="report-detail-success"
+      >
         <!-- 统计卡片区块 -->
         <div class="bg-white rounded-xl border border-border-light shadow-card p-5 relative overflow-hidden group hover:border-border-dark transition-colors">
           <div class="flex justify-between items-start">
@@ -128,22 +144,38 @@ onMounted(() => {
         <div
           v-else
           class="py-12 flex flex-col items-center justify-center"
+          data-testid="report-detail-empty-top-deviations"
         >
           <span class="material-symbols-outlined text-slate-300 text-4xl">check_circle</span>
           <p class="text-sm text-slate-500 mt-2 font-medium">
-            No deviations recorded
+            {{ t('report.noDeviations') }}
           </p>
         </div>
       </div>
     </template>
 
     <div
-      v-else
+      v-else-if="detailLoading"
       class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card"
+      data-testid="report-detail-loading"
     >
       <span class="material-symbols-outlined text-slate-300 text-5xl">pending</span>
       <p class="text-sm text-slate-400 mt-3">
         {{ t('common.loading') }}
+      </p>
+    </div>
+
+    <div
+      v-else
+      class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card"
+      data-testid="report-detail-error"
+    >
+      <span class="material-symbols-outlined text-amber-400 text-5xl">warning</span>
+      <p class="text-sm text-slate-600 mt-3 font-medium">
+        {{ detailError || t('report.detailLoadFailed') }}
+      </p>
+      <p class="text-xs text-slate-400 mt-2">
+        {{ t('report.detailReloadHint') }}
       </p>
     </div>
   </div>

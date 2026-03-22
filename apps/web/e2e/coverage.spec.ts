@@ -209,9 +209,7 @@ async function mockReportsAndInbox(page: Page) {
       generated_at: '2026-03-19T23:00:00Z',
       normal_rate: 75,
       effective_hours: 6,
-      top_deviations: [
-        { heat_no: 'H20260319-007', deviation: 24.6 }
-      ]
+      top_deviations: []
     })
   })
 
@@ -546,11 +544,47 @@ test.describe('EDC web extended coverage', () => {
     await expect(page.getByTestId('report-list-page')).toBeVisible()
     await page.getByTestId(/^report-row-/).first().click()
     await expect(page.getByTestId('report-detail-page')).toBeVisible()
+    await expect(page.getByTestId('report-detail-success')).toBeVisible()
+    await expect(page.getByTestId('report-detail-page')).toContainText('8')
+    await expect(page.getByTestId('report-detail-empty-top-deviations')).toBeVisible()
+    await expect(page.getByTestId('report-detail-loading')).toHaveCount(0)
 
     await page.goto('inbox')
     await expect(page.getByTestId('inbox-page')).toBeVisible()
     await page.getByTestId(/^inbox-row-/).first().click()
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
+  })
+
+  test('report detail shows explicit error state when detail request fails', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await page.route('**/api/reports/daily?**', async route => {
+      await fulfillJson(route, {
+        items: [
+          {
+            date: '2026-03-19',
+            total_heats: 8,
+            normal_heats: 6,
+            abnormal_heats: 2,
+            avg_deviation: 12.4,
+            pending_tasks: 2,
+            completed_tasks: 3,
+            generated_at: '2026-03-19T23:00:00Z'
+          }
+        ],
+        total: 1
+      })
+    })
+    await page.route('**/api/reports/daily/2026-03-19', async route => {
+      await fulfillJson(route, { detail: '日报不存在' }, 404)
+    })
+
+    await page.goto('reports')
+    await expect(page.getByTestId('report-list-page')).toBeVisible()
+    await page.getByTestId(/^report-row-/).first().click()
+
+    await expect(page.getByTestId('report-detail-error')).toBeVisible()
+    await expect(page.getByTestId('report-detail-error')).toContainText('日报不存在')
+    await expect(page.getByTestId('report-detail-loading')).toHaveCount(0)
   })
 
   test('settings page shows host connectivity and can save tolerance and cutting configuration', async ({ page }) => {

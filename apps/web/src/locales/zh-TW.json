@@ -315,7 +315,11 @@
     "totalHeats": "總爐數",
     "normalRate": "正常率",
     "exportPdf": "匯出PDF",
-    "topDeviationHeats": "偏差最高爐次"
+    "topDeviationHeats": "偏差最高爐次",
+    "detailSubtitle": "統計範圍 00:00 至 23:59",
+    "noDeviations": "當日暫無偏差爐次",
+    "detailLoadFailed": "報表詳情載入失敗",
+    "detailReloadHint": "請重新整理頁面或檢查後端報表介面狀態。"
   },
   "settings": {
     "title": "系統設定",

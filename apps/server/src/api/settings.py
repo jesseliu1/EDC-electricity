@@ -310,6 +310,7 @@ def _host_connectivity_response() -> HostConnectivityStatusResponse:
 def _build_runtime_status_response() -> RuntimeStatusResponse:
     """构建业务页统一消费的运行态摘要。"""
     from .baselines import _BASELINE_STORE
+    from .heats import _resolve_live_heat_inference_context
 
     host_response = _host_connectivity_response()
     host_connected = host_response.is_connected
@@ -319,6 +320,7 @@ def _build_runtime_status_response() -> RuntimeStatusResponse:
     )
     enabled_channel_count = host_response.meta.enabled_channel_count
     host_channel_total = len(_HOST_CHANNEL_STORE)
+    business_channel_ready = host_channel_total > 0 and _resolve_live_heat_inference_context() is not None
     live_heat_inference_enabled = (
         str(_SETTINGS_STORE.get("live_heat_inference_enabled", {}).get("value") or "true")
         .strip()
@@ -336,7 +338,9 @@ def _build_runtime_status_response() -> RuntimeStatusResponse:
             return "host_disconnected"
         if not edc_configured:
             return "edc_unconfigured"
-        if enabled_channel_count <= 0:
+        if section == "settings":
+            return "ready"
+        if not business_channel_ready:
             return "no_enabled_channels"
         if section == "heats" and not live_heat_inference_enabled:
             return "heat_inference_disabled"
@@ -349,7 +353,7 @@ def _build_runtime_status_response() -> RuntimeStatusResponse:
         overall_code = "host_disconnected"
     elif not edc_configured:
         overall_code = "edc_unconfigured"
-    elif enabled_channel_count <= 0:
+    elif not business_channel_ready:
         overall_code = "no_enabled_channels"
 
     return RuntimeStatusResponse.model_validate(
@@ -430,6 +434,12 @@ def get_edc_connection_config() -> dict[str, str]:
     }
 
 
+def _invalidate_compare_runtime_caches() -> None:
+    from .heats import invalidate_compare_runtime_caches
+
+    invalidate_compare_runtime_caches(include_shared=True)
+
+
 @router.get("", response_model=SettingsResponse)
 async def get_settings() -> SettingsResponse:
     """获取所有系统设置。"""
@@ -464,6 +474,7 @@ async def update_host_channels(
     _assert_host_sync_request(request)
     _HOST_CHANNEL_STORE.clear()
     _HOST_CHANNEL_STORE.extend([item.model_dump() for item in data.items])
+    _invalidate_compare_runtime_caches()
     await persist_runtime_state("host_channels")
     return MessageResponse(message=f"宿主通道清单已保存，共 {len(data.items)} 条", success=True)
 
@@ -514,6 +525,7 @@ async def update_edc_connection(data: EDCConnectionRequest, request: Request) ->
     _SETTINGS_STORE["edc_api_key"]["value"] = data.api_key or ""
     _HOST_CHANNEL_CATALOG_CACHE.clear()
     _HOST_CHANNEL_LAST_SYNC_AT = None
+    _invalidate_compare_runtime_caches()
     await persist_runtime_state(
         "settings_store",
         "host_channel_catalog",

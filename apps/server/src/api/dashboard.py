@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from time import perf_counter
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 
+from ..observability import log_event
 from ..schemas import DashboardStats, RecentHeat, RecentHeatsResponse
 from ..schemas.common import CurvePoint
 from ..services import EDCClient, EDCClientError
@@ -207,6 +209,7 @@ async def get_realtime_data(
     Returns:
         包含功率和电压曲线数据的字典
     """
+    started_at = perf_counter()
     # 时间范围映射
     duration_map = {
         "5m": timedelta(minutes=5),
@@ -226,6 +229,12 @@ async def get_realtime_data(
     )
 
     if realtime_curves is None:
+        log_event(
+            "api_dashboard_realtime",
+            duration=duration,
+            duration_ms=round((perf_counter() - started_at) * 1000, 1),
+            available=False,
+        )
         raise HTTPException(
             status_code=503,
             detail="未获取到真实实时数据，请检查宿主连接和通道绑定",
@@ -236,7 +245,7 @@ async def get_realtime_data(
     baseline_power = [item.model_dump() for item in realtime_curves["baseline_power"]]
     baseline_voltage = [item.model_dump() for item in realtime_curves["baseline_voltage"]]
 
-    return {
+    response = {
         "timestamp": end_time.isoformat(),
         "baseline_id": sources["baseline_id"],
         "baseline_name": sources["baseline_name"],
@@ -247,6 +256,17 @@ async def get_realtime_data(
         "baseline_power": baseline_power,
         "baseline_voltage": baseline_voltage,
     }
+    log_event(
+        "api_dashboard_realtime",
+        duration=duration,
+        power_points=len(power_curve),
+        voltage_points=len(voltage_curve),
+        baseline_power_points=len(baseline_power),
+        baseline_voltage_points=len(baseline_voltage),
+        duration_ms=round((perf_counter() - started_at) * 1000, 1),
+        available=True,
+    )
+    return response
 
 
 @router.get("/recent-heats", response_model=RecentHeatsResponse)

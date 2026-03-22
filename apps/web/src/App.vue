@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, watch } from 'vue'
+import { onBeforeUnmount, watch } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import { AppLayout } from '@/components/layout'
 import { useRuntimeStatusStore } from '@/stores/runtimeStatus'
@@ -12,19 +12,19 @@ async function refreshRuntimeStatus() {
   await runtimeStatusStore.fetchRuntimeStatus()
 }
 
-onMounted(() => {
-  void refreshRuntimeStatus()
-  refreshTimer = setInterval(() => {
-    void refreshRuntimeStatus()
-  }, 30000)
-})
-
 watch(
   () => route.fullPath,
   () => {
     void refreshRuntimeStatus()
+  },
+  {
+    immediate: true
   }
 )
+
+refreshTimer = setInterval(() => {
+  void refreshRuntimeStatus()
+}, 30000)
 
 onBeforeUnmount(() => {
   if (refreshTimer) {
