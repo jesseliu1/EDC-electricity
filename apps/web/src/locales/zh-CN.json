@@ -241,6 +241,8 @@
     "recordSourceLabel": "炉次台账",
     "currentCurveSourceLabel": "当前曲线",
     "baselineCurveSourceLabel": "对比基线曲线",
+    "compareOverlapHint": "当前炉次的 {metric} 曲线与基线“{baseline}”完全重合，图中已优先高亮当前生产。",
+    "compareMissingCurrentHint": "当前炉次暂未取到这些指标的实时曲线：{metrics}",
     "manualAdjust": "手动调整",
     "manualAdjustRange": "手动调整区间",
     "manualAdjustHint": "展示当前炉次所在当天的完整数据流，可通过图表点击、滑块拖拉或时间输入框重新划定炉次起止时间。",

@@ -241,6 +241,8 @@
     "recordSourceLabel": "ヒート台帳",
     "currentCurveSourceLabel": "現在曲線",
     "baselineCurveSourceLabel": "比較ベースライン曲線",
+    "compareOverlapHint": "現在ヒートの {metric} 曲線はベースライン「{baseline}」と完全に重なっています。グラフでは現在の生産線を優先表示します。",
+    "compareMissingCurrentHint": "現在ヒートでは次の指標のリアルタイム曲線をまだ取得できていません: {metrics}",
     "manualAdjust": "手動調整",
     "manualAdjustRange": "手動調整区間",
     "manualAdjustHint": "現在のヒートが属する当日の全データを表示し、チャートクリック、スライダー操作、または時刻入力で開始・終了時刻を再設定します。",

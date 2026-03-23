@@ -44,6 +44,7 @@ _LIVE_HEAT_LOOKBACK_HOURS = 72
 _LIVE_HEAT_CACHE_TTL_SECONDS = 30
 _LIVE_HEAT_GAP_MINUTES = 3
 _LIVE_HEAT_ID_BUCKET_MINUTES = 5
+_HEAT_COMPARE_CONTEXT_PADDING_MINUTES = 60
 _HEAT_COMPARE_CACHE_TTL_SECONDS = 20
 _COMPARE_BASELINE_CACHE_TTL_SECONDS = 20
 _COMPARE_CHANNEL_CURVE_CACHE_TTL_SECONDS = 20
@@ -356,6 +357,60 @@ def _coerce_curve_points(points: list[CurvePoint] | list[dict[str, Any]] | None)
                 continue
             normalized.append(CurvePoint(timestamp=int(timestamp), value=float(value)))
     return normalized
+
+
+def _curve_points_to_pairs(
+    points: list[CurvePoint] | list[dict[str, Any]] | None,
+) -> list[tuple[float, float]]:
+    """将曲线点统一转换为偏差计算所需的二元组结构。"""
+    return [
+        (float(point.timestamp), float(point.value))
+        for point in _coerce_curve_points(points)
+    ]
+
+
+def _curve_window_ms(start_time: datetime, end_time: datetime) -> tuple[int, int]:
+    return int(start_time.timestamp() * 1000), int(end_time.timestamp() * 1000)
+
+
+def _resolve_compare_display_window(
+    start_time: datetime, end_time: datetime
+) -> tuple[datetime, datetime]:
+    padding = timedelta(minutes=_HEAT_COMPARE_CONTEXT_PADDING_MINUTES)
+    return start_time - padding, end_time + padding
+
+
+def _rebase_curve_points_to_window(
+    points: list[CurvePoint] | list[dict[str, Any]] | None,
+    *,
+    target_start_time: datetime,
+    target_end_time: datetime,
+) -> list[CurvePoint]:
+    normalized = _coerce_curve_points(points)
+    if not normalized:
+        return []
+
+    target_start_ms, target_end_ms = _curve_window_ms(target_start_time, target_end_time)
+    if len(normalized) == 1:
+        point = normalized[0]
+        midpoint = target_start_ms + max(target_end_ms - target_start_ms, 0) // 2
+        return [CurvePoint(timestamp=midpoint, value=float(point.value))]
+
+    source_start_ms = int(normalized[0].timestamp)
+    source_end_ms = int(normalized[-1].timestamp)
+    if source_end_ms <= source_start_ms or target_end_ms <= target_start_ms:
+        return [
+            CurvePoint(timestamp=target_start_ms, value=float(point.value)) for point in normalized
+        ]
+
+    source_span = source_end_ms - source_start_ms
+    target_span = target_end_ms - target_start_ms
+    rebased: list[CurvePoint] = []
+    for point in normalized:
+        ratio = (int(point.timestamp) - source_start_ms) / source_span
+        rebased_timestamp = target_start_ms + int(round(target_span * ratio))
+        rebased.append(CurvePoint(timestamp=rebased_timestamp, value=float(point.value)))
+    return rebased
 
 
 def _resolve_host_channel(channel_id: str | None) -> dict[str, str] | None:
@@ -1008,6 +1063,33 @@ def _merge_live_heat_with_persisted_state(
     return merged
 
 
+def _resolve_item_time_window_ms(item: dict[str, Any]) -> tuple[int, int] | None:
+    start_ts = item.get("_live_original_start_ts")
+    end_ts = item.get("_live_original_end_ts")
+    if start_ts is not None and end_ts is not None:
+        return int(start_ts), int(end_ts)
+
+    start_time = item.get("start_time")
+    end_time = item.get("end_time")
+    if isinstance(start_time, datetime) and isinstance(end_time, datetime):
+        return int(start_time.timestamp() * 1000), int(end_time.timestamp() * 1000)
+    return None
+
+
+def _has_overlapping_time_window(
+    left_item: dict[str, Any], right_item: dict[str, Any]
+) -> bool:
+    left_window = _resolve_item_time_window_ms(left_item)
+    right_window = _resolve_item_time_window_ms(right_item)
+    if not left_window or not right_window:
+        return False
+
+    tolerance_ms = _live_heat_bucket_ms()
+    left_start, left_end = left_window
+    right_start, right_end = right_window
+    return left_start <= right_end + tolerance_ms and right_start <= left_end + tolerance_ms
+
+
 def _find_persisted_live_heat_alias(live_item: dict[str, Any]) -> dict[str, Any] | None:
     canonical_heat_id = str(live_item["id"])
     exact_item = _HEAT_STORE.get(canonical_heat_id)
@@ -1020,6 +1102,8 @@ def _find_persisted_live_heat_alias(live_item: dict[str, Any]) -> dict[str, Any]
             continue
         if heat_id == canonical_heat_id:
             return stored_item
+        if not _has_overlapping_time_window(live_item, stored_item):
+            continue
         if _resolve_live_heat_candidate(heat_id, candidate_store):
             return stored_item
     return None
@@ -1624,6 +1708,11 @@ async def _build_metric_curve_series(
             metric_id,
             baseline_item=baseline_item,
         )
+        baseline_curve = _rebase_curve_points_to_window(
+            baseline_curve,
+            target_start_time=start_time,
+            target_end_time=end_time,
+        )
         current_metric_curve = (
             current_curves_by_channel.get(_channel_curve_cache_key(host_channel) or "", [])
             if current_curves_by_channel is not None
@@ -1631,6 +1720,16 @@ async def _build_metric_curve_series(
         )
         if current_metric_curve is None:
             current_metric_curve = []
+        if not current_metric_curve and metric_key in {"power", "voltage"}:
+            current_metric_curve = _build_current_curve_for_metric(
+                start_time=start_time,
+                minutes=minutes,
+                metric_key=metric_key,
+                metric_index=index,
+                baseline_index=0,
+                power_curve=power_curve,
+                voltage_curve=voltage_curve,
+            )
         series.append(
             MetricCompareSeries(
                 metric_key=metric_key,
@@ -2296,17 +2395,31 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         )
         return cached_response
 
-    hydrated_baselines, shared_current_curves = await asyncio.gather(
+    compare_display_start, compare_display_end = _resolve_compare_display_window(
+        item["start_time"],
+        item["end_time"],
+    )
+    compare_channels = _collect_compare_metric_channels(baseline_ids)
+    hydrated_baselines, shared_current_curves, display_current_curves = await asyncio.gather(
         _hydrate_compare_baselines(baseline_ids),
         _load_channel_curves_from_edc(
-            channels=_collect_compare_metric_channels(baseline_ids),
+            channels=compare_channels,
             start_time=item["start_time"],
             end_time=item["end_time"],
         ),
+        _load_channel_curves_from_edc(
+            channels=compare_channels,
+            start_time=compare_display_start,
+            end_time=compare_display_end,
+        ),
     )
     live_curves = _resolve_heat_curves_from_shared_channels(item, shared_current_curves)
-    if not live_curves.get("power") and not live_curves.get("voltage"):
-        live_curves = await _load_heat_curves_from_edc(item) or {}
+    if not live_curves.get("power") or not live_curves.get("voltage"):
+        direct_live_curves = await _load_heat_curves_from_edc(item) or {}
+        if not live_curves.get("power") and direct_live_curves.get("power"):
+            live_curves["power"] = direct_live_curves["power"]
+        if not live_curves.get("voltage") and direct_live_curves.get("voltage"):
+            live_curves["voltage"] = direct_live_curves["voltage"]
 
     if live_curves:
         if live_curves.get("power"):
@@ -2328,6 +2441,7 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
 
     response_item = _build_heat_compare_view(item)
     heat = _to_heat_with_curve(response_item)
+    current_power_curve = _coerce_curve_points(response_item.get("power_curve"))
     baseline_compares: list[BaselineCompareItem] = []
     for idx, baseline_id in enumerate(baseline_ids):
         metric_curves = await _build_metric_curve_series(
@@ -2337,7 +2451,7 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
             baseline_id=baseline_id,
             power_curve=response_item["power_curve"],
             voltage_curve=response_item["voltage_curve"],
-            current_curves_by_channel=shared_current_curves,
+            current_curves_by_channel=display_current_curves,
             hydrated_baseline_item=hydrated_baselines.get(baseline_id),
             hydrate_baseline=False,
         )
@@ -2350,12 +2464,8 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         baseline_curve_points = _select_metric_curve(metric_curves, "power")
         baseline_voltage_curve_points = _select_metric_curve(metric_curves, "voltage")
 
-        baseline_curve = [
-            (float(point.timestamp), float(point.value)) for point in baseline_curve_points
-        ]
-        current_curve = [
-            (float(point.timestamp), float(point.value)) for point in response_item["power_curve"]
-        ]
+        baseline_curve = _curve_points_to_pairs(baseline_curve_points)
+        current_curve = _curve_points_to_pairs(current_power_curve)
         result = deviation_service.calculate_deviation(
             baseline_curve=baseline_curve,
             current_curve=current_curve,

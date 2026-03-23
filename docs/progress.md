@@ -1247,6 +1247,54 @@
 - [x] 已清理明显陈旧的旧单体安装脚本
   - [x] `docs/Ref/install_asns_server-m-1.sh` 不再保留在当前工作区
 
+### 2026-03-23（新建基线 compare：重合提示 + 当前曲线补齐 + 500 回归修复）
+- [x] 已修复炉次详情 compare 偶发 500
+  - [x] `apps/server/src/api/heats.py` 对 compare 路径中的 `power_curve` / `baseline_curve` 统一先做 `CurvePoint` 归一化，避免运行态里混入 `dict` 结构时在偏差计算阶段访问 `.timestamp` 报错
+- [x] 已补 compare 当前曲线缺口兜底
+  - [x] 当 shared channel 只取回部分指标时，`/api/heats/{id}/compare` 会继续回退到炉次主曲线补齐缺失的 `power/voltage`
+  - [x] 本地复核 `live-heat-0ef1bbda-1774263900000-30` 后，`范德萨` tab 下 `power` / `voltage` 当前曲线都已恢复为 `361` 点
+- [x] 已修复“新建基线下看起来没显示当前炉次”的可视反馈
+  - [x] `apps/web/src/views/HeatDetailView.vue` 已把基线线与当前生产线样式拉开
+  - [x] 当当前炉次曲线与所选基线完全重合时，页面会明确显示提示，不再像“当前炉次没画出来”
+- [x] 已补最小回归
+  - [x] `apps/server/tests/test_heats_api.py` 新增 shared current curve 缺口 fallback 用例
+  - [x] `apps/server/tests/test_heats_api.py` 新增 dict 结构 live curves 不应导致 compare 500 的回归用例
+- [x] 已完成本地验证
+  - [x] `apps/server/.venv/Scripts/python.exe -m pytest apps/server/tests/test_heats_api.py -k "prefers_edc_curves_when_available or falls_back_to_direct_live_voltage_curve or accepts_dict_live_curves_without_500"`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+
+### 2026-03-23（炉次列表重复显示同一炉次：live inferred alias 误合并修复）
+- [x] 已定位 `/api/heats` 多行显示同一炉次的根因
+  - [x] 不是前端渲染重复，也不是本轮 compare 修复引入；根因在 `apps/server/src/api/heats.py` 的 live inferred 炉次 alias 合并逻辑
+  - [x] `runtime_heats` 里仅有 1 条旧的持久化 `live_inferred` 炉次，但 `_find_persisted_live_heat_alias()` 会把当前不同时间窗的 live 炉次都误判成它的别名，导致多行被同一条旧记录的 `heat_no / start_time / deviation_percent` 覆盖
+- [x] 已修复 live inferred alias 误合并
+  - [x] `apps/server/src/api/heats.py` 现在只有在持久化炉次与当前 live 炉次时间窗真实重叠时，才允许执行 alias 合并
+  - [x] 已恢复当前 `/api/heats` 返回各自独立的实时推断炉次，不再把 2026-03-23 的 live 行全部套成 2026-03-19 的旧炉次
+- [x] 已补最小回归
+  - [x] `apps/server/tests/test_heats_api.py` 新增 stale persisted live record 不得覆盖全部当前 live rows 的回归用例
+- [x] 已完成本地验证
+  - [x] `apps/server/.venv/Scripts/python.exe -m pytest tests/test_heats_api.py -k "list_heats_prefers_live_inferred_records_when_enabled or does_not_alias_stale_live_record_into_all_current_rows or live_inferred_legacy_id_remains_resolvable_and_returns_canonical_ids or live_inferred_canonical_id_stays_stable_across_small_boundary_changes"`（在 `apps/server` 目录执行）
+
+### 2026-03-23（新建基线 compare 跨天拉轴：基线时间窗映射与当前上下文窗口修复）
+- [x] 已记录新 issue 并按台账跟踪
+  - [x] `docs/ui_issues.md` 已新增“新建基线在炉次详情 compare 中沿用来源炉次绝对时间，图表与当前炉次信息不匹配”
+- [x] 已定位 compare 图表跨天拉轴根因
+  - [x] 新建基线 `source_heat_id` 指向历史真实炉次时，compare 直接使用基线来源炉次的绝对时间戳上图
+  - [x] 当来源炉次与当前炉次跨天时，基线曲线与当前曲线共用同一绝对时间轴，图表会被拉成跨天范围
+- [x] 已修复 compare 展示窗口口径
+  - [x] `apps/server/src/api/heats.py` 已把 baseline metric curves 重映射到当前炉次核心时间窗
+  - [x] compare 当前曲线展示已扩到当前炉次前后各 `60` 分钟
+  - [x] `apps/web/src/views/HeatDetailView.vue` 已把 x 轴固定为当前炉次前后各 `60` 分钟，并让重合提示只看当前炉次核心窗口
+- [x] 已补最小回归
+  - [x] `apps/server/tests/test_heats_api.py` 新增 baseline curve timestamps 应重映射到当前炉次窗口的回归
+  - [x] `apps/server/tests/test_heats_api.py` 新增 compare 当前曲线展示应扩到前后 `60` 分钟的回归
+- [x] 已完成本地验证
+  - [x] `apps/server/.venv/Scripts/python.exe -m pytest apps/server/tests/test_heats_api.py -k "rebases_baseline_curve_timestamps_into_current_heat_window or extends_display_current_curves_with_plus_minus_60_minutes or prefers_hydrated_baseline_metric_curves or prefers_edc_curves_when_available"`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+  - [x] 本地 HTTP 复核：新建基线 `范德萨` 的 compare baseline 时间戳已收口到当前炉次核心窗口，当前曲线已扩到前后 `60` 分钟
+
 ---
 
 ## 进行中

@@ -241,6 +241,8 @@
     "recordSourceLabel": "Heat ledger",
     "currentCurveSourceLabel": "Current curves",
     "baselineCurveSourceLabel": "Baseline curves",
+    "compareOverlapHint": "The current heat {metric} curve fully overlaps with baseline \"{baseline}\". The chart now prioritizes highlighting current production.",
+    "compareMissingCurrentHint": "Real-time curves for these metrics are not available on the current heat yet: {metrics}",
     "manualAdjust": "Manual Adjust",
     "manualAdjustRange": "Manual Adjustment Range",
     "manualAdjustHint": "Show the full-day data context for the current heat. Re-define the start and end time by clicking the chart, dragging the slider, or editing the time inputs.",

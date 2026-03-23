@@ -230,6 +230,67 @@ function dataSourceText(source: HeatDataSource) {
   return t('heat.dataSource.none')
 }
 
+function normalizeHexColor(color: string) {
+  const value = color.trim()
+  if (/^#[0-9a-fA-F]{6}$/.test(value)) return value
+  if (/^#[0-9a-fA-F]{3}$/.test(value)) {
+    const [, r, g, b] = value
+    return `#${r}${r}${g}${g}${b}${b}`
+  }
+  return '#409EFF'
+}
+
+function mixHexColor(color: string, target: string, ratio: number) {
+  const source = normalizeHexColor(color)
+  const destination = normalizeHexColor(target)
+  const weight = Math.min(Math.max(ratio, 0), 1)
+  const channels = [0, 2, 4].map((offset) => {
+    const from = Number.parseInt(source.slice(offset + 1, offset + 3), 16)
+    const to = Number.parseInt(destination.slice(offset + 1, offset + 3), 16)
+    return Math.round(from + (to - from) * weight)
+      .toString(16)
+      .padStart(2, '0')
+  })
+  return `#${channels.join('')}`
+}
+
+function areCurvesFullyOverlapped(
+  baselineCurve: Array<{ timestamp: number; value: number }>,
+  currentCurve: Array<{ timestamp: number; value: number }>
+) {
+  if (baselineCurve.length === 0 || currentCurve.length === 0) return false
+  if (baselineCurve.length !== currentCurve.length) return false
+
+  return baselineCurve.every((point, index) => {
+    const currentPoint = currentCurve[index]
+    if (!currentPoint) return false
+    return (
+      point.timestamp === currentPoint.timestamp &&
+      Math.abs(point.value - currentPoint.value) < 0.0001
+    )
+  })
+}
+
+function clipCurveToWindow(
+  curve: Array<{ timestamp: number; value: number }>,
+  start: number,
+  end: number
+) {
+  return curve.filter((point) => point.timestamp >= start && point.timestamp <= end)
+}
+
+const compareContextWindow = computed(() => {
+  if (!current.value) return null
+  const heatStart = dayjs(current.value.base.startTime)
+  const heatEnd = dayjs(current.value.base.endTime)
+  return {
+    start: heatStart.subtract(60, 'minute').valueOf(),
+    end: heatEnd.add(60, 'minute').valueOf(),
+    coreStart: heatStart.valueOf(),
+    coreEnd: heatEnd.valueOf(),
+  }
+})
+
 const shouldShowSourceBanner = computed(() => {
   if (!current.value) return false
   return (
@@ -238,6 +299,32 @@ const shouldShowSourceBanner = computed(() => {
     current.value.base.baselineCurveSource !== 'live_edc'
   )
 })
+
+const selectedComparisonOverlap = computed(() => {
+  if (!selectedComparison.value) return null
+  const primaryMetric = primaryComparisonMetric.value
+  const clippedCurrentCurve = compareContextWindow.value
+    ? clipCurveToWindow(
+        primaryMetric.current_curve,
+        compareContextWindow.value.coreStart,
+        compareContextWindow.value.coreEnd
+      )
+    : primaryMetric.current_curve
+  if (!areCurvesFullyOverlapped(primaryMetric.baseline_curve, clippedCurrentCurve)) {
+    return null
+  }
+
+  return {
+    metricName: primaryMetric.metric_name,
+    baselineName: selectedComparison.value.baseline.name,
+  }
+})
+
+const selectedComparisonMissingCurrentMetrics = computed(() =>
+  (selectedComparison.value?.metric_curves || [])
+    .filter((metric) => metric.current_curve.length === 0)
+    .map((metric) => metric.metric_name)
+)
 
 const compareOption = computed<EChartsOption>(() => {
   if (!current.value) return {}
@@ -263,6 +350,8 @@ const compareOption = computed<EChartsOption>(() => {
     },
     xAxis: {
       type: 'time',
+      min: compareContextWindow.value?.start,
+      max: compareContextWindow.value?.end,
       axisLabel: {
         formatter: (value: number) => dayjs(value).format('HH:mm'),
       },
@@ -281,7 +370,12 @@ const compareOption = computed<EChartsOption>(() => {
         smooth: true,
         showSymbol: false,
         yAxisIndex: units.indexOf(metric.unit),
-        lineStyle: { width: 2, type: 'dashed', color: metric.color },
+        lineStyle: {
+          width: 2,
+          type: 'dashed',
+          color: mixHexColor(metric.color, '#ffffff', 0.42),
+        },
+        z: 2,
         data: metric.baseline_curve.map((point) => [point.timestamp, point.value]),
       },
       {
@@ -292,6 +386,7 @@ const compareOption = computed<EChartsOption>(() => {
         yAxisIndex: units.indexOf(metric.unit),
         lineStyle: { width: index === 0 ? 2.5 : 2, color: metric.color },
         areaStyle: index === 0 ? { color: metric.color, opacity: 0.05 } : undefined,
+        z: 4,
         markArea:
           index === 0
             ? {
@@ -808,6 +903,29 @@ onMounted(() => {
                 />
               </el-tabs>
             </div>
+          </div>
+          <div
+            v-if="selectedComparisonOverlap"
+            class="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800"
+            data-testid="heat-compare-overlap-note"
+          >
+            {{
+              t('heat.compareOverlapHint', {
+                metric: selectedComparisonOverlap.metricName,
+                baseline: selectedComparisonOverlap.baselineName,
+              })
+            }}
+          </div>
+          <div
+            v-if="selectedComparisonMissingCurrentMetrics.length > 0"
+            class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+            data-testid="heat-compare-missing-current-note"
+          >
+            {{
+              t('heat.compareMissingCurrentHint', {
+                metrics: selectedComparisonMissingCurrentMetrics.join(' / '),
+              })
+            }}
           </div>
           <v-chart
             :option="compareOption"
