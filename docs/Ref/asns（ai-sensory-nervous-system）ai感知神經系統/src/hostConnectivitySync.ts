@@ -26,7 +26,44 @@ export interface HostEdcResponse {
   message?: string;
 }
 
-export const appApiBase = 'http://127.0.0.1:8000/api';
+type HostRuntimeGlobals = typeof globalThis & {
+  __ASNS_APP_API_BASE__?: string;
+  __ASNS_HOST_API_BASE__?: string;
+};
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function getBrowserOrigin(): string {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  return window.location.origin;
+}
+
+function resolveAppApiBase(): string {
+  const runtimeGlobals = globalThis as HostRuntimeGlobals;
+  const configuredBase =
+    runtimeGlobals.__ASNS_APP_API_BASE__ ||
+    import.meta.env.VITE_ASNS_APP_API_BASE ||
+    `${getBrowserOrigin()}/api`;
+  return trimTrailingSlash(configuredBase);
+}
+
+function resolveHostApiBase(): string {
+  const runtimeGlobals = globalThis as HostRuntimeGlobals;
+  const configuredBase = runtimeGlobals.__ASNS_HOST_API_BASE__ || import.meta.env.VITE_ASNS_HOST_API_BASE;
+  if (configuredBase) {
+    return trimTrailingSlash(configuredBase);
+  }
+
+  const baseUrl = import.meta.env.BASE_URL || '/';
+  return trimTrailingSlash(new URL(baseUrl, `${getBrowserOrigin()}/`).toString());
+}
+
+export const appApiBase = resolveAppApiBase();
+const hostApiBase = resolveHostApiBase();
 const hostSyncHeaders = {
   'Content-Type': 'application/json',
   'X-ASNS-Host-Sync': 'true',
@@ -110,7 +147,8 @@ export function buildDisconnectedConnectionState(source: string): PersistedConne
 }
 
 export async function callHostApi(path: string, config: HostConnectivityConfig) {
-  const response = await fetch(path, {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const response = await fetch(`${hostApiBase}${normalizedPath}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),

@@ -1,43 +1,21 @@
-import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react';
-import path from 'path';
 import { Buffer } from 'node:buffer';
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Connect } from 'vite';
-import { defineConfig, loadEnv } from 'vite';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import express from 'express';
 
-interface HostApiConfig {
-  endpoint?: string;
-  username?: string;
-  password?: string;
-}
-
-interface ChannelMappingItem {
-  id: string;
-  deviceName: string;
-  deviceType: string;
-  area: string;
-  suid: string;
-  cuid: string;
-  channelName: string;
-  unit: string;
-  lastValue: string;
-  status: 'online' | 'idle';
-}
-
-function normalizeBasePath(basePath: string | undefined) {
-  const trimmed = basePath?.trim();
+function normalizeBasePath(basePath) {
+  const trimmed = `${basePath || '/'}`.trim();
   if (!trimmed || trimmed === '/') {
     return '/';
   }
   return `/${trimmed.replace(/^\/+|\/+$/g, '')}/`;
 }
 
-function normalizeEndpoint(endpoint: string) {
+function normalizeEndpoint(endpoint) {
   return endpoint.trim().replace(/\/+$/, '');
 }
 
-function buildNodeName(endpoint: string) {
+function buildNodeName(endpoint) {
   try {
     return `EDC Gateway (${new URL(endpoint).host})`;
   } catch {
@@ -45,25 +23,7 @@ function buildNodeName(endpoint: string) {
   }
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<HostApiConfig> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  const raw = Buffer.concat(chunks).toString('utf-8').trim();
-  if (!raw) {
-    return {};
-  }
-  return JSON.parse(raw) as HostApiConfig;
-}
-
-function sendJson(res: ServerResponse, statusCode: number, payload: unknown) {
-  res.statusCode = statusCode;
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.end(JSON.stringify(payload));
-}
-
-function decodeSensorPayload(rawText: string) {
+function decodeSensorPayload(rawText) {
   const trimmed = rawText.trim();
   if (!trimmed) {
     return [];
@@ -78,7 +38,7 @@ function decodeSensorPayload(rawText: string) {
   return parsed.value || parsed.data || parsed;
 }
 
-async function loginEdc(config: HostApiConfig) {
+async function loginEdc(config) {
   const endpoint = normalizeEndpoint(config.endpoint || '');
   const username = config.username?.trim();
   const password = config.password ?? '';
@@ -99,7 +59,7 @@ async function loginEdc(config: HostApiConfig) {
   return { endpoint, token: String(token) };
 }
 
-async function fetchChannelSnapshot(endpoint: string, token: string) {
+async function fetchChannelSnapshot(endpoint, token) {
   const response = await fetch(`${endpoint}/systemcfg`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -110,12 +70,12 @@ async function fetchChannelSnapshot(endpoint: string, token: string) {
     }),
   });
   const rawText = await response.text();
-  const sensors = decodeSensorPayload(rawText) as Array<Record<string, unknown>>;
+  const sensors = decodeSensorPayload(rawText);
   if (!Array.isArray(sensors)) {
     throw new Error('EDC 返回的设备清单格式无法识别。');
   }
 
-  const channels: ChannelMappingItem[] = [];
+  const channels = [];
   let enabledChannelCount = 0;
   for (const sensor of sensors) {
     const suid = String(sensor.uid || sensor.suid || '');
@@ -126,7 +86,7 @@ async function fetchChannelSnapshot(endpoint: string, token: string) {
     const area = sensorDesc || sensorNickname || sensorName;
     const channelList = Array.isArray(sensor.channelList) ? sensor.channelList : [];
 
-    for (const channel of channelList as Array<Record<string, unknown>>) {
+    for (const channel of channelList) {
       const status = String(channel.status) === '1' ? 'online' : 'idle';
       if (status === 'online') {
         enabledChannelCount += 1;
@@ -167,25 +127,17 @@ async function fetchChannelSnapshot(endpoint: string, token: string) {
   };
 }
 
-function createEdcHostMiddleware(basePath: string): Connect.NextHandleFunction {
+function createHostApiRouter(basePath) {
+  const router = express.Router();
   const basePrefix = basePath === '/' ? '' : basePath.slice(0, -1);
-  const supportedPaths = new Set([
-    '/host-api/edc/test-connection',
-    '/host-api/edc/sync-channels',
-    `${basePrefix}/host-api/edc/test-connection`,
-    `${basePrefix}/host-api/edc/sync-channels`,
-  ]);
+  const paths = ['/host-api/edc/test-connection', '/host-api/edc/sync-channels'];
+  if (basePrefix) {
+    paths.push(`${basePrefix}/host-api/edc/test-connection`, `${basePrefix}/host-api/edc/sync-channels`);
+  }
 
-  return async (req, res, next) => {
-    const pathName = req.url?.split('?')[0] || '';
-    if (req.method !== 'POST' || !supportedPaths.has(pathName)) {
-      next();
-      return;
-    }
-
+  router.post(paths, async (req, res) => {
     try {
-      const config = await readJsonBody(req);
-      const { endpoint, token } = await loginEdc(config);
+      const { endpoint, token } = await loginEdc(req.body || {});
       const snapshot = await fetchChannelSnapshot(endpoint, token);
       const basePayload = {
         ok: true,
@@ -194,61 +146,53 @@ function createEdcHostMiddleware(basePath: string): Connect.NextHandleFunction {
         meta: snapshot.meta,
       };
 
-      if (pathName.endsWith('/host-api/edc/test-connection')) {
-        sendJson(res as ServerResponse, 200, {
+      if (req.path.endsWith('/host-api/edc/test-connection')) {
+        res.json({
           ...basePayload,
           message: `连接成功，已读取 ${snapshot.meta.sensorCount} 台设备 / ${snapshot.meta.channelCount} 通道。`,
         });
         return;
       }
 
-      sendJson(res as ServerResponse, 200, {
+      res.json({
         ...basePayload,
         channels: snapshot.channels,
         message: `同步完成，已刷新 ${snapshot.meta.channelCount} 条通道目录。`,
       });
     } catch (error) {
-      sendJson(res as ServerResponse, 500, {
+      res.status(500).json({
         ok: false,
         message: error instanceof Error ? error.message : '宿主调用 EDC 失败。',
       });
     }
-  };
+  });
+
+  return router;
 }
 
-function edcHostApiPlugin(basePath: string) {
-  const middleware = createEdcHostMiddleware(basePath);
-  return {
-    name: 'edc-host-api',
-    configureServer(server: { middlewares: { use: (fn: Connect.NextHandleFunction) => void } }) {
-      server.middlewares.use(middleware);
-    },
-    configurePreviewServer(server: { middlewares: { use: (fn: Connect.NextHandleFunction) => void } }) {
-      server.middlewares.use(middleware);
-    },
-  };
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+const port = Number(process.env.PORT || 3001);
+const basePath = normalizeBasePath(process.env.ASNS_BASE_PATH || process.env.VITE_ASNS_BASE_PATH || '/');
+const distDir = path.join(__dirname, 'dist');
+const indexFile = path.join(distDir, 'index.html');
+const basePrefix = basePath === '/' ? '' : basePath.slice(0, -1);
+
+app.use(express.json({ limit: '1mb' }));
+app.use(createHostApiRouter(basePath));
+
+if (basePath === '/') {
+  app.use(express.static(distDir));
+  app.get('*', (_req, res) => {
+    res.sendFile(indexFile);
+  });
+} else {
+  app.use(basePath, express.static(distDir));
+  app.get([basePrefix, `${basePrefix}/*`], (_req, res) => {
+    res.sendFile(indexFile);
+  });
 }
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, '.', '');
-  const hostBase = normalizeBasePath(env.VITE_ASNS_BASE_PATH || env.ASNS_BASE_PATH);
-  return {
-    base: hostBase,
-    plugins: [react(), tailwindcss(), edcHostApiPlugin(hostBase)],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
-    },
-    server: {
-      port: 3001,
-      hmr: process.env.DISABLE_HMR !== 'true',
-    },
-    preview: {
-      port: 3001,
-    },
-  };
+app.listen(port, () => {
+  console.log(`ASNS host listening on ${port} with base path ${basePath}`);
 });

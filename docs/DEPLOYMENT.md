@@ -19,6 +19,13 @@
 - `/edc/` -> EDC 前端静态文件
 - `/api/` -> FastAPI `8000`
 
+如果站点根路径还要承载额外门户页，也可以改成：
+
+- `/` -> 门户页
+- `/asns/` -> 宿主“神经系统”
+- `/edc/` -> EDC 前端静态文件
+- `/api/` -> FastAPI `8000`
+
 ## 2. 环境要求
 
 - Node.js 20 LTS
@@ -109,11 +116,30 @@ npm run preview -- --host 0.0.0.0 --port 3001
 - 当前 `vite.config.ts` 通过 `configureServer` 和 `configurePreviewServer` 提供 `/host-api/edc/test-connection` 与 `/host-api/edc/sync-channels`
 - 因此若只拿 `dist/` 丢到纯静态文件服务器，宿主里的 EDC 测试连接与同步通道能力不会工作
 - 如果要保留当前行为，部署时需要保留一个 Node 进程来跑 `vite preview`
+- 当前仓库也已补独立生产入口，可直接用 `npm start` 跑 `server.mjs`，负责：
+  - 提供宿主静态文件
+  - 提供宿主 `host-api`
+  - 支持 `/asns/` 这类子路径部署
 
 当前已知限制：
 
-- `src/hostConnectivitySync.ts` 当前把业务后端写死为 `http://127.0.0.1:8000/api`
-- 如果宿主和后端不在同一台机器，或者对外域名不是本机回环地址，需先调整这一常量，或通过反向代理把该地址兜回本机后端
+- 若部署到子路径，例如 `/asns/`，构建前需显式设置：
+
+```bash
+VITE_ASNS_BASE_PATH=/asns/
+VITE_ASNS_EDC_APP_URL=/edc/
+VITE_ASNS_APP_API_BASE=/api
+```
+
+- 若使用 `npm start`，运行时还需保持：
+
+```bash
+ASNS_BASE_PATH=/asns/
+PORT=3001
+```
+
+- 宿主前端现已默认优先走“同域 `/api` + 同域 `/edc/` + 按 base 推导 `host-api`”
+- 只有在跨域或特殊网关结构下，才需要额外设置 `VITE_ASNS_HOST_API_BASE`
 
 ## 6. 推荐上线顺序
 

@@ -29,6 +29,7 @@
 - [x] 已继续把统一运行态摘要扩到 Tasks / Reports / Inbox 与相关详情页，主业务导航页已基本切到同一状态读取面
 - [x] 已继续把统一运行态摘要补齐到基线定义页与设置页，主导航入口页现已全部接到统一运行态读取面
 - [x] 已完成 `live_inferred` 炉次 ID 稳定化代码修复：后端改为 canonical ID + legacy 兼容解析；待服务重启后现场验证旧详情链接与基线来源炉次链路
+- [x] 已完成宿主子路径部署与同域联通第一轮收口：去掉宿主对 `/assets` 根路径、`127.0.0.1:3000/edc/`、`127.0.0.1:8000/api` 的硬编码依赖，并新增宿主生产服务入口 `server.mjs`
 
 ---
 
@@ -53,6 +54,29 @@
 - [x] 额外说明
   - [x] `tests/test_api_edge_cases.py` 仍有与本轮无关的既有失败：`test_task_invalid_state_transitions_and_validation` 当前返回 `404` 而非预期 `400`
   - [x] 本地 `http://127.0.0.1:8000/health` 仍在线，但当前运行中的服务尚未热更新到新的 canonical ID 实现，直接请求 `/api/heats` 仍能看到旧 `live-heat-{start}-{end}` 形式
+
+### 2026-03-23（宿主 `/asns/` 子路径部署与同域联通收口）
+
+- [x] 已定位线上“宿主系统和智慧熔炉系统连不到一起”的根因不是单点故障
+  - [x] `https://hopeofthepantheon.me/asns/` 原构建产物仍引用 `/assets/*`，部署到 `/asns/` 后直接 404
+  - [x] 宿主前端原先把 EDC 内嵌地址写死为 `http://127.0.0.1:3000/edc/`
+  - [x] 宿主同步业务后端原先把 API 地址写死为 `http://127.0.0.1:8000/api`
+  - [x] 线上 `runtime-status` 已验证后端在线，但宿主同步摘要仍是 `host_disconnected`
+  - [x] 线上 `/asns/host-api/*` 返回 HTML fallback，说明“只发静态文件、不保留宿主 Node 进程”时宿主专用 API 不存在
+- [x] 已完成宿主部署侧代码收口
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/vite.config.ts` 已支持 `VITE_ASNS_BASE_PATH`
+  - [x] `src/App.tsx` 已改为优先走 `VITE_ASNS_EDC_APP_URL`，默认回退同域 `/edc/`
+  - [x] `src/hostConnectivitySync.ts` 已改为优先走运行时/环境变量配置，默认回退同域 `/api` 与按 base 推导的 `host-api`
+  - [x] 已新增 `server.mjs`，可在生产环境同时提供宿主静态文件与 `host-api`
+  - [x] 已补 `src/vite-env.d.ts`，宿主 TypeScript 现可识别 `import.meta.env`
+  - [x] 已更新宿主 `.env.example` 与 `docs/DEPLOYMENT.md` 的 `/asns/ + /edc/ + /api` 部署口径
+- [x] 本地验证结果
+  - [x] 宿主 `npm run lint` 已通过
+  - [x] 宿主在 `VITE_ASNS_BASE_PATH=/asns/` 下 `npm run build` 已通过
+  - [x] 构建产物 `dist/index.html` 已确认引用 `/asns/assets/*`
+- [ ] 线上待操作
+  - [ ] 需按新口径重建宿主前端并以 `ASNS_BASE_PATH=/asns/ npm start` 或等价 Node 进程方式部署，不能只上传静态 `dist`
+  - [ ] 重部署后需验证 `/asns/`、`/asns/host-api/edc/test-connection`、宿主内嵌 `/edc/`、以及 `/api/settings/runtime-status` 四条链路
 
 ### 2026-03-21（性能定位与第一轮性能收口）
 

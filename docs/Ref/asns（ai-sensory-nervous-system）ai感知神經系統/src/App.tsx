@@ -662,6 +662,19 @@ interface AppStudioViewProps {
   t: (key: string) => string;
   onAddApp: (app: AppWindow) => void;
 }
+
+type AppRuntimeGlobals = typeof globalThis & {
+  __ASNS_EDC_APP_URL__?: string;
+};
+
+function resolveEmbeddedEdcUrl(): string {
+  const runtimeGlobals = globalThis as AppRuntimeGlobals;
+  return (
+    runtimeGlobals.__ASNS_EDC_APP_URL__ ||
+    import.meta.env.VITE_ASNS_EDC_APP_URL ||
+    (typeof window !== 'undefined' ? new URL('/edc/', window.location.origin).toString() : '/edc/')
+  );
+}
   
 export default function App() {  
   // 核心狀態  
@@ -673,9 +686,7 @@ export default function App() {
   const [installedAppIds, setInstalledAppIds] = useState<string[]>(['edc-electricity']);
   const [isConnected, setIsConnected] = useState(false);  
   const [showLangMenu, setShowLangMenu] = useState(false);  
-  const embeddedEdcUrl =
-    (globalThis as typeof globalThis & { __ASNS_EDC_APP_URL__?: string }).__ASNS_EDC_APP_URL__ ||
-    'http://127.0.0.1:3000/edc/';
+  const embeddedEdcUrl = resolveEmbeddedEdcUrl();
     
   // EDC API 配置狀態  
   const [config, setConfig] = useState<Config>({  
