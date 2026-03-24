@@ -139,13 +139,25 @@ VITE_ASNS_EDC_APP_URL=/edc/
 VITE_ASNS_APP_API_BASE=/api
 ```
 
-- 若使用 `npm start`，运行时还需保持：
+- 若使用 `npm start` / `node server.mjs`，运行时 `ASNS_BASE_PATH` 取决于反向代理是否剥离前缀：
+
+1. 如果反向代理会把 `/asns/` 剥掉后再转发到 `3001`
+   当前这台服务器就是这种模式，应使用：
+
+```bash
+ASNS_BASE_PATH=/
+PORT=3001
+```
+
+2. 如果反向代理保留 `/asns/` 前缀原样转发给 Node
+   才应使用：
 
 ```bash
 ASNS_BASE_PATH=/asns/
 PORT=3001
 ```
 
+- 当前服务器的正式口径以 `docs/SERVER_LAYOUT_AND_SYNC.md` 和 `deploy/systemd/asns-host.service.example` 为准
 - 宿主前端现已默认优先走“同域 `/api` + 同域 `/edc/` + 按 base 推导 `host-api`”
 - 只有在跨域或特殊网关结构下，才需要额外设置 `VITE_ASNS_HOST_API_BASE`
 
