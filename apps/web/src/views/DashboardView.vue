@@ -14,6 +14,16 @@ const { t } = useI18n()
 const router = useRouter()
 
 const dashboardStore = useDashboardStore()
+const statsPending = computed(() => dashboardStore.loading && !dashboardStore.statsLoaded)
+const statsUnavailable = computed(() => Boolean(dashboardStore.statsError) && !dashboardStore.statsLoaded)
+const recentHeatsPending = computed(
+  () => dashboardStore.loading && !dashboardStore.recentHeatsLoaded
+)
+const dashboardWarnings = computed(() =>
+  [dashboardStore.statsError, dashboardStore.recentHeatsError].filter(
+    (item): item is string => Boolean(item)
+  )
+)
 
 const inboxPreview = computed(() =>
   dashboardStore.recentHeats
@@ -25,11 +35,13 @@ const stats = computed(() => [
   {
     id: 1,
     title: t('dashboard.todayHeats'),
-    value: dashboardStore.stats.todayHeats,
-    unit: t('dashboard.unit.heats'),
+    value: statsPending.value || statsUnavailable.value ? '--' : dashboardStore.stats.todayHeats,
+    unit: statsPending.value || statsUnavailable.value ? '' : t('dashboard.unit.heats'),
     trend: 0,
     description:
-      dashboardStore.stats.todayHeats > 0
+      statsUnavailable.value
+        ? t('dashboard.statsLoadFailedHint')
+        : dashboardStore.stats.todayHeats > 0
         ? `${t('report.normalRate')}: ${dashboardStore.stats.normalRate}%`
         : '',
     icon: 'monitoring',
@@ -38,32 +50,38 @@ const stats = computed(() => [
   {
     id: 2,
     title: t('dashboard.avgDeviation'),
-    value: dashboardStore.stats.avgDeviation,
-    unit: t('dashboard.unit.percent'),
+    value: statsPending.value || statsUnavailable.value ? '--' : dashboardStore.stats.avgDeviation,
+    unit: statsPending.value || statsUnavailable.value ? '' : t('dashboard.unit.percent'),
     trend: 0,
-    description: '',
+    description: statsUnavailable.value ? t('dashboard.statsLoadFailedHint') : '',
     icon: 'speed',
     accentColor: 'orange' as const,
   },
   {
     id: 3,
     title: t('dashboard.pendingTasks'),
-    value: dashboardStore.stats.pendingTasks,
-    unit: t('dashboard.unit.tasks'),
+    value: statsPending.value || statsUnavailable.value ? '--' : dashboardStore.stats.pendingTasks,
+    unit: statsPending.value || statsUnavailable.value ? '' : t('dashboard.unit.tasks'),
     trend: 0,
-    description: '',
+    description: statsUnavailable.value ? t('dashboard.statsLoadFailedHint') : '',
     icon: 'assignment',
     accentColor: 'green' as const,
   },
   {
     id: 4,
     title: t('dashboard.baselineStatus'),
-    value: dashboardStore.stats.activeBaseline || t('dashboard.baselineStatusNormal'),
+    value:
+      statsPending.value || statsUnavailable.value
+        ? '--'
+        : dashboardStore.stats.activeBaseline || t('dashboard.baselineStatusNormal'),
     unit: '',
     trend: 0,
-    description: dashboardStore.realtime.timestamp
-      ? dayjs(dashboardStore.realtime.timestamp).format('YYYY-MM-DD HH:mm')
-      : '',
+    description:
+      statsUnavailable.value
+        ? t('dashboard.statsLoadFailedHint')
+        : dashboardStore.realtime.timestamp
+          ? dayjs(dashboardStore.realtime.timestamp).format('YYYY-MM-DD HH:mm')
+          : '',
     icon: 'verified',
     accentColor: 'green' as const,
   },
@@ -145,6 +163,22 @@ onMounted(() => {
       test-id="dashboard-runtime-banner"
     />
 
+    <div
+      v-if="dashboardWarnings.length > 0"
+      class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+      data-testid="dashboard-load-warning"
+    >
+      <div class="font-semibold">
+        {{ t('dashboard.loadWarningTitle') }}
+      </div>
+      <div class="mt-2 flex flex-col gap-1 text-amber-700">
+        <span
+          v-for="item in dashboardWarnings"
+          :key="item"
+        >{{ item }}</span>
+      </div>
+    </div>
+
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
       <StatCard
         v-for="stat in stats"
@@ -201,7 +235,11 @@ onMounted(() => {
 
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
       <div class="lg:col-span-5">
-        <HeatList :heats="dashboardStore.recentHeats" />
+        <HeatList
+          :heats="dashboardStore.recentHeats"
+          :loading="recentHeatsPending"
+          :error-message="dashboardStore.recentHeatsError"
+        />
       </div>
       <div class="lg:col-span-4">
         <div class="bg-white rounded-xl border border-border-light shadow-card p-6 h-full">

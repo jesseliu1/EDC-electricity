@@ -100,7 +100,10 @@
       "percent": "%"
     },
     "baselineStatusNormal": "Normal",
-    "trendFromYesterday": "vs yesterday"
+    "trendFromYesterday": "vs yesterday",
+    "loadWarningTitle": "Some dashboard data could not be loaded",
+    "statsLoadFailedHint": "Placeholder values are shown for now. Try again shortly.",
+    "recentHeatsReloadHint": "Refresh the page or check the backend heats API."
   },
   "baseline": {
     "title": "Golden Baselines",
@@ -265,6 +268,8 @@
     "resumeCuttingWithSubsequent": "Resume + Subsequent",
     "resumeCuttingOnlyCurrent": "Resume Current Only",
     "resumeCuttingSuccess": "Cutting resumed",
+    "detailLoadFailed": "Failed to load heat details",
+    "detailReloadHint": "Refresh the page or check the backend heats API.",
     "cuttingAlert": "There are {major} major-issue heats and {blocked} blocked heats pending recovery",
     "emptyStateNoData": "No heat data is available right now.",
     "emptyStateFilteredTitle": "No heats match the current filters.",

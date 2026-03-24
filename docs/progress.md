@@ -33,10 +33,33 @@
 - [x] 已收口“新建黄金基线后炉次浏览看起来空白”问题：确认不是 `/api/heats` 无数据，而是列表页轻量状态未基于基线重算，异常筛选被误空
 - [x] 已把当前服务器目录布局、systemd 模板和同步脚本正式收进仓库，后续不再依赖口头命令
 - [x] 已统一 ASNS 部署文档口径，区分“代理剥前缀”和“保留前缀”两类运行方式，避免把当前服务器的 `ASNS_BASE_PATH=/` 误写成 `/asns/`
+- [x] 已完成第一批 issue 收口：Dashboard 假空态与炉次详情超时后长期 loading 两个 P0 已改为明确错误态，并补 UI 回归
 
 ---
 
 ## 已完成
+
+### 2026-03-24（第一批 issue：Dashboard 假空态与炉次详情错误态收口）
+
+- [x] 已按 investigate 顺序完成首批 P0 分析与修复
+  - [x] 根因确认：Dashboard store 在失败时把统计和最近炉次直接清成 `0 / []`，导致超时被伪装成空数据
+  - [x] 根因确认：Heat detail store 缺少独立错误态，请求失败后页面只能继续表现成 loading
+- [x] 已完成代码修复
+  - [x] `apps/web/src/stores/dashboard.ts` 已新增 `statsError / recentHeatsError`
+  - [x] `apps/web/src/views/DashboardView.vue` 已新增仪表盘错误横幅，首轮统计失败时改显示 `--`
+  - [x] `apps/web/src/components/dashboard/HeatList.vue` 已新增最近炉次 loading / error 态
+  - [x] `apps/web/src/stores/heat.ts` 已新增详情错误态
+  - [x] `apps/web/src/views/HeatDetailView.vue` 已新增详情错误页，不再把失败伪装成持续 loading
+  - [x] `apps/web/src/utils/apiError.ts` 已统一前端 API 错误文案解析
+- [x] 已补多语言文案
+  - [x] `apps/web/src/locales/zh-CN.json`
+  - [x] `apps/web/src/locales/zh-TW.json`
+  - [x] `apps/web/src/locales/ja-JP.json`
+  - [x] `apps/web/src/locales/en-US.json`
+- [x] 已完成针对性回归
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/loading-error-states.spec.ts`
 
 ### 2026-03-24（ASNS 部署文档口径统一）
 

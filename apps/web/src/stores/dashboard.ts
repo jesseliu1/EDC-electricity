@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import dayjs from 'dayjs'
 import { dashboardApi } from '@/api/dashboard'
 import { taskApi } from '@/api/task'
+import { resolveApiErrorMessage } from '@/utils/apiError'
 import type {
   CurvePoint,
   DashboardStatsResponse,
@@ -119,20 +120,26 @@ function mapTaskPreview(item: TaskItemResponse): DashboardTaskPreviewItem {
 export const useDashboardStore = defineStore('dashboard', {
   state: () => ({
     stats: { ...defaultStats },
+    statsLoaded: false,
+    statsError: null as string | null,
     realtime: { ...defaultRealtime },
     recentHeats: [] as RecentHeatItem[],
+    recentHeatsLoaded: false,
+    recentHeatsError: null as string | null,
     pendingTaskPreview: [] as DashboardTaskPreviewItem[],
     timeRange: '1h' as TimeRange,
     loading: false
   }),
   actions: {
     async fetchStats() {
+      this.statsError = null
       try {
         const data = await dashboardApi.getStats()
         this.stats = mapStats(data)
+        this.statsLoaded = true
       } catch (error) {
         console.error('Dashboard stats request failed.', error)
-        this.stats = { ...defaultStats }
+        this.statsError = resolveApiErrorMessage(error, '仪表盘统计加载失败')
       }
     },
     async fetchRealtime(range?: TimeRange) {
@@ -146,12 +153,14 @@ export const useDashboardStore = defineStore('dashboard', {
       }
     },
     async fetchRecentHeats(limit = 8) {
+      this.recentHeatsError = null
       try {
         const data = await dashboardApi.getRecentHeats(limit)
         this.recentHeats = mapRecentHeats(data)
+        this.recentHeatsLoaded = true
       } catch (error) {
         console.error('Dashboard recent heats request failed.', error)
-        this.recentHeats = []
+        this.recentHeatsError = resolveApiErrorMessage(error, '最近炉次加载失败')
       }
     },
     async fetchPendingTaskPreview(limit = 3) {

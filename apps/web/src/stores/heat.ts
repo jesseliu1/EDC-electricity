@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import dayjs from 'dayjs'
 import { heatApi } from '@/api/heat'
+import { resolveApiErrorMessage } from '@/utils/apiError'
 import type {
   BaselineCompareItem,
   CuttingTimelineEvent,
@@ -195,6 +196,8 @@ export const useHeatStore = defineStore('heat', {
       current: null as HeatDetail | null,
       previews: {} as Record<string, HeatPreview>,
       loading: false,
+      detailLoading: false,
+      detailError: null as string | null,
       page: persisted.page,
       pageSize: persisted.pageSize,
       total: 0,
@@ -283,7 +286,9 @@ export const useHeatStore = defineStore('heat', {
       await this.fetchList()
     },
     async fetchDetail(id: string) {
-      this.loading = true
+      this.detailLoading = true
+      this.detailError = null
+      this.current = null
       try {
         const [compare, timeline] = await Promise.all([
           heatApi.getCompare(id),
@@ -293,8 +298,9 @@ export const useHeatStore = defineStore('heat', {
       } catch (error) {
         console.error('Heat detail request failed.', error)
         this.current = null
+        this.detailError = resolveApiErrorMessage(error, '炉次详情加载失败')
       } finally {
-        this.loading = false
+        this.detailLoading = false
       }
     },
     async fetchPreview(id: string) {

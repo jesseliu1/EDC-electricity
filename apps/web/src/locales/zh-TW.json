@@ -100,7 +100,10 @@
       "percent": "%"
     },
     "baselineStatusNormal": "正常",
-    "trendFromYesterday": "較昨日"
+    "trendFromYesterday": "較昨日",
+    "loadWarningTitle": "部分儀表板資料暫未成功返回",
+    "statsLoadFailedHint": "目前顯示為佔位值，請稍後再試。",
+    "recentHeatsReloadHint": "請重新整理頁面或檢查後端爐次介面狀態。"
   },
   "baseline": {
     "title": "黃金基線庫",
@@ -265,6 +268,8 @@
     "resumeCuttingWithSubsequent": "恢復並聯動後續",
     "resumeCuttingOnlyCurrent": "僅恢復當前",
     "resumeCuttingSuccess": "切割已恢復",
+    "detailLoadFailed": "爐次詳情載入失敗",
+    "detailReloadHint": "請重新整理頁面或檢查後端爐次介面狀態。",
     "cuttingAlert": "目前有 {major} 個重大事故爐次，{blocked} 個阻斷爐次等待恢復",
     "emptyStateNoData": "目前暫無爐次資料",
     "emptyStateFilteredTitle": "目前篩選下沒有匹配爐次",

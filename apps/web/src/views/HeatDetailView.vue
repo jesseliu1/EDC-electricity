@@ -83,6 +83,8 @@ const heatStore = useHeatStore()
 
 const heatId = computed(() => String(route.params.id || ''))
 const current = computed(() => heatStore.current)
+const detailLoading = computed(() => heatStore.detailLoading)
+const detailError = computed(() => heatStore.detailError)
 
 const editingDescription = ref(false)
 const descriptionDraft = ref('')
@@ -1129,12 +1131,27 @@ watch(heatId, (requestedId) => {
     </div>
 
     <div
-      v-else
+      v-else-if="detailLoading"
       class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card"
+      data-testid="heat-detail-loading"
     >
       <span class="material-symbols-outlined text-slate-300 text-5xl">pending</span>
       <p class="text-sm text-slate-400 mt-3">
         {{ t('common.loading') }}
+      </p>
+    </div>
+
+    <div
+      v-else
+      class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card"
+      data-testid="heat-detail-error"
+    >
+      <span class="material-symbols-outlined text-amber-400 text-5xl">warning</span>
+      <p class="text-sm text-slate-600 mt-3 font-medium">
+        {{ detailError || t('heat.detailLoadFailed') }}
+      </p>
+      <p class="text-xs text-slate-400 mt-2">
+        {{ t('heat.detailReloadHint') }}
       </p>
     </div>
 

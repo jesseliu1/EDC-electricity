@@ -100,7 +100,10 @@
       "percent": "%"
     },
     "baselineStatusNormal": "正常",
-    "trendFromYesterday": "较昨日"
+    "trendFromYesterday": "较昨日",
+    "loadWarningTitle": "部分仪表盘数据暂未成功返回",
+    "statsLoadFailedHint": "当前显示为占位值，请稍后重试。",
+    "recentHeatsReloadHint": "请刷新页面或检查后端炉次接口状态。"
   },
   "baseline": {
     "title": "黄金基线库",
@@ -265,6 +268,8 @@
     "resumeCuttingWithSubsequent": "恢复并联动后续",
     "resumeCuttingOnlyCurrent": "仅恢复当前",
     "resumeCuttingSuccess": "切割已恢复",
+    "detailLoadFailed": "炉次详情加载失败",
+    "detailReloadHint": "请刷新页面或检查后端炉次接口状态。",
     "cuttingAlert": "当前有 {major} 个重大事故炉次，{blocked} 个阻断炉次等待恢复",
     "emptyStateNoData": "当前暂无炉次数据",
     "emptyStateFilteredTitle": "当前筛选下没有匹配炉次",

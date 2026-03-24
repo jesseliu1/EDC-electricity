@@ -18,10 +18,14 @@ interface HeatItem {
 
 interface Props {
   heats?: HeatItem[]
+  loading?: boolean
+  errorMessage?: string | null
 }
 
 withDefaults(defineProps<Props>(), {
   heats: () => [],
+  loading: false,
+  errorMessage: null,
 })
 
 // 偏差值颜色
@@ -161,7 +165,34 @@ const handleViewDetail = (heatNo: string) => {
             </td>
           </tr>
           <!-- 空状态 -->
-          <tr v-if="heats.length === 0">
+          <tr v-if="loading && heats.length === 0">
+            <td
+              colspan="5"
+              class="px-6 py-10 text-center"
+              data-testid="dashboard-recent-heats-loading"
+            >
+              <span class="material-symbols-outlined text-slate-300 text-4xl">progress_activity</span>
+              <p class="text-sm text-slate-400 mt-2">
+                {{ t('common.loading') }}
+              </p>
+            </td>
+          </tr>
+          <tr v-else-if="errorMessage && heats.length === 0">
+            <td
+              colspan="5"
+              class="px-6 py-10 text-center"
+              data-testid="dashboard-recent-heats-error"
+            >
+              <span class="material-symbols-outlined text-amber-400 text-4xl">warning</span>
+              <p class="text-sm text-slate-600 mt-2 font-medium">
+                {{ errorMessage }}
+              </p>
+              <p class="text-xs text-slate-400 mt-2">
+                {{ t('dashboard.recentHeatsReloadHint') }}
+              </p>
+            </td>
+          </tr>
+          <tr v-else-if="heats.length === 0">
             <td
               colspan="5"
               class="px-6 py-10 text-center"

@@ -5,7 +5,7 @@
 ## 跟踪问题 (Tracked)
 
 ### P0 从宿主进入 EDC 后 Dashboard 首屏统计与最近炉次请求超时，页面进入“假空态”
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-24）
 - **页面/模块**: ASNS 宿主入口 -> EDC / Dashboard
 - **复现步骤**:
   1. 启动宿主、后端与 EDC 前端
@@ -29,6 +29,12 @@
 - **根因初判**:
   - Dashboard 的 `stats` 与 `recent-heats` 都会走 `dashboard.py -> _sorted_dashboard_heats() -> heats.py -> _list_heat_store()`
   - 冷启动下该链路会触发真实炉次推断，导致宿主入口首次打开 Dashboard 时首屏过慢
+- **修复结果**:
+  - `apps/web/src/stores/dashboard.ts` 不再在统计/最近炉次请求失败时直接回退成 `0 / []`
+  - `apps/web/src/views/DashboardView.vue` 首轮失败时改为显示明确告警，并把统计卡渲染为占位值 `--`
+  - `apps/web/src/components/dashboard/HeatList.vue` 已新增最近炉次错误态，不再把失败伪装成“暂无炉次数据”
+- **回归结果**:
+  - `pnpm --dir apps/web exec playwright test e2e/loading-error-states.spec.ts` 已覆盖并通过 Dashboard 错误态场景
 - **期望结果**:
   - 从宿主进入 EDC 后，Dashboard 首屏应在前端超时阈值内完成加载
   - 若真实链路变慢，应明确区分“超时 / 性能问题”和“空数据”
@@ -41,7 +47,7 @@
   4. 再次刷新验证热态表现，确认冷/热态都不会误导成空态
 
 ### P0 炉次详情首屏请求超时，页面长时间停留在占位与“加载中”
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-24）
 - **页面/模块**: 炉次浏览 / 炉次详情
 - **复现步骤**:
   1. 直接进入某条真实推断炉次详情，例如 `/heats/live-heat-1774007237847-1774009243556`
@@ -64,6 +70,11 @@
   - 炉次详情首屏主数据与 compare 请求应在可接受时间内完成
   - 若接口超时，应给出明确错误提示，而不是长时间保留“pending / 加载中”占位
   - 页面状态不应把“请求失败”伪装成“业务待分析”
+- **修复结果**:
+  - `apps/web/src/stores/heat.ts` 已新增详情错误态
+  - `apps/web/src/views/HeatDetailView.vue` 已在详情请求失败后退出 loading，并显示明确错误提示与重试指引
+- **回归结果**:
+  - `pnpm --dir apps/web exec playwright test e2e/loading-error-states.spec.ts` 已覆盖并通过 Heat detail 错误态场景
 - **严重程度**: 高
 - **如何测试**:
   1. 在后端冷启动后直接打开真实推断炉次详情

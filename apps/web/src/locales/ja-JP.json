@@ -100,7 +100,10 @@
       "percent": "%"
     },
     "baselineStatusNormal": "正常",
-    "trendFromYesterday": "前日比"
+    "trendFromYesterday": "前日比",
+    "loadWarningTitle": "ダッシュボードの一部データをまだ取得できていません",
+    "statsLoadFailedHint": "現在はプレースホルダー値を表示しています。しばらくしてから再試行してください。",
+    "recentHeatsReloadHint": "ページを再読み込みするか、バックエンドのヒート API を確認してください。"
   },
   "baseline": {
     "title": "ゴールデンベースライン",
@@ -265,6 +268,8 @@
     "resumeCuttingWithSubsequent": "再開して後続反映",
     "resumeCuttingOnlyCurrent": "現在のみ再開",
     "resumeCuttingSuccess": "切り分けを再開しました",
+    "detailLoadFailed": "炉次詳細の読み込みに失敗しました",
+    "detailReloadHint": "ページを再読み込みするか、バックエンドの炉次 API を確認してください。",
     "cuttingAlert": "重大事故ヒート {major} 件、停止ヒート {blocked} 件が復旧待ちです",
     "emptyStateNoData": "現在表示できる炉次データはありません。",
     "emptyStateFilteredTitle": "現在の絞り込み条件に一致する炉次がありません。",
