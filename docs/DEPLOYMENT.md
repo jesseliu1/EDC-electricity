@@ -2,6 +2,14 @@
 
 > 当前仓库的可用部署入口以本文为准。历史脚本和旧版 DOCX 仅保留作参考，不再作为上线依据。
 
+当前这台服务器的固定模板 / 脚本入口：
+
+- `deploy/systemd/edc-backend.service.example`
+- `deploy/systemd/asns-host.service.example`
+- `scripts/sync-edc-server.sh`
+- `scripts/publish-edc-web-and-asns.sh`
+- 服务器路径与同步原则见 `docs/SERVER_LAYOUT_AND_SYNC.md`
+
 ## 1. 部署范围
 
 本项目当前包含 3 个需要区分的运行单元：
@@ -149,6 +157,13 @@ PORT=3001
 4. 配置反向代理
 5. 打开宿主首页，执行一次 EDC 连线测试与通道同步
 6. 从宿主进入 EDC 页面，确认 Dashboard、Heats、Baselines 正常
+
+如果是在当前服务器上按既定目录重发，优先执行：
+
+```bash
+./scripts/sync-edc-server.sh
+./scripts/publish-edc-web-and-asns.sh
+```
 
 ## 7. 最小验收清单
 

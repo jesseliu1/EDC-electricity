@@ -31,10 +31,25 @@
 - [x] 已完成 `live_inferred` 炉次 ID 稳定化代码修复：后端改为 canonical ID + legacy 兼容解析；待服务重启后现场验证旧详情链接与基线来源炉次链路
 - [x] 已完成宿主子路径部署与同域联通第一轮收口：去掉宿主对 `/assets` 根路径、`127.0.0.1:3000/edc/`、`127.0.0.1:8000/api` 的硬编码依赖，并新增宿主生产服务入口 `server.mjs`
 - [x] 已收口“新建黄金基线后炉次浏览看起来空白”问题：确认不是 `/api/heats` 无数据，而是列表页轻量状态未基于基线重算，异常筛选被误空
+- [x] 已把当前服务器目录布局、systemd 模板和同步脚本正式收进仓库，后续不再依赖口头命令
 
 ---
 
 ## 已完成
+
+### 2026-03-24（服务器布局与同步模板入库）
+
+- [x] 已把当前服务器固定路径和同步原则沉淀为仓库内可追踪文件
+  - [x] `deploy/systemd/edc-backend.service.example` 已记录 EDC 后端用户态 service 模板
+  - [x] `deploy/systemd/asns-host.service.example` 已记录 ASNS 宿主用户态 service 模板
+  - [x] `scripts/sync-edc-server.sh` 已固化“主仓 `apps/server` -> 运行副本 `/home/openclaw/edc-electricity-server`”的安全同步流程
+  - [x] `scripts/publish-edc-web-and-asns.sh` 已固化“版本化发布 EDC 前端 + 构建并重启 ASNS”的发布流程
+- [x] 已更新部署与服务器文档
+  - [x] `docs/SERVER_LAYOUT_AND_SYNC.md` 已指向 service 模板与脚本入口
+  - [x] `docs/DEPLOYMENT.md` 已补当前服务器的固定执行入口
+- [x] 已完成最小校验
+  - [x] `bash -n scripts/sync-edc-server.sh`
+  - [x] `bash -n scripts/publish-edc-web-and-asns.sh`
 
 ### 2026-03-24（炉次浏览状态筛选与空态提示收口）
 

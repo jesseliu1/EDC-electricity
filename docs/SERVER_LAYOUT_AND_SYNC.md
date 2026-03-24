@@ -24,6 +24,13 @@
 - EDC 后端 service：`/home/openclaw/.config/systemd/user/edc-backend.service`
 - ASNS 宿主 service：`/home/openclaw/.config/systemd/user/asns-host.service`
 
+仓库内已固化的模板 / 脚本：
+
+- `deploy/systemd/edc-backend.service.example`
+- `deploy/systemd/asns-host.service.example`
+- `scripts/sync-edc-server.sh`
+- `scripts/publish-edc-web-and-asns.sh`
+
 当前指向关系：
 
 - `edc-backend.service`
@@ -89,6 +96,24 @@
 
 ## 4. 以后如何同步
 
+### 0. 先用仓库内模板恢复 service
+
+如果用户态 service 丢失，优先从仓库模板恢复：
+
+```bash
+cd /home/openclaw/projects/EDC-electricity
+mkdir -p ~/.config/systemd/user
+cp deploy/systemd/edc-backend.service.example ~/.config/systemd/user/edc-backend.service
+cp deploy/systemd/asns-host.service.example ~/.config/systemd/user/asns-host.service
+systemctl --user daemon-reload
+systemctl --user enable --now edc-backend.service asns-host.service
+```
+
+说明：
+
+- 模板就是按当前这台服务器的实际路径写的，不是泛化示例
+- ASNS 仍然要保持“构建 `/asns/`、运行 `/`”这组值
+
 ### A. 先把主仓同步到 GitHub
 
 如果你明确要丢弃本地临时改动，以 GitHub 为准：
@@ -103,6 +128,13 @@ git clean -fd
 如果你还要保留本地临时工作，不要直接执行这组命令，先备份。
 
 ### B. 同步 EDC 后端
+
+优先直接使用仓库脚本：
+
+```bash
+cd /home/openclaw/projects/EDC-electricity
+./scripts/sync-edc-server.sh
+```
 
 原则：
 
@@ -147,6 +179,13 @@ curl -sS http://127.0.0.1:8001/health
 ```
 
 ### C. 同步 EDC 前端
+
+优先直接使用仓库脚本：
+
+```bash
+cd /home/openclaw/projects/EDC-electricity
+./scripts/publish-edc-web-and-asns.sh
+```
 
 原则：
 
@@ -197,6 +236,13 @@ curl -I --max-time 10 https://hopeofthepantheon.me/edc/
 - 如果后续要清理 legacy `assets/`，需要单独安排带权限的清理窗口
 
 ### D. 同步 ASNS
+
+如果只需要重建并重启 ASNS，也可以复用同一个脚本；它会：
+
+- 构建 EDC 前端并按版本化 assets 发布
+- 用 `/asns/` base 构建 ASNS
+- 重启 `asns-host.service`
+- 校验 `https://hopeofthepantheon.me/edc/` 与 `https://hopeofthepantheon.me/asns/`
 
 ASNS 不再使用独立运行副本，直接从主仓运行。
 
