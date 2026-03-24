@@ -1341,6 +1341,12 @@
   - [x] `pnpm --dir apps/web build`
   - [x] 本地 HTTP 复核：新建基线 `范德萨` 的 compare baseline 时间戳已收口到当前炉次核心窗口，当前曲线已扩到前后 `60` 分钟
 
+### 2026-03-24（服务器目录映射与同步手册）
+- [x] 已新增 `docs/SERVER_LAYOUT_AND_SYNC.md`
+  - [x] 已记录当前服务器上的代码库、运行库、发布目录与 systemd service 指向关系
+  - [x] 已记录 GitHub -> 主仓 -> 运行副本 / 发布目录 的单向同步口径
+  - [x] 已补 EDC 后端、EDC 前端、ASNS 三条同步流程与最小验收命令
+
 ---
 
 ## 进行中
