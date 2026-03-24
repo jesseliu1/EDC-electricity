@@ -43,6 +43,24 @@ const statusFilters: { key: StatusFilter; label: string }[] = [
   { key: 'pending', label: '待处理' }
 ]
 
+const hasActiveListFilters = computed(
+  () => heatStore.filters.status !== 'all' || heatStore.filters.dateRange !== null
+)
+const activeStatusFilterLabel = computed(
+  () => statusFilters.find((item) => item.key === heatStore.filters.status)?.label || '全部状态'
+)
+const emptyStateTitle = computed(() =>
+  hasActiveListFilters.value ? t('heat.emptyStateFilteredTitle') : t('heat.emptyStateNoData')
+)
+const emptyStateDescription = computed(() => {
+  if (!hasActiveListFilters.value) {
+    return t('common.noData')
+  }
+  return t('heat.emptyStateFilteredBody', {
+    filter: activeStatusFilterLabel.value
+  })
+})
+
 function statusBadgeType(status: HeatStatus) {
   if (status === 'normal') return 'success' as const
   if (status === 'abnormal') return 'danger' as const
@@ -143,6 +161,11 @@ function handleStatusChange(value: StatusFilter) {
 function handleDateRangeChange(value: [Date, Date] | null) {
   expandedHeatId.value = ''
   void heatStore.setDateRange(value)
+}
+
+function handleResetFilters() {
+  expandedHeatId.value = ''
+  void heatStore.resetFilters()
 }
 
 function handleViewDetail(id: string) {
@@ -517,9 +540,19 @@ onMounted(() => {
         class="py-16 flex flex-col items-center justify-center"
       >
         <span class="material-symbols-outlined text-slate-300 text-5xl">dataset</span>
-        <p class="text-sm text-slate-400 mt-3">
-          {{ t('common.noData') }}
+        <p class="mt-3 text-sm font-medium text-slate-500">
+          {{ emptyStateTitle }}
         </p>
+        <p class="mt-2 text-sm text-slate-400">
+          {{ emptyStateDescription }}
+        </p>
+        <button
+          v-if="hasActiveListFilters"
+          class="mt-4 inline-flex items-center rounded-lg border border-border-light bg-white px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:border-primary/30 hover:text-primary"
+          @click="handleResetFilters"
+        >
+          {{ t('heat.resetFilters') }}
+        </button>
       </div>
     </div>
   </div>

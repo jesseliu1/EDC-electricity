@@ -266,6 +266,10 @@
     "resumeCuttingOnlyCurrent": "現在のみ再開",
     "resumeCuttingSuccess": "切り分けを再開しました",
     "cuttingAlert": "重大事故ヒート {major} 件、停止ヒート {blocked} 件が復旧待ちです",
+    "emptyStateNoData": "現在表示できる炉次データはありません。",
+    "emptyStateFilteredTitle": "現在の絞り込み条件に一致する炉次がありません。",
+    "emptyStateFilteredBody": "現在の絞り込みは「{filter}」です。「全状態」に戻すか日付範囲をクリアして再試行してください。",
+    "resetFilters": "すべての炉次を見る",
     "scheduleTag": {
       "work": "作業時間",
       "break": "休憩時間",

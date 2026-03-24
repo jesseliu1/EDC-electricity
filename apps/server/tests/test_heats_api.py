@@ -930,16 +930,71 @@ async def test_mock_stream_endpoints_use_dedicated_store(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_heats_does_not_hydrate_baselines(client, monkeypatch) -> None:
-    async def fail_hydrate(_item):
-        raise AssertionError("list_heats should not hydrate baselines")
+async def test_list_heats_recomputes_status_before_filtering(client, monkeypatch) -> None:
+    start_time = datetime(2026, 3, 24, 8, 0, 0)
+    end_time = start_time + timedelta(minutes=30)
+    current_power_curve = [
+        CurvePoint(timestamp=int((start_time + timedelta(minutes=index * 10)).timestamp() * 1000), value=120.0)
+        for index in range(4)
+    ]
+    baseline_power_curve = [
+        CurvePoint(timestamp=int((start_time - timedelta(hours=4) + timedelta(minutes=index * 10)).timestamp() * 1000), value=60.0)
+        for index in range(4)
+    ]
 
-    monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fail_hydrate)
+    async def fake_list_heat_store():
+        return {
+            "heat-live-1": {
+                "id": "heat-live-1",
+                "heat_no": "H20260324-0800",
+                "description": "Furnace-A01",
+                "start_time": start_time,
+                "end_time": end_time,
+                "baseline_id": None,
+                "baseline_ids": [],
+                "deviation_percent": None,
+                "avg_deviation_percent": None,
+                "time_offset_percent": 0.0,
+                "mismatch_duration_minutes": 0,
+                "schedule_tag": "work",
+                "cut_reason": "within_tolerance",
+                "cut_status": "normal",
+                "major_issue": False,
+                "blocked_by_issue": False,
+                "status": "normal",
+                "temperature": 1450.0,
+                "record_source": "live_inferred",
+                "current_curve_source": "live_edc",
+                "baseline_curve_source": "none",
+                "created_at": start_time,
+                "power_curve": current_power_curve,
+                "voltage_curve": [],
+                "baseline_power_curve": [],
+            }
+        }
 
-    response = await client.get("/api/heats", params={"page": 1, "page_size": 10})
+    async def fake_hydrate_compare_baselines(_baseline_ids):
+        return {
+            "baseline-001": {
+                "id": "baseline-001",
+                "name": "默认黄金基线",
+                "power_curve": baseline_power_curve,
+                "curve_source": "live_edc",
+                "tolerance_percent": 15.0,
+            }
+        }
+
+    _SETTINGS_STORE["active_baseline_id"]["value"] = "baseline-001"
+    monkeypatch.setattr("src.api.heats._list_heat_store", fake_list_heat_store)
+    monkeypatch.setattr("src.api.heats._hydrate_compare_baselines", fake_hydrate_compare_baselines)
+
+    response = await client.get("/api/heats", params={"status": "abnormal", "page": 1, "page_size": 10})
     assert response.status_code == 200
     payload = response.json()
-    assert payload["items"]
+    assert payload["total"] == 1
+    assert payload["items"][0]["id"] == "heat-live-1"
+    assert payload["items"][0]["status"] == "abnormal"
+    assert payload["items"][0]["deviation_percent"] is not None
 
 
 @pytest.mark.asyncio

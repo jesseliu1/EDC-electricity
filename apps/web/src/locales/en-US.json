@@ -266,6 +266,10 @@
     "resumeCuttingOnlyCurrent": "Resume Current Only",
     "resumeCuttingSuccess": "Cutting resumed",
     "cuttingAlert": "There are {major} major-issue heats and {blocked} blocked heats pending recovery",
+    "emptyStateNoData": "No heat data is available right now.",
+    "emptyStateFilteredTitle": "No heats match the current filters.",
+    "emptyStateFilteredBody": "The current filter is \"{filter}\". Switch back to \"All\" or clear the date range and try again.",
+    "resetFilters": "View all heats",
     "scheduleTag": {
       "work": "Work Shift",
       "break": "Break Window",

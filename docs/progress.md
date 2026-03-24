@@ -30,10 +30,30 @@
 - [x] 已继续把统一运行态摘要补齐到基线定义页与设置页，主导航入口页现已全部接到统一运行态读取面
 - [x] 已完成 `live_inferred` 炉次 ID 稳定化代码修复：后端改为 canonical ID + legacy 兼容解析；待服务重启后现场验证旧详情链接与基线来源炉次链路
 - [x] 已完成宿主子路径部署与同域联通第一轮收口：去掉宿主对 `/assets` 根路径、`127.0.0.1:3000/edc/`、`127.0.0.1:8000/api` 的硬编码依赖，并新增宿主生产服务入口 `server.mjs`
+- [x] 已收口“新建黄金基线后炉次浏览看起来空白”问题：确认不是 `/api/heats` 无数据，而是列表页轻量状态未基于基线重算，异常筛选被误空
 
 ---
 
 ## 已完成
+
+### 2026-03-24（炉次浏览状态筛选与空态提示收口）
+
+- [x] 已定位“新建黄金基线后炉次浏览不显示”的直接原因
+  - [x] 后端日志确认 `/api/heats` 仍正常返回 live 炉次，不是列表接口挂掉
+  - [x] 页面空白时实际请求为 `/api/heats?...&status=abnormal`，当前筛选命中 0 条
+  - [x] 已确认新建并发布基线不会自动替换 active baseline；这不是本次空白的直接根因
+- [x] 已修复炉次列表轻量口径与筛选口径不一致
+  - [x] `apps/server/src/api/heats.py` 现会先为列表批量 hydrate 已用基线，再按当前炉次时间窗重映射基线曲线并重算 `deviation_percent / avg_deviation_percent / status`
+  - [x] 列表筛选改为基于重算后的状态执行，`status=abnormal` 不再被旧的轻量状态误空
+- [x] 已补前端空态可解释性
+  - [x] `apps/web/src/views/HeatListView.vue` 空列表时会明确显示“当前筛选下没有匹配炉次”
+  - [x] 已增加一键回到“全部状态 / 清空日期”的重置入口，降低误判为“炉次消失”
+- [x] 本地验证结果
+  - [x] `apps/server/.venv/Scripts/python.exe -m pytest apps/server/tests/test_heats_api.py -k "test_list_heats_recomputes_status_before_filtering or test_list_heats_filter_by_status"` 通过
+  - [x] `apps/server/.venv/Scripts/ruff.exe check apps/server/src/api/heats.py apps/server/tests/test_heats_api.py` 通过
+  - [x] `pnpm --dir apps/web lint` 通过
+  - [x] `pnpm --dir apps/web build` 通过
+  - [x] 现有 `test_heat_list_and_compare_follow_active_default_baseline` 在当前环境仍会碰到既有 SQLite 路径问题：`unable to open database file`，与本次修复无关
 
 ### 2026-03-21（live_inferred 炉次 ID 稳定化代码修复）
 

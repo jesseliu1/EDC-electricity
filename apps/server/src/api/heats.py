@@ -1282,13 +1282,17 @@ async def _hydrate_heat_item(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-def _build_heat_list_view(item: dict[str, Any]) -> dict[str, Any]:
+def _build_heat_list_view(
+    item: dict[str, Any],
+    *,
+    hydrated_baseline_item: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """列表接口只返回轻量字段，不在此处触发基线 hydrate 或实时取数。"""
     response_item = dict(item)
     baseline_id = _resolve_primary_baseline_id(item)
     response_item["baseline_id"] = baseline_id
 
-    baseline_item = _BASELINE_STORE.get(baseline_id) if baseline_id else None
+    baseline_item = hydrated_baseline_item or (_BASELINE_STORE.get(baseline_id) if baseline_id else None)
     if baseline_item:
         response_item["baseline_curve_source"] = str(
             baseline_item.get("curve_source") or item.get("baseline_curve_source") or "none"
@@ -1297,8 +1301,10 @@ def _build_heat_list_view(item: dict[str, Any]) -> dict[str, Any]:
     if response_item.get("status") == "pending":
         return response_item
 
-    baseline_power_curve = _coerce_curve_points(
-        (baseline_item or {}).get("power_curve") or response_item.get("baseline_power_curve")
+    baseline_power_curve = _rebase_curve_points_to_window(
+        (baseline_item or {}).get("power_curve") or response_item.get("baseline_power_curve"),
+        target_start_time=response_item["start_time"],
+        target_end_time=response_item["end_time"],
     )
     current_power_curve = _coerce_curve_points(response_item.get("power_curve"))
     if not baseline_power_curve or not current_power_curve:
@@ -1316,7 +1322,30 @@ def _build_heat_list_view(item: dict[str, Any]) -> dict[str, Any]:
     )
     response_item["deviation_percent"] = result["max_deviation"]
     response_item["avg_deviation_percent"] = result["avg_deviation"]
+    response_item["status"] = (
+        "abnormal"
+        if response_item.get("status") == "abnormal" or result["status"] == "abnormal"
+        else "normal"
+    )
     return response_item
+
+
+async def _build_heat_list_views(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    baseline_ids = sorted(
+        {
+            baseline_id
+            for item in items
+            if (baseline_id := _resolve_primary_baseline_id(item)) is not None
+        }
+    )
+    hydrated_baselines = await _hydrate_compare_baselines(baseline_ids)
+    return [
+        _build_heat_list_view(
+            item,
+            hydrated_baseline_item=hydrated_baselines.get(_resolve_primary_baseline_id(item) or ""),
+        )
+        for item in items
+    ]
 
 
 async def _build_heat_response_view(item: dict[str, Any]) -> dict[str, Any]:
@@ -2186,21 +2215,22 @@ async def list_heats(
     started_at = perf_counter()
     items = list((await _list_heat_store()).values())
     items.sort(key=lambda x: x["start_time"], reverse=True)
+    prepared_items = await _build_heat_list_views(items)
 
     if status:
-        items = [item for item in items if item["status"] == status]
+        prepared_items = [item for item in prepared_items if item["status"] == status]
     if start_date:
-        items = [item for item in items if item["start_time"] >= start_date]
+        prepared_items = [item for item in prepared_items if item["start_time"] >= start_date]
     if end_date:
-        items = [item for item in items if item["start_time"] <= end_date]
+        prepared_items = [item for item in prepared_items if item["start_time"] <= end_date]
 
-    total = len(items)
+    total = len(prepared_items)
     start_idx = (page - 1) * page_size
     end_idx = start_idx + page_size
-    paged = items[start_idx:end_idx]
+    paged = prepared_items[start_idx:end_idx]
 
     response = HeatListResponse(
-        items=[_to_heat_response(_build_heat_list_view(item)) for item in paged],
+        items=[_to_heat_response(item) for item in paged],
         total=total,
         page=page,
         page_size=page_size,

@@ -266,6 +266,10 @@
     "resumeCuttingOnlyCurrent": "僅恢復當前",
     "resumeCuttingSuccess": "切割已恢復",
     "cuttingAlert": "目前有 {major} 個重大事故爐次，{blocked} 個阻斷爐次等待恢復",
+    "emptyStateNoData": "目前暫無爐次資料",
+    "emptyStateFilteredTitle": "目前篩選下沒有匹配爐次",
+    "emptyStateFilteredBody": "目前篩選為「{filter}」，可以切回「全部狀態」或清空日期範圍後再試。",
+    "resetFilters": "查看全部爐次",
     "scheduleTag": {
       "work": "作業時段",
       "break": "休息時段",

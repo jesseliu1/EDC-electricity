@@ -252,6 +252,17 @@ export const useHeatStore = defineStore('heat', {
       })
       await this.fetchList()
     },
+    async resetFilters() {
+      this.filters.status = 'all'
+      this.filters.dateRange = null
+      this.page = 1
+      persistHeatViewState({
+        page: this.page,
+        pageSize: this.pageSize,
+        filters: this.filters
+      })
+      await this.fetchList()
+    },
     async setPage(page: number) {
       this.page = page
       persistHeatViewState({
