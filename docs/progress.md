@@ -55,6 +55,18 @@
   - [x] `pnpm --dir apps/web build` 通过
   - [x] 现有 `test_heat_list_and_compare_follow_active_default_baseline` 在当前环境仍会碰到既有 SQLite 路径问题：`unable to open database file`，与本次修复无关
 
+### 2026-03-24（炉次详情 live inferred 深链 canonical 路由收口）
+
+- [x] 已定位“同一炉次详情刷新后 compare 视图不稳定”的第一层根因
+  - [x] 旧 `live_inferred` URL 会在后端被重新解析到当前最接近的 canonical 炉次
+  - [x] 前端详情页此前只消费 `route.params.id`，加载成功后不会把地址替换为后端返回的 canonical `heat_id`
+- [x] 已补详情页 canonical 路由同步
+  - [x] `apps/web/src/views/HeatDetailView.vue` 现已改为监听路由参数变化统一加载详情
+  - [x] 若后端返回的 `current.base.id` 与当前路由 `id` 不一致，前端会立即 `router.replace()` 到 canonical 详情地址，避免用户停留在会漂移的旧 live URL
+- [x] 本地验证结果
+  - [x] `pnpm --dir apps/web lint` 通过
+  - [x] `pnpm --dir apps/web build` 通过
+
 ### 2026-03-21（live_inferred 炉次 ID 稳定化代码修复）
 
 - [x] 修复 `live_inferred` 炉次 ID 随重新推断漂移
@@ -1295,6 +1307,20 @@
   - [x] `apps/server/tests/test_heats_api.py` 新增 stale persisted live record 不得覆盖全部当前 live rows 的回归用例
 - [x] 已完成本地验证
   - [x] `apps/server/.venv/Scripts/python.exe -m pytest tests/test_heats_api.py -k "list_heats_prefers_live_inferred_records_when_enabled or does_not_alias_stale_live_record_into_all_current_rows or live_inferred_legacy_id_remains_resolvable_and_returns_canonical_ids or live_inferred_canonical_id_stays_stable_across_small_boundary_changes"`（在 `apps/server` 目录执行）
+
+### 2026-03-24（炉次详情 compare 展示窗口回退：缺通道时不得退回炉次本体短窗）
+- [x] 已定位 compare 偶发短窗根因
+  - [x] `apps/server/src/api/heats.py` 在展示窗口共享曲线缺失时，`metric_curves.current_curve` 会回退到 `response_item["power_curve"] / ["voltage_curve"]`
+  - [x] compare 路由传入的 `response_item` 主曲线本身是炉次本体窗口，因此会把展示窗口图表污染成短窗
+  - [x] `/compare` 整包响应带 `20s` TTL，某次短窗回退一旦被写入缓存，前端短时间内会稳定看到错误窗口
+- [x] 已修复展示窗口 fallback 口径
+  - [x] `apps/server/src/api/heats.py` 新增按指定时间窗读取主功率/电压曲线的 helper
+  - [x] compare 路由在展示窗口共享曲线缺失时，会优先回退到“展示窗口主曲线”，不再退回炉次本体短窗
+- [x] 已补最小回归
+  - [x] `apps/server/tests/test_heats_api.py` 新增展示窗口共享曲线缺失时仍应回退到展示窗口长曲线的回归
+- [x] 已完成本地验证
+  - [x] `apps/server/.venv/Scripts/python.exe -m pytest apps/server/tests/test_heats_api.py -k "test_heat_compare_extends_display_current_curves_with_plus_minus_60_minutes or test_heat_compare_display_metric_curves_fall_back_to_display_window_live_curves or test_heat_compare_falls_back_to_direct_live_voltage_curve"`
+  - [x] `apps/server/.venv/Scripts/ruff.exe check apps/server/src/api/heats.py apps/server/tests/test_heats_api.py`
 
 ### 2026-03-23（新建基线 compare 跨天拉轴：基线时间窗映射与当前上下文窗口修复）
 - [x] 已记录新 issue 并按台账跟踪

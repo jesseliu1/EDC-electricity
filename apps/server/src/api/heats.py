@@ -1195,8 +1195,13 @@ async def _list_heat_store() -> dict[str, dict[str, Any]]:
     return merged
 
 
-async def _load_heat_curves_from_edc(item: dict[str, Any]) -> dict[str, list[CurvePoint]] | None:
-    """按炉次主基线绑定读取真实功率/电压曲线。"""
+async def _load_heat_curves_from_edc_window(
+    item: dict[str, Any],
+    *,
+    start_time: datetime,
+    end_time: datetime,
+) -> dict[str, list[CurvePoint]] | None:
+    """按指定时间窗读取炉次主基线绑定的真实功率/电压曲线。"""
     _baseline_id, metrics = _resolve_definition_metrics(item)
     if not metrics:
         return None
@@ -1217,9 +1222,6 @@ async def _load_heat_curves_from_edc(item: dict[str, Any]) -> dict[str, list[Cur
     config = get_edc_connection_config()
     if not config["base_url"] or not config["username"] or not config["password"]:
         return None
-
-    start_time = item["start_time"]
-    end_time = item["end_time"]
 
     try:
         async with EDCClient(**config) as client:
@@ -1253,6 +1255,15 @@ async def _load_heat_curves_from_edc(item: dict[str, Any]) -> dict[str, list[Cur
         curves[metric_key] = result
 
     return curves or None
+
+
+async def _load_heat_curves_from_edc(item: dict[str, Any]) -> dict[str, list[CurvePoint]] | None:
+    """按炉次主基线绑定读取真实功率/电压曲线。"""
+    return await _load_heat_curves_from_edc_window(
+        item,
+        start_time=item["start_time"],
+        end_time=item["end_time"],
+    )
 
 
 async def _hydrate_heat_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -2444,12 +2455,26 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         ),
     )
     live_curves = _resolve_heat_curves_from_shared_channels(item, shared_current_curves)
+    display_live_curves = _resolve_heat_curves_from_shared_channels(item, display_current_curves)
     if not live_curves.get("power") or not live_curves.get("voltage"):
         direct_live_curves = await _load_heat_curves_from_edc(item) or {}
         if not live_curves.get("power") and direct_live_curves.get("power"):
             live_curves["power"] = direct_live_curves["power"]
         if not live_curves.get("voltage") and direct_live_curves.get("voltage"):
             live_curves["voltage"] = direct_live_curves["voltage"]
+    if not display_live_curves.get("power") or not display_live_curves.get("voltage"):
+        direct_display_live_curves = await _load_heat_curves_from_edc_window(
+            item,
+            start_time=compare_display_start,
+            end_time=compare_display_end,
+        ) or {}
+        if not display_live_curves.get("power") and direct_display_live_curves.get("power"):
+            display_live_curves["power"] = direct_display_live_curves["power"]
+        if (
+            not display_live_curves.get("voltage")
+            and direct_display_live_curves.get("voltage")
+        ):
+            display_live_curves["voltage"] = direct_display_live_curves["voltage"]
 
     if live_curves:
         if live_curves.get("power"):
@@ -2479,8 +2504,10 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
             end_time=item["end_time"],
             minutes=46,
             baseline_id=baseline_id,
-            power_curve=response_item["power_curve"],
-            voltage_curve=response_item["voltage_curve"],
+            power_curve=display_live_curves.get("power")
+            or _coerce_curve_points(response_item.get("power_curve")),
+            voltage_curve=display_live_curves.get("voltage")
+            or _coerce_curve_points(response_item.get("voltage_curve")),
             current_curves_by_channel=display_current_curves,
             hydrated_baseline_item=hydrated_baselines.get(baseline_id),
             hydrate_baseline=False,

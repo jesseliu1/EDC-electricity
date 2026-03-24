@@ -263,11 +263,18 @@ async def test_heat_compare_falls_back_to_direct_live_voltage_curve(client, monk
             ],
         }
 
+    async def fake_load_heat_curves_from_edc_window(_item, *, start_time, end_time):
+        return await fake_load_heat_curves_from_edc(_item)
+
     monkeypatch.setattr(
         "src.api.heats._load_channel_curves_from_edc",
         fake_load_channel_curves_from_edc,
     )
     monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fake_load_heat_curves_from_edc)
+    monkeypatch.setattr(
+        "src.api.heats._load_heat_curves_from_edc_window",
+        fake_load_heat_curves_from_edc_window,
+    )
 
     compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert compare_resp.status_code == 200
@@ -487,6 +494,75 @@ async def test_heat_compare_extends_display_current_curves_with_plus_minus_60_mi
     assert len(payload["heat"]["power_curve"]) == 2
     assert len(first_baseline["metric_curves"][0]["current_curve"]) == 4
     assert first_baseline["metric_curves"][0]["current_curve"][0]["value"] == 401.0
+
+
+@pytest.mark.asyncio
+async def test_heat_compare_display_metric_curves_fall_back_to_display_window_live_curves(
+    client, monkeypatch
+) -> None:
+    heat_id = await _pick_heat_id(client)
+
+    async def fake_load_channel_curves_from_edc(*, start_time, end_time, **_kwargs):
+        duration_minutes = (end_time - start_time).total_seconds() / 60
+        if duration_minutes > 120:
+            return {}
+        return {
+            "2349:199": [
+                CurvePoint(timestamp=1000, value=501.0),
+                CurvePoint(timestamp=2000, value=502.0),
+            ],
+            "2349:128": [
+                CurvePoint(timestamp=1000, value=331.0),
+                CurvePoint(timestamp=2000, value=332.0),
+            ],
+        }
+
+    async def fake_load_heat_curves_from_edc_window(_item, *, start_time, end_time):
+        duration_minutes = (end_time - start_time).total_seconds() / 60
+        if duration_minutes > 120:
+            return {
+                "power": [
+                    CurvePoint(timestamp=1000, value=701.0),
+                    CurvePoint(timestamp=2000, value=702.0),
+                    CurvePoint(timestamp=3000, value=703.0),
+                    CurvePoint(timestamp=4000, value=704.0),
+                ],
+                "voltage": [
+                    CurvePoint(timestamp=1000, value=381.0),
+                    CurvePoint(timestamp=2000, value=382.0),
+                    CurvePoint(timestamp=3000, value=383.0),
+                    CurvePoint(timestamp=4000, value=384.0),
+                ],
+            }
+        return {
+            "power": [
+                CurvePoint(timestamp=1000, value=611.0),
+                CurvePoint(timestamp=2000, value=612.0),
+            ],
+            "voltage": [
+                CurvePoint(timestamp=1000, value=351.0),
+                CurvePoint(timestamp=2000, value=352.0),
+            ],
+        }
+
+    monkeypatch.setattr(
+        "src.api.heats._load_channel_curves_from_edc",
+        fake_load_channel_curves_from_edc,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._load_heat_curves_from_edc_window",
+        fake_load_heat_curves_from_edc_window,
+    )
+
+    compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
+    assert compare_resp.status_code == 200
+    payload = compare_resp.json()
+    first_baseline = payload["baselines"][0]
+    assert len(payload["heat"]["power_curve"]) == 2
+    assert payload["heat"]["power_curve"][0]["value"] == 501.0
+    assert len(first_baseline["metric_curves"][0]["current_curve"]) == 4
+    assert first_baseline["metric_curves"][0]["current_curve"][0]["value"] == 701.0
+    assert first_baseline["metric_curves"][1]["current_curve"][1]["value"] == 382.0
 
 
 @pytest.mark.asyncio

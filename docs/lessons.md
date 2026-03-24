@@ -21,6 +21,20 @@
 
 ## 记录
 
+### 2026-03-24 compare 展示窗口回退：不能拿炉次本体短窗兜底
+
+- **错误模式**: compare 详情同时维护“炉次本体窗口主曲线”和“展示窗口 metric_curves”。当展示窗口共享通道曲线偶发缺失时，后端直接拿 `response_item["power_curve"] / ["voltage_curve"]` 兜底，而这两个字段在 compare 路径里通常是炉次本体短窗，结果会把展示窗口图表错误压缩回 30 分钟左右。
+- **正确做法**: compare 图表的任何 fallback 都必须坚持同一展示口径；如果 `metric_curves` 目标是“当前炉次前后各 60 分钟”，那缺通道时也只能回退到同一展示窗口的主曲线，不能混用炉次本体短窗。
+- **适用场景**: 多时间窗并存的详情接口、图表接口同时返回 summary 曲线和 display 曲线、共享曲线缓存失败后的兜底路径。
+- **相关文档**: BACKEND_STRUCTURE.md
+
+### 2026-03-24 live inferred 详情深链：前端不能长期停留在旧推断 URL
+
+- **错误模式**: 后端已把 `live_inferred` 炉次解析为稳定 canonical id，但前端详情页仍长期使用进入页面时的旧 `route.params.id`，加载成功后不把地址替换成后端返回的 canonical `heat_id`。这样同一个旧链接在刷新后会被重新解析到“当前最接近”的炉次，用户会误以为是 compare 图表随机变化。
+- **正确做法**: 对运行时推断对象的详情页，前端在拉到详情后必须校准路由；如果接口返回的 canonical id 与当前 URL 不一致，应立即 `router.replace()` 到 canonical 详情地址，并让详情加载逻辑跟随路由参数变化统一重载。
+- **适用场景**: 本地推断业务对象、legacy id 兼容 canonical id、live inferred 炉次详情、任何“后端会把旧深链解析到新稳定身份”的页面。
+- **相关文档**: BACKEND_STRUCTURE.md
+
 ### 2024-02-09 项目初始化
 
 - **错误模式**: 无（项目刚开始）

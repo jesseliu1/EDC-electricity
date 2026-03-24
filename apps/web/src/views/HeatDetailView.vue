@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
   ElDatePicker,
@@ -78,6 +78,7 @@ type ExposedChart = ECharts | { value?: ECharts | undefined }
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const heatStore = useHeatStore()
 
 const heatId = computed(() => String(route.params.id || ''))
@@ -808,12 +809,29 @@ async function handleResumeCutting() {
   ElMessage.success(t('heat.resumeCuttingSuccess'))
 }
 
-onMounted(() => {
-  if (!heatId.value) return
-  void heatStore.fetchDetail(heatId.value).then(() => {
-    activeBaselineId.value = heatStore.current?.baselineComparisons[0]?.baseline.id || ''
+async function syncDetailRouteToCanonicalId(requestedId: string) {
+  const resolvedId = heatStore.current?.base.id
+  if (!resolvedId || resolvedId === requestedId || heatId.value !== requestedId) return
+
+  await router.replace({
+    path: `/heats/${resolvedId}`,
+    query: route.query,
   })
-})
+}
+
+async function loadHeatDetail(requestedId: string) {
+  if (!requestedId) return
+
+  await heatStore.fetchDetail(requestedId)
+  if (heatId.value !== requestedId) return
+
+  activeBaselineId.value = heatStore.current?.baselineComparisons[0]?.baseline.id || ''
+  await syncDetailRouteToCanonicalId(requestedId)
+}
+
+watch(heatId, (requestedId) => {
+  void loadHeatDetail(requestedId)
+}, { immediate: true })
 </script>
 
 <template>
