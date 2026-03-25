@@ -63,11 +63,37 @@
 - [x] 已完成剩余 16 条“已修复并回归通过” tracked issues 的最小回归与标准状态归一化：`docs/ui_issues.md` 已不再残留该状态文案
 - [x] 已完成 EDC 后端 pytest 环境缺口最小调查：确认项目配置本身完整，但当前服务器缺少可直接运行的 `uv` / `python3.11`，且 `apps/server/venv` 仅残留不完整 `site-packages`，本轮不做高风险环境重建，改以文档留痕和下一阶段 handoff 收口
 - [x] 已完成 ASNS 宿主 `npm test` 最小基座修复：`hostConnectivitySync.ts` 的环境变量读取已兼容 Node test 环境，`npm test / lint / build` 当前均可运行
-- [x] 已同步 QA 新发现：当前 `127.0.0.1:8000` 与 `127.0.0.1:8080` 都不可达，真实联调仍受环境阻塞；`Heat Detail` 在详情失败时“手动调整”按钮仍可点击但静默无响应，已入账待后续处理
+- [x] 已同步 QA 新发现：当前 `127.0.0.1:8000` 与 `127.0.0.1:8080` 都不可达，真实联调仍受环境阻塞；`Heat Detail` 在详情失败时“手动调整”按钮 silent no-op 已按最小方案收口为禁用态 + 明确提示
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第三十六批 issue：Heat Detail error-state 手动调整按钮 silent no-op 收口）
+
+- [x] 已按 investigate 顺序复现并确认根因
+  - [x] 已确认 `apps/web/src/views/HeatDetailView.vue` 顶部“手动调整”按钮在详情失败时始终渲染，但 `openManualAdjust()` 在 `!current.value` 时直接 `return`
+  - [x] 已判断这属于 error-state / loading-state 的交互护栏缺失，而不是手动调整弹窗主链路回退
+  - [x] 已按最小改动策略只收口按钮可用性与错误态提示，不扩到手动调整保存逻辑、接口协议或详情加载架构
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/HeatDetailView.vue` 已新增 `manualAdjustDisabledReason / canManualAdjust`，详情未就绪时按钮进入真实禁用态，不再保留可点击但静默无响应的入口
+  - [x] `openManualAdjust()` 已补函数级提示兜底；即使被程序化触发，也会给出“当前无可用炉次数据，无法手动调整”而不是 silent return
+  - [x] Heat Detail error-state 卡片已补明确说明，用户可直接看到当前无法手动调整的原因
+  - [x] 四套 locale 已补 `heat.manualAdjustUnavailable`，避免再引入硬编码文案或 i18n 缺口
+  - [x] `apps/web/e2e/loading-error-states.spec.ts` 已补定向断言，覆盖 error-state 下按钮禁用与明确提示
+- [x] 本轮测试留痕
+  - [x] 测试范围：Heat Detail 详情失败错误态、手动调整入口禁用反馈、相关 locale/build 回归
+  - [x] 验证步骤：模拟 `GET /api/heats/:id/compare` 504；进入 `Heat Detail`；确认页面退出 loading、进入错误态；检查“手动调整”按钮已禁用且带明确不可用提示；随后执行 locale/lint/build 回归
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/loading-error-states.spec.ts -g "heat detail exits loading state, disables manual adjust, and shows explicit error when compare request fails"`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；当前 `master` 上 Heat Detail 在详情失败时不再保留 silent no-op 的“手动调整”按钮
+  - [x] 未覆盖项：本轮仍未恢复 `127.0.0.1:8000` / `127.0.0.1:8080` 真实运行环境，因此没有在真实后端 error-state 与恢复后的 happy path 上做浏览器联调；手动调整保存链路仍以既有专项回归为准
+  - [x] 当前状态：当前仓库内 tracked issues 已继续保持标准收口状态；前端 mocked/error-state 回归新增一条稳定护栏；当前主要剩余风险仍是后端运行环境不可达与 pytest 入口缺失
+  - [x] 下一步：继续按 `docs/session_handoff.md` 交给 Code X + `review` skill 做 full review/full test，优先恢复 `8000/8080` 与后端 pytest 入口，再复跑 Dashboard 最近炉次 -> Heat Detail、Heat Detail 手动调整、生成纠偏任务 -> Task Detail 等真实 acceptance 路径
+  - [x] `docs/lessons.md` 本轮未新增：现有“正式页上的动作按钮必须要么可用、要么明确禁用”经验已覆盖这次错误态 CTA 护栏问题
+  - [x] 已同步 `docs/session_handoff.md`：去掉已过时的 open issue 描述，确保下一阶段 review/full test 直接基于当前已收口状态开展
 
 ### 2026-03-25（第三十五批 issue：QA 新发现收口 + ASNS 宿主 npm test 最小基座修复）
 

@@ -36,7 +36,7 @@
   3. 再执行 `npm run lint` 与 `npm run build`，确认本轮 env shim 未带来副作用
 
 ### P1 炉次详情数据加载失败时“手动调整”按钮仍可点击但静默无响应
-- **状态**: 待修复（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 炉次详情 / error-state / 手动调整入口
 - **复现步骤**:
   1. 在浏览器中打开 `Heat Detail`
@@ -53,6 +53,16 @@
   - 当前问题更接近 error-state 下的交互护栏缺失，而不是手动调整主链路本体坏掉。
   - 在详情数据不可用时继续暴露可点击主按钮，会把“无可用炉次数据”伪装成“点击没反应”。
   - 最小正确修复应优先在错误态禁用/隐藏按钮，或给出明确提示“当前无可用炉次数据，无法手动调整”。
+- **修复结果**:
+  - `apps/web/src/views/HeatDetailView.vue` 已新增 `manualAdjustDisabledReason / canManualAdjust`，详情未就绪时“手动调整”按钮进入真实禁用态，不再保留可点击但无行为的入口。
+  - `openManualAdjust()` 已补函数级提示兜底；即使在无详情数据时被触发，也会给出明确提示而不是 silent return。
+  - Heat Detail error-state 卡片已新增“当前无可用炉次数据，无法手动调整。”说明，用户无需点击按钮即可理解当前不可操作原因。
+  - 四套 locale 已补 `heat.manualAdjustUnavailable`，本轮未引入新的硬编码文案或 i18n 缺口。
+- **回归结果**:
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/loading-error-states.spec.ts -g "heat detail exits loading state, disables manual adjust, and shows explicit error when compare request fails"` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 当详情数据失败时，手动调整入口应明确不可用
   - 不应保留一个可点击但静默无响应的主按钮
@@ -60,7 +70,8 @@
 - **如何测试**:
   1. 在 `127.0.0.1:8000` 不可达时进入 `Heat Detail`
   2. 确认页面进入明确错误态
-  3. 再检查“手动调整”按钮应被禁用、隐藏或给出明确不可用提示，而不是 silent no-op
+  3. 再检查“手动调整”按钮已禁用，且 error-state 卡片出现“当前无可用炉次数据，无法手动调整。”
+  4. 确认页面不会再出现 silent no-op
 
 ### P0 从宿主进入 EDC 后 Dashboard 首屏统计与最近炉次请求超时，页面进入“假空态”
 - **状态**: 验收通过（2026-03-25）

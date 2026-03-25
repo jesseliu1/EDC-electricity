@@ -269,6 +269,7 @@
     "manualAdjust": "Manual Adjust",
     "manualAdjustRange": "Manual Adjustment Range",
     "manualAdjustHint": "Show the full-day data context for the current heat. Re-define the start and end time by clicking the chart, dragging the slider, or editing the time inputs.",
+    "manualAdjustUnavailable": "Manual adjustment is unavailable because no heat data is available.",
     "exitFullscreen": "Exit Fullscreen",
     "createTaskHint": "Task creation entry is under development",
     "createTaskFailed": "Failed to create correction task. Please retry later.",

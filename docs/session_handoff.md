@@ -16,7 +16,7 @@
 - 最新 QA 同步：
   - `apps/web` 的 `lint / test:i18n / build` 与关键 Playwright 抽测已通过，mocked 回归层面基本成立
   - 当前真实联调仍被环境阻塞：`127.0.0.1:8000` 不可达、`127.0.0.1:8080` 不可达
-  - 新入账 issue：`Heat Detail` 在详情失败时“手动调整”按钮仍可点击但静默无响应
+  - `Heat Detail` 在详情失败时“手动调整”按钮 silent no-op 已按最小方案收口：当前按钮会进入禁用态，并显示明确不可用提示
   - ASNS 宿主 `npm test` 的 `import.meta.env` / `Invalid URL` 基座问题已在本轮修复，`npm test / lint / build` 当前都可运行
 
 ### 下一阶段目标
@@ -50,7 +50,7 @@
 ### 重点回归面
 
 - Dashboard / Heat Detail 的 timeout/error state 不再伪装为空态或长期 loading
-- Heat Detail 在 error-state 下“手动调整”按钮是否仍然 silent no-op
+- Heat Detail 在 error-state 下“手动调整”按钮已改为禁用态 + 明确提示，真实联调阶段需顺手确认 happy path 与 error-state 都未回退
 - i18n missing-key 告警、默认中文界面的中英混排、不完整 locale 回退
 - Heat Detail 的状态口径拆分、异常原因/切割原因本地化
 - Baseline/Task/Heat 列表中的占位按钮、假搜索/假筛选、误导性空偏差文案
@@ -66,9 +66,9 @@
   - 当前机器缺少 `python3.11`
   - 当前 `apps/server/venv` 不是完整虚拟环境，只剩 `lib/python3.11/site-packages`
   - 其中 `pytest/` 与 `pytest_asyncio/` 目录本体也不完整，不能直接作为可运行入口复用
-- ASNS `npm test` 当前也不是稳定入口
-  - 现状会因 `import.meta.env` 在 Node 测试环境未定义而失败
-  - 这不是已收口 UI issue 的直接业务回退，但属于下一阶段应纳入的测试工程化缺口
+- ASNS 宿主 `npm test` 当前已恢复为稳定最小入口
+  - `import.meta.env` / `Invalid URL` 的 Node test 基座问题已收口
+  - 仍缺少的是宿主浏览器级自动化入口，而不是模块级单测可运行性
 
 ### 建议下一步
 

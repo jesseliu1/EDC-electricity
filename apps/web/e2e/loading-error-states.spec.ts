@@ -105,7 +105,7 @@ test.describe('EDC loading error states', () => {
     await expect(page.locator('[data-testid="stat-card"]').first()).toContainText('--')
   })
 
-  test('heat detail exits loading state and shows explicit error when compare request fails', async ({
+  test('heat detail exits loading state, disables manual adjust, and shows explicit error when compare request fails', async ({
     page,
   }) => {
     await mockRuntimeStatus(page)
@@ -126,6 +126,14 @@ test.describe('EDC loading error states', () => {
     await expect(page.getByTestId('heat-detail-error')).toContainText('炉次详情接口超时')
     await expect(page.getByTestId('heat-detail-error')).toContainText(
       '请刷新页面或检查后端炉次接口状态。'
+    )
+    await expect(page.getByTestId('heat-manual-adjust-button')).toBeDisabled()
+    await expect(page.getByTestId('heat-manual-adjust-button')).toHaveAttribute(
+      'title',
+      '当前无可用炉次数据，无法手动调整。'
+    )
+    await expect(page.getByTestId('heat-detail-manual-adjust-unavailable')).toContainText(
+      '当前无可用炉次数据，无法手动调整。'
     )
     await expect(page.getByTestId('heat-detail-loading')).toHaveCount(0)
   })

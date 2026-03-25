@@ -86,6 +86,12 @@ const heatId = computed(() => String(route.params.id || ''))
 const current = computed(() => heatStore.current)
 const detailLoading = computed(() => heatStore.detailLoading)
 const detailError = computed(() => heatStore.detailError)
+const manualAdjustDisabledReason = computed(() => {
+  if (detailLoading.value) return t('common.loading')
+  if (detailError.value || !current.value) return t('heat.manualAdjustUnavailable')
+  return ''
+})
+const canManualAdjust = computed(() => manualAdjustDisabledReason.value === '')
 
 const editingDescription = ref(false)
 const descriptionDraft = ref('')
@@ -779,7 +785,10 @@ async function handleCreateTask() {
 }
 
 function openManualAdjust() {
-  if (!current.value) return
+  if (!canManualAdjust.value || !current.value) {
+    ElMessage.info(manualAdjustDisabledReason.value || t('heat.manualAdjustUnavailable'))
+    return
+  }
   manualAdjustStart.value = dayjs(current.value.base.startTime).valueOf()
   manualAdjustEnd.value = dayjs(current.value.base.endTime).valueOf()
   syncRangeFromBounds()
@@ -905,7 +914,14 @@ watch(heatId, (requestedId) => {
         </button>
         <button
           data-testid="heat-manual-adjust-button"
-          class="flex items-center gap-2 bg-white border border-green-500 text-green-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-50 transition-colors"
+          :disabled="!canManualAdjust"
+          :title="!canManualAdjust ? manualAdjustDisabledReason : undefined"
+          :class="[
+            'flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors',
+            canManualAdjust
+              ? 'bg-white border-green-500 text-green-600 hover:bg-green-50'
+              : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400',
+          ]"
           @click="openManualAdjust"
         >
           <span class="material-symbols-outlined text-[18px]">tune</span>
@@ -1205,6 +1221,12 @@ watch(heatId, (requestedId) => {
       </p>
       <p class="text-xs text-slate-400 mt-2">
         {{ t('heat.detailReloadHint') }}
+      </p>
+      <p
+        class="mt-2 text-xs text-slate-500"
+        data-testid="heat-detail-manual-adjust-unavailable"
+      >
+        {{ t('heat.manualAdjustUnavailable') }}
       </p>
     </div>
 

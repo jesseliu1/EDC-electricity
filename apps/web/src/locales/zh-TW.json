@@ -269,6 +269,7 @@
     "manualAdjust": "手動調整",
     "manualAdjustRange": "手動調整區間",
     "manualAdjustHint": "展示當前爐次所在當天的完整資料流，可透過圖表點擊、滑桿拖拉或時間輸入框重新劃定爐次起止時間。",
+    "manualAdjustUnavailable": "目前無可用爐次資料，無法手動調整。",
     "exitFullscreen": "退出全螢幕",
     "createTaskHint": "任務建立入口開發中",
     "createTaskFailed": "產生糾偏任務失敗，請稍後再試",
