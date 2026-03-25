@@ -126,6 +126,8 @@
     "statusPublished": "已發佈",
     "statusDisabled": "已停用",
     "createBaseline": "新建基線",
+    "refresh": "重新整理資料",
+    "refreshing": "重新整理中...",
     "selectHeat": "選擇爐次",
     "previewCurve": "預覽曲線",
     "setParams": "設定參數",

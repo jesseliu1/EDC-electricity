@@ -126,6 +126,8 @@
     "statusPublished": "已发布",
     "statusDisabled": "已停用",
     "createBaseline": "新建基线",
+    "refresh": "刷新数据",
+    "refreshing": "刷新中...",
     "selectHeat": "选择炉次",
     "previewCurve": "预览曲线",
     "setParams": "设置参数",

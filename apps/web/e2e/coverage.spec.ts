@@ -321,6 +321,48 @@ async function mockBaselineLibrary(page: Page) {
   })
 }
 
+async function mockBaselineLibraryWithRefreshCounters(
+  page: Page,
+  counters: { list: number; active: number }
+) {
+  await page.route(/\/api\/baselines\/active$/, async route => {
+    counters.active += 1
+    await fulfillJson(route, {
+      id: 'baseline-001',
+      name: '标准基线 v2.1',
+      status: 'published',
+      version: 2
+    })
+  })
+
+  await page.route(/\/api\/baselines(\?.*)?$/, async route => {
+    counters.list += 1
+    await new Promise(resolve => setTimeout(resolve, 200))
+    await fulfillJson(route, {
+      items: [
+        {
+          id: 'baseline-001',
+          name: '标准基线 v2.1',
+          description: '用于正式回归的标准曲线',
+          definition_id: 'def-001',
+          definition_name: '标准熔炼基线',
+          source_heat_id: 'heat-001',
+          selected_start_time: '2026-03-20T08:00:00Z',
+          selected_end_time: '2026-03-20T08:35:00Z',
+          tolerance_percent: 12,
+          status: 'published',
+          version: 2,
+          curve_source: 'live_edc',
+          created_at: '2026-03-20T08:40:00Z',
+          updated_at: '2026-03-20T08:40:00Z',
+          published_at: '2026-03-20T08:45:00Z'
+        }
+      ],
+      total: 1
+    })
+  })
+}
+
 async function mockTaskWorkflow(page: Page) {
   const detailBody = {
     id: 'mock-task-1',
@@ -644,6 +686,27 @@ test.describe('EDC web extended coverage', () => {
     await expect(
       page.getByTestId('baseline-definition-metric-dialog').getByText('氧含量', { exact: true })
     ).toBeVisible()
+  })
+
+  test('baseline list refresh button triggers a real reload with visible loading feedback', async ({ page }) => {
+    const counters = { list: 0, active: 0 }
+    await mockRuntimeStatus(page)
+    await mockBaselineLibraryWithRefreshCounters(page, counters)
+
+    await page.goto('baselines')
+    await expect(page.getByTestId('baseline-list-page')).toBeVisible()
+    await expect.poll(() => counters.list).toBe(1)
+    await expect.poll(() => counters.active).toBe(1)
+
+    const refreshButton = page.getByTestId('baseline-refresh-button')
+    await expect(refreshButton).toContainText('刷新数据')
+    await refreshButton.click()
+
+    await expect(refreshButton).toContainText('刷新中...')
+    await expect(refreshButton).toBeDisabled()
+    await expect.poll(() => counters.list).toBe(2)
+    await expect.poll(() => counters.active).toBe(2)
+    await expect(refreshButton).toContainText('刷新数据')
   })
 
   test('task list shows real status counts and can open detail and complete a task', async ({ page }) => {

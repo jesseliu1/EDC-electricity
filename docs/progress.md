@@ -39,10 +39,33 @@
 - [x] 已完成偏差收件箱空偏差值文案收口，`deviation_percent=null` 时不再显示误导性的 `--%`
 - [x] 已完成主页面英文副标题/标签混排收口，默认中文界面不再泄漏 `Baseline Library / Action Orders / High Priority / Impact Warning / Heat:` 等英文残留
 - [x] 已完成炉次浏览展开区 CTA 文案校正，“查看完整报告” 已改为与详情跳转一致的“查看炉次详情”
+- [x] 已完成黄金基线库“刷新数据”按钮收口，点击后会触发真实重拉并显示加载态，不再静默无响应
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第十二批 issue：黄金基线库刷新按钮接入真实反馈）
+
+- [x] 已按 investigate 顺序完成 `P1 黄金基线库“刷新数据”按钮当前无任何反馈或刷新动作`
+  - [x] 已复核当前 `master` 中 `apps/web/src/views/BaselineListView.vue` 的“刷新数据”按钮没有绑定 `@click` 或处理函数
+  - [x] 已确认根因是占位按钮直接渲染到了正式页面，但没有接到任何现有 store action，因此点击后既无请求也无 UI 反馈
+  - [x] 已确认现有 `baselineStore.fetchList()` 与 `fetchActiveBaseline()` 已足够支撑最小修复，无需改后端协议或新增接口
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/BaselineListView.vue` 已新增 `handleRefresh()`，点击按钮会并发触发 `fetchList()` 与 `fetchActiveBaseline()`
+  - [x] 刷新按钮已补 `baseline-refresh-button` 测试锚点，并在刷新期间显示 `刷新中...`、禁用重复点击、图标旋转，完成后恢复为 `刷新数据`
+  - [x] 四套语言包已补齐 `baseline.refresh / baseline.refreshing`
+  - [x] 未改动“导出”“新建基线”或任何基线业务规则
+- [x] 本轮测试留痕
+  - [x] 测试范围：黄金基线库刷新按钮交互、真实重拉请求、按钮加载态反馈、locale 结构、EDC 前端构建
+  - [x] 验证步骤：打开“黄金基线库”；确认按钮初始显示“刷新数据”；点击后按钮切为“刷新中...”并禁用；等待列表与默认基线摘要重新请求完成后，按钮恢复为“刷新数据”
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "baseline list refresh button triggers a real reload with visible loading feedback"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；刷新按钮已不再静默无响应，定向回归确认点击后 `baselines` 与 `baselines/active` 请求计数都会增加，并出现可见加载态
+  - [x] 未覆盖项：本轮未补“导出”按钮行为，也未覆盖真实后端异常时的刷新失败提示；当前修复重点仅为“占位按钮必须产生真实动作或明确反馈”
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中剩余低风险、可验证、可回滚的纯展示/交互类问题，优先收口其它无行为按钮或占位入口
 
 ### 2026-03-25（第十一批 issue：炉次浏览展开区 CTA 与详情跳转对齐）
 

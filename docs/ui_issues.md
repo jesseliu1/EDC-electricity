@@ -1282,7 +1282,7 @@
   3. 确认同一炉次仍能打开，或能被稳定映射到最新记录而不是直接 404
 
 ### P1 黄金基线库“刷新数据”按钮当前无任何反馈或刷新动作
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: 黄金基线库
 - **复现步骤**:
   1. 打开“黄金基线库”
@@ -1294,6 +1294,18 @@
 - **当前证据**:
   - Playwright 点击后页面保持在 `/baselines`，界面无可见变化
   - `apps/web/src/views/BaselineListView.vue` 当前渲染了“刷新数据”按钮，但未绑定任何 `@click` 或处理函数
+- **调查结论（2026-03-25）**:
+  - 根因已确认是正式页面保留了一个占位刷新按钮，但没有接到任何现有刷新动作。
+  - 当前前端已经具备 `baselineStore.fetchList()` 与 `fetchActiveBaseline()` 两个现成刷新入口，因此最小修复就是把按钮接到这两次请求，并给出可见 loading 反馈。
+- **修复结果**:
+  - `apps/web/src/views/BaselineListView.vue` 已新增 `handleRefresh()`，点击后会并发重拉基线列表与当前默认黄金基线摘要。
+  - 刷新按钮已新增 `baseline-refresh-button` 测试锚点，并在请求期间显示 `刷新中...`、禁用重复点击、图标旋转，完成后恢复为 `刷新数据`。
+  - `apps/web/src/locales/zh-CN.json`、`zh-TW.json`、`ja-JP.json`、`en-US.json` 已补齐 `baseline.refresh / baseline.refreshing`。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "baseline list refresh button triggers a real reload with visible loading feedback"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - “刷新数据”应触发真实列表刷新，或至少给出明确提示
   - 正式页面不应放置无行为的刷新按钮

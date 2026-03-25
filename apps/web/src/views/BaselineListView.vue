@@ -41,6 +41,11 @@ function handleCreate() {
   wizardVisible.value = true
 }
 
+async function handleRefresh() {
+  if (baselineStore.loading) return
+  await Promise.all([baselineStore.fetchList(), baselineStore.fetchActiveBaseline()])
+}
+
 function getQueryStringValue(value: unknown): string {
   if (typeof value === 'string') return value
   if (Array.isArray(value) && typeof value[0] === 'string') return value[0]
@@ -147,10 +152,23 @@ onMounted(() => {
     >
       <template #actions>
         <button
-          class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+          data-testid="baseline-refresh-button"
+          :disabled="baselineStore.loading"
+          :class="[
+            'flex items-center gap-2 bg-white border border-border-light px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+            baselineStore.loading
+              ? 'cursor-not-allowed text-slate-400'
+              : 'text-slate-700 hover:bg-slate-50',
+          ]"
+          @click="handleRefresh"
         >
-          <span class="material-symbols-outlined text-[18px]">sync</span>
-          刷新数据
+          <span
+            :class="[
+              'material-symbols-outlined text-[18px]',
+              baselineStore.loading ? 'animate-spin' : '',
+            ]"
+          >sync</span>
+          {{ baselineStore.loading ? t('baseline.refreshing') : t('baseline.refresh') }}
         </button>
         <button
           class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"

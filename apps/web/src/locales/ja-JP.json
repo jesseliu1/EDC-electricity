@@ -126,6 +126,8 @@
     "statusPublished": "公開済み",
     "statusDisabled": "無効",
     "createBaseline": "ベースライン作成",
+    "refresh": "データを更新",
+    "refreshing": "更新中...",
     "selectHeat": "ヒート選択",
     "previewCurve": "曲線プレビュー",
     "setParams": "パラメータ設定",

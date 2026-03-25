@@ -126,6 +126,8 @@
     "statusPublished": "Published",
     "statusDisabled": "Disabled",
     "createBaseline": "Create Baseline",
+    "refresh": "Refresh Data",
+    "refreshing": "Refreshing...",
     "selectHeat": "Select Heat",
     "previewCurve": "Preview Curve",
     "setParams": "Set Parameters",
