@@ -39,6 +39,25 @@
 
 ## 已完成
 
+### 2026-03-25（第五批 issue：Dashboard 实时曲线副标题去示例化）
+
+- [x] 已按 investigate 顺序完成 `P1 Dashboard 实时曲线卡片仍残留硬编码示例副标题，与真实链路状态冲突`
+  - [x] 已确认根因是 `apps/web/src/components/dashboard/RealtimeChart.vue` 模板直接写死了 `当前炉次 #H-20231025-08` 与 `黄金基线 V3.2`
+  - [x] 已确认当前 `dashboard/realtime` 接口并未返回“当前炉次编号”，因此继续展示示例炉次号会把演示值伪装成真实运行态
+- [x] 已完成最小展示层修复
+  - [x] `RealtimeChart.vue` 副标题已改为基于真实字段生成，仅展示“数据时间 / 对比基线 / 时间范围”
+  - [x] `DashboardView.vue` 已显式传入 `dashboardStore.realtime.timestamp`
+  - [x] 四套 locale 已补齐 Dashboard 副标题文案 key
+- [x] 本轮测试留痕
+  - [x] 测试范围：Dashboard 实时曲线卡片副标题与时间范围切换链路
+  - [x] 验证步骤：打开 Dashboard，确认副标题显示真实时间与基线信息；切换 `6小时 / 24小时` 后确认副标题随时间范围更新，且不再出现示例炉次号/示例基线
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "dashboard range buttons request the target durations and update active state"`
+  - [x] 结果：均通过；Dashboard 副标题已去掉示例业务对象
+  - [x] 未覆盖项：本轮只收口 Dashboard 实时卡片副标题，Dashboard 其它中文/英文混排与辅助文案问题仍需后续分轮处理
+  - [x] 下一步：继续处理页面英文副标题/标签混排或任务列表 Tab 计数占位符
+
 ### 2026-03-25（第四批 issue：全局 locale 缺 key 收口）
 
 - [x] 已按 investigate 顺序完成 `P1 侧边栏分组与全局搜索占位缺少 locale key，控制台持续报 i18n 告警`

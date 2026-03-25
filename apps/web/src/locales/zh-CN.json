@@ -106,6 +106,8 @@
     },
     "baselineStatusNormal": "正常",
     "trendFromYesterday": "较昨日",
+    "realtimeSubtitleTimestamp": "数据时间 {timestamp}",
+    "realtimeSubtitleBaseline": "对比基线 {baseline}",
     "loadWarningTitle": "部分仪表盘数据暂未成功返回",
     "statsLoadFailedHint": "当前显示为占位值，请稍后重试。",
     "recentHeatsReloadHint": "请刷新页面或检查后端炉次接口状态。"

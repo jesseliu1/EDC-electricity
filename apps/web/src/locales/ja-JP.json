@@ -106,6 +106,8 @@
     },
     "baselineStatusNormal": "正常",
     "trendFromYesterday": "前日比",
+    "realtimeSubtitleTimestamp": "データ時刻 {timestamp}",
+    "realtimeSubtitleBaseline": "比較基線 {baseline}",
     "loadWarningTitle": "ダッシュボードの一部データをまだ取得できていません",
     "statsLoadFailedHint": "現在はプレースホルダー値を表示しています。しばらくしてから再試行してください。",
     "recentHeatsReloadHint": "ページを再読み込みするか、バックエンドのヒート API を確認してください。"

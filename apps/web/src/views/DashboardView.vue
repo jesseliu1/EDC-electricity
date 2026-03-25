@@ -223,6 +223,7 @@ onMounted(() => {
 
     <div class="h-[500px]">
       <RealtimeChart
+        :timestamp="dashboardStore.realtime.timestamp"
         :power="dashboardStore.realtime.power"
         :baseline-power="dashboardStore.realtime.baselinePower"
         :selected-range="dashboardStore.timeRange"

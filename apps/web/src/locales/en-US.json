@@ -106,6 +106,8 @@
     },
     "baselineStatusNormal": "Normal",
     "trendFromYesterday": "vs yesterday",
+    "realtimeSubtitleTimestamp": "Data Time {timestamp}",
+    "realtimeSubtitleBaseline": "Baseline {baseline}",
     "loadWarningTitle": "Some dashboard data could not be loaded",
     "statsLoadFailedHint": "Placeholder values are shown for now. Try again shortly.",
     "recentHeatsReloadHint": "Refresh the page or check the backend heats API."

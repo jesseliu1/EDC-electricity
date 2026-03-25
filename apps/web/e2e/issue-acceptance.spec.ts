@@ -549,14 +549,26 @@ test.describe('EDC issue acceptance checks', () => {
 
     await page.goto('')
     await expect(page.getByTestId('dashboard-page')).toBeVisible()
+    await expect(page.getByTestId('dashboard-realtime-subtitle')).toContainText(
+      '数据时间 2026-03-13 09:30'
+    )
+    await expect(page.getByTestId('dashboard-realtime-subtitle')).toContainText(
+      '对比基线 标准基线 v2.1'
+    )
+    await expect(page.getByTestId('dashboard-realtime-subtitle')).not.toContainText(
+      '当前炉次 #H-20231025-08'
+    )
+    await expect(page.getByTestId('dashboard-realtime-subtitle')).not.toContainText(
+      '黄金基线 V3.2'
+    )
 
     await page.getByTestId('dashboard-range-6h').click()
     await expect(page.getByTestId('dashboard-range-6h')).toHaveClass(/bg-white/)
-    await expect(page.getByText(/标准基线 v2\.1 · 6小时/)).toBeVisible()
+    await expect(page.getByTestId('dashboard-realtime-subtitle')).toContainText('6小时')
 
     await page.getByTestId('dashboard-range-24h').click()
     await expect(page.getByTestId('dashboard-range-24h')).toHaveClass(/bg-white/)
-    await expect(page.getByText(/标准基线 v2\.1 · 24小时/)).toBeVisible()
+    await expect(page.getByTestId('dashboard-realtime-subtitle')).toContainText('24小时')
     await expect(page.getByTestId('dashboard-source-summary')).toBeVisible()
     await expect.poll(() => durations.filter((item) => item === '6h').length).toBeGreaterThan(0)
     await expect.poll(() => durations.filter((item) => item === '24h').length).toBeGreaterThan(0)

@@ -31,6 +31,7 @@ interface CurvePoint {
 }
 
 interface Props {
+  timestamp?: string | null
   power: CurvePoint[]
   baselinePower: CurvePoint[]
   selectedRange: TimeRange
@@ -56,6 +57,29 @@ const timeRanges = [
 const xAxisLabels = computed(() =>
   props.power.map((item) => dayjs(item.timestamp).format('HH:mm'))
 )
+
+const realtimeSubtitle = computed(() => {
+  const parts: string[] = []
+
+  if (props.timestamp) {
+    parts.push(
+      t('dashboard.realtimeSubtitleTimestamp', {
+        timestamp: dayjs(props.timestamp).format('YYYY-MM-DD HH:mm'),
+      })
+    )
+  }
+
+  if (props.baselineName) {
+    parts.push(
+      t('dashboard.realtimeSubtitleBaseline', {
+        baseline: props.baselineName,
+      })
+    )
+  }
+
+  parts.push(t(`dashboard.timeRange.${props.selectedRange}`))
+  return parts.join(' · ')
+})
 
 const powerSeries = computed(() => props.power.map((item) => item.value))
 const baselineSeries = computed(() =>
@@ -170,8 +194,11 @@ const option = computed<EChartsOption>(() => ({
           <h3 class="text-base font-bold text-slate-800">
             {{ t('dashboard.realtimeCurve') }}
           </h3>
-          <p class="text-xs text-slate-400 mt-0.5">
-            当前炉次 #H-20231025-08 vs {{ baselineName || '黄金基线 V3.2' }} · {{ t(`dashboard.timeRange.${selectedRange}`) }}
+          <p
+            class="text-xs text-slate-400 mt-0.5"
+            data-testid="dashboard-realtime-subtitle"
+          >
+            {{ realtimeSubtitle }}
           </p>
         </div>
       </div>

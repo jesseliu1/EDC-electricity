@@ -126,7 +126,7 @@
   3. 检查分组标题与搜索占位在多语言下都能正常显示
 
 ### P1 Dashboard 实时曲线卡片仍残留硬编码示例副标题，与真实链路状态冲突
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: Dashboard / 实时曲线对比卡片
 - **复现步骤**:
   1. 在真实模式下打开 Dashboard
@@ -142,6 +142,18 @@
     - `当前炉次 #H-20231025-08`
     - 默认基线文案 `黄金基线 V3.2`
   - 页面实际快照已复现该文案
+- **调查结论（2026-03-25）**:
+  - 当前问题不是接口返回错数据，而是前端模板直接把示例炉次号和示例基线版本写死进了副标题。
+  - 现有 `dashboard/realtime` 返回的真实字段只有 `timestamp / baseline_name / power_source_label / voltage_source_label`，并没有“当前炉次编号”这一业务字段。
+  - 在接口没有提供炉次编号的前提下继续显示 `#H-20231025-08`，本质上是在真实页面伪造业务对象，容易误导联调判断。
+- **修复结果**:
+  - `apps/web/src/components/dashboard/RealtimeChart.vue` 已改为基于真实字段生成副标题，仅展示“数据时间 / 对比基线 / 时间范围”。
+  - `apps/web/src/views/DashboardView.vue` 已把实时接口返回的 `timestamp` 传入图表卡片，副标题不再依赖示例值。
+  - 四套 locale 已新增 Dashboard 副标题文案 key，避免再次回落到硬编码字符串。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "dashboard range buttons request the target durations and update active state"` 通过
 - **期望结果**:
   - 实时曲线卡片副标题应来自真实运行态或真实数据源
   - 若当前没有可用实时炉次，应显示明确空态或来源说明

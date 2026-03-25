@@ -106,6 +106,8 @@
     },
     "baselineStatusNormal": "正常",
     "trendFromYesterday": "較昨日",
+    "realtimeSubtitleTimestamp": "資料時間 {timestamp}",
+    "realtimeSubtitleBaseline": "對比基線 {baseline}",
     "loadWarningTitle": "部分儀表板資料暫未成功返回",
     "statsLoadFailedHint": "目前顯示為佔位值，請稍後再試。",
     "recentHeatsReloadHint": "請重新整理頁面或檢查後端爐次介面狀態。"
