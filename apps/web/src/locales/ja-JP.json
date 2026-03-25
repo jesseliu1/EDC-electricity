@@ -251,6 +251,8 @@
     "manualAdjustHint": "現在のヒートが属する当日の全データを表示し、チャートクリック、スライダー操作、または時刻入力で開始・終了時刻を再設定します。",
     "exitFullscreen": "全画面を終了",
     "createTaskHint": "タスク作成入口は開発中です",
+    "deviationStatusLabel": "偏差状態",
+    "cutExecutionStatusLabel": "切り分け実行状態",
     "cutStatus": "切り分け状態",
     "cutStatusnormal": "正常",
     "cutStatusmajor_issue": "重大事故",

@@ -39,6 +39,24 @@
 
 ## 已完成
 
+### 2026-03-25（第二批 issue：炉次详情状态口径拆分）
+
+- [x] 已按 investigate 顺序完成 `P0 同一炉次在详情页显示“正常”，但在炉次浏览概览中显示“异常”` 的根因定位
+  - [x] 已确认这不是后端同一字段算出两套值，而是详情页同时暴露了“偏差状态”和“切割执行状态”两种语义，却只把后者标成了“切割状态”
+  - [x] 炉次列表仍按 `status` 展示偏差状态，因此才会出现“列表异常、详情看起来正常”的错觉
+- [x] 已完成最小展示层修复
+  - [x] `apps/web/src/views/HeatDetailView.vue` 摘要区已新增“偏差状态”并把原“切割状态”明确重命名为“切割执行状态”
+  - [x] `apps/web/e2e/issue-acceptance.spec.ts` 已补验收断言，固定验证同一条炉次可同时出现“偏差状态：异常”和“切割执行状态：正常”
+  - [x] 多语言文案已同步补齐：`zh-CN / zh-TW / ja-JP / en-US`
+- [x] 本轮测试留痕
+  - [x] 测试范围：炉次详情摘要状态展示、异常区间与手动调整既有主链路
+  - [x] 验证步骤：打开问题炉次详情，检查摘要区状态标签，再继续执行既有 compare / abnormal range / manual adjust 回归
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"`
+  - [x] 结果：均通过；详情页状态语义已拆分，既有热详情关键交互未回归
+  - [x] 未覆盖项：本轮未同时处理同页 `cutReason` 技术 key/英文文案问题，该问题仍在 issue 列表中单独保留
+  - [x] 下一步：继续处理炉次详情原因文案未翻译与其它仍在线 issue
+
 ### 2026-03-25（issue 核对：报表详情 loading 问题确认已收口）
 
 - [x] 已按 investigate 顺序重新核对 `P1 报表详情接口已返回成功，但页面仍长期停留在“加载中”`

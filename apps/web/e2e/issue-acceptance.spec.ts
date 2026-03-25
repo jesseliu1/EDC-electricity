@@ -677,6 +677,10 @@ test.describe('EDC issue acceptance checks', () => {
 
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
     await expect(page.getByText('异常', { exact: true }).first()).toBeVisible()
+    await expect(page.getByTestId('heat-detail-deviation-status')).toContainText('偏差状态')
+    await expect(page.getByTestId('heat-detail-deviation-status')).toContainText('异常')
+    await expect(page.getByTestId('heat-detail-cut-status')).toContainText('切割执行状态')
+    await expect(page.getByTestId('heat-detail-cut-status')).toContainText('正常')
     await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute('data-series-count', '6')
     await expect(page.getByTestId('heat-source-binding-list')).toHaveCount(0)
     await page.getByRole('tab', { name: '高功率基线' }).click()

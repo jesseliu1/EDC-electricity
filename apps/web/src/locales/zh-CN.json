@@ -251,6 +251,8 @@
     "manualAdjustHint": "展示当前炉次所在当天的完整数据流，可通过图表点击、滑块拖拉或时间输入框重新划定炉次起止时间。",
     "exitFullscreen": "退出全屏",
     "createTaskHint": "任务创建入口开发中",
+    "deviationStatusLabel": "偏差状态",
+    "cutExecutionStatusLabel": "切割执行状态",
     "cutStatus": "切割状态",
     "cutStatusnormal": "正常",
     "cutStatusmajor_issue": "重大事故",

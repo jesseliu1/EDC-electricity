@@ -1072,8 +1072,18 @@ watch(heatId, (requestedId) => {
               </div>
             </div>
 
-            <div class="flex justify-between items-center py-1">
-              <span class="text-slate-500">{{ t('heat.cutStatus') }}</span>
+            <div
+              class="flex justify-between items-center py-1"
+              data-testid="heat-detail-deviation-status"
+            >
+              <span class="text-slate-500">{{ t('heat.deviationStatusLabel') }}</span>
+              <span class="font-semibold">{{ statusText }}</span>
+            </div>
+            <div
+              class="flex justify-between items-center py-1"
+              data-testid="heat-detail-cut-status"
+            >
+              <span class="text-slate-500">{{ t('heat.cutExecutionStatusLabel') }}</span>
               <span class="font-semibold">{{ t(`heat.cutStatus${current.base.cutStatus}`) }}</span>
             </div>
             <div class="flex justify-between items-center py-1">

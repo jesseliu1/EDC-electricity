@@ -251,6 +251,8 @@
     "manualAdjustHint": "Show the full-day data context for the current heat. Re-define the start and end time by clicking the chart, dragging the slider, or editing the time inputs.",
     "exitFullscreen": "Exit Fullscreen",
     "createTaskHint": "Task creation entry is under development",
+    "deviationStatusLabel": "Deviation Status",
+    "cutExecutionStatusLabel": "Cutting Execution Status",
     "cutStatus": "Cutting Status",
     "cutStatusnormal": "Normal",
     "cutStatusmajor_issue": "Major Issue",
