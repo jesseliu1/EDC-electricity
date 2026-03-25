@@ -60,10 +60,46 @@
 - [x] 已完成 compare 时间窗口不稳定 issue 的状态文案归一化：当前仓库最小修复与定向回归已足够按“验收通过”收口，现场 `8000` 运行态差异保留为未覆盖风险说明
 - [x] 已完成任务列表状态 Tab 计数 issue 的标准状态归一化：当前 `master` 代码与定向回归一致，文档状态已统一为“验收通过”
 - [x] 已完成偏差收件箱空偏差文案 issue 的标准状态归一化：当前 `master` 代码与定向回归一致，文档状态已统一为“验收通过”
+- [x] 已完成剩余 16 条“已修复并回归通过” tracked issues 的最小回归与标准状态归一化：`docs/ui_issues.md` 已不再残留该状态文案
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第三十三批 issue：剩余 16 条 tracked issues 标准关单归一化与最小回归）
+
+- [x] 已按 investigate 顺序完成剩余 16 条“已修复并回归通过” tracked issues 的证据映射与最小复验
+  - [x] EDC 两条 loading/error 态问题复用 `e2e/loading-error-states.spec.ts`
+  - [x] Dashboard 副标题、Heat Detail 文案/状态口径问题复用 `e2e/issue-acceptance.spec.ts`
+  - [x] i18n missing-key、设置页 Element Plus 告警、中文界面中英混排、任务列表占位 CTA、基线库刷新按钮复用 `e2e/coverage.spec.ts`
+  - [x] 炉次浏览导出、展开区 CTA、炉次详情创建任务复用 `e2e/app.spec.ts`
+  - [x] 黄金基线定义实例数量按“代码面复核 + `py_compile`”收口；`pytest` 继续受环境缺失阻塞
+  - [x] ASNS 宿主两条控制台/runtime issue 按用户要求走 `lint/build + 代码面复核` 最小证据，没有扩写新浏览器自动化
+- [x] 已完成最小必要修正
+  - [x] `apps/web/e2e/coverage.spec.ts` 中设置页回归原先使用 `getByText('宿主系统连接')`，在左侧新增同名导航后触发 Playwright strict mode 歧义；本轮仅把定位收紧到 `settings-host-connectivity-card` 内的标题元素
+  - [x] 本轮未修改任何 EDC/ASNS 业务代码；`docs/ui_issues.md` 中 16 条剩余 issue 状态已统一收口为“验收通过”，并逐条补了 `复验结论（2026-03-25）`
+  - [x] 本轮未补 `docs/lessons.md`：没有新增产品侧通用错误模式；唯一代码改动是测试选择器更精确，不单独沉淀为 lessons
+- [x] 本轮测试留痕
+  - [x] 测试范围：Dashboard 假空态、Heat Detail loading/error、导航/搜索 i18n 告警、Dashboard 实时卡片副标题主链路、Heat Detail 文案与状态口径、设置页 Element Plus 告警、默认中文界面中英混排、任务列表占位 CTA、HeatList 导出占位 CTA、BaselineList 刷新、HeatList 展开区 CTA、Heat Detail 创建任务最小闭环、后端 baseline definition 实例计数、ASNS 宿主设置页相关 runtime 风险
+  - [x] 验证步骤：复用各条 issue 既有最小回归命令；仅在设置页回归因页面新增同名导航而失效时，最小修正测试定位后重跑；ASNS 以 `lint/build` 与 `App.tsx / SettingsView.tsx` 代码面复核替代一次性浏览器脚本；后端以 `py_compile` 验证可执行语法并再次尝试 `pytest`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/loading-error-states.spec.ts`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "dashboard range buttons request the target durations and update active state|heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "dashboard shell does not emit i18n missing-key warnings for nav and search labels|settings page shows host connectivity and can save tolerance and cutting configuration|default zh-CN pages do not leak English subtitles or labels|baseline list refresh button triggers a real reload with visible loading feedback|task list create button shows explicit placeholder feedback instead of staying silent"`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "settings page shows host connectivity and can save tolerance and cutting configuration"`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat list export button shows explicit placeholder feedback instead of staying silent|expanded heat row uses a detail CTA that matches the detail navigation target|heat detail create task button posts to tasks api and opens the created task detail"`
+  - [x] 执行命令：`python3 -m py_compile apps/server/src/api/baseline_definitions.py apps/server/tests/test_baselines_dashboard_api.py`
+  - [x] 执行命令：`python3 -m pytest apps/server/tests/test_baselines_dashboard_api.py -k "baseline_definition_crud_and_metric_workflow or baseline_crud_publish_disable_and_delete"`
+  - [x] 执行命令：`npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run lint`
+  - [x] 执行命令：`npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run build`
+  - [x] 执行命令：`npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run test`
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 执行命令：`git diff --check`
+  - [x] 结果：EDC 4 组定向 Playwright 复验在修正一处设置页测试定位后全部通过；随后 `pnpm --dir apps/web lint`、`test:i18n`、`build` 也均通过；`docs/ui_issues.md` 已不再残留旧状态行；后端 `py_compile` 通过，但 `pytest` 因当前系统 Python 缺少 `pytest` 无法执行；ASNS `lint/build` 通过，`npm test` 因 Node 测试环境中 `import.meta.env` 未定义而失败，不作为本轮两条宿主 UI issue 的验收阻塞；`git diff --check` 通过
+  - [x] 未覆盖项：ASNS 两条 issue 本轮未重新执行此前的一次性 Playwright 控制台脚本，只以 `lint/build + 代码面复核` 作为最小证据；后端 baseline definition 计数仍缺真实 `pytest` 运行环境；Playwright 运行中出现的 `NO_COLOR` 与本地 Vite proxy warning 为测试环境噪音，不代表当前业务回退
+  - [x] 当前状态：剩余 16 条 tracked issues 已全部统一为“验收通过”，本轮最小定向回归与前端最终基础验证均已完成，待做的是 git 收口与推送
+  - [x] 下一步：执行 `git status` 自检、原子 commit、push，并输出最终 commit hash、验证结果与未覆盖风险
 
 ### 2026-03-25（第三十二批 issue：偏差收件箱空偏差文案状态文案归一化收口）
 

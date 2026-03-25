@@ -1217,7 +1217,11 @@ test.describe('EDC web extended coverage', () => {
     await expect(page.getByTestId('settings-page')).toBeVisible()
     await expect(page.getByTestId('settings-runtime-banner')).toHaveCount(0)
     await expect(page.getByTestId('settings-host-connectivity-card')).toBeVisible()
-    await expect(page.getByText('宿主系统连接')).toBeVisible()
+    await expect(
+      page.getByTestId('settings-host-connectivity-card').getByRole('heading', {
+        name: '宿主系统连接'
+      })
+    ).toBeVisible()
     await expect(page.getByText('EDC Test Gateway')).toBeVisible()
     await expect(
       page.getByTestId('settings-host-connectivity-card').getByText('宿主已连入')

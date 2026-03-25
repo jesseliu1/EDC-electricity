@@ -5,7 +5,7 @@
 ## 跟踪问题 (Tracked)
 
 ### P0 从宿主进入 EDC 后 Dashboard 首屏统计与最近炉次请求超时，页面进入“假空态”
-- **状态**: 已修复并回归通过（2026-03-24）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: ASNS 宿主入口 -> EDC / Dashboard
 - **复现步骤**:
   1. 启动宿主、后端与 EDC 前端
@@ -33,6 +33,9 @@
   - `apps/web/src/stores/dashboard.ts` 不再在统计/最近炉次请求失败时直接回退成 `0 / []`
   - `apps/web/src/views/DashboardView.vue` 首轮失败时改为显示明确告警，并把统计卡渲染为占位值 `--`
   - `apps/web/src/components/dashboard/HeatList.vue` 已新增最近炉次错误态，不再把失败伪装成“暂无炉次数据”
+- **复验结论（2026-03-25）**:
+  - 本轮已复跑 `e2e/loading-error-states.spec.ts`，Dashboard 超时分支仍会显示明确告警与 `--` 占位，不再伪装成空数据。
+  - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”。
 - **回归结果**:
   - `pnpm --dir apps/web exec playwright test e2e/loading-error-states.spec.ts` 已覆盖并通过 Dashboard 错误态场景
 - **期望结果**:
@@ -47,7 +50,7 @@
   4. 再次刷新验证热态表现，确认冷/热态都不会误导成空态
 
 ### P0 炉次详情首屏请求超时，页面长时间停留在占位与“加载中”
-- **状态**: 已修复并回归通过（2026-03-24）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 炉次浏览 / 炉次详情
 - **复现步骤**:
   1. 直接进入某条真实推断炉次详情，例如 `/heats/live-heat-1774007237847-1774009243556`
@@ -73,6 +76,9 @@
 - **修复结果**:
   - `apps/web/src/stores/heat.ts` 已新增详情错误态
   - `apps/web/src/views/HeatDetailView.vue` 已在详情请求失败后退出 loading，并显示明确错误提示与重试指引
+- **复验结论（2026-03-25）**:
+  - 本轮已复跑 `e2e/loading-error-states.spec.ts`，详情超时分支仍会退出 loading 并显示明确错误态。
+  - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”。
 - **回归结果**:
   - `pnpm --dir apps/web exec playwright test e2e/loading-error-states.spec.ts` 已覆盖并通过 Heat detail 错误态场景
 - **严重程度**: 高
@@ -83,7 +89,7 @@
   4. 若请求失败，确认页面会明确报错，而不是停留在占位文案
 
 ### P1 侧边栏分组与全局搜索占位缺少 locale key，控制台持续报 i18n 告警
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 全局导航 / 顶部搜索
 - **复现步骤**:
   1. 打开任意 EDC 页面
@@ -116,6 +122,9 @@
 - **补充收口（2026-03-25）**:
   - `apps/web/src/components/layout/AppSidebar.vue`、`AppHeader.vue`、`HeatList.vue` 已移除上述 key 的 inline fallback 调用口径，统一直接读取正式 locale key。
   - `apps/web/e2e/coverage.spec.ts` 已新增定向 console 回归，断言 Dashboard 壳层不再输出 `nav.groupOverview / nav.groupMonitor / nav.groupManage / common.searchHeatId / common.detail` 对应的 missing-key 告警。
+- **复验结论（2026-03-25）**:
+  - 本轮已复跑 `e2e/coverage.spec.ts -g "dashboard shell does not emit i18n missing-key warnings for nav and search labels"`，对应 missing-key 告警未回流。
+  - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”。
 - **回归结果**:
   - `pnpm --dir apps/web test:i18n` 通过
   - `pnpm --dir apps/web lint` 通过
@@ -132,7 +141,7 @@
   3. 检查分组标题与搜索占位在多语言下都能正常显示
 
 ### P1 Dashboard 实时曲线卡片仍残留硬编码示例副标题，与真实链路状态冲突
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: Dashboard / 实时曲线对比卡片
 - **复现步骤**:
   1. 在真实模式下打开 Dashboard
@@ -156,6 +165,9 @@
   - `apps/web/src/components/dashboard/RealtimeChart.vue` 已改为基于真实字段生成副标题，仅展示“数据时间 / 对比基线 / 时间范围”。
   - `apps/web/src/views/DashboardView.vue` 已把实时接口返回的 `timestamp` 传入图表卡片，副标题不再依赖示例值。
   - 四套 locale 已新增 Dashboard 副标题文案 key，避免再次回落到硬编码字符串。
+- **复验结论（2026-03-25）**:
+  - 本轮已复核 `RealtimeChart.vue` 与 `DashboardView.vue`，当前副标题仍由 `timestamp / baseline_name / timeRange` 真实字段生成，未见示例炉次号与示例基线版本回流。
+  - 同时已复跑 `e2e/issue-acceptance.spec.ts -g "dashboard range buttons request the target durations and update active state"`，确认实时卡片主链路仍正常工作；本轮未再改业务代码。
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过
@@ -262,7 +274,7 @@
   6. 若问题只在部分刷新后出现，需补充记录其触发条件
 
 ### P1 炉次详情异常原因与切割原因文案出现英文和技术 key，语言不统一
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 炉次详情 / 异常区间 / 炉次摘要
 - **复现步骤**:
   1. 打开炉次详情：`/edc/heats/live-heat-0ef1bbda-1774314300000-30`
@@ -285,6 +297,9 @@
   - 异常区间卡片右侧标签已改为走 locale 文案，不再硬编码英文 `Deviation`。
   - `heat.cutReason.live_inferred` 已补齐多语言映射，摘要区“切割原因”不再显示技术 key。
   - 详情页时间轴现会把 `异常原因 / 阻断原因` 后面的原因 code 转成用户可读文案，避免同页继续出现枚举值。
+- **复验结论（2026-03-25）**:
+  - 本轮已复跑 `e2e/issue-acceptance.spec.ts -g "heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"`，当前详情页相关文案与摘要口径未回退。
+  - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”。
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail"` 通过
@@ -299,7 +314,7 @@
   3. 确认相关文案已统一为清晰中文描述
 
 ### P0 同一炉次在详情页显示“正常”，但在炉次浏览概览中显示“异常”，状态不一致
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 炉次浏览 / 炉次详情 / 状态展示
 - **复现步骤**:
   1. 打开炉次详情：`/edc/heats/live-heat-0ef1bbda-1774314300000-30`
@@ -325,6 +340,9 @@
   - `apps/web/src/views/HeatDetailView.vue` 已在摘要区显式拆分为“偏差状态”和“切割执行状态”两行展示。
   - 详情页不再把 `cutStatus` 单独伪装成用户理解中的唯一“状态”。
   - `apps/web/e2e/issue-acceptance.spec.ts` 已补充断言，固定验证同一条炉次可同时展示“偏差状态：异常”和“切割执行状态：正常”。
+- **复验结论（2026-03-25）**:
+  - 本轮已复跑 `e2e/issue-acceptance.spec.ts -g "heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"`，当前详情页仍会并列展示“偏差状态 / 切割执行状态”。
+  - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”。
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"` 通过
@@ -339,7 +357,7 @@
   3. 确认各处口径一致，或页面能明确说明它们分别代表什么
 
 ### P2 设置页基线等长校验范围控件使用过时 Element Plus API，控制台持续告警
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 系统设置 / 炉次切割设置
 - **复现步骤**:
   1. 打开“系统设置”页面
@@ -361,6 +379,9 @@
 - **修复结果**:
   - `apps/web/src/views/SettingsView.vue` 已把三处 `el-radio-button label=...` 改为 `value=...`。
   - 现有设置页回归已补充控制台告警断言，并覆盖三种校验范围切换后保存，确认本轮未改变业务行为。
+- **复验结论（2026-03-25）**:
+  - 本轮已复跑设置页定向回归，控制台断言仍确认 `[el-radio] [API] label act as value has been deprecated` 未回流。
+  - 本轮为维持现有回归有效性，仅最小修正了测试里的歧义文本定位；未改设置页业务代码，issue 状态已统一为“验收通过”。
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "settings page shows host connectivity and can save tolerance and cutting configuration"` 通过
@@ -374,7 +395,7 @@
   3. 切换三种校验范围，确认功能不受影响
 
 ### P1 多个页面仍残留英文副标题与英文标签，正式中文界面存在中英混排
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: Dashboard / Baselines / Inbox / Tasks / Reports / Settings
 - **复现步骤**:
   1. 以默认中文环境打开各主页面
@@ -396,6 +417,9 @@
   - `apps/web/src/locales/zh-CN.json`、`zh-TW.json`、`ja-JP.json`、`en-US.json` 已补齐 `baseline.subtitle / task.subtitle / inbox.pageDescription / inbox.highPriority / report.subtitle / settings.subtitle / settings.impactWarningTitle`。
   - 任务列表与 Dashboard 的 `Heat:` 已统一改为复用 `task.relatedHeat`，避免再次出现独立硬编码。
   - 已为基线列表页补 `baseline-list-page` 测试锚点，并新增默认中文环境下的 mixed-language 定向回归。
+- **复验结论（2026-03-25）**:
+  - 本轮已复跑 `e2e/coverage.spec.ts -g "default zh-CN pages do not leak English subtitles or labels"`，默认中文环境下未见此前记录的英文副标题与标签回流。
+  - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”。
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过
@@ -479,7 +503,7 @@
   - 已补 `task-status-filter-*` 测试锚点，便于后续回归。
 - **复验结论（2026-03-25）**:
   - 当前 `master` 的 `taskStore.fetchStatusCounts()` 与 `TaskListView` 展示逻辑已和 issue 修复描述一致，正式页面不再保留 `(...)` 占位符
-  - 本轮复跑现有定向回归后确认主链路仍稳定，因此仅将状态文案从“已修复并回归通过”统一为“验收通过”
+  - 本轮复跑现有定向回归后确认主链路仍稳定，因此仅将旧状态文案统一为“验收通过”
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "task list shows real status counts and can open detail and complete a task"` 通过
@@ -516,7 +540,7 @@
   - 已补 `inbox.deviationPending` locale key 和 `inbox-deviation-*` 测试锚点。
 - **复验结论（2026-03-25）**:
   - 当前 `master` 的 `InboxView` 代码与 issue 修复描述一致，页面已稳定使用“待计算”替代误导性的 `--%`
-  - 本轮复跑现有定向回归后确认该语义仍稳定，因此仅将状态文案从“已修复并回归通过”统一为“验收通过”
+  - 本轮复跑现有定向回归后确认该语义仍稳定，因此仅将旧状态文案统一为“验收通过”
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过
@@ -579,7 +603,7 @@
   4. 确认 HeatList / Inbox / Dashboard 最近炉次中的 `null` 偏差都不再显示裸 `--` 或 `--%`，而是明确显示“待计算”
 
 ### P1 宿主连线设置页存在 React/DOM 控制台错误，首页会触发结构与更新深度告警
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: ASNS 宿主 / 连线设置 / 首页
 - **复现步骤**:
   1. 启动宿主并打开首页
@@ -599,6 +623,9 @@
 - **修复结果**:
   - `src/App.tsx` 已将宿主 `t` 包装为 `useCallback(..., [lang])`，避免普通 rerender 时函数引用变化。
   - `src/SettingsView.tsx` 已把来源目录头部拆为同级按钮，清除 nested button 结构。
+- **复验结论（2026-03-25）**:
+  - 本轮未新增宿主浏览器自动化，已按最小证据复核 `src/App.tsx` 中 `t` 仍是 `useCallback(..., [lang])` 稳定引用，且 `src/SettingsView.tsx` 来源目录头部仍为两个同级按钮结构。
+  - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run lint` 与 `run build` 本轮均通过；未重新执行此前的一次性 Playwright 控制台脚本，这仍是当前未覆盖项。
 - **回归结果**:
   - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run lint` 通过
   - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run build` 通过
@@ -613,7 +640,7 @@
   3. 验证宿主页面交互仍正常
 
 ### P1 任务列表页“新建纠偏任务”按钮当前无任何反馈或跳转
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 纠偏任务单 / 列表页
 - **复现步骤**:
   1. 打开“纠偏任务单”页面
@@ -632,6 +659,9 @@
   - `apps/web/src/views/TaskListView.vue` 已新增 `handleCreateTask()`，点击右上角主按钮后会通过 `ElMessage.info` 显示“新建纠偏任务入口开发中”。
   - 任务列表主按钮已新增 `task-create-button` 测试锚点，并切到 locale 文案 `task.createAction / task.createHint`。
   - `apps/web/src/locales/zh-CN.json`、`zh-TW.json`、`ja-JP.json`、`en-US.json` 已补齐 `task.createAction / task.createHint`。
+- **复验结论（2026-03-25）**:
+  - 本轮已复跑 `e2e/coverage.spec.ts -g "task list create button shows explicit placeholder feedback instead of staying silent"`，当前主按钮仍会给出明确反馈而非静默无响应。
+  - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”。
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过
@@ -647,7 +677,7 @@
   3. 确认会出现明确动作或说明，不再是静默无响应
 
 ### P1 炉次浏览“导出 Excel”按钮当前无任何反馈或下载动作
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 炉次浏览
 - **复现步骤**:
   1. 打开“炉次浏览”页面
@@ -666,6 +696,9 @@
   - `apps/web/src/views/HeatListView.vue` 已新增 `handleExport()`，点击右上角按钮后会通过 `ElMessage.info` 显示“导出 Excel 入口开发中”。
   - 炉次浏览导出按钮已新增 `heat-export-button` 测试锚点，并切到 locale 文案 `heat.exportAction / heat.exportHint`。
   - `apps/web/src/locales/zh-CN.json`、`zh-TW.json`、`ja-JP.json`、`en-US.json` 已补齐 `heat.exportAction / heat.exportHint`。
+- **复验结论（2026-03-25）**:
+  - 本轮已复跑 `e2e/app.spec.ts -g "heat list export button shows explicit placeholder feedback instead of staying silent"`，当前导出按钮仍会给出明确占位反馈。
+  - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”。
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过
@@ -1309,7 +1342,7 @@
   3. 点击“导出昨日报告 PDF”，确认出现真实下载或明确提示
 
 ### P1 黄金基线定义页实例数量长期显示 0，与基线库真实实例不一致
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 黄金基线定义 / 后端定义列表读取面
 - **复现步骤**:
   1. 打开“黄金基线定义”页面
@@ -1328,6 +1361,9 @@
   - `list_definitions()` 已在单次请求内复用同一份计数映射，定义列表不再把 `instance_count` 固定返回为 `0`
   - `get_definition()`、创建/更新等单定义返回也已统一复用同一计数口径
   - `apps/server/tests/test_baselines_dashboard_api.py` 已补断言，覆盖初始种子计数和新建 `def-001` 基线后实例数增量
+- **复验结论（2026-03-25）**:
+  - 本轮已复核 `baseline_definitions.py` 中 `_build_instance_count_map()` 与对应测试断言仍在，且 `python3 -m py_compile apps/server/src/api/baseline_definitions.py apps/server/tests/test_baselines_dashboard_api.py` 通过。
+  - 本轮尝试补跑 `pytest` 仍被当前环境阻塞：系统 Python 缺少 `pytest`；因此本条按“代码面复核 + 可执行语法校验”作为最小证据收口，并保留后端测试环境缺失风险说明。
 - **回归结果**:
   - `python3 -m py_compile apps/server/src/api/baseline_definitions.py apps/server/tests/test_baselines_dashboard_api.py` 通过
   - 尝试执行 `PYTHONPATH=venv/lib/python3.11/site-packages python3 -m pytest tests/test_baselines_dashboard_api.py -k "baseline_definition_crud_and_metric_workflow or baseline_crud_publish_disable_and_delete"` 未成功：当前环境里的 `pytest` 仅为 namespace 包，无可执行入口
@@ -1454,7 +1490,7 @@
   3. 确认同一炉次仍能打开，或能被稳定映射到最新记录而不是直接 404
 
 ### P1 黄金基线库“刷新数据”按钮当前无任何反馈或刷新动作
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 黄金基线库
 - **复现步骤**:
   1. 打开“黄金基线库”
@@ -1473,6 +1509,9 @@
   - `apps/web/src/views/BaselineListView.vue` 已新增 `handleRefresh()`，点击后会并发重拉基线列表与当前默认黄金基线摘要。
   - 刷新按钮已新增 `baseline-refresh-button` 测试锚点，并在请求期间显示 `刷新中...`、禁用重复点击、图标旋转，完成后恢复为 `刷新数据`。
   - `apps/web/src/locales/zh-CN.json`、`zh-TW.json`、`ja-JP.json`、`en-US.json` 已补齐 `baseline.refresh / baseline.refreshing`。
+- **复验结论（2026-03-25）**:
+  - 本轮已复跑 `e2e/coverage.spec.ts -g "baseline list refresh button triggers a real reload with visible loading feedback"`，当前刷新按钮仍会触发真实重拉并显示 loading。
+  - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”。
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过
@@ -1488,7 +1527,7 @@
   3. 不再是静默无响应
 
 ### P1 炉次浏览展开区“查看完整报告”文案与实际跳转不符，点击后进入的是炉次详情
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 炉次浏览 / 行展开摘要卡
 - **复现步骤**:
   1. 打开“炉次浏览”
@@ -1508,6 +1547,9 @@
   - `apps/web/src/views/HeatListView.vue` 已将展开区按钮改为 locale 文案 `t('heat.viewDetailAction')`，默认中文显示“查看炉次详情”。
   - `apps/web/src/locales/zh-CN.json`、`zh-TW.json`、`ja-JP.json`、`en-US.json` 已补齐 `heat.viewDetailAction`。
   - 已更新现有 Playwright smoke，用例会同时断言按钮不再出现“报告”文案且点击后仍进入 `/heats/:id`。
+- **复验结论（2026-03-25）**:
+  - 本轮已复跑 `e2e/app.spec.ts -g "expanded heat row uses a detail CTA that matches the detail navigation target"`，当前 CTA 文案与跳转目标仍保持一致。
+  - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”。
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过
@@ -1523,7 +1565,7 @@
   3. 不再出现“报告”文案指向炉次详情的歧义
 
 ### P1 炉次详情“生成纠偏任务”当前只是开发中提示，真实任务链路无法从异常炉次发起
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 炉次详情 / 任务链路入口
 - **复现步骤**:
   1. 打开任一异常或正常炉次详情
@@ -1542,6 +1584,9 @@
   - `apps/server/src/api/tasks.py` 已复用现有 heat 查询能力，创建任务时带入真实 `heat_no` 与已有偏差摘要，不再写死演示编号
   - `apps/server/src/schemas/task.py` 与前端任务类型已收口为允许 `deviation_percent=null`；若来源炉次本身尚未算出偏差，任务列表/任务详情/Dashboard 任务预览统一展示“待计算”，不再伪造百分比
   - 本轮未扩到新的任务表单、确认弹窗、重复创建去重或后端任务工作流改造
+- **复验结论（2026-03-25）**:
+  - 本轮已复跑 `e2e/app.spec.ts -g "heat detail create task button posts to tasks api and opens the created task detail"`，当前最小真实创建链路仍可用。
+  - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”；后端 `pytest` 运行环境缺失仍沿用既有风险说明。
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过
@@ -1561,7 +1606,7 @@
   4. 再到任务详情核对该任务可见、关联炉次编号正确；若偏差值为空，应显示“待计算”而不是伪造百分比
 
 ### P1 宿主连线设置页点击“测试连接”会触发 React 渲染循环错误
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: ASNS 宿主 / 连线设置
 - **复现步骤**:
   1. 打开宿主“连线设置”
@@ -1586,6 +1631,9 @@
   - `src/App.tsx` 已稳定化宿主 `t` 函数引用。
   - `src/SettingsView.tsx` 已移除来源目录头部的 nested button 结构。
   - 本轮未改动连接测试接口、草稿数据结构或通道同步业务行为。
+- **复验结论（2026-03-25）**:
+  - 本轮未新增宿主浏览器自动化，已按最小证据复核 `src/App.tsx` 中 `t` 仍为 `useCallback` 稳定引用，且 `src/SettingsView.tsx` 当前不存在此前的头部 nested button 结构。
+  - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run lint` 与 `run build` 本轮均通过；未重新执行一次性 Playwright 控制台脚本，且仓内 `npm test` 因 `import.meta.env` 测试环境问题失败，这仍是当前未覆盖项。
 - **回归结果**:
   - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run lint` 通过
   - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run build` 通过
