@@ -57,10 +57,30 @@
 - [x] 已完成手动调整弹窗多余“选基线起点 / 选基线终点”按钮问题的复验收口：当前 `master` 已无该按钮，issue 状态已从“待复验”更新为“验收通过”
 - [x] 已完成手动调整专项第二轮待复验条目收口：多指标对照、选点同步输入框、滑块/缩放交互三项在当前 `master` 复验通过，issue 状态已统一更新为“验收通过”
 - [x] 已完成报表详情“接口成功但页面长期加载中”问题的复验收口：当前 `master` 上成功态/失败态都能退出 loading，issue 已转为“验收通过”
+- [x] 已完成 compare 时间窗口不稳定 issue 的状态文案归一化：当前仓库最小修复与定向回归已足够按“验收通过”收口，现场 `8000` 运行态差异保留为未覆盖风险说明
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第三十批 issue：compare 时间窗口状态文案归一化收口）
+
+- [x] 已按 investigate 顺序复核 `P1 炉次详情 compare 图表刷新后偶发回退为全天范围，时间窗口不稳定`
+  - [x] 已确认当前仓库内的最小修复目标一直是“旧 `live_inferred` URL 必须立即 replace 到 canonical URL”，而不是在本轮扩到后端 compare 窗口实现、缓存或现场服务版本排查
+  - [x] 已确认现有 `apps/web/e2e/app.spec.ts` 定向回归已覆盖“legacy URL -> canonical URL -> 重复访问仍稳定替换”的完整链路，且当前 `master` 可再次通过
+  - [x] 已判断现有证据已足以把 issue 的状态口径从“已按最小方案修复并回归通过”统一到标准关单文案；未覆盖项仅剩现场 `8000` 服务是否已同步最新实现，不影响当前仓库 issue 的前端侧收口
+- [x] 已完成最小收口
+  - [x] 本轮未修改业务代码，仅更新 `docs/ui_issues.md` 与 `docs/progress.md`，把该条 issue 的状态口径统一为“验收通过”
+  - [x] 已把“现场 `8000` 服务可能仍命中旧 compare 实现/旧缓存”的边界明确写入未覆盖项/风险，而不是继续用非标准状态文案悬置
+  - [x] 本轮未补 `docs/lessons.md`：仓库已有 `2026-03-24 live inferred 详情深链` 的可复用经验，本轮只是文案归一化与复验证据补齐
+- [x] 本轮测试留痕
+  - [x] 测试范围：Heat Detail legacy live heat URL 的 canonical 路由校准、重复访问旧 URL 的稳定性
+  - [x] 验证步骤：访问旧 `live-heat-*` 详情 URL；确认 API 返回 canonical heat id 后页面立即 replace 到 canonical URL；再次访问同一 legacy URL，确认仍稳定收口到相同 canonical URL
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat detail replaces legacy live heat urls with the canonical heat id returned by the api"`
+  - [x] 执行命令：`git diff --check`
+  - [x] 结果：命令通过；当前 `master` 上前端侧已不存在“停留在漂移 legacy URL 导致 compare 时间窗口不稳定”的已知缺口
+  - [x] 未覆盖项：本轮没有重新联调现场运行中的 `127.0.0.1:8000` 服务去确认其 compare 接口是否仍命中旧实现/旧缓存；若现场服务版本落后，仍可能出现与仓库代码不一致的运行态表现
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中仍未标准收口的其它条目；若主仓 issue 状态已全部规范，再转到下一批真实可复现的低风险前端问题
 
 ### 2026-03-25（第二十九批 issue：报表详情长期 loading 复验收口）
 
