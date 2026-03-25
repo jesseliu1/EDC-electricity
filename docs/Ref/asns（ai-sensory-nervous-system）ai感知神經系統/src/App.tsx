@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';  
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';  
 import {   
   Activity, Package, Database, Terminal, LayoutGrid, X,   
   Download, Sun, Moon, Search, Cpu, Globe, Check,   
@@ -775,14 +775,17 @@ export default function App() {
     void bootstrap();
   }, []);
   
-  const t = (key: string) =>
-    hostI18n[lang]?.[key] ||
-    entryI18n[lang]?.[key] ||
-    translations[lang]?.[key] ||
-    hostI18n['zh-CN']?.[key] ||
-    entryI18n['en-US']?.[key] ||
-    translations['zh-CN']?.[key] ||
-    key;  
+  const t = useCallback(
+    (key: string) =>
+      hostI18n[lang]?.[key] ||
+      entryI18n[lang]?.[key] ||
+      translations[lang]?.[key] ||
+      hostI18n['zh-CN']?.[key] ||
+      entryI18n['en-US']?.[key] ||
+      translations['zh-CN']?.[key] ||
+      key,
+    [lang],
+  );  
   
   // 輔助邏輯：Nickname > Name > ID  
   const getLabel = (item: any) => item.nickname || item.name || item.cuid || item.suid;  

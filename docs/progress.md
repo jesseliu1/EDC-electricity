@@ -34,10 +34,34 @@
 - [x] 已把当前服务器目录布局、systemd 模板和同步脚本正式收进仓库，后续不再依赖口头命令
 - [x] 已统一 ASNS 部署文档口径，区分“代理剥前缀”和“保留前缀”两类运行方式，避免把当前服务器的 `ASNS_BASE_PATH=/` 误写成 `/asns/`
 - [x] 已完成第一批 issue 收口：Dashboard 假空态与炉次详情超时后长期 loading 两个 P0 已改为明确错误态，并补 UI 回归
+- [x] 已完成宿主连线设置页 React 渲染循环与 nested button 结构问题收口，点击“测试连接”不再触发更新深度错误
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第七批 issue：宿主连线设置页渲染循环与 nested button 收口）
+
+- [x] 已按 investigate 顺序完成 `P1 宿主连线设置页点击“测试连接”会触发 React 渲染循环错误`
+  - [x] 已确认根因一：`docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/SettingsView.tsx` 的草稿恢复 `useEffect` 依赖了父组件每次重建的 `t` 函数，点击“测试连接”后父级状态刷新会反复触发本地草稿恢复，形成 `Maximum update depth exceeded`
+  - [x] 已确认根因二：来源通道目录头部把“折叠切换”与“整组添加”做成 `button` 套 `button`，会稳定触发 DOM 结构警告
+  - [x] 已确认当前渲染的宿主设置页来自 `src/SettingsView.tsx`，而不是 `src/App.tsx` 内部那份历史遗留同名组件，因此本轮不扩 scope 清理重复实现
+- [x] 已完成最小修复
+  - [x] `src/App.tsx` 中的宿主 `t` 已改为 `useCallback(..., [lang])`，保证在普通状态刷新下引用稳定，不再反复触发子组件恢复 effect
+  - [x] `src/SettingsView.tsx` 中来源目录头部已拆成同级按钮：左侧折叠按钮、右侧“整组添加”按钮，移除了嵌套 button 结构
+  - [x] 未改动连接测试业务逻辑、草稿存储结构、通道同步逻辑与历史遗留 `App.tsx` 内部重复组件
+- [x] 本轮测试留痕
+  - [x] 测试范围：宿主连线设置页“测试连接”交互、来源目录头部 DOM 结构、宿主构建与类型检查
+  - [x] 验证步骤：打开宿主首页；进入“连线设置”；点击“测试连接”；检查控制台无 `Maximum update depth exceeded` / nested button 警告；再检查页面中 `button button` 数量为 0
+  - [x] 执行命令：`npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run lint`
+  - [x] 执行命令：`npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run build`
+  - [x] 执行命令：`npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run test`
+  - [x] 执行命令：`npm exec vite preview -- --host 127.0.0.1 --port 4173`
+  - [x] 执行命令：`pnpm --dir apps/web exec node --input-type=module - <<'EOF'`（一次性 Playwright 脚本：打开 `http://127.0.0.1:4173`，点击宿主“连线设置”与“测试连接”，采集 console/pageerror，并检查 `document.querySelectorAll('button button').length`）
+  - [x] 结果：`lint` 与 `build` 通过；一次性 Playwright 运行时复核确认点击“测试连接”后 `Maximum update depth exceeded` 与 nested button 警告均未再出现，且 `nestedButtonCount = 0`
+  - [x] 结果：现有 `npm test` 仍失败，但失败点是既有测试环境问题：`src/hostConnectivityState.test.ts` 直接 import `hostConnectivitySync.ts` 时，Node 下 `import.meta.env` 未注入，初始化阶段就报 `TypeError: Cannot read properties of undefined (reading 'VITE_ASNS_APP_API_BASE')`，与本轮修复无关
+  - [x] 未覆盖项：本轮没有新增宿主 UI 自动化用例；运行时回归依赖一次性 Playwright 脚本而非仓库固定测试文件
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中剩余低风险、可验证、可回滚的 UI / i18n 收口问题，优先选择不涉及业务规则变更的一项
 
 ### 2026-03-25（第六批 issue：设置页 Radio 过时 API 升级）
 

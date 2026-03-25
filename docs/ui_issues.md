@@ -501,7 +501,7 @@
   3. 确认主指标不再大面积显示 `--`，或页面明确说明“未计算”
 
 ### P1 宿主连线设置页存在 React/DOM 控制台错误，首页会触发结构与更新深度告警
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: ASNS 宿主 / 连线设置 / 首页
 - **复现步骤**:
   1. 启动宿主并打开首页
@@ -515,6 +515,16 @@
 - **当前证据**:
   - Playwright 已在宿主页面控制台捕获上述错误
   - `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/SettingsView.tsx` 中存在外层 `<button>` 内再嵌套内层 `<button>` 的结构
+- **调查结论（2026-03-25）**:
+  - `src/SettingsView.tsx` 的来源目录头部确实存在 `button` 套 `button`，这是 DOM 结构告警的直接来源。
+  - 同页的更新深度错误来自草稿恢复 `useEffect` 依赖了父组件每次重建的 `t` 函数；一旦“测试连接”触发父级状态刷新，恢复逻辑就会重新执行并再次写状态，形成渲染回环。
+- **修复结果**:
+  - `src/App.tsx` 已将宿主 `t` 包装为 `useCallback(..., [lang])`，避免普通 rerender 时函数引用变化。
+  - `src/SettingsView.tsx` 已把来源目录头部拆为同级按钮，清除 nested button 结构。
+- **回归结果**:
+  - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run lint` 通过
+  - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run build` 通过
+  - 本地预览 + 一次性 Playwright 脚本已复核：首页进入连线设置并点击“测试连接”后，控制台不再出现 `Maximum update depth exceeded` 或 nested button 警告，且页面 `button button` 数量为 0
 - **期望结果**:
   - 宿主首页与连线设置页控制台不应持续输出 React 结构错误或更新深度错误
   - 宿主层应先清掉这类基础运行时错误，再做后续整链路联调
@@ -1305,7 +1315,7 @@
   3. 再到任务列表/任务详情核对该任务可见且状态一致
 
 ### P1 宿主连线设置页点击“测试连接”会触发 React 渲染循环错误
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: ASNS 宿主 / 连线设置
 - **复现步骤**:
   1. 打开宿主“连线设置”
@@ -1322,6 +1332,18 @@
     - `In HTML, <button> cannot be a descendant of <button>`
     - `button cannot contain a nested button`
   - `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/SettingsView.tsx` 中来源通道目录确实存在外层折叠按钮包裹内层“整组添加”按钮的结构
+- **调查结论（2026-03-25）**:
+  - 渲染循环的直接根因不是“测试连接”接口本身，而是 `src/SettingsView.tsx` 的草稿恢复 effect 依赖了父组件里每次 render 都会新建的 `t` 函数。
+  - 点击“测试连接”后，父级 `isConnected / config` 等状态发生刷新；由于 `t` 引用变化，子组件恢复草稿 effect 会重新执行并再次调用 `setConfig / setIsConnected / setStatusMessage`，形成更新深度错误。
+  - 同页来源目录头部的 nested button 会放大控制台噪音，但不是循环本身的唯一根因；两者需要一起收口，才能让页面恢复干净运行态。
+- **修复结果**:
+  - `src/App.tsx` 已稳定化宿主 `t` 函数引用。
+  - `src/SettingsView.tsx` 已移除来源目录头部的 nested button 结构。
+  - 本轮未改动连接测试接口、草稿数据结构或通道同步业务行为。
+- **回归结果**:
+  - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run lint` 通过
+  - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run build` 通过
+  - 本地预览 `http://127.0.0.1:4173` 上使用一次性 Playwright 脚本复核：进入“连线设置”并点击“测试连接”后，控制台未再出现 `Maximum update depth exceeded`，同时 `document.querySelectorAll('button button').length === 0`
 - **期望结果**:
   - 点击“测试连接”应只执行一次连接校验与状态刷新
   - 宿主页面不应进入 React 更新深度错误，更不应在关键入口页存在嵌套按钮结构
