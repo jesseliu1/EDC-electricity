@@ -233,6 +233,28 @@ function dataSourceText(source: HeatDataSource) {
   return t('heat.dataSource.none')
 }
 
+function cutReasonText(reason: string | null | undefined) {
+  const normalizedReason = String(reason || 'unknown').trim() || 'unknown'
+  const translationKey = `heat.cutReason.${normalizedReason}`
+  const translated = t(translationKey)
+  return translated === translationKey ? t('heat.cutReason.unknown') : translated
+}
+
+function localizeTimelineDetail(detail: string) {
+  const normalizedDetail = detail.trim()
+  const match = /^(.+?)：(.+)$/.exec(normalizedDetail)
+  if (!match) return normalizedDetail
+
+  const [, prefix, reason] = match
+  if (prefix === '异常原因') {
+    return `${t('heat.timelineAbnormalReason')}：${cutReasonText(reason)}`
+  }
+  if (prefix === '阻断原因') {
+    return `${t('heat.timelineBlockedReason')}：${cutReasonText(reason)}`
+  }
+  return normalizedDetail
+}
+
 function normalizeHexColor(color: string) {
   const value = color.trim()
   if (/^#[0-9a-fA-F]{6}$/.test(value)) return value
@@ -988,8 +1010,8 @@ watch(heatId, (requestedId) => {
                 </span>
               </div>
               <div class="flex items-center gap-2">
-                <span class="text-xs text-red-500 uppercase tracking-widest font-semibold">
-                  Deviation
+                <span class="text-xs text-red-500 font-semibold">
+                  {{ t('heat.deviation') }}
                 </span>
                 <span class="text-lg font-bold text-red-600">{{ range.deviation }}%</span>
               </div>
@@ -1088,9 +1110,10 @@ watch(heatId, (requestedId) => {
             </div>
             <div class="flex justify-between items-center py-1">
               <span class="text-slate-500">{{ t('heat.cutReasonLabel') }}</span>
-              <span class="font-semibold">{{
-                t(`heat.cutReason.${current.base.cutReason || 'unknown'}`)
-              }}</span>
+              <span
+                class="font-semibold"
+                data-testid="heat-detail-cut-reason"
+              >{{ cutReasonText(current.base.cutReason) }}</span>
             </div>
             <div class="flex justify-between items-center py-1">
               <span class="text-slate-500">{{ t('heat.mismatchDurationMinutes') }}</span>
@@ -1132,7 +1155,7 @@ watch(heatId, (requestedId) => {
                 {{ item.title }}
               </div>
               <div class="text-xs text-slate-500 mt-1">
-                {{ item.detail }}
+                {{ localizeTimelineDetail(item.detail) }}
               </div>
             </el-timeline-item>
           </el-timeline>

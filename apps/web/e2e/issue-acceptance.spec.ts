@@ -235,11 +235,12 @@ async function mockBaselineWizardAcceptance(
   })
 }
 
-async function mockHeatAcceptance(page: Page) {
+async function mockHeatAcceptance(page: Page, options?: { cutReason?: string }) {
   const powerCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 438, 6)
   const voltageCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 386, 1.5)
   const temperatureCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 1462, 6)
   const pressureCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 0.82, 0.03)
+  const cutReason = options?.cutReason || 'time_offset_exceed'
 
   await page.route('**/api/heats/issue-heat', async (route) => {
     await fulfillJson(route, {
@@ -254,7 +255,7 @@ async function mockHeatAcceptance(page: Page) {
       time_offset_percent: 4.8,
       mismatch_duration_minutes: 4,
       schedule_tag: 'work',
-      cut_reason: 'time_offset_exceed',
+      cut_reason: cutReason,
       cut_status: 'normal',
       major_issue: false,
       blocked_by_issue: false,
@@ -277,7 +278,7 @@ async function mockHeatAcceptance(page: Page) {
       time_offset_percent: 4.8,
       mismatch_duration_minutes: 4,
       schedule_tag: 'work',
-      cut_reason: 'time_offset_exceed',
+      cut_reason: cutReason,
       cut_status: 'normal',
       major_issue: false,
       blocked_by_issue: false,
@@ -303,7 +304,7 @@ async function mockHeatAcceptance(page: Page) {
         time_offset_percent: 4.8,
         mismatch_duration_minutes: 4,
         schedule_tag: 'work',
-        cut_reason: 'time_offset_exceed',
+        cut_reason: cutReason,
         cut_status: 'normal',
         major_issue: false,
         blocked_by_issue: false,
@@ -498,7 +499,7 @@ async function mockHeatAcceptance(page: Page) {
           timestamp: '2026-03-13T08:39:00Z',
           event_type: 'abnormal',
           title: '判定异常',
-          detail: '异常原因：time_offset_exceed',
+          detail: `异常原因：${cutReason}`,
         },
       ],
     })
@@ -519,7 +520,7 @@ async function mockHeatAcceptance(page: Page) {
         time_offset_percent: 4.8,
         mismatch_duration_minutes: 4,
         schedule_tag: 'work',
-        cut_reason: 'time_offset_exceed',
+        cut_reason: cutReason,
         cut_status: 'normal',
         major_issue: false,
         blocked_by_issue: false,
@@ -756,5 +757,21 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(endInput).not.toHaveValue(originalEnd)
     await expect(chartRoot).not.toHaveAttribute('data-range-end', originalRangeEnd || '')
     await expect(chartRoot).toHaveAttribute('data-series-count', '8')
+  })
+
+  test('heat detail localizes abnormal range labels and inferred cut reasons', async ({
+    page,
+  }) => {
+    await mockHeatAcceptance(page, { cutReason: 'live_inferred' })
+    await page.goto('heats/issue-heat')
+
+    const abnormalRangeItem = page.getByTestId('heat-abnormal-range-item').first()
+    await expect(abnormalRangeItem).toContainText('偏差')
+    await expect(abnormalRangeItem).not.toContainText('Deviation')
+    await expect(page.getByTestId('heat-detail-cut-reason')).toContainText('由实时曲线推断')
+    await expect(page.getByTestId('heat-detail-cut-reason')).not.toContainText(
+      'heat.cutReason.live_inferred'
+    )
+    await expect(page.getByText('异常原因：由实时曲线推断')).toBeVisible()
   })
 })

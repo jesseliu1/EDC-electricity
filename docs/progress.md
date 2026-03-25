@@ -39,6 +39,24 @@
 
 ## 已完成
 
+### 2026-03-25（第三批 issue：炉次详情原因文案本地化）
+
+- [x] 已按 investigate 顺序完成 `P1 炉次详情异常原因与切割原因文案出现英文和技术 key，语言不统一` 的根因定位
+  - [x] 已确认异常区间卡片的 `Deviation` 来自前端硬编码，不是后端返回英文
+  - [x] 已确认 `heat.cutReason.live_inferred` 来自 locale 缺失，时间轴里的原因 code 则来自后端原样透传、前端未再映射
+- [x] 已完成最小展示层修复
+  - [x] `apps/web/src/views/HeatDetailView.vue` 已把异常区间标签改为 locale 文案，并新增切割原因/时间轴原因的本地化映射
+  - [x] `apps/web/e2e/issue-acceptance.spec.ts` 已新增 heat detail 文案回归，固定验证“偏差”标签与“由实时曲线推断”文案
+  - [x] 多语言文案已同步补齐：`live_inferred / timelineAbnormalReason / timelineBlockedReason`
+- [x] 本轮测试留痕
+  - [x] 测试范围：炉次详情文案映射、异常区间展示、原有详情交互主链路
+  - [x] 验证步骤：打开 heat detail 页面，检查异常区间标签、摘要切割原因和时间轴原因文案，再继续执行既有多指标/手动调整回归
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail"`
+  - [x] 结果：均通过；英文 `Deviation` 与技术 key `heat.cutReason.live_inferred` 已不再出现在验证页
+  - [x] 未覆盖项：本轮只处理了炉次详情页本地化问题，侧边栏分组、`common.detail` 等其它 i18n 缺口仍单独保留在 issue 列表
+  - [x] 下一步：继续收口全局 i18n 缺 key 或其它仍在线 P1/P2 问题
+
 ### 2026-03-25（第二批 issue：炉次详情状态口径拆分）
 
 - [x] 已按 investigate 顺序完成 `P0 同一炉次在详情页显示“正常”，但在炉次浏览概览中显示“异常”` 的根因定位

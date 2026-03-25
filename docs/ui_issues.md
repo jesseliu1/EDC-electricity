@@ -226,7 +226,7 @@
   5. 若问题只在部分刷新后出现，需补充记录其触发条件
 
 ### P1 炉次详情异常原因与切割原因文案出现英文和技术 key，语言不统一
-- **状态**: 新发现待处理（2026-03-24）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: 炉次详情 / 异常区间 / 炉次摘要
 - **复现步骤**:
   1. 打开炉次详情：`/edc/heats/live-heat-0ef1bbda-1774314300000-30`
@@ -241,6 +241,17 @@
   - 用户提供截图中，“异常区间”卡片右侧明确显示 `DEVIATION 16.7933% / 22.5975%`
   - 同一页面“切割原因”区域直接显示 `heat.cutReason.live_inferred`
   - 当前问题页面：`http://127.0.0.1:3000/edc/heats/live-heat-0ef1bbda-1774314300000-30`
+- **调查结论（2026-03-25）**:
+  - “异常区间”卡片不是后端返回英文，而是 `apps/web/src/views/HeatDetailView.vue` 直接把右侧标签写死成了 `Deviation`。
+  - “切割原因”技术 key 泄漏的根因是前端直接读取 `t(\`heat.cutReason.${cutReason}\`)`，但 locale 中缺少 `live_inferred` 这一枚举翻译。
+  - 时间轴详情中的 `异常原因：time_offset_exceed / live_inferred` 则来自后端原样透出的原因 code，前端此前也没有再做本地化映射。
+- **修复结果**:
+  - 异常区间卡片右侧标签已改为走 locale 文案，不再硬编码英文 `Deviation`。
+  - `heat.cutReason.live_inferred` 已补齐多语言映射，摘要区“切割原因”不再显示技术 key。
+  - 详情页时间轴现会把 `异常原因 / 阻断原因` 后面的原因 code 转成用户可读文案，避免同页继续出现枚举值。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail"` 通过
 - **期望结果**:
   - 异常原因、切割原因与相关摘要文案应统一为正式中文表达
   - 若切割原因来源于内部技术枚举，也应转换成用户可理解的描述名称，而不是直接显示 key 或技术代号
