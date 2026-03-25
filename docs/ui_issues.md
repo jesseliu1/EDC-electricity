@@ -324,7 +324,7 @@
   3. 确认各处口径一致，或页面能明确说明它们分别代表什么
 
 ### P2 设置页基线等长校验范围控件使用过时 Element Plus API，控制台持续告警
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: 系统设置 / 炉次切割设置
 - **复现步骤**:
   1. 打开“系统设置”页面
@@ -340,6 +340,15 @@
     - `<el-radio-button label="system">`
     - `<el-radio-button label="production_line">`
   - Playwright 在设置页已稳定复现该警告
+- **调查结论（2026-03-25）**:
+  - 告警来源已确认就是 `SettingsView.vue` 中这组三个 `el-radio-button` 仍在使用旧的 `label` 兼作 `value` 写法。
+  - 这类问题属于第三方组件 API 升级，不涉及业务规则变更；最小修复就是按当前 Element Plus 推荐写法改为 `value`。
+- **修复结果**:
+  - `apps/web/src/views/SettingsView.vue` 已把三处 `el-radio-button label=...` 改为 `value=...`。
+  - 现有设置页回归已补充控制台告警断言，并覆盖三种校验范围切换后保存，确认本轮未改变业务行为。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "settings page shows host connectivity and can save tolerance and cutting configuration"` 通过
 - **期望结果**:
   - 设置页不应持续输出第三方组件 API 废弃警告
   - 单选组应按当前 Element Plus 推荐写法实现

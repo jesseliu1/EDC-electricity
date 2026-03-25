@@ -590,6 +590,12 @@ test.describe('EDC web extended coverage', () => {
   test('settings page shows host connectivity and can save tolerance and cutting configuration', async ({ page }) => {
     await mockRuntimeStatus(page)
     await mockSettingsWorkflow(page)
+    const consoleWarnings: string[] = []
+    page.on('console', message => {
+      if (message.type() === 'warning') {
+        consoleWarnings.push(message.text())
+      }
+    })
     await page.goto('settings')
 
     await expect(page.getByTestId('settings-page')).toBeVisible()
@@ -607,8 +613,16 @@ test.describe('EDC web extended coverage', () => {
     await page.getByTestId('settings-save-tolerance').click()
     await expect(latestSuccessMessage(page)).toBeVisible()
 
+    await page.getByText('按系统全局', { exact: true }).click()
+    await page.getByText('按生产线（预留）', { exact: true }).click()
+    await page.getByText('按基线定义', { exact: true }).click()
     await page.getByTestId('settings-save-cutting').click()
     await expect(latestSuccessMessage(page)).toBeVisible()
+    expect(
+      consoleWarnings.some((item) =>
+        item.includes('[el-radio] [API] label act as value has been deprecated')
+      )
+    ).toBe(false)
   })
 
   test('baseline definitions and settings pages reuse unified runtime attention state', async ({ page }) => {

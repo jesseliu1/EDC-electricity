@@ -39,6 +39,24 @@
 
 ## 已完成
 
+### 2026-03-25（第六批 issue：设置页 Radio 过时 API 升级）
+
+- [x] 已按 investigate 顺序完成 `P2 设置页基线等长校验范围控件使用过时 Element Plus API，控制台持续告警`
+  - [x] 已确认告警来源就是 `apps/web/src/views/SettingsView.vue` 中三处 `el-radio-button label=...`
+  - [x] 已确认这条只涉及第三方组件 API 升级，不涉及业务规则调整
+- [x] 已完成最小修复
+  - [x] 设置页“基线等长校验范围”单选组已从旧写法 `label` 兼作值升级为 `value`
+  - [x] 未改动 `baselineLengthScopeMode` 的业务枚举和保存逻辑
+  - [x] 现有 settings 页回归已补充控制台告警断言，并覆盖三种范围切换和保存
+- [x] 本轮测试留痕
+  - [x] 测试范围：设置页切割配置单选组渲染、切换与保存；控制台 Element Plus 废弃警告
+  - [x] 验证步骤：打开设置页，确认页面正常渲染；切换“按基线定义 / 按系统全局 / 按生产线（预留）”；保存切割配置；检查控制台无 `label act as value has been deprecated`
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "settings page shows host connectivity and can save tolerance and cutting configuration"`
+  - [x] 结果：均通过；设置页行为保持不变，废弃 API 告警已收口
+  - [x] 未覆盖项：本轮只验证了设置页这组 Radio 控件；未顺带处理设置页中英混排等其它文案问题
+  - [x] 下一步：继续处理页面英文副标题/标签混排或任务列表 Tab 计数占位符
+
 ### 2026-03-25（第五批 issue：Dashboard 实时曲线副标题去示例化）
 
 - [x] 已按 investigate 顺序完成 `P1 Dashboard 实时曲线卡片仍残留硬编码示例副标题，与真实链路状态冲突`

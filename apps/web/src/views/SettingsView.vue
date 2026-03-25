@@ -309,13 +309,13 @@ onMounted(() => {
               class="md:col-span-2"
             >
               <el-radio-group v-model="settingStore.data.baselineLengthScopeMode">
-                <el-radio-button label="definition">
+                <el-radio-button value="definition">
                   {{ t('settings.scopeDefinition') }}
                 </el-radio-button>
-                <el-radio-button label="system">
+                <el-radio-button value="system">
                   {{ t('settings.scopeSystem') }}
                 </el-radio-button>
-                <el-radio-button label="production_line">
+                <el-radio-button value="production_line">
                   {{ t('settings.scopeProductionLine') }}
                 </el-radio-button>
               </el-radio-group>
