@@ -4,6 +4,64 @@
 
 ## 跟踪问题 (Tracked)
 
+### P1 ASNS 宿主 `npm test` 在 Node 测试环境因 `import.meta.env` 未注入而直接失败
+- **状态**: 验收通过（2026-03-25）
+- **页面/模块**: ASNS 宿主 / 测试基座 / `hostConnectivityState.test.ts`
+- **复现步骤**:
+  1. 在宿主参考工程目录执行 `npm test`
+  2. 观察 Node test 输出
+- **实际结果**:
+  - 修复前测试在模块初始化阶段直接失败
+  - 首个错误是读取 `import.meta.env.VITE_ASNS_APP_API_BASE` 时 `env` 未定义
+  - 收掉该错误后，又会在无浏览器环境下因为 `new URL('/', '/')` 触发 `Invalid URL`
+- **调查结论（2026-03-25）**:
+  - 根因不是业务逻辑失败，而是 `src/hostConnectivitySync.ts` 把 Vite 浏览器运行时假设直接带进了 Node test 环境。
+  - `resolveAppApiBase()` / `resolveHostApiBase()` 在模块顶层初始化时直接读取 `import.meta.env`，并假设一定存在浏览器 origin。
+  - 这类问题应由测试基座 env shim 收口，而不是修改宿主业务流或跳过测试。
+- **修复结果**:
+  - `src/hostConnectivitySync.ts` 已新增 `getImportMetaEnv()`，在 Node test 环境下把 `import.meta.env` 安全降级为空对象。
+  - `resolveHostApiBase()` 已在无浏览器 origin 时回退为可拼接的相对路径前缀，不再在模块初始化阶段构造无效 URL。
+  - 本轮未改连接测试接口、通道同步协议或宿主运行时业务逻辑。
+- **回归结果**:
+  - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run test` 通过
+  - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run lint` 通过
+  - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run build` 通过
+- **期望结果**:
+  - 宿主参考工程的 `npm test` 应作为稳定可复用的最小测试入口运行
+  - 测试基座不应依赖浏览器注入的 `import.meta.env` 才能启动
+- **严重程度**: 中
+- **如何测试**:
+  1. 在宿主参考工程目录执行 `npm test`
+  2. 确认 8 条 Node test 全部通过
+  3. 再执行 `npm run lint` 与 `npm run build`，确认本轮 env shim 未带来副作用
+
+### P1 炉次详情数据加载失败时“手动调整”按钮仍可点击但静默无响应
+- **状态**: 待修复（2026-03-25）
+- **页面/模块**: 炉次详情 / error-state / 手动调整入口
+- **复现步骤**:
+  1. 在浏览器中打开 `Heat Detail`
+  2. 让详情数据请求失败或在 `127.0.0.1:8000` 不可达的情况下进入错误态
+  3. 观察顶部“手动调整”按钮并点击
+- **实际结果**:
+  - 详情数据失败后，页面仍保留顶部“手动调整”按钮
+  - 点击后不弹窗、无 toast、URL 不变
+  - 当前表现为 silent no-op，用户无法判断是“当前无数据不可调整”还是按钮失效
+- **当前证据**:
+  - browser-driven QA 已在当前 `3000` 前端可交互、`8000` 不可达的环境下稳定复现
+  - 同轮 QA 还确认当前 acceptance 只能停在 error-state / empty-state 层，无法继续真实链路验收
+- **调查结论（2026-03-25）**:
+  - 当前问题更接近 error-state 下的交互护栏缺失，而不是手动调整主链路本体坏掉。
+  - 在详情数据不可用时继续暴露可点击主按钮，会把“无可用炉次数据”伪装成“点击没反应”。
+  - 最小正确修复应优先在错误态禁用/隐藏按钮，或给出明确提示“当前无可用炉次数据，无法手动调整”。
+- **期望结果**:
+  - 当详情数据失败时，手动调整入口应明确不可用
+  - 不应保留一个可点击但静默无响应的主按钮
+- **严重程度**: 中
+- **如何测试**:
+  1. 在 `127.0.0.1:8000` 不可达时进入 `Heat Detail`
+  2. 确认页面进入明确错误态
+  3. 再检查“手动调整”按钮应被禁用、隐藏或给出明确不可用提示，而不是 silent no-op
+
 ### P0 从宿主进入 EDC 后 Dashboard 首屏统计与最近炉次请求超时，页面进入“假空态”
 - **状态**: 验收通过（2026-03-25）
 - **页面/模块**: ASNS 宿主入口 -> EDC / Dashboard

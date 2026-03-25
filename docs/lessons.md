@@ -21,6 +21,13 @@
 
 ## 记录
 
+### 2026-03-25 前端测试基座：不要假设 Node test 环境一定注入 `import.meta.env`
+
+- **错误模式**: 在前端共享模块里直接于模块顶层读取 `import.meta.env.*` 并立刻派生 URL/常量，默认只有 Vite 浏览器运行时会执行，忽略了 Node test 也会 import 同一模块。
+- **正确做法**: 对 `import.meta.env` 做一层安全读取包装；同时凡是依赖浏览器 origin 的 URL 推导，都要在无 `window` / 无 origin 时给出可拼接的相对路径回退，避免 Node test 在模块初始化阶段直接崩溃。
+- **适用场景**: Vite 前端项目、Node 原生 `node:test`、Vitest、Playwright 以外的纯模块级单测，以及任何会在浏览器与 Node 双环境共享的 API/配置模块。
+- **相关文档**: `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`
+
 ### 2026-03-25 Python 测试环境：不要把残缺的 `site-packages` 目录误判成可运行虚拟环境
 
 - **错误模式**: 看到仓库里存在 `apps/server/venv/lib/python3.11/site-packages`，就默认认为本地已经有完整 pytest 运行环境，随后直接尝试 `python -m pytest`、拼 `PYTHONPATH` 或借用系统解释器硬跑。

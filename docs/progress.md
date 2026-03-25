@@ -6,11 +6,11 @@
 
 ## 当前状态
 
-**当前阶段**: MVP 完成（联调整体验收收口中）
+**当前阶段**: 功能开发基本完成（真实联调 / 完整验收待完成）
 
-**当前步骤**: 联调与验收
+**当前步骤**: 测试基座收口与 review 交接准备
 
-**进度**: 100%
+**进度**: 功能开发 100%，真实联调 / 完整验收未完成
 
 - [x] 已新增 `docs/session_handoff.md` 作为新 session 的固定交接入口
 - [x] 已完成交接 issue 1-9 收口，并补齐默认黄金基线与宿主入口多语言回归
@@ -62,10 +62,40 @@
 - [x] 已完成偏差收件箱空偏差文案 issue 的标准状态归一化：当前 `master` 代码与定向回归一致，文档状态已统一为“验收通过”
 - [x] 已完成剩余 16 条“已修复并回归通过” tracked issues 的最小回归与标准状态归一化：`docs/ui_issues.md` 已不再残留该状态文案
 - [x] 已完成 EDC 后端 pytest 环境缺口最小调查：确认项目配置本身完整，但当前服务器缺少可直接运行的 `uv` / `python3.11`，且 `apps/server/venv` 仅残留不完整 `site-packages`，本轮不做高风险环境重建，改以文档留痕和下一阶段 handoff 收口
+- [x] 已完成 ASNS 宿主 `npm test` 最小基座修复：`hostConnectivitySync.ts` 的环境变量读取已兼容 Node test 环境，`npm test / lint / build` 当前均可运行
+- [x] 已同步 QA 新发现：当前 `127.0.0.1:8000` 与 `127.0.0.1:8080` 都不可达，真实联调仍受环境阻塞；`Heat Detail` 在详情失败时“手动调整”按钮仍可点击但静默无响应，已入账待后续处理
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第三十五批 issue：QA 新发现收口 + ASNS 宿主 npm test 最小基座修复）
+
+- [x] 已按 investigate 顺序处理本轮 QA 新发现
+  - [x] 已确认 `apps/web` 的 `lint / test:i18n / build` 与关键 Playwright 抽测通过，当前 UI 收口项在 mocked 回归层面基本成立
+  - [x] 已同步真实联调阻塞：`127.0.0.1:8000` 不可达、`127.0.0.1:8080` 不可达，因此 acceptance 只能停在 error-state / empty-state 层
+  - [x] 已把新 issue 入账到 `docs/ui_issues.md`
+    - [x] `P1 ASNS 宿主 npm test 在 Node 测试环境因 import.meta.env 未注入而直接失败`
+    - [x] `P1 炉次详情数据加载失败时“手动调整”按钮仍可点击但静默无响应`
+  - [x] 已把顶层“进度 100%”口径改成更准确的“功能开发 100%，真实联调 / 完整验收未完成”
+- [x] 已完成最小修复
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts` 已新增 `getImportMetaEnv()`，不再在 Node test 环境直接读取未注入的 `import.meta.env`
+  - [x] `resolveHostApiBase()` 已在无浏览器 origin 时回退为可拼接路径前缀，不再在 Node test 模块初始化阶段触发 `Invalid URL`
+  - [x] 本轮未修改任何 EDC/ASNS 业务逻辑、接口协议或架构层代码
+  - [x] 已补 `docs/session_handoff.md`：明确下一阶段由 Code X + `review` skill 优先修后端 pytest 入口、再修宿主测试基座并做 full review/full test
+  - [x] 已补 `docs/lessons.md`：记录“Vite/前端 runtime env 读取不能假设 Node test 环境一定注入 `import.meta.env`”
+- [x] 本轮测试留痕
+  - [x] 测试范围：ASNS 宿主 `npm test` 失败入口、宿主 `lint/build` 回归、QA 新发现文档留痕、下一阶段 handoff 完整性
+  - [x] 验证步骤：先复现 `npm test` 中 `import.meta.env.VITE_ASNS_APP_API_BASE` 未定义错误；仅对 `hostConnectivitySync.ts` 做最小 env shim 与无浏览器回退；重跑宿主 `npm test / lint / build`；最后更新 `progress/ui_issues/session_handoff/lessons`
+  - [x] 执行命令：`sed -n '1,240p' docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`
+  - [x] 执行命令：`sed -n '1,240p' docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivityState.test.ts`
+  - [x] 执行命令：`npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run test`
+  - [x] 执行命令：`npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run lint`
+  - [x] 执行命令：`npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run build`
+  - [x] 结果：`npm test` 已从“模块初始化直接报 `import.meta.env` / `Invalid URL`”恢复为 8 条测试全部通过；`npm run lint` 与 `npm run build` 也通过；新 browser-driven QA 结果已入账，当前真实联调仍被 `8000/8080` 不可达阻塞
+  - [x] 未覆盖项：本轮没有修 `Heat Detail` 在详情失败时“手动调整”按钮的 silent no-op，只做了 issue 入账；也没有恢复 `127.0.0.1:8000` / `127.0.0.1:8080` 运行环境，因此无法在真实链路层复验 Dashboard -> Heat Detail、生成任务、legacy->canonical URL 等 acceptance 路径
+  - [x] 当前状态：功能开发与 mocked 回归基本收口，宿主 `npm test` 已恢复可运行；当前主要阻塞已切换为真实联调环境不可达与一条新入账的 Heat Detail error-state 交互问题
+  - [x] 下一步：优先恢复 `8000/8080` 与 EDC 后端 pytest 入口；随后按 `docs/session_handoff.md` 中的范围让 Code X + `review` skill 执行 full review/full test，并优先复跑 Dashboard 最近炉次->Heat Detail、Heat Detail 手动调整、生成纠偏任务->Task Detail、legacy->canonical URL、Heat List 展开/CTA、Reports 列表->详情、Baselines 列表->详情动作
 
 ### 2026-03-25（第三十四批 issue：EDC 后端 pytest 环境缺口调查与下一阶段 review/full test handoff）
 

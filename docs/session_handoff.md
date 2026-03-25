@@ -13,6 +13,11 @@
   - 分支：`master`
   - 工作树：干净
   - 下一阶段不再是继续点修 UI issue，而是交给 **Code X + `review` skill** 做 **full review / full test**
+- 最新 QA 同步：
+  - `apps/web` 的 `lint / test:i18n / build` 与关键 Playwright 抽测已通过，mocked 回归层面基本成立
+  - 当前真实联调仍被环境阻塞：`127.0.0.1:8000` 不可达、`127.0.0.1:8080` 不可达
+  - 新入账 issue：`Heat Detail` 在详情失败时“手动调整”按钮仍可点击但静默无响应
+  - ASNS 宿主 `npm test` 的 `import.meta.env` / `Invalid URL` 基座问题已在本轮修复，`npm test / lint / build` 当前都可运行
 
 ### 下一阶段目标
 
@@ -36,6 +41,7 @@
 - ASNS 宿主基础回归
   - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run lint`
   - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run build`
+  - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run test`
   - 若要补宿主浏览器级验证，应优先把此前一次性 Playwright 控制台脚本收成可复用入口
 - EDC 后端测试
   - 目标应覆盖至少：`tests/test_baselines_dashboard_api.py`、`tests/test_heats_api.py`、`tests/test_tasks_reports_settings_api.py`
@@ -44,6 +50,7 @@
 ### 重点回归面
 
 - Dashboard / Heat Detail 的 timeout/error state 不再伪装为空态或长期 loading
+- Heat Detail 在 error-state 下“手动调整”按钮是否仍然 silent no-op
 - i18n missing-key 告警、默认中文界面的中英混排、不完整 locale 回退
 - Heat Detail 的状态口径拆分、异常原因/切割原因本地化
 - Baseline/Task/Heat 列表中的占位按钮、假搜索/假筛选、误导性空偏差文案
@@ -71,6 +78,14 @@
 2. 然后由 Code X + `review` skill 做 full review/full test
    - 先跑前端/宿主基础验证
    - 再补全后端 pytest
+   - 然后优先复跑以下真实 acceptance 面：
+     - Dashboard 最近炉次 -> Heat Detail
+     - Heat Detail 手动调整
+     - 生成纠偏任务 -> Task Detail
+     - legacy -> canonical URL
+     - Heat List 行展开 / CTA
+     - Reports 列表 -> 详情
+     - Baselines 列表 -> 详情动作
    - 最后汇总未覆盖项、真实阻塞和是否可继续部署/联调
 
 > 下面内容保留为历史上下文，不再代表当前“下一步”。

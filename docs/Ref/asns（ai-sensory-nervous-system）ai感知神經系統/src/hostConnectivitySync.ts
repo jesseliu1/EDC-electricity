@@ -31,6 +31,12 @@ type HostRuntimeGlobals = typeof globalThis & {
   __ASNS_HOST_API_BASE__?: string;
 };
 
+type HostImportMetaEnv = {
+  VITE_ASNS_APP_API_BASE?: string;
+  VITE_ASNS_HOST_API_BASE?: string;
+  BASE_URL?: string;
+};
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
@@ -42,24 +48,34 @@ function getBrowserOrigin(): string {
   return window.location.origin;
 }
 
+function getImportMetaEnv(): HostImportMetaEnv {
+  return ((import.meta as ImportMeta & { env?: HostImportMetaEnv }).env ?? {});
+}
+
 function resolveAppApiBase(): string {
   const runtimeGlobals = globalThis as HostRuntimeGlobals;
+  const importMetaEnv = getImportMetaEnv();
   const configuredBase =
     runtimeGlobals.__ASNS_APP_API_BASE__ ||
-    import.meta.env.VITE_ASNS_APP_API_BASE ||
+    importMetaEnv.VITE_ASNS_APP_API_BASE ||
     `${getBrowserOrigin()}/api`;
   return trimTrailingSlash(configuredBase);
 }
 
 function resolveHostApiBase(): string {
   const runtimeGlobals = globalThis as HostRuntimeGlobals;
-  const configuredBase = runtimeGlobals.__ASNS_HOST_API_BASE__ || import.meta.env.VITE_ASNS_HOST_API_BASE;
+  const importMetaEnv = getImportMetaEnv();
+  const configuredBase = runtimeGlobals.__ASNS_HOST_API_BASE__ || importMetaEnv.VITE_ASNS_HOST_API_BASE;
   if (configuredBase) {
     return trimTrailingSlash(configuredBase);
   }
 
-  const baseUrl = import.meta.env.BASE_URL || '/';
-  return trimTrailingSlash(new URL(baseUrl, `${getBrowserOrigin()}/`).toString());
+  const baseUrl = importMetaEnv.BASE_URL || '/';
+  const browserOrigin = getBrowserOrigin();
+  if (!browserOrigin) {
+    return trimTrailingSlash(baseUrl === '/' ? '' : baseUrl);
+  }
+  return trimTrailingSlash(new URL(baseUrl, `${browserOrigin}/`).toString());
 }
 
 export const appApiBase = resolveAppApiBase();
