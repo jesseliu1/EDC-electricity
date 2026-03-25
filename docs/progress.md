@@ -2489,3 +2489,19 @@
   - [ ] ASNS 界面连接 EDC 后端验证
   - [ ] EDC 炉次列表数据展示验证
   - [ ] ASNS -> EDC 数据推流链路验证
+
+### 2026-03-26 00:21 巡检留痕（PM agent 第四十三批）
+
+- 本轮巡检时间：2026-03-26 00:21 CST
+- Codex 状态：Working（后台 terminal 运行中，context 剩 21%，输入队列积压未消费）
+- 本轮修复：`/api/health` 别名路由已补入 `apps/server/src/main.py` 及运行副本 `~/edc-electricity-server/src/main.py`，服务已重启
+- 当前联通验证（PM agent 直接执行）：
+  - 127.0.0.1:8001/health → 200 ✅
+  - 127.0.0.1:8001/api/health → 200 ✅（本批修复后已通过）
+  - 127.0.0.1:3001/ → 200 ✅
+  - https://hopeofthepantheon.me/edc/ → 200 ✅
+  - https://hopeofthepantheon.me/asns/ → 200 ✅
+- 结论：5/5 全通 ✅
+- Codex context 告急，已多次发收尾指令，Codex 后台任务尚未释放
+- 下一步：等 Codex 完成后台任务后自动提交收尾；若下轮巡检仍未提交则由 PM agent 直接 commit
+- 未覆盖项：ASNS→EDC 集成冒烟测试（ASNS 连接 EDC 后端、炉次列表数据、推流链路）待下一 session 推进
