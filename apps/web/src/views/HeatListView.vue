@@ -234,28 +234,50 @@ onMounted(() => {
         <div class="space-y-1.5">
           <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
             <span class="material-symbols-outlined text-[16px]">precision_manufacturing</span>
-            设备 ID (局部)
+            {{ t('heat.deviceFilterLabel') }}
+            <span class="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+              {{ t('heat.unsupportedFilterBadge') }}
+            </span>
           </label>
-          <div class="flex items-center bg-slate-100 rounded-lg px-3 py-2 border border-transparent focus-within:border-primary/30 transition-all">
+          <div class="flex items-center rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 opacity-70">
             <input
+              data-testid="heat-device-filter-input"
               type="text"
-              class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 p-0"
-              placeholder="筛选特定炉台..."
+              disabled
+              class="w-full cursor-not-allowed border-none bg-transparent p-0 text-sm text-slate-500 placeholder:text-slate-400 focus:outline-none focus:ring-0"
+              :placeholder="t('heat.unsupportedFilterPlaceholder')"
             >
           </div>
+          <p
+            data-testid="heat-device-filter-hint"
+            class="text-xs text-slate-400"
+          >
+            {{ t('heat.deviceFilterUnavailableHint') }}
+          </p>
         </div>
         <div class="space-y-1.5">
           <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
             <span class="material-symbols-outlined text-[16px]">grid_view</span>
-            合金号
+            {{ t('heat.alloyFilterLabel') }}
+            <span class="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+              {{ t('heat.unsupportedFilterBadge') }}
+            </span>
           </label>
-          <div class="flex items-center bg-slate-100 rounded-lg px-3 py-2 border border-transparent focus-within:border-primary/30 transition-all">
+          <div class="flex items-center rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 opacity-70">
             <input
+              data-testid="heat-alloy-filter-input"
               type="text"
-              class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 p-0"
-              placeholder="例如: Al-Si10Mg"
+              disabled
+              class="w-full cursor-not-allowed border-none bg-transparent p-0 text-sm text-slate-500 placeholder:text-slate-400 focus:outline-none focus:ring-0"
+              :placeholder="t('heat.unsupportedFilterPlaceholder')"
             >
           </div>
+          <p
+            data-testid="heat-alloy-filter-hint"
+            class="text-xs text-slate-400"
+          >
+            {{ t('heat.alloyFilterUnavailableHint') }}
+          </p>
         </div>
         <div class="space-y-1.5">
           <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">

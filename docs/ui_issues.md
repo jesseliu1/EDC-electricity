@@ -1286,7 +1286,7 @@
   4. 如在完整 Python 依赖环境下，可进一步执行 `tests/test_baselines_dashboard_api.py` 中对应断言，确认新建 `def-001` 基线后实例数会从 `1` 增为 `2`
 
 ### P1 多个列表页搜索/筛选控件仍是纯展示占位，输入后不会改变结果
-- **状态**: 部分修复待继续（2026-03-25，BaselineListView / TaskListView 已收口，HeatListView 仍待处理）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 黄金基线库 / 炉次浏览 / 纠偏任务单
 - **复现步骤**:
   1. 打开黄金基线库，在“搜索名称...”输入一个不存在的关键词
@@ -1296,23 +1296,26 @@
   - 修复前，黄金基线库中输入 `不存在的基线` 后，列表仍完整显示全部记录，没有任何过滤
   - 修复前，炉次浏览和任务列表的输入框也只是接受文本，列表不会联动变化
   - 用户会误以为这些搜索/筛选已接入真实查询，但目前只是界面占位
-- **调查结论（2026-03-25 第一刀 / 第二刀）**:
+- **调查结论（2026-03-25 第一刀 / 第二刀 / 第三刀）**:
   - 当前多页问题里，`BaselineListView` 的根因最明确：页面始终直接渲染 `baselineStore.filteredList`，搜索输入框没有 `v-model`、过滤计算或事件处理
   - 这条 issue 不需要一口气扩到多页才能开始收口；可以先把黄金基线库这一页做成真实本地过滤，形成可复用模式，再继续处理 `HeatListView / TaskListView`
   - `TaskListView` 的根因与之相同：顶部搜索框没有 `v-model` 或过滤逻辑，且当前占位文案还虚承诺了页面并不存在的“任务描述”搜索能力
-  - 当前只剩 `HeatListView` 的假搜索/筛选控件仍保持原样，后续需继续单独收口
+  - `HeatListView` 的情况与前两页不同：`apps/web/src/api/heat.ts` 的 `HeatResponseItem / HeatListQuery` 以及 `apps/web/src/stores/heat.ts` 只支持状态与日期范围，没有设备 ID、合金号字段或对应查询参数，因此不能伪造成真实筛选
 - **本轮修复结果（2026-03-25）**:
   - `apps/web/src/views/BaselineListView.vue` 已新增本地 `searchKeyword` 与 `displayedBaselines` 计算属性，按基线名称做大小写无关的即时过滤
   - “搜索名称...”输入框现在会立即影响卡片列表与顶部记录数；输入存在关键词会收口到匹配项，输入不存在关键词会进入空态
   - 已补稳定测试锚点：`baseline-search-input`、`baseline-list-count`、`baseline-empty-state`、`baseline-card-{id}`
   - `apps/web/src/views/TaskListView.vue` 已新增本地 `searchKeyword` 与 `displayedTasks` 计算属性，仅对当前已加载列表按 `taskNo / heatId` 做即时过滤
   - TaskListView 顶部占位文案已改为与真实能力一致的 `task.searchPlaceholder`，不再承诺“任务描述”搜索；同时补了 `task-search-input`、`task-empty-state` 测试锚点
-  - 本轮未改动 `HeatListView`，也未新增任何后端搜索参数
+  - `apps/web/src/views/HeatListView.vue` 已将“设备 ID / 合金号”两个无数据支撑的输入框改为明确 `disabled` 的未开放控件，并补 `heat-device-filter-input / heat-alloy-filter-input` 与对应说明测试锚点
+  - HeatListView 现在会明确告知“当前数据源暂不支持按设备 ID / 合金号筛选”，不再继续暴露可输入但不生效的假筛选
+  - 本轮未新增任何后端搜索参数，也未伪造前端对不存在字段的本地过滤
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过
   - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "baseline list search input filters cards immediately for matching and missing names"` 通过
   - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "task list search input filters the loaded rows by task number and related heat id"` 通过
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat list unsupported device and alloy filters are explicitly disabled"` 通过
   - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 这些搜索/筛选控件应实际影响页面结果
@@ -1323,7 +1326,8 @@
   2. 确认 BaselineListView 的列表数量和展示卡片会立即变化
   3. 在任务列表输入存在的任务编号或关联炉次片段，确认当前页行项目会立即收口到匹配项
   4. 输入不存在关键词后，确认任务列表进入空态
-  5. 当前 `HeatListView` 仍需单独补测和收口，不应误判为本轮已修复
+  5. 打开炉次浏览，确认“设备 ID / 合金号”控件显示未开放说明且为禁用态，不再允许用户输入
+  6. 确认炉次列表其余现有筛选能力（日期范围 / 偏差范围）仍可正常使用
 
 ### P1 设置页左侧分类导航只有选中态变化，右侧内容不会切换
 - **状态**: 验收通过（2026-03-25）

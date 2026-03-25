@@ -52,10 +52,34 @@
 - [x] 已完成旧 live heat 深链的 canonical 路由校准回归收口，重复打开 legacy URL 会稳定 replace 到当前 canonical heat id
 - [x] 已完成列表假搜索控件第一刀收口：BaselineListView 的“搜索名称...”已接成本地即时过滤，HeatList / TaskList 仍待后续处理
 - [x] 已完成列表假搜索控件第二刀收口：TaskListView 顶部搜索框已接成本地即时过滤并修正文案，HeatListView 仍待后续处理
+- [x] 已完成列表假搜索控件第三刀收口：HeatListView 无数据支撑的设备 ID / 合金号输入已改为明确禁用态并补说明，正式页不再保留可输入但不生效的筛选框
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第二十五批 issue：HeatListView 假筛选控件收口）
+
+- [x] 已按 investigate 顺序继续处理 `P1 多个列表页搜索/筛选控件仍是纯展示占位，输入后不会改变结果`
+  - [x] 已确认 `apps/web/src/views/HeatListView.vue` 顶部“设备 ID / 合金号”当前只是静态 `<input>`，没有 `v-model`、过滤计算或事件处理
+  - [x] 已确认 `apps/web/src/api/heat.ts` 的 `HeatResponseItem`、`HeatListQuery` 与 `apps/web/src/stores/heat.ts` 当前只支持 `status / dateRange`，并没有设备 ID、合金号或对应查询参数
+  - [x] 已确认本轮不应伪造前端过滤能力，也不新增后端字段/协议；最小正确修复是把这两个无真实数据支撑的输入控件收成明确禁用态并说明暂未开放
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/HeatListView.vue` 已将设备 ID、合金号两个输入框改为显式 `disabled`，并补 `heat-device-filter-input / heat-alloy-filter-input` 稳定测试锚点
+  - [x] 两个控件已补“暂未开放”徽标与原因说明，不再表现为“可以输入但没有任何结果变化”的假筛选
+  - [x] 四套语言包已补 `heat.deviceFilterLabel / alloyFilterLabel / unsupportedFilterBadge / unsupportedFilterPlaceholder / *UnavailableHint`
+  - [x] `apps/web/e2e/app.spec.ts` 已新增定向回归，覆盖 HeatListView 中两个未开放筛选控件的禁用态与说明文案
+- [x] 本轮测试留痕
+  - [x] 测试范围：HeatListView 顶部设备 ID / 合金号筛选控件口径、EDC 前端 locale 结构、EDC 前端构建
+  - [x] 验证步骤：打开 `/heats`；确认设备 ID 与合金号控件显示“暂未开放”并为禁用态；确认炉次列表仍正常可见，不再允许用户对这两个假筛选框输入内容
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat list unsupported device and alloy filters are explicitly disabled"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；HeatListView 不再暴露无数据支撑的可输入筛选框
+  - [x] 未覆盖项：本轮没有把设备 ID / 合金号筛选接成真实能力，因为当前热列表接口和 store 均未提供对应字段；也未扩到新的后端查询参数或跨页前端过滤
+  - [x] 未补 `docs/lessons.md`：既有“正式页搜索/筛选控件必须真实影响结果，否则应明确禁用/隐藏”的经验已覆盖本轮场景，本次没有新增更通用的新模式
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中剩余低风险、可回滚、可验证的 UI/前端收口项，优先仍处于占位或误导展示状态的控件
 
 ### 2026-03-25（第二十四批 issue：TaskListView 顶部假搜索框收口）
 

@@ -460,6 +460,21 @@ test.describe('EDC web smoke flows', () => {
     await expect(page).toHaveURL(/\/edc\/heats$/)
   })
 
+  test('heat list unsupported device and alloy filters are explicitly disabled', async ({ page }) => {
+    await mockHeatSmoke(page)
+    await page.goto('heats')
+
+    await expect(page.getByTestId('heat-row-issue-heat')).toBeVisible()
+
+    const deviceFilter = page.getByTestId('heat-device-filter-input')
+    const alloyFilter = page.getByTestId('heat-alloy-filter-input')
+
+    await expect(deviceFilter).toBeDisabled()
+    await expect(alloyFilter).toBeDisabled()
+    await expect(page.getByTestId('heat-device-filter-hint')).toHaveText('当前数据源暂不支持按设备 ID 筛选。')
+    await expect(page.getByTestId('heat-alloy-filter-hint')).toHaveText('当前数据源暂不支持按合金号筛选。')
+  })
+
   test('heat detail create task button posts to tasks api and opens the created task detail', async ({
     page,
   }) => {
