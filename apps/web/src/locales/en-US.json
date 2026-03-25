@@ -329,7 +329,8 @@
   "inbox": {
     "title": "Deviation Inbox",
     "deviationList": "Deviation List",
-    "viewDetail": "View Detail"
+    "viewDetail": "View Detail",
+    "deviationPending": "Pending"
   },
   "report": {
     "title": "Reports & Audit",

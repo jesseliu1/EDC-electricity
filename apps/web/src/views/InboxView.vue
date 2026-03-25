@@ -14,6 +14,10 @@ const inboxItems = computed(() =>
   heatStore.list.filter((item) => item.status === 'abnormal' || item.status === 'pending')
 )
 
+function formatDeviation(value: number | null) {
+  return value === null ? t('inbox.deviationPending') : `${value}%`
+}
+
 function handleView(id: string) {
   router.push(`/heats/${id}`)
 }
@@ -90,8 +94,16 @@ onMounted(async () => {
           <div class="flex items-center gap-6">
             <!-- Deviation Visual -->
             <div class="flex flex-col items-end gap-1">
-              <span class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Deviation</span>
-              <span class="text-lg font-bold text-red-600 bg-red-50 px-2 rounded-md font-mono">{{ item.deviationPercent ?? '--' }}%</span>
+              <span class="text-xs text-slate-400 font-semibold uppercase tracking-wider">{{ t('heat.deviation') }}</span>
+              <span
+                :data-testid="`inbox-deviation-${item.id}`"
+                :class="[
+                  'px-2 rounded-md',
+                  item.deviationPercent === null
+                    ? 'text-sm font-semibold text-slate-600 bg-slate-100'
+                    : 'text-lg font-bold text-red-600 bg-red-50 font-mono',
+                ]"
+              >{{ formatDeviation(item.deviationPercent) }}</span>
             </div>
              
             <!-- Action Button -->

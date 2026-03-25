@@ -458,7 +458,7 @@
   3. 确认不会再出现 `(...)` 占位符
 
 ### P1 偏差收件箱异常卡片显示 `Deviation --%`，与“偏差收件箱”语义不符
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: 偏差收件箱
 - **复现步骤**:
   1. 打开“偏差收件箱”页面
@@ -470,6 +470,19 @@
 - **当前证据**:
   - 当前 `GET /api/heats?page=1&page_size=10&status=abnormal` 返回的异常炉次里，`deviation_percent` 为 `null`
   - `apps/web/src/views/InboxView.vue` 当前直接渲染 `{{ item.deviationPercent ?? '--' }}%`
+- **调查结论（2026-03-25）**:
+  - 当前问题仍可在 `master` 本地复现：将收件箱列表 mock 为 `deviation_percent: null` 后，页面会直接显示 `DEVIATION / --%`。
+  - 根因不在于前端算错了偏差值，而是前端把“后端未返回偏差值”直接渲染成了 `--%`，让卡片看起来像“已计算但结果为空”。
+  - 当前后端仍可能合法返回 `null`，因此本轮只做展示解释收口，不扩 scope 到后端偏差计算。
+- **修复结果**:
+  - `apps/web/src/views/InboxView.vue` 现已对 `deviationPercent === null` 显示明确文案 `待计算`，不再展示 `--%`。
+  - 偏差标签已改为 locale 文案 `t('heat.deviation')`，避免继续输出硬编码 `Deviation`。
+  - 已补 `inbox.deviationPending` locale key 和 `inbox-deviation-*` 测试锚点。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "inbox shows a pending-copy fallback instead of misleading empty deviation percent"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 偏差收件箱中的异常项应尽量带出有效偏差值
   - 若当前链路尚未算出偏差值，应明确说明原因，而不是显示 `--%`

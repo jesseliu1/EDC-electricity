@@ -329,7 +329,8 @@
   "inbox": {
     "title": "偏差收件箱",
     "deviationList": "偏差列表",
-    "viewDetail": "檢視詳情"
+    "viewDetail": "檢視詳情",
+    "deviationPending": "待計算"
   },
   "report": {
     "title": "日報與稽核",

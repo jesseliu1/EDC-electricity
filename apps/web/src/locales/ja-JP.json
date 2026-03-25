@@ -329,7 +329,8 @@
   "inbox": {
     "title": "偏差受信箱",
     "deviationList": "偏差リスト",
-    "viewDetail": "詳細表示"
+    "viewDetail": "詳細表示",
+    "deviationPending": "算出待ち"
   },
   "report": {
     "title": "日報・監査",

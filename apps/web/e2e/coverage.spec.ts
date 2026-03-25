@@ -609,6 +609,48 @@ test.describe('EDC web extended coverage', () => {
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
   })
 
+  test('inbox shows a pending-copy fallback instead of misleading empty deviation percent', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await page.route('**/api/heats?**', async route => {
+      await fulfillJson(route, {
+        items: [
+          {
+            id: 'inbox-null-001',
+            heat_no: 'H20260325-001',
+            description: null,
+            start_time: '2026-03-25T08:00:00Z',
+            end_time: '2026-03-25T08:40:00Z',
+            baseline_id: 'baseline-001',
+            deviation_percent: null,
+            avg_deviation_percent: null,
+            time_offset_percent: null,
+            mismatch_duration_minutes: null,
+            schedule_tag: 'work',
+            cut_reason: null,
+            cut_status: 'normal',
+            major_issue: false,
+            blocked_by_issue: false,
+            status: 'abnormal',
+            temperature: 1450,
+            created_at: '2026-03-25T08:00:00Z',
+            record_source: 'live_inferred',
+            current_curve_source: 'live_edc',
+            baseline_curve_source: 'none'
+          }
+        ],
+        total: 1,
+        page: 1,
+        page_size: 10
+      })
+    })
+
+    await page.goto('inbox')
+
+    await expect(page.getByTestId('inbox-page')).toBeVisible()
+    await expect(page.getByTestId('inbox-deviation-inbox-null-001')).toHaveText('待计算')
+    await expect(page.getByTestId('inbox-row-inbox-null-001')).not.toContainText('--%')
+  })
+
   test('report detail shows explicit error state when detail request fails', async ({ page }) => {
     await mockRuntimeStatus(page)
     await page.route('**/api/reports/daily?**', async route => {

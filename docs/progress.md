@@ -36,10 +36,35 @@
 - [x] 已完成第一批 issue 收口：Dashboard 假空态与炉次详情超时后长期 loading 两个 P0 已改为明确错误态，并补 UI 回归
 - [x] 已完成宿主连线设置页 React 渲染循环与 nested button 结构问题收口，点击“测试连接”不再触发更新深度错误
 - [x] 已完成任务列表状态 Tab 真实计数收口，页面不再显示 `(...)` 占位符
+- [x] 已完成偏差收件箱空偏差值文案收口，`deviation_percent=null` 时不再显示误导性的 `--%`
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第九批 issue：偏差收件箱空偏差值文案收口）
+
+- [x] 已按 investigate 顺序完成 `P1 偏差收件箱异常卡片显示 Deviation --%，与偏差收件箱语义不符`
+  - [x] 已先确认问题仍在当前 `master` 复现：本地启动 `apps/web` 后，用一次性 Playwright 脚本将 `/api/heats` mock 为 `deviation_percent: null`，收件箱页实际出现 `DEVIATION / --%`
+  - [x] 已确认根因是 `apps/web/src/views/InboxView.vue` 直接渲染 `{{ item.deviationPercent ?? '--' }}%`，把“未计算”误包装成了“空百分比”
+  - [x] 已确认本轮不扩 scope 到后端偏差计算：后端仍可能返回 `null`，前端只负责把该状态解释清楚
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/InboxView.vue` 现已对 `deviationPercent === null` 单独走文案分支，显示 `t('inbox.deviationPending')`
+  - [x] 收件箱偏差标签已改用现有 locale `t('heat.deviation')`，避免继续出现硬编码 `Deviation`
+  - [x] 空偏差值展示样式已降级为中性说明，不再沿用红色数值徽标样式
+  - [x] 已补 `inbox-deviation-*` 测试锚点，便于稳定回归 null 偏差值场景
+- [x] 本轮测试留痕
+  - [x] 测试范围：偏差收件箱异常卡片的空偏差值文案、locale 结构、EDC 前端构建
+  - [x] 验证步骤：先用本地 dev server + 一次性 Playwright 脚本确认修前仍显示 `DEVIATION / --%`；完成修复后重新打开收件箱，确认同一类异常项改为明确“待计算”说明，不再出现 `--%`
+  - [x] 执行命令：`pnpm --dir apps/web dev --host 127.0.0.1 --port 3000`
+  - [x] 执行命令：`pnpm --dir apps/web exec node --input-type=module - <<'EOF'`（一次性 Playwright 脚本：mock `/api/settings/runtime-status` 与 `/api/heats?**`，打开 `/edc/inbox` 并抓页面文本）
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "inbox shows a pending-copy fallback instead of misleading empty deviation percent"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：修前复现成立；修后 `lint / test:i18n / 定向 Playwright / build` 均通过，收件箱 null 偏差值场景已显示明确待计算文案
+  - [x] 未覆盖项：本轮没有解决后端为何长期返回 `deviation_percent=null`；`炉次浏览 / Dashboard 最近炉次` 的空偏差值体验仍需后续单独收口
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中剩余低风险 UI / i18n 问题，优先选择不涉及后端计算逻辑的展示收口项
 
 ### 2026-03-25（第八批 issue：任务列表状态 Tab 占位符计数收口）
 
