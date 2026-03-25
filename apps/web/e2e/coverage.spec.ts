@@ -994,6 +994,27 @@ test.describe('EDC web extended coverage', () => {
     ).toBe(false)
   })
 
+  test('settings side navigation scrolls to matching sections and updates active state', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await mockSettingsWorkflow(page)
+    await page.goto('settings')
+
+    await expect(page.getByTestId('settings-page')).toBeVisible()
+    await expect(page.getByTestId('settings-nav-hostConnectivity')).toHaveAttribute('aria-current', 'true')
+
+    await page.getByTestId('settings-nav-cutting').click()
+    await expect(page.getByTestId('settings-nav-cutting')).toHaveAttribute('aria-current', 'true')
+    await expect(page.getByTestId('settings-section-cutting')).toBeInViewport()
+
+    await page.getByTestId('settings-nav-tolerance').click()
+    await expect(page.getByTestId('settings-nav-tolerance')).toHaveAttribute('aria-current', 'true')
+    await expect(page.getByTestId('settings-section-tolerance')).toBeInViewport()
+
+    await page.getByTestId('settings-nav-hostConnectivity').click()
+    await expect(page.getByTestId('settings-nav-hostConnectivity')).toHaveAttribute('aria-current', 'true')
+    await expect(page.getByTestId('settings-host-connectivity-card')).toBeInViewport()
+  })
+
   test('baseline definitions and settings pages reuse unified runtime attention state', async ({ page }) => {
     await mockRuntimeStatus(page, {
       overall_code: 'host_disconnected',

@@ -45,10 +45,35 @@
 - [x] 已完成黄金基线库“导出”按钮收口，点击后会给出明确占位反馈，不再静默无响应
 - [x] 已完成报表列表页“历史查询 / 导出昨日报告 PDF”按钮收口，点击后会给出明确占位反馈，不再静默无响应
 - [x] 已完成基线详情页“编辑 / 创建新版本”按钮收口，当前反馈行为已补稳定测试锚点和定向回归，不再处于无护栏状态
+- [x] 已完成设置页左侧分类伪导航收口，当前已改为真实页内导航并随定位更新 active 态
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第十八批 issue：设置页左侧伪导航收口）
+
+- [x] 已按 investigate 顺序完成 `P1 设置页左侧分类导航只有选中态变化，右侧内容不会切换`
+  - [x] 已复核当前 `master` 中 `apps/web/src/views/SettingsView.vue` 左侧四个按钮只有静态样式，没有 `@click`、锚点或条件渲染逻辑
+  - [x] 已确认右侧当前实际只有三个真实区块：宿主系统连接、偏差阈值、炉次切割设置；原先的 `EDC 配置 / 阈值设置 / 通知管理 / 用户管理` 与现有内容结构并不对应
+  - [x] 已确认最小可回滚方案应是把左侧收口成真实页内导航，而不是扩成新路由或新增业务区块
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/SettingsView.vue` 已将左侧条目改为与现有内容一致的三个页内导航项：宿主系统连接、偏差阈值、炉次切割设置
+  - [x] 点击左侧导航后会滚动/定位到对应区块，并通过 `aria-current` 与样式同步当前 active 态
+  - [x] 已为设置页导航和三个区块补齐稳定测试锚点：`settings-section-nav`、`settings-nav-*`、`settings-section-*`
+  - [x] 当前 active 态会跟随真实滚动容器位置更新，不再是“只有按钮高亮变化，右侧内容完全不动”的伪导航
+  - [x] 四套语言包已补齐 `settings.pageNavigation / pageNavigationHint / toleranceSectionTitle / toleranceSectionDescription / cuttingConfigDescription`
+  - [x] 未改动设置保存接口、路由结构、业务规则或新增任何后端字段
+- [x] 本轮测试留痕
+  - [x] 测试范围：设置页左侧导航定位联动、设置保存回归、locale 结构、EDC 前端构建
+  - [x] 验证步骤：进入设置页；点击左侧“炉次切割设置”；确认页面滚动到对应区块且按钮 active；再点击“偏差阈值”“宿主系统连接”；确认都能定位到对应内容区块并更新 active 态
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "settings side navigation scrolls to matching sections and updates active state"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；设置页左侧已成为真实页内导航，定向回归确认点击导航后对应区块会进入视口并更新 active 态
+  - [x] 未覆盖项：本轮没有新增“通知管理 / 用户管理”等尚不存在的设置模块，也没有引入 hash 路由或独立子页面；当前重点仅为把伪导航收敛成不误导的可用页内导航
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中剩余低风险、可验证、可回滚的展示层/交互层问题，优先选择其它前端占位控件或误导性交互
 
 ### 2026-03-25（第十七批 issue：基线详情动作按钮反馈护栏收口）
 

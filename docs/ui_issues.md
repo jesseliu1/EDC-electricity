@@ -1290,7 +1290,7 @@
   3. 不再出现“输入可编辑但结果完全不变”的占位控件
 
 ### P1 设置页左侧分类导航只有选中态变化，右侧内容不会切换
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 系统设置
 - **复现步骤**:
   1. 打开“系统设置”页面
@@ -1304,6 +1304,20 @@
 - **当前证据**:
   - Playwright 点击四个按钮后，页面主体内容没有变化
   - `apps/web/src/views/SettingsView.vue` 左侧按钮当前没有 `@click`、状态变量或条件渲染逻辑
+- **调查结论（2026-03-25）**:
+  - 根因已确认是设置页左侧导航仅为静态样式按钮，没有绑定任何页内定位或内容切换逻辑，因此形成“伪导航”。
+  - 当前右侧实际只存在三个真实设置区块：宿主系统连接、偏差阈值、炉次切割设置。原先左侧的 `通知管理 / 用户管理` 等分类与现有页面内容并不对应。
+  - 基于现有结构，最小且不误导的修复方式是收口成真实页内导航，而不是扩成新路由或补新的设置模块。
+- **修复结果**:
+  - `apps/web/src/views/SettingsView.vue` 已将左侧导航改为与当前页面实际内容一一对应的三个页内导航项，并补上真实点击定位逻辑。
+  - 点击左侧导航会滚动到对应区块，且当前可见区块会同步驱动导航 active 态，不再只是按钮高亮变化。
+  - 页面已新增稳定测试锚点：`settings-section-nav`、`settings-nav-hostConnectivity`、`settings-nav-tolerance`、`settings-nav-cutting`、`settings-section-tolerance`、`settings-section-cutting`。
+  - 四套语言包已补齐页内导航标题、提示和设置区块描述文案。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "settings side navigation scrolls to matching sections and updates active state"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 左侧分类导航应切换到对应设置区块，或至少滚动/聚焦到对应内容
   - 若当前页本来就是单页展示，应移除这种容易被误解为分页导航的交互样式

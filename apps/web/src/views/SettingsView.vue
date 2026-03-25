@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ElForm,
@@ -21,6 +21,87 @@ const runtimeStatusStore = useRuntimeStatusStore()
 
 const hostConnectivity = computed(() => runtimeStatusStore.data.host)
 const edcSummary = computed(() => runtimeStatusStore.data.edc)
+const pageRef = ref<HTMLElement | null>(null)
+type SettingsSectionId = 'hostConnectivity' | 'tolerance' | 'cutting'
+
+const activeSection = ref<SettingsSectionId>('hostConnectivity')
+const scrollContainer = ref<HTMLElement | null>(null)
+const sectionRefs: Record<SettingsSectionId, HTMLElement | null> = {
+  hostConnectivity: null,
+  tolerance: null,
+  cutting: null,
+}
+const navigationItems = computed(() => [
+  {
+    id: 'hostConnectivity' as const,
+    icon: 'database',
+    label: t('settings.hostManagedConnection'),
+  },
+  {
+    id: 'tolerance' as const,
+    icon: 'tune',
+    label: t('settings.toleranceSectionTitle'),
+  },
+  {
+    id: 'cutting' as const,
+    icon: 'content_cut',
+    label: t('settings.cuttingConfig'),
+  },
+])
+
+function setSectionRef(
+  sectionId: SettingsSectionId,
+  element: Element | ComponentPublicInstance | null
+) {
+  sectionRefs[sectionId] = element instanceof HTMLElement ? element : null
+}
+
+function findScrollContainer(element: HTMLElement | null) {
+  let current = element?.parentElement ?? null
+
+  while (current) {
+    const style = window.getComputedStyle(current)
+    if (
+      ['auto', 'scroll'].includes(style.overflowY) &&
+      current.scrollHeight > current.clientHeight
+    ) {
+      return current
+    }
+    current = current.parentElement
+  }
+
+  return null
+}
+
+function syncActiveSection() {
+  const candidates = navigationItems.value
+    .map((item) => {
+      const element = sectionRefs[item.id]
+      if (!element) return null
+      return {
+        id: item.id,
+        distance: Math.abs(element.getBoundingClientRect().top - 144),
+      }
+    })
+    .filter(
+      (item): item is { id: SettingsSectionId; distance: number } => item !== null
+    )
+
+  if (!candidates.length) return
+
+  candidates.sort((left, right) => left.distance - right.distance)
+  const nextSection = candidates[0]
+  if (!nextSection) return
+  activeSection.value = nextSection.id
+}
+
+function handleSectionNavigate(sectionId: SettingsSectionId) {
+  const element = sectionRefs[sectionId]
+  if (!element) return
+
+  activeSection.value = sectionId
+  element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 async function saveTolerance() {
   await settingStore.saveTolerance()
@@ -37,13 +118,30 @@ async function saveCutting() {
   ElMessage.success(t('common.success'))
 }
 
-onMounted(() => {
-  void settingStore.fetchSettings()
+function handleViewportChange() {
+  syncActiveSection()
+}
+
+onMounted(async () => {
+  scrollContainer.value = findScrollContainer(pageRef.value)
+  scrollContainer.value?.addEventListener('scroll', handleViewportChange, {
+    passive: true,
+  })
+  window.addEventListener('resize', handleViewportChange)
+  await settingStore.fetchSettings()
+  await nextTick()
+  syncActiveSection()
+})
+
+onBeforeUnmount(() => {
+  scrollContainer.value?.removeEventListener('scroll', handleViewportChange)
+  window.removeEventListener('resize', handleViewportChange)
 })
 </script>
 
 <template>
   <div
+    ref="pageRef"
     class="flex flex-col gap-6"
     data-testid="settings-page"
   >
@@ -62,29 +160,32 @@ onMounted(() => {
     <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
       <!-- 左侧设置分类导航 -->
       <div class="lg:col-span-1">
-        <nav class="bg-white rounded-xl border border-border-light shadow-card p-3 space-y-1 sticky top-8">
+        <nav
+          class="bg-white rounded-xl border border-border-light shadow-card p-3 space-y-1 sticky top-8"
+          data-testid="settings-section-nav"
+        >
           <p class="text-xs font-bold text-slate-400 uppercase tracking-wider px-3 py-2">
-            全局设置
+            {{ t('settings.pageNavigation') }}
           </p>
-          <button class="w-full text-left px-3 py-2.5 rounded-lg bg-primary/10 text-primary text-sm font-bold flex items-center gap-2">
-            <span class="material-symbols-outlined text-[18px]">database</span>
-            EDC 配置
-          </button>
-          <button class="w-full text-left px-3 py-2.5 rounded-lg text-slate-600 text-sm hover:bg-slate-100 transition-colors flex items-center gap-2">
-            <span class="material-symbols-outlined text-[18px]">tune</span>
-            阈值设置
-          </button>
-          <button class="w-full text-left px-3 py-2.5 rounded-lg text-slate-600 text-sm hover:bg-slate-100 transition-colors flex items-center gap-2">
-            <span class="material-symbols-outlined text-[18px]">notifications</span>
-            通知管理
-          </button>
-          <div class="h-px bg-border-light mx-2 my-2" />
-          <p class="text-xs font-bold text-slate-400 uppercase tracking-wider px-3 py-2">
-            系统
+          <p class="px-3 pb-2 text-xs text-slate-500">
+            {{ t('settings.pageNavigationHint') }}
           </p>
-          <button class="w-full text-left px-3 py-2.5 rounded-lg text-slate-600 text-sm hover:bg-slate-100 transition-colors flex items-center gap-2">
-            <span class="material-symbols-outlined text-[18px]">group</span>
-            用户管理
+          <button
+            v-for="item in navigationItems"
+            :key="item.id"
+            type="button"
+            :data-testid="`settings-nav-${item.id}`"
+            class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors flex items-center gap-2"
+            :class="
+              activeSection === item.id
+                ? 'bg-primary/10 text-primary font-bold'
+                : 'text-slate-600 hover:bg-slate-100'
+            "
+            :aria-current="activeSection === item.id ? 'true' : 'false'"
+            @click="handleSectionNavigate(item.id)"
+          >
+            <span class="material-symbols-outlined text-[18px]">{{ item.icon }}</span>
+            {{ item.label }}
           </button>
         </nav>
       </div>
@@ -93,6 +194,8 @@ onMounted(() => {
       <div class="lg:col-span-3 space-y-6">
         <!-- EDC 数据提取配置 -->
         <div
+          id="settings-section-host-connectivity"
+          :ref="(element) => setSectionRef('hostConnectivity', element)"
           class="bg-white rounded-xl border border-border-light shadow-card p-6"
           data-testid="settings-host-connectivity-card"
         >
@@ -189,12 +292,17 @@ onMounted(() => {
         </div>
 
         <!-- 偏差阈值 -->
-        <div class="bg-white rounded-xl border border-border-light shadow-card p-6">
+        <div
+          id="settings-section-tolerance"
+          :ref="(element) => setSectionRef('tolerance', element)"
+          class="bg-white rounded-xl border border-border-light shadow-card p-6"
+          data-testid="settings-section-tolerance"
+        >
           <h3 class="text-lg font-bold text-slate-800 mb-1">
-            偏差阈值
+            {{ t('settings.toleranceSectionTitle') }}
           </h3>
           <p class="text-sm text-slate-500 mb-6">
-            设置黄金基线对比的敏感度
+            {{ t('settings.toleranceSectionDescription') }}
           </p>
 
           <!-- 警告提示 -->
@@ -257,12 +365,17 @@ onMounted(() => {
         </div>
 
         <!-- 切割配置 -->
-        <div class="bg-white rounded-xl border border-border-light shadow-card p-6">
+        <div
+          id="settings-section-cutting"
+          :ref="(element) => setSectionRef('cutting', element)"
+          class="bg-white rounded-xl border border-border-light shadow-card p-6"
+          data-testid="settings-section-cutting"
+        >
           <h3 class="text-lg font-bold text-slate-800 mb-1">
             {{ t('settings.cuttingConfig') }}
           </h3>
           <p class="text-sm text-slate-500 mb-6">
-            配置生产切割和排班相关参数
+            {{ t('settings.cuttingConfigDescription') }}
           </p>
 
           <el-form
