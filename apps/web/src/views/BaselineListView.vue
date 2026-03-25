@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElDialog } from 'element-plus'
@@ -16,6 +16,7 @@ const route = useRoute()
 const baselineStore = useBaselineStore()
 const wizardVisible = ref(false)
 const wizardSubmitting = ref(false)
+const searchKeyword = ref('')
 const wizardPrefill = ref<{
   sourceHeatId?: string
   selectedStartTime?: string
@@ -31,6 +32,13 @@ const filters: { key: BaselineFilter; label: string }[] = [
   { key: 'draft', label: '草稿' },
   { key: 'disabled', label: '已停用' },
 ]
+
+const displayedBaselines = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase()
+  if (!keyword) return baselineStore.filteredList
+
+  return baselineStore.filteredList.filter((item) => item.name.toLowerCase().includes(keyword))
+})
 
 async function handleFilterChange(filter: BaselineFilter) {
   await baselineStore.setFilter(filter)
@@ -207,7 +215,10 @@ onMounted(() => {
           class="material-symbols-outlined text-slate-400 text-[20px]"
         >filter_list</span>
         <span class="text-sm text-slate-500 font-medium">基线列表</span>
-        <span class="text-xs text-slate-400">共 {{ baselineStore.filteredList.length }} 条记录</span>
+        <span
+          class="text-xs text-slate-400"
+          data-testid="baseline-list-count"
+        >共 {{ displayedBaselines.length }} 条记录</span>
         <div class="flex-1" />
         <!-- 筛选按钮组 -->
         <div class="flex bg-slate-100 p-1 rounded-lg">
@@ -233,6 +244,8 @@ onMounted(() => {
             class="material-symbols-outlined text-slate-400 text-[18px]"
           >search</span>
           <input
+            v-model="searchKeyword"
+            data-testid="baseline-search-input"
             type="text"
             class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 ml-2 p-0"
             placeholder="搜索名称..."
@@ -243,25 +256,30 @@ onMounted(() => {
 
     <!-- 基线卡片列表 -->
     <div
-      v-if="baselineStore.filteredList.length > 0"
+      v-if="displayedBaselines.length > 0"
       class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
     >
-      <BaselineCard
-        v-for="baseline in baselineStore.filteredList"
+      <div
+        v-for="baseline in displayedBaselines"
         :key="baseline.id"
-        :baseline="baseline"
-        :is-default="baselineStore.activeBaselineId === baseline.id"
-        @edit="handleEdit"
-        @delete="handleDelete"
-        @publish="handlePublish"
-        @activate="handleActivate"
-        @disable="handleDisable"
-      />
+        :data-testid="`baseline-card-${baseline.id}`"
+      >
+        <BaselineCard
+          :baseline="baseline"
+          :is-default="baselineStore.activeBaselineId === baseline.id"
+          @edit="handleEdit"
+          @delete="handleDelete"
+          @publish="handlePublish"
+          @activate="handleActivate"
+          @disable="handleDisable"
+        />
+      </div>
     </div>
 
     <!-- 空状态 -->
     <div
       v-else
+      data-testid="baseline-empty-state"
       class="rounded-xl border border-dashed border-border-light bg-white py-16 flex flex-col items-center justify-center"
     >
       <span class="material-symbols-outlined text-slate-300 text-5xl">library_books</span>

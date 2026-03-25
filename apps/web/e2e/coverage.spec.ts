@@ -314,9 +314,43 @@ async function mockBaselineLibrary(page: Page) {
           created_at: '2026-03-20T08:40:00Z',
           updated_at: '2026-03-20T08:40:00Z',
           published_at: '2026-03-20T08:45:00Z'
+        },
+        {
+          id: 'baseline-002',
+          name: '高功率基线',
+          description: '用于高功率工艺的对比基线',
+          definition_id: 'def-002',
+          definition_name: '高功率熔炼基线',
+          source_heat_id: 'heat-002',
+          selected_start_time: '2026-03-20T09:00:00Z',
+          selected_end_time: '2026-03-20T09:45:00Z',
+          tolerance_percent: 10,
+          status: 'draft',
+          version: 1,
+          curve_source: 'live_edc',
+          created_at: '2026-03-20T09:50:00Z',
+          updated_at: '2026-03-20T09:50:00Z',
+          published_at: null
+        },
+        {
+          id: 'baseline-003',
+          name: '压力监控基线',
+          description: '包含炉压监控的对比基线',
+          definition_id: 'def-002',
+          definition_name: '高功率熔炼基线',
+          source_heat_id: 'heat-003',
+          selected_start_time: '2026-03-20T10:00:00Z',
+          selected_end_time: '2026-03-20T10:40:00Z',
+          tolerance_percent: 14,
+          status: 'disabled',
+          version: 3,
+          curve_source: 'live_edc',
+          created_at: '2026-03-20T10:45:00Z',
+          updated_at: '2026-03-20T10:45:00Z',
+          published_at: '2026-03-20T10:50:00Z'
         }
       ],
-      total: 1
+      total: 3
     })
   })
 }
@@ -748,6 +782,36 @@ test.describe('EDC web extended coverage', () => {
       page.locator('.el-message__content').filter({ hasText: '黄金基线导出入口开发中' })
     ).toBeVisible()
     await expect(page).toHaveURL(/\/edc\/baselines$/)
+  })
+
+  test('baseline list search input filters cards immediately for matching and missing names', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await mockBaselineLibrary(page)
+
+    await page.goto('baselines')
+    await expect(page.getByTestId('baseline-list-page')).toBeVisible()
+    await expect(page.getByTestId('baseline-list-count')).toContainText('共 3 条记录')
+    await expect(page.getByTestId('baseline-card-baseline-001')).toBeVisible()
+    await expect(page.getByTestId('baseline-card-baseline-002')).toBeVisible()
+    await expect(page.getByTestId('baseline-card-baseline-003')).toBeVisible()
+
+    const searchInput = page.getByTestId('baseline-search-input')
+    await searchInput.fill('高功率')
+    await expect(page.getByTestId('baseline-list-count')).toContainText('共 1 条记录')
+    await expect(page.getByTestId('baseline-card-baseline-002')).toBeVisible()
+    await expect(page.getByTestId('baseline-card-baseline-001')).toHaveCount(0)
+    await expect(page.getByTestId('baseline-card-baseline-003')).toHaveCount(0)
+
+    await searchInput.fill('不存在的基线')
+    await expect(page.getByTestId('baseline-list-count')).toContainText('共 0 条记录')
+    await expect(page.getByTestId('baseline-empty-state')).toBeVisible()
+    await expect(page.getByTestId('baseline-card-baseline-001')).toHaveCount(0)
+    await expect(page.getByTestId('baseline-card-baseline-002')).toHaveCount(0)
+    await expect(page.getByTestId('baseline-card-baseline-003')).toHaveCount(0)
+
+    await searchInput.fill('标准基线')
+    await expect(page.getByTestId('baseline-list-count')).toContainText('共 1 条记录')
+    await expect(page.getByTestId('baseline-card-baseline-001')).toBeVisible()
   })
 
   test('baseline detail action buttons provide visible feedback instead of staying silent', async ({ page }) => {

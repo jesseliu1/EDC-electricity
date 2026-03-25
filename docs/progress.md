@@ -50,10 +50,34 @@
 - [x] 已完成炉次详情“生成纠偏任务”最小真实闭环，Heat Detail 已可创建任务并跳转 `/tasks/:id`，任务展示对空偏差统一降级为“待计算”
 - [x] 已完成黄金基线定义页实例数量真实计数收口，定义列表/详情不再把 `instance_count` 固定写死为 `0`
 - [x] 已完成旧 live heat 深链的 canonical 路由校准回归收口，重复打开 legacy URL 会稳定 replace 到当前 canonical heat id
+- [x] 已完成列表假搜索控件第一刀收口：BaselineListView 的“搜索名称...”已接成本地即时过滤，HeatList / TaskList 仍待后续处理
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第二十三批 issue：BaselineListView 搜索名称假交互收口）
+
+- [x] 已按 investigate 顺序复核 `P1 多个列表页搜索/筛选控件仍是纯展示占位，输入后不会改变结果`
+  - [x] 已确认当前 `apps/web/src/views/BaselineListView.vue` 的“搜索名称...”输入框没有 `v-model`、过滤计算或事件处理，列表始终直接渲染 `baselineStore.filteredList`
+  - [x] 已确认本轮只收口黄金基线库这一页，不顺手扩到 `HeatListView / TaskListView`
+  - [x] 已确认最小可回滚方案是在 `BaselineListView` 组件内做本地即时过滤，不下沉到 store、不新增接口
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/BaselineListView.vue` 已新增本地 `searchKeyword` 与 `displayedBaselines` 计算属性，按基线名称做大小写无关的即时过滤
+  - [x] “搜索名称...”输入框已接 `v-model`，存在/不存在关键词都会立即影响列表卡片与顶部记录数
+  - [x] 已补稳定测试锚点：`baseline-search-input`、`baseline-list-count`、`baseline-empty-state`，并为每张卡片外层补 `baseline-card-{id}`
+  - [x] 本轮未改动 `baselineStore` 结构、未新增后端查询参数，也未扩到 `HeatListView / TaskListView` 的假筛选输入
+- [x] 本轮测试留痕
+  - [x] 测试范围：黄金基线库本地搜索即时过滤、存在/不存在关键词的结果变化、EDC 前端 locale 结构、EDC 前端构建
+  - [x] 验证步骤：进入 `/baselines`；确认初始显示 3 条记录；输入 `高功率` 后只剩“高功率基线”；输入 `不存在的基线` 后列表为空并显示空态；再输入 `标准基线` 后恢复到“标准基线 v2.1”
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "baseline list search input filters cards immediately for matching and missing names"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；定向回归确认 BaselineListView 的搜索输入已从假交互变成真实本地过滤
+  - [x] 未覆盖项：本轮未处理 `HeatListView / TaskListView` 的搜索/筛选占位控件，也未把搜索词持久化到 URL 或 store；当前重点仅为先把一个正式页假交互收成真交互
+  - [x] 下一步：继续处理同一 issue 中剩余的 `HeatListView / TaskListView` 假搜索控件，优先挑改动最小且可独立验证的一页继续收口
+  - [x] 已补 `docs/lessons.md`：记录“正式页可输入搜索/筛选控件要么真实影响结果，要么明确禁用/隐藏”的通用规则
 
 ### 2026-03-25（第二十二批 issue：Heat Detail canonical 深链校准回归）
 
