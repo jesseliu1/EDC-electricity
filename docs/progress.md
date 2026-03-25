@@ -58,10 +58,30 @@
 - [x] 已完成手动调整专项第二轮待复验条目收口：多指标对照、选点同步输入框、滑块/缩放交互三项在当前 `master` 复验通过，issue 状态已统一更新为“验收通过”
 - [x] 已完成报表详情“接口成功但页面长期加载中”问题的复验收口：当前 `master` 上成功态/失败态都能退出 loading，issue 已转为“验收通过”
 - [x] 已完成 compare 时间窗口不稳定 issue 的状态文案归一化：当前仓库最小修复与定向回归已足够按“验收通过”收口，现场 `8000` 运行态差异保留为未覆盖风险说明
+- [x] 已完成任务列表状态 Tab 计数 issue 的标准状态归一化：当前 `master` 代码与定向回归一致，文档状态已统一为“验收通过”
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第三十一批 issue：任务列表状态计数状态文案归一化收口）
+
+- [x] 已按 investigate 顺序复核 `P1 任务列表状态 Tab 计数仍显示占位符 (...)，未反映真实数量`
+  - [x] 已确认当前 `apps/web/src/stores/task.ts` 已具备 `fetchStatusCounts()` 并通过现有 `/api/tasks` 接口并发拉取四个状态的真实总数
+  - [x] 已确认当前 `apps/web/src/views/TaskListView.vue` 已不再保留 `...` 占位，状态 Tab 统一通过 `statusFilterLabel()` 显示真实数量或在未返回时仅显示标签
+  - [x] 已判断这条 issue 在当前 `master` 上已满足标准关单条件；本轮不需要修改业务代码，只需复跑现有回归并归一化文档状态
+- [x] 已完成最小收口
+  - [x] 本轮未修改 `TaskListView` 或 `taskStore` 逻辑，仅将 `docs/ui_issues.md` 中该条 issue 从“已修复并回归通过”统一为“验收通过”
+  - [x] `docs/progress.md` 已新增本轮复验记录，明确这是 docs-only 的状态归一化收口
+  - [x] 本轮未补 `docs/lessons.md`：没有新增可复用错误模式，只是复验既有修复结果并统一状态文案
+- [x] 本轮测试留痕
+  - [x] 测试范围：任务列表状态 Tab 真实计数展示、任务详情打开与完成主链路
+  - [x] 验证步骤：进入任务列表页；检查 `全部 / 新建 / 进行中 / 已完成 / 已驳回` 五个状态 Tab 的计数文案；确认不再出现 `(...)`；继续打开任务详情并完成任务，确认该条既有主链路未回归
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "task list shows real status counts and can open detail and complete a task"`
+  - [x] 执行命令：`git diff --check`
+  - [x] 结果：命令通过；当前 `master` 上任务列表状态 Tab 不再显示 `(...)` 占位符
+  - [x] 未覆盖项：本轮没有重新补跑 lint/build，全量行为仍以此前回归记录为准；当前重点仅为验证状态计数主链路与完成动作未回归
+  - [x] 下一步：继续挑选 `docs/ui_issues.md` 中仍是“已修复并回归通过”的低风险条目，按同样方式统一到标准关单口径
 
 ### 2026-03-25（第三十批 issue：compare 时间窗口状态文案归一化收口）
 

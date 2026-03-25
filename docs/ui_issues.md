@@ -453,7 +453,7 @@
   3. 核对总炉数、正常率、平均偏差等字段都能正常渲染
 
 ### P1 任务列表状态 Tab 计数仍显示占位符 `(...)`，未反映真实数量
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 纠偏任务单 / 列表页
 - **复现步骤**:
   1. 打开“纠偏任务单”页面
@@ -477,6 +477,9 @@
   - `apps/web/src/stores/task.ts` 已新增状态计数读取逻辑，通过现有 `/api/tasks` 接口并发获取 `pending / in_progress / completed / cancelled` 的 `total`。
   - `apps/web/src/views/TaskListView.vue` 已移除 `...` 占位，改为“已拿到数量则显示 `标签 (数量)`，未拿到前仅显示标签”。
   - 已补 `task-status-filter-*` 测试锚点，便于后续回归。
+- **复验结论（2026-03-25）**:
+  - 当前 `master` 的 `taskStore.fetchStatusCounts()` 与 `TaskListView` 展示逻辑已和 issue 修复描述一致，正式页面不再保留 `(...)` 占位符
+  - 本轮复跑现有定向回归后确认主链路仍稳定，因此仅将状态文案从“已修复并回归通过”统一为“验收通过”
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "task list shows real status counts and can open detail and complete a task"` 通过
