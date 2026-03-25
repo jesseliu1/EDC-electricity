@@ -54,10 +54,29 @@
 - [x] 已完成列表假搜索控件第二刀收口：TaskListView 顶部搜索框已接成本地即时过滤并修正文案，HeatListView 仍待后续处理
 - [x] 已完成列表假搜索控件第三刀收口：HeatListView 无数据支撑的设备 ID / 合金号输入已改为明确禁用态并补说明，正式页不再保留可输入但不生效的筛选框
 - [x] 已完成真实推断炉次空偏差展示第三轮收口：HeatList 与 Dashboard 最近炉次已把 `deviation=null` 明确显示为“待计算”，与 Inbox 既有口径对齐，不再长期显示裸 `--`
+- [x] 已完成手动调整弹窗多余“选基线起点 / 选基线终点”按钮问题的复验收口：当前 `master` 已无该按钮，issue 状态已从“待复验”更新为“验收通过”
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第二十七批 issue：手动调整弹窗多余基线选点按钮复验收口）
+
+- [x] 已按 investigate 顺序复核 `P1 手动调整弹窗不应保留“选基线起点 / 选基线终点”按钮`
+  - [x] 已确认当前 `apps/web/src/views/HeatDetailView.vue` 中手动调整弹窗代码面没有残留“选基线起点 / 选基线终点”按钮
+  - [x] 已确认现有专项验收 `apps/web/e2e/issue-acceptance.spec.ts` 已明确断言这两个按钮在弹窗中应为 `0` 个
+  - [x] 已判断本轮无需再改业务代码；最小正确动作是执行复验并更新 issue / progress 留痕
+- [x] 已完成最小收口
+  - [x] 本轮未修改 `HeatDetailView` 业务逻辑，仅将 `docs/ui_issues.md` 中该条 issue 从“已修复待复验”收口为“验收通过”
+  - [x] `docs/progress.md` 已新增本轮复验记录，明确当前结论与验证方式
+  - [x] 本轮未补 `docs/lessons.md`：没有新增问题模式，属于对既有修复结果的验收确认
+- [x] 本轮测试留痕
+  - [x] 测试范围：炉次详情手动调整弹窗操作区、既有多指标对比/异常区间/手动调整主链路
+  - [x] 验证步骤：打开 `Heat Detail`；进入“手动调整”弹窗；检查操作区确认不存在“选基线起点 / 选基线终点”；继续确认弹窗仍可完成基线切换、图表展示和时间输入等既有交互
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"`
+  - [x] 结果：命令通过；当前 `master` 的手动调整弹窗中不再出现这两个错误按钮
+  - [x] 未覆盖项：本轮没有重新扩测手动调整的所有细分交互分支，只复验了与该 issue 直接相关且已覆盖多指标/异常区间主链路的专项验收
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中仍 open 的低风险、可回滚、可验证问题，优先选择其它“已修复待复验”或展示层误导项收口
 
 ### 2026-03-25（第二十六批 issue：真实推断炉次空偏差展示收口）
 

@@ -1058,7 +1058,7 @@
   4. 若切换不同基线标签，确认异常区间是否随对比结果更新
 
 ### P1 手动调整弹窗不应保留“选基线起点 / 选基线终点”按钮
-- **状态**: 已修复待复验（2026-03-13）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 炉次详情 / 手动调整弹窗
 - **复现步骤**:
   1. 进入炉次详情页
@@ -1071,6 +1071,14 @@
 - **验收补充**:
   - 右上角仅保留全屏操作，不再出现“选基线起点 / 选基线终点”
   - 手动调整专项的其余交互问题已拆到下方条目单独跟踪
+- **复验结论（2026-03-25）**:
+  - 当前 `master` 的 `apps/web/src/views/HeatDetailView.vue` 已无这两个按钮对应实现，问题本体在代码面上已不存在
+  - 现有专项回归 `apps/web/e2e/issue-acceptance.spec.ts` 已明确断言：
+    - `dialog.getByRole('button', { name: '选基线起点' }).toHaveCount(0)`
+    - `dialog.getByRole('button', { name: '选基线终点' }).toHaveCount(0)`
+  - 本轮未再修改业务代码，仅执行复验并将 issue 从“待复验”收口为“验收通过”
+- **回归结果**:
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"` 通过
 - **严重程度**: 中
 - **如何测试**:
   1. 打开手动调整弹窗
