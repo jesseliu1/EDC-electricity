@@ -35,10 +35,32 @@
 - [x] 已统一 ASNS 部署文档口径，区分“代理剥前缀”和“保留前缀”两类运行方式，避免把当前服务器的 `ASNS_BASE_PATH=/` 误写成 `/asns/`
 - [x] 已完成第一批 issue 收口：Dashboard 假空态与炉次详情超时后长期 loading 两个 P0 已改为明确错误态，并补 UI 回归
 - [x] 已完成宿主连线设置页 React 渲染循环与 nested button 结构问题收口，点击“测试连接”不再触发更新深度错误
+- [x] 已完成任务列表状态 Tab 真实计数收口，页面不再显示 `(...)` 占位符
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第八批 issue：任务列表状态 Tab 占位符计数收口）
+
+- [x] 已按 investigate 顺序完成 `P1 任务列表状态 Tab 计数仍显示占位符 (...)，未反映真实数量`
+  - [x] 已确认直接根因是 `apps/web/src/views/TaskListView.vue` 模板把非 `all` 状态写死为 `...`
+  - [x] 已确认前端 store 此前只保存当前列表页 `total`，没有维护各状态计数，因此页面无法展示真实数量
+  - [x] 已确认当前 `/api/tasks` 列表接口本身就会返回 `total`，可以在不改后端协议的前提下用最小并发请求补齐各状态计数
+- [x] 已完成最小修复
+  - [x] `apps/web/src/stores/task.ts` 已新增任务状态计数读取逻辑，页面加载与切换状态时会并发请求 `pending / in_progress / completed / cancelled` 的 `total`
+  - [x] `apps/web/src/views/TaskListView.vue` 已移除 `...` 占位逻辑，改为“有计数就显示 `标签 (数量)`，未加载完成前仅显示标签”
+  - [x] 已为任务状态筛选按钮补 `data-testid`，方便后续稳定回归
+  - [x] 未改动任务创建、任务完成、列表筛选业务规则，也未扩 scope 处理任务页其它英文副标题或占位按钮问题
+- [x] 本轮测试留痕
+  - [x] 测试范围：任务列表状态 Tab 计数展示、任务列表进入详情并完成任务的既有主链路
+  - [x] 验证步骤：打开任务列表；确认 `全部 / 新建 / 进行中 / 已完成 / 已驳回` 不再显示 `(...)`；再进入任务详情并完成一次任务，确认原有主链路未回归
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "task list shows real status counts and can open detail and complete a task"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；任务列表状态 Tab 已显示真实数量，原有“进详情并完成任务”回归仍通过
+  - [x] 未覆盖项：本轮使用前端 mock 响应验证状态计数展示，未额外覆盖真实后端空任务集、任务创建后列表页原地自动刷新计数等场景
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中剩余低风险 UI / i18n 问题，优先选择不涉及业务规则的英文副标题混排或纯占位交互问题
 
 ### 2026-03-25（第七批 issue：宿主连线设置页渲染循环与 nested button 收口）
 

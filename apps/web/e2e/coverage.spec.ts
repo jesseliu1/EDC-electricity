@@ -302,8 +302,28 @@ async function mockTaskWorkflow(page: Page) {
     deviation_snapshot: {}
   }
 
-  await page.route('**/api/tasks?**', async route => {
-    await fulfillJson(route, {
+  const taskListBodies = {
+    all: {
+      items: [
+        {
+          id: 'mock-task-1',
+          task_no: 'T20260312-001',
+          heat_id: 'heat-001',
+          deviation_percent: 18.2,
+          cause_analysis: null,
+          improvement: null,
+          prevention: null,
+          status: 'pending',
+          created_at: '2026-03-11T10:00:00Z',
+          updated_at: '2026-03-12T10:00:00Z',
+          completed_at: null
+        }
+      ],
+      total: 10,
+      page: 1,
+      page_size: 10
+    },
+    pending: {
       items: [
         {
           id: 'mock-task-1',
@@ -321,8 +341,37 @@ async function mockTaskWorkflow(page: Page) {
       ],
       total: 1,
       page: 1,
-      page_size: 10
-    })
+      page_size: 1
+    },
+    in_progress: {
+      items: [],
+      total: 2,
+      page: 1,
+      page_size: 1
+    },
+    completed: {
+      items: [],
+      total: 3,
+      page: 1,
+      page_size: 1
+    },
+    cancelled: {
+      items: [],
+      total: 4,
+      page: 1,
+      page_size: 1
+    }
+  } as const
+
+  await page.route('**/api/tasks?**', async route => {
+    const url = new URL(route.request().url())
+    const status = url.searchParams.get('status')
+    if (status === 'pending' || status === 'in_progress' || status === 'completed' || status === 'cancelled') {
+      await fulfillJson(route, taskListBodies[status])
+      return
+    }
+
+    await fulfillJson(route, taskListBodies.all)
   })
 
   await page.route('**/api/tasks/mock-task-1', async route => {
@@ -520,12 +569,17 @@ test.describe('EDC web extended coverage', () => {
     ).toBeVisible()
   })
 
-  test('task list can open detail and complete a task', async ({ page }) => {
+  test('task list shows real status counts and can open detail and complete a task', async ({ page }) => {
     await mockRuntimeStatus(page)
     await mockTaskWorkflow(page)
     await page.goto('tasks')
 
     await expect(page.getByTestId('task-list-page')).toBeVisible()
+    await expect(page.getByTestId('task-status-filter-all')).toContainText('全部 (10)')
+    await expect(page.getByTestId('task-status-filter-pending')).toContainText('新建 (1)')
+    await expect(page.getByTestId('task-status-filter-in_progress')).toContainText('进行中 (2)')
+    await expect(page.getByTestId('task-status-filter-completed')).toContainText('已完成 (3)')
+    await expect(page.getByTestId('task-status-filter-cancelled')).toContainText('已驳回 (4)')
     await page.getByTestId('task-row-mock-task-1').click()
 
     await expect(page.getByTestId('task-detail-page')).toBeVisible()

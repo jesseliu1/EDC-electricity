@@ -28,6 +28,26 @@ export interface TaskDetail extends TaskItem {
   deviationSnapshot: Record<string, unknown>
 }
 
+export type TaskFilterKey = 'all' | TaskStatus
+
+export interface TaskStatusCounts {
+  all: number | null
+  pending: number | null
+  in_progress: number | null
+  completed: number | null
+  cancelled: number | null
+}
+
+function createEmptyStatusCounts(): TaskStatusCounts {
+  return {
+    all: null,
+    pending: null,
+    in_progress: null,
+    completed: null,
+    cancelled: null
+  }
+}
+
 function mapTask(item: TaskItemResponse): TaskItem {
   return {
     id: item.id,
@@ -60,7 +80,8 @@ export const useTaskStore = defineStore('task', {
     page: 1,
     pageSize: 10,
     total: 0,
-    statusFilter: 'all' as 'all' | TaskStatus
+    statusFilter: 'all' as TaskFilterKey,
+    statusCounts: createEmptyStatusCounts() as TaskStatusCounts
   }),
   actions: {
     async fetchList() {
@@ -73,18 +94,46 @@ export const useTaskStore = defineStore('task', {
         })
         this.list = data.items.map(mapTask)
         this.total = data.total
+        this.statusCounts[this.statusFilter] = data.total
       } catch (error) {
         console.error('Task list request failed.', error)
         this.list = []
         this.total = 0
+        if (this.statusFilter === 'all') {
+          this.statusCounts.all = 0
+        }
       } finally {
         this.loading = false
+      }
+    },
+    async fetchStatusCounts() {
+      const previousCounts = { ...this.statusCounts }
+      try {
+        const [pending, inProgress, completed, cancelled] = await Promise.all([
+          taskApi.list({ status: 'pending', page: 1, page_size: 1 }),
+          taskApi.list({ status: 'in_progress', page: 1, page_size: 1 }),
+          taskApi.list({ status: 'completed', page: 1, page_size: 1 }),
+          taskApi.list({ status: 'cancelled', page: 1, page_size: 1 })
+        ])
+        this.statusCounts = {
+          all: pending.total + inProgress.total + completed.total + cancelled.total,
+          pending: pending.total,
+          in_progress: inProgress.total,
+          completed: completed.total,
+          cancelled: cancelled.total
+        }
+      } catch (error) {
+        console.error('Task status count request failed.', error)
+        this.statusCounts = {
+          ...previousCounts,
+          [this.statusFilter]: this.total
+        }
       }
     },
     async setStatus(status: 'all' | TaskStatus) {
       this.statusFilter = status
       this.page = 1
-      await this.fetchList()
+      await Promise.all([this.fetchList(), this.fetchStatusCounts()])
     },
     async setPage(page: number) {
       this.page = page

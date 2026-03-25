@@ -420,7 +420,7 @@
   3. 核对总炉数、正常率、平均偏差等字段都能正常渲染
 
 ### P1 任务列表状态 Tab 计数仍显示占位符 `(...)`，未反映真实数量
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: 纠偏任务单 / 列表页
 - **复现步骤**:
   1. 打开“纠偏任务单”页面
@@ -437,6 +437,17 @@
   - `apps/web/src/views/TaskListView.vue` 当前模板写死：
     - `f.key === 'all' ? taskStore.total : '...'`
   - 页面实际快照已稳定复现
+- **调查结论（2026-03-25）**:
+  - 这不是后端未返回数量，而是前端只把当前列表页 `total` 接到了 `全部` Tab，上层模板把其它状态直接写死成 `...`。
+  - 当前 `/api/tasks` 列表接口本身会返回 `total`，因此无需改协议；只要对四个状态各发一次轻量列表请求，就能得到真实计数。
+- **修复结果**:
+  - `apps/web/src/stores/task.ts` 已新增状态计数读取逻辑，通过现有 `/api/tasks` 接口并发获取 `pending / in_progress / completed / cancelled` 的 `total`。
+  - `apps/web/src/views/TaskListView.vue` 已移除 `...` 占位，改为“已拿到数量则显示 `标签 (数量)`，未拿到前仅显示标签”。
+  - 已补 `task-status-filter-*` 测试锚点，便于后续回归。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "task list shows real status counts and can open detail and complete a task"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 各状态 Tab 都应展示真实数量或明确不显示数量
   - 不应在正式页面残留 `(...)` 占位符

@@ -8,6 +8,7 @@ import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useTaskStore } from '@/stores/task'
 import type { TaskStatus } from '@/api/task'
+import type { TaskFilterKey } from '@/stores/task'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -43,8 +44,13 @@ function handleViewDetail(id: string) {
   router.push(`/tasks/${id}`)
 }
 
+function statusFilterLabel(key: TaskFilterKey, label: string) {
+  const count = taskStore.statusCounts[key]
+  return count === null ? label : `${label} (${count})`
+}
+
 onMounted(() => {
-  void taskStore.fetchList()
+  void Promise.all([taskStore.fetchList(), taskStore.fetchStatusCounts()])
 })
 </script>
 
@@ -79,6 +85,7 @@ onMounted(() => {
       <button
         v-for="f in statusFilters"
         :key="f.key"
+        :data-testid="`task-status-filter-${f.key}`"
         :class="[
           'pb-3 text-sm font-medium transition-colors relative',
           taskStore.statusFilter === f.key
@@ -87,7 +94,7 @@ onMounted(() => {
         ]"
         @click="handleStatusChange(f.key)"
       >
-        {{ f.label }} ({{ f.key === 'all' ? taskStore.total : '...' }})
+        {{ statusFilterLabel(f.key, f.label) }}
         <div
           v-if="taskStore.statusFilter === f.key"
           class="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full"
