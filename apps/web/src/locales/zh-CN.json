@@ -325,6 +325,7 @@
     "createHint": "新建纠偏任务入口开发中",
     "taskNo": "任务编号",
     "relatedHeat": "关联炉次",
+    "searchPlaceholder": "搜索任务编号/关联炉次...",
     "deviation": "偏差百分比",
     "deviationPending": "待计算",
     "status": "状态",

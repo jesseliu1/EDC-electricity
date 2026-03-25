@@ -325,6 +325,7 @@
     "createHint": "新規是正タスク入口は開発中です",
     "taskNo": "タスク番号",
     "relatedHeat": "関連ヒート",
+    "searchPlaceholder": "タスク番号/関連ヒートを検索...",
     "deviation": "偏差率",
     "deviationPending": "算出待ち",
     "status": "ステータス",

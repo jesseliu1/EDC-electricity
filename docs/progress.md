@@ -51,10 +51,35 @@
 - [x] 已完成黄金基线定义页实例数量真实计数收口，定义列表/详情不再把 `instance_count` 固定写死为 `0`
 - [x] 已完成旧 live heat 深链的 canonical 路由校准回归收口，重复打开 legacy URL 会稳定 replace 到当前 canonical heat id
 - [x] 已完成列表假搜索控件第一刀收口：BaselineListView 的“搜索名称...”已接成本地即时过滤，HeatList / TaskList 仍待后续处理
+- [x] 已完成列表假搜索控件第二刀收口：TaskListView 顶部搜索框已接成本地即时过滤并修正文案，HeatListView 仍待后续处理
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第二十四批 issue：TaskListView 顶部假搜索框收口）
+
+- [x] 已按 investigate 顺序继续处理 `P1 多个列表页搜索/筛选控件仍是纯展示占位，输入后不会改变结果`
+  - [x] 已确认 `apps/web/src/views/TaskListView.vue` 顶部搜索框同样没有 `v-model`、过滤计算或事件处理，列表始终直接渲染 `taskStore.list`
+  - [x] 已确认当前真实可支持的最小能力只覆盖“当前页已加载列表”的本地过滤，因此这轮只匹配 `taskNo / heatId`，不承诺搜索“任务描述”
+  - [x] 已确认本轮不扩到 `HeatListView`，也不改分页协议、后端接口或 store 结构
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/TaskListView.vue` 已新增本地 `searchKeyword` 与 `displayedTasks` 计算属性，对当前已加载任务列表按 `taskNo / heatId` 做即时过滤
+  - [x] 顶部占位文案已改为与真实能力一致的 `task.searchPlaceholder`，不再误导为“搜索订单号/任务描述...”
+  - [x] 已补最小测试锚点：`task-search-input`、`task-empty-state`
+  - [x] `apps/web/e2e/coverage.spec.ts` 已新增定向回归，覆盖任务编号命中、关联炉次命中、完全未命中三种输入结果
+  - [x] 本轮未改动 `taskStore`、未新增后端搜索参数，也未扩到 `HeatListView`
+- [x] 本轮测试留痕
+  - [x] 测试范围：TaskListView 当前页本地搜索过滤、占位文案口径、EDC 前端 locale 结构、EDC 前端构建
+  - [x] 验证步骤：打开 `/tasks`；确认初始可见多条任务；输入 `T20260312-002` 后仅保留对应任务；输入 `heat-special` 后仅保留匹配 `heatId` 的任务；输入 `not-found-task` 后进入空态
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "task list search input filters the loaded rows by task number and related heat id"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；TaskListView 搜索输入已从假交互变成当前页本地过滤
+  - [x] 未覆盖项：本轮未处理 `HeatListView` 假搜索控件，也未把搜索扩到未加载页数据、任务详情文本或服务端查询；当前重点仅为把任务列表顶部假搜索框收成真实可用的最小能力
+  - [x] 未补 `docs/lessons.md`：上一轮已记录“正式页可输入过滤器必须真实影响结果”的通用规则，本轮直接沿用
+  - [x] 下一步：继续处理同一 issue 中剩余的 `HeatListView` 假搜索/筛选控件，优先选择不改协议即可独立验证的最小一刀
 
 ### 2026-03-25（第二十三批 issue：BaselineListView 搜索名称假交互收口）
 

@@ -457,6 +457,32 @@ async function mockTaskWorkflow(page: Page) {
           created_at: '2026-03-11T10:00:00Z',
           updated_at: '2026-03-12T10:00:00Z',
           completed_at: null
+        },
+        {
+          id: 'mock-task-2',
+          task_no: 'T20260312-002',
+          heat_id: 'heat-002',
+          deviation_percent: 12.4,
+          cause_analysis: null,
+          improvement: null,
+          prevention: null,
+          status: 'in_progress',
+          created_at: '2026-03-11T11:00:00Z',
+          updated_at: '2026-03-12T11:00:00Z',
+          completed_at: null
+        },
+        {
+          id: 'mock-task-3',
+          task_no: 'T20260312-003',
+          heat_id: 'heat-special-003',
+          deviation_percent: null,
+          cause_analysis: null,
+          improvement: null,
+          prevention: null,
+          status: 'cancelled',
+          created_at: '2026-03-11T12:00:00Z',
+          updated_at: '2026-03-12T12:00:00Z',
+          completed_at: null
         }
       ],
       total: 10,
@@ -898,6 +924,35 @@ test.describe('EDC web extended coverage', () => {
     await page.getByTestId('task-create-button').click()
     await expect(page.locator('.el-message__content').filter({ hasText: '新建纠偏任务入口开发中' })).toBeVisible()
     await expect(page).toHaveURL(/\/edc\/tasks$/)
+  })
+
+  test('task list search input filters the loaded rows by task number and related heat id', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await mockTaskWorkflow(page)
+    await page.goto('tasks')
+
+    await expect(page.getByTestId('task-list-page')).toBeVisible()
+    await expect(page.getByTestId('task-row-mock-task-1')).toBeVisible()
+    await expect(page.getByTestId('task-row-mock-task-2')).toBeVisible()
+    await expect(page.getByTestId('task-row-mock-task-3')).toBeVisible()
+
+    const searchInput = page.getByTestId('task-search-input')
+
+    await searchInput.fill('T20260312-002')
+    await expect(page.getByTestId('task-row-mock-task-2')).toBeVisible()
+    await expect(page.getByTestId('task-row-mock-task-1')).toHaveCount(0)
+    await expect(page.getByTestId('task-row-mock-task-3')).toHaveCount(0)
+
+    await searchInput.fill('heat-special')
+    await expect(page.getByTestId('task-row-mock-task-3')).toBeVisible()
+    await expect(page.getByTestId('task-row-mock-task-1')).toHaveCount(0)
+    await expect(page.getByTestId('task-row-mock-task-2')).toHaveCount(0)
+
+    await searchInput.fill('not-found-task')
+    await expect(page.getByTestId('task-empty-state')).toBeVisible()
+    await expect(page.getByTestId('task-row-mock-task-1')).toHaveCount(0)
+    await expect(page.getByTestId('task-row-mock-task-2')).toHaveCount(0)
+    await expect(page.getByTestId('task-row-mock-task-3')).toHaveCount(0)
   })
 
   test('report list placeholder buttons show explicit feedback instead of staying silent', async ({ page }) => {

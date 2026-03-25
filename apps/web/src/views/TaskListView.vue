@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElPagination } from 'element-plus'
@@ -13,6 +13,7 @@ import type { TaskFilterKey } from '@/stores/task'
 const { t } = useI18n()
 const router = useRouter()
 const taskStore = useTaskStore()
+const searchKeyword = ref('')
 
 const statusFilters: { key: 'all' | TaskStatus; label: string; count?: number }[] = [
   { key: 'all', label: '全部' },
@@ -51,6 +52,18 @@ function handleCreateTask() {
 function formatDeviation(value: number | null) {
   return value === null ? t('task.deviationPending') : `${value}%`
 }
+
+const displayedTasks = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase()
+  if (!keyword) return taskStore.list
+
+  return taskStore.list.filter((item) => {
+    return (
+      item.taskNo.toLowerCase().includes(keyword) ||
+      item.heatId.toLowerCase().includes(keyword)
+    )
+  })
+})
 
 function statusFilterLabel(key: TaskFilterKey, label: string) {
   const count = taskStore.statusCounts[key]
@@ -117,18 +130,20 @@ onMounted(() => {
       >
         <span class="material-symbols-outlined text-slate-400 text-[18px]">search</span>
         <input
+          v-model="searchKeyword"
+          data-testid="task-search-input"
           type="text"
           class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 ml-2 p-0"
-          placeholder="搜索订单号/任务描述..."
+          :placeholder="t('task.searchPlaceholder')"
         >
       </div>
     </div>
 
     <!-- 任务列表 -->
     <div class="bg-white rounded-xl border border-border-light shadow-card overflow-hidden">
-      <div v-if="taskStore.list.length > 0">
+      <div v-if="displayedTasks.length > 0">
         <div
-          v-for="item in taskStore.list"
+          v-for="item in displayedTasks"
           :key="item.id"
           :data-testid="`task-row-${item.id}`"
           class="border-b border-border-light last:border-0 p-5 hover:bg-slate-50 transition-colors cursor-pointer group flex items-center justify-between gap-4"
@@ -186,6 +201,7 @@ onMounted(() => {
       <!-- 空状态 -->
       <div
         v-else
+        data-testid="task-empty-state"
         class="py-16 flex flex-col items-center justify-center"
       >
         <span class="material-symbols-outlined text-slate-300 text-5xl">assignment</span>

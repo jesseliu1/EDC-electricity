@@ -325,6 +325,7 @@
     "createHint": "Correction task creation entry is under development",
     "taskNo": "Task No.",
     "relatedHeat": "Related Heat",
+    "searchPlaceholder": "Search task no./related heat...",
     "deviation": "Deviation %",
     "deviationPending": "Pending",
     "status": "Status",
