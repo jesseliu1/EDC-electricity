@@ -1087,7 +1087,7 @@
   4. 确认全屏操作不受影响
 
 ### P0 手动调整图缺少黄金基线与当前炉次的对照信息
-- **状态**: 已修复待复验（2026-03-13）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 炉次详情 / 手动调整弹窗
 - **复现步骤**:
   1. 打开“手动调整”弹窗
@@ -1104,6 +1104,12 @@
   - 基线数据已补齐到全天上下文，不再出现 tooltip 中黄金基线为空值
   - 图表选点只会修改当前炉次起止时间，不会回写黄金基线曲线
   - 弹窗内已补齐基线切换 tab，打开时默认聚焦当前炉次所在视窗
+- **复验结论（2026-03-25）**:
+  - 当前 `master` 的手动调整弹窗已具备多指标“黄金基线 / 当前生产”双组曲线展示，且支持基线切换后同步更新 series 数量
+  - 现有专项回归已验证：默认高功率基线下 `manual-adjust-chart` 的 `data-series-count` 为 `8`，切回“标准基线 v2.1”后变为 `6`
+  - 本轮未再修改业务代码，仅执行复验并将 issue 从“已修复待复验”收口为“验收通过”
+- **回归结果**:
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"` 通过
 - **严重程度**: 高
 - **如何测试**:
   1. 打开手动调整弹窗
@@ -1112,7 +1118,7 @@
   4. 切换不同点位时确认参考线与当前线保持可见
 
 ### P0 手动调整图上选点不能同步到下方起始时间/终止时间输入框
-- **状态**: 已修复待复验（2026-03-13）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 炉次详情 / 手动调整弹窗
 - **复现步骤**:
   1. 打开“手动调整”弹窗
@@ -1128,6 +1134,12 @@
   - 图表选点已改为基于坐标系反算最近时间点，不再依赖普通 `click + dataIndex`
   - 图表点击、底部滑块、起止时间输入框现已复用同一组选区状态
   - 图内拖动与缩放只改变观察窗口，不再误改起止时间
+- **复验结论（2026-03-25）**:
+  - 当前 `master` 中图表点击后会直接驱动手动调整共享选区状态，起始时间输入框会在选点后同步变化
+  - 现有专项回归已验证：点击 `manual-adjust-chart` 后，`manual-adjust-start-field` 的输入值会脱离原始值；随后手动修改终止时间输入框，图表范围属性也会同步更新
+  - 本轮未再修改业务代码，仅执行复验并将 issue 从“已修复待复验”收口为“验收通过”
+- **回归结果**:
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"` 通过
 - **严重程度**: 高
 - **如何测试**:
   1. 在图上先选起点，再选终点
@@ -1136,7 +1148,7 @@
   4. 保存前后再次确认最终值一致
 
 ### P1 手动调整底部滑块交互不好用
-- **状态**: 已修复待复验（2026-03-13）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 炉次详情 / 手动调整弹窗
 - **复现步骤**:
   1. 打开“手动调整”弹窗
@@ -1148,6 +1160,12 @@
 - **验收补充**:
   - 图表与底部滑块现已统一展示当前炉次所在当天的完整数据
   - 选择区间仍由底部滑块负责，图内拖动只负责缩放/平移，不再与选点语义重叠
+- **复验结论（2026-03-25）**:
+  - 当前 `master` 中手动调整弹窗已默认聚焦当前炉次附近视窗，同时保留全天上下文；缩放和拖动会改变观察窗口，但不会误改已选起止时间
+  - 现有专项回归已验证：滚轮缩放会改变 `data-zoom-start / data-zoom-end`，拖动图内窗口后 zoom 值继续变化，同时 `data-start / data-end` 保持不变
+  - 本轮未再修改业务代码，仅执行复验并将 issue 从“已修复待复验”收口为“验收通过”
+- **回归结果**:
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"` 通过
 - **严重程度**: 中
 - **如何测试**:
   1. 拖动左/右滑块手柄调整区间
