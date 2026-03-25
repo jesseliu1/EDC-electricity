@@ -113,8 +113,14 @@
 - **修复结果**:
   - 四套 locale 已新增上述 5 个 key，不再依赖运行时 fallback 兜底。
   - 侧边栏分组标题、顶部搜索占位和 Dashboard 最近炉次“详情”按钮现都可直接命中正式 locale 文案。
+- **补充收口（2026-03-25）**:
+  - `apps/web/src/components/layout/AppSidebar.vue`、`AppHeader.vue`、`HeatList.vue` 已移除上述 key 的 inline fallback 调用口径，统一直接读取正式 locale key。
+  - `apps/web/e2e/coverage.spec.ts` 已新增定向 console 回归，断言 Dashboard 壳层不再输出 `nav.groupOverview / nav.groupMonitor / nav.groupManage / common.searchHeatId / common.detail` 对应的 missing-key 告警。
 - **回归结果**:
   - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "dashboard shell does not emit i18n missing-key warnings for nav and search labels"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 侧边栏分组标题与搜索占位应在 locale 文件中有正式定义
   - 默认语言和其它语言不应持续输出 i18n missing key 告警

@@ -30,7 +30,7 @@ interface MenuGroup {
 
 const menuGroups = computed<MenuGroup[]>(() => [
   {
-    title: t('nav.groupOverview', '生产概览'),
+    title: t('nav.groupOverview'),
     items: [
       {
         path: '/',
@@ -41,7 +41,7 @@ const menuGroups = computed<MenuGroup[]>(() => [
     ],
   },
   {
-    title: t('nav.groupMonitor', '监控与分析'),
+    title: t('nav.groupMonitor'),
     items: [
       {
         path: '/baseline-definitions',
@@ -82,7 +82,7 @@ const menuGroups = computed<MenuGroup[]>(() => [
     ],
   },
   {
-    title: t('nav.groupManage', '管理'),
+    title: t('nav.groupManage'),
     items: [
       {
         path: '/settings',

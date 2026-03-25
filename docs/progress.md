@@ -46,10 +46,34 @@
 - [x] 已完成报表列表页“历史查询 / 导出昨日报告 PDF”按钮收口，点击后会给出明确占位反馈，不再静默无响应
 - [x] 已完成基线详情页“编辑 / 创建新版本”按钮收口，当前反馈行为已补稳定测试锚点和定向回归，不再处于无护栏状态
 - [x] 已完成设置页左侧分类伪导航收口，当前已改为真实页内导航并随定位更新 active 态
+- [x] 已完成侧边栏分组/全局搜索 i18n 告警第二轮收口，相关调用口径已移除 fallback 并补控制台 missing-key 回归
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第十九批 issue：全局导航 i18n 告警护栏收口）
+
+- [x] 已按 investigate 顺序复核 `P1 侧边栏分组与全局搜索占位缺少 locale key，控制台持续报 i18n 告警`
+  - [x] 已确认该 issue 的 locale key 缺口此前已被补齐，当前四套语言包都已有 `nav.groupOverview / nav.groupMonitor / nav.groupManage / common.searchHeatId / common.detail`
+  - [x] 已确认当前剩余问题不是“继续缺 key”，而是相关组件调用口径仍保留 inline fallback，且仓库里缺少一条专门盯控制台 missing-key 告警的自动回归
+  - [x] 已确认受影响组件仍集中在 `AppSidebar.vue`、`AppHeader.vue`、`HeatList.vue`，不涉及架构级 i18n 改造
+- [x] 已完成最小修复
+  - [x] `apps/web/src/components/layout/AppSidebar.vue` 已移除 `nav.groupOverview / groupMonitor / groupManage` 的 inline fallback，统一直接读取正式 locale key
+  - [x] `apps/web/src/components/layout/AppHeader.vue` 已移除 `common.searchHeatId` 的 inline fallback
+  - [x] `apps/web/src/components/dashboard/HeatList.vue` 已移除 `common.detail` 的 inline fallback
+  - [x] `apps/web/e2e/coverage.spec.ts` 已新增定向回归，进入 Dashboard 后监听控制台，断言不再出现上述 key 对应的 i18n missing-key 告警
+  - [x] 本轮未改动 locale 文案内容、路由结构、业务逻辑或全站 i18n 架构
+- [x] 本轮测试留痕
+  - [x] 测试范围：侧边栏分组标题、顶部搜索占位、Dashboard 最近炉次“详情”文案的 i18n 调用口径；浏览器控制台 missing-key 告警；EDC 前端构建
+  - [x] 验证步骤：打开 Dashboard；确认左侧分组标题、顶部搜索占位和最近炉次列表已正常渲染；同时监听控制台，确认不再出现 `nav.groupOverview / nav.groupMonitor / nav.groupManage / common.searchHeatId / common.detail` 对应的 i18n missing-key 告警
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "dashboard shell does not emit i18n missing-key warnings for nav and search labels"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；定向回归确认 Dashboard 壳层不再输出该批 key 的 i18n 告警
+  - [x] 未覆盖项：本轮没有重新扩测 `heat.cutReason.live_inferred` 的历史告警链路；当前重点仅为本条 issue 中剩余的侧边栏/搜索/详情文案 missing-key 告警护栏
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中仍未收口、且最小改动可验证的前端占位控件或误导性交互问题
 
 ### 2026-03-25（第十八批 issue：设置页左侧伪导航收口）
 

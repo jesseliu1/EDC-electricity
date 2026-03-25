@@ -770,6 +770,39 @@ test.describe('EDC web extended coverage', () => {
     await expect(page).toHaveURL(/\/edc\/baselines\/baseline-001$/)
   })
 
+  test('dashboard shell does not emit i18n missing-key warnings for nav and search labels', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await mockDashboardOverview(page)
+    await mockTaskWorkflow(page)
+
+    const consoleWarnings: string[] = []
+    page.on('console', message => {
+      if (message.type() === 'warning' || message.type() === 'error') {
+        consoleWarnings.push(message.text())
+      }
+    })
+
+    await page.goto('')
+    await expect(page.getByTestId('dashboard-page')).toBeVisible()
+    await expect(page.getByText('生产概览')).toBeVisible()
+    await expect(page.getByText('监控与分析')).toBeVisible()
+    await expect(page.getByPlaceholder('搜索炉次 ID...')).toBeVisible()
+    await expect(page.getByTestId('dashboard-page')).toContainText('H20260320-001')
+
+    const i18nWarningKeys = [
+      'nav.groupOverview',
+      'nav.groupMonitor',
+      'nav.groupManage',
+      'common.searchHeatId',
+      'common.detail',
+    ]
+    expect(
+      consoleWarnings.filter(item =>
+        i18nWarningKeys.some(key => item.includes(key))
+      )
+    ).toEqual([])
+  })
+
   test('task list shows real status counts and can open detail and complete a task', async ({ page }) => {
     await mockRuntimeStatus(page)
     await mockTaskWorkflow(page)

@@ -104,7 +104,7 @@ const handleToggleSidebar = () => {
         <input
           type="text"
           class="bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-slate-700 w-full placeholder:text-slate-400 ml-2 p-0 h-auto"
-          :placeholder="t('common.searchHeatId', '搜索炉次 ID...')"
+          :placeholder="t('common.searchHeatId')"
         >
       </div>
 

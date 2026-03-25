@@ -161,7 +161,7 @@ const handleViewDetail = (heatNo: string) => {
             <td class="px-4 py-3.5 text-right">
               <span
                 class="text-xs text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity"
-              >{{ t('common.detail', '详情') }}</span>
+              >{{ t('common.detail') }}</span>
             </td>
           </tr>
           <!-- 空状态 -->
