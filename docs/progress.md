@@ -39,6 +39,19 @@
 
 ## 已完成
 
+### 2026-03-25（issue 核对：报表详情 loading 问题确认已收口）
+
+- [x] 已按 investigate 顺序重新核对 `P1 报表详情接口已返回成功，但页面仍长期停留在“加载中”`
+  - [x] 代码侧复查确认：当前报表详情成功态与失败态都已有退出 loading 的分支
+  - [x] issue 文档已更新为“当前代码无法复现”，避免继续把历史问题当作现状重复修复
+- [x] 本轮测试留痕
+  - [x] 测试范围：报表列表进入详情页后的成功渲染链路
+  - [x] 验证步骤：打开报表列表，进入已有日报详情，确认正文区域可正常显示而非停留 loading
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "reports and inbox pages can navigate into detail pages"`
+  - [x] 结果：通过；报表详情与收件箱详情导航链路正常
+  - [x] 未覆盖项：未重放 2026-03-21 现场那组真实后端返回体，仅确认当前 `master` 代码与现有前端回归下无法复现
+  - [x] 下一步：继续处理仍在线的炉次详情状态口径不一致问题
+
 ### 2026-03-24（第一批 issue：Dashboard 假空态与炉次详情错误态收口）
 
 - [x] 已按 investigate 顺序完成首批 P0 分析与修复
