@@ -1031,6 +1031,101 @@ test.describe('EDC web extended coverage', () => {
     await expect(page.getByTestId('inbox-row-inbox-null-001')).not.toContainText('--%')
   })
 
+  test('heat list and dashboard recent heats show pending copy for null deviation instead of bare dashes', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await page.route('**/api/dashboard/stats', async route => {
+      await fulfillJson(route, {
+        today_heats: 3,
+        avg_deviation: 0,
+        pending_tasks: 0,
+        active_baseline: '标准基线 v2.1',
+        normal_rate: 66.7
+      })
+    })
+    await page.route('**/api/dashboard/realtime?**', async route => {
+      await fulfillJson(route, {
+        timestamp: '2026-03-25T08:30:00Z',
+        baseline_id: 'baseline-001',
+        baseline_name: '标准基线 v2.1',
+        power_source_label: '总有功功率',
+        voltage_source_label: 'A相电压',
+        power: [],
+        voltage: [],
+        baseline_power: [],
+        baseline_voltage: []
+      })
+    })
+    await page.route('**/api/dashboard/recent-heats?**', async route => {
+      await fulfillJson(route, {
+        items: [
+          {
+            id: 'dashboard-null-heat-001',
+            heat_no: 'H20260325-101',
+            start_time: '2026-03-25T08:00:00Z',
+            end_time: '2026-03-25T08:40:00Z',
+            status: 'abnormal',
+            deviation_percent: null
+          }
+        ]
+      })
+    })
+    await page.route('**/api/tasks?**', async route => {
+      await fulfillJson(route, {
+        items: [],
+        total: 0,
+        page: 1,
+        page_size: 10
+      })
+    })
+    await page.route('**/api/heats?**', async route => {
+      await fulfillJson(route, {
+        items: [
+          {
+            id: 'heat-null-001',
+            heat_no: 'H20260325-001',
+            description: null,
+            start_time: '2026-03-25T08:00:00Z',
+            end_time: '2026-03-25T08:40:00Z',
+            baseline_id: 'baseline-001',
+            deviation_percent: null,
+            avg_deviation_percent: null,
+            time_offset_percent: null,
+            mismatch_duration_minutes: null,
+            schedule_tag: 'work',
+            cut_reason: 'live_inferred',
+            cut_status: 'normal',
+            major_issue: false,
+            blocked_by_issue: false,
+            status: 'abnormal',
+            temperature: 1450,
+            created_at: '2026-03-25T08:00:00Z',
+            record_source: 'live_inferred',
+            current_curve_source: 'live_edc',
+            baseline_curve_source: 'none'
+          }
+        ],
+        total: 1,
+        page: 1,
+        page_size: 10
+      })
+    })
+
+    await page.goto('')
+    await expect(page.getByTestId('dashboard-page')).toBeVisible()
+    await expect(page.getByTestId('dashboard-recent-heat-deviation-dashboard-null-heat-001')).toHaveText('待计算')
+    await expect(page.getByTestId('dashboard-recent-heat-deviation-dashboard-null-heat-001')).not.toHaveText('--')
+
+    await page.goto('heats')
+    await expect(page.getByTestId('heat-list-page')).toBeVisible()
+    await expect(page.getByTestId('heat-deviation-heat-null-001')).toHaveText('待计算')
+    await expect(page.getByTestId('heat-deviation-heat-null-001')).not.toHaveText('--')
+
+    await page.goto('inbox')
+    await expect(page.getByTestId('inbox-page')).toBeVisible()
+    await expect(page.getByTestId('inbox-deviation-heat-null-001')).toHaveText('待计算')
+    await expect(page.getByTestId('inbox-row-heat-null-001')).not.toContainText('--%')
+  })
+
   test('default zh-CN pages do not leak English subtitles or labels', async ({ page }) => {
     await mockRuntimeStatus(page)
     await mockDashboardOverview(page)

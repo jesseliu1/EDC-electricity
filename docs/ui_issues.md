@@ -517,7 +517,7 @@
   3. 若偏差值不可用，确认页面会显示明确说明，而不是 `--%`
 
 ### P1 真实推断炉次普遍缺少偏差值，导致炉次浏览主指标长期显示 `--`
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 炉次浏览 / 偏差收件箱 / Dashboard 最近炉次
 - **复现步骤**:
   1. 打开“炉次浏览”
@@ -537,6 +537,20 @@
 - **当前证据**:
   - `GET /api/heats?page=1&page_size=10` 返回的多条 `live_inferred` 记录偏差字段均为 `null`
   - `GET /api/heats?page=1&page_size=10&status=abnormal` 返回的异常炉次偏差字段也为 `null`
+- **调查结论（2026-03-25）**:
+  - 当前问题并不是前端误算偏差，而是多个展示层对 `deviationPercent === null` 仍沿用旧占位符分支
+  - `apps/web/src/views/InboxView.vue` 其实已在前序批次收口，目前 `null` 偏差值会显示 `待计算`；这条 issue 在当前 `master` 的剩余问题主要集中在 `apps/web/src/views/HeatListView.vue` 与 `apps/web/src/components/dashboard/HeatList.vue`
+  - 最小修复不需要变更后端算法或业务判定，只需把这些位置的 `null` 偏差展示改成明确“待计算/未计算”状态，避免继续显示裸 `--`
+- **修复结果**:
+  - `apps/web/src/views/HeatListView.vue` 已新增统一的 `formatDeviation()`，列表主偏差值与展开区平均偏差值在 `null` 时统一显示 `heat.deviationPending`
+  - `apps/web/src/components/dashboard/HeatList.vue` 已把最近炉次表中的 `null` 偏差值改为显示 `heat.deviationPending`
+  - 四套语言包已补齐 `heat.deviationPending`，并补稳定测试锚点：`heat-list-page`、`heat-deviation-{id}`、`dashboard-recent-heat-deviation-{id}`
+  - Inbox 沿用既有 `inbox.deviationPending` 展示，不再重复修改其业务逻辑
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "heat list and dashboard recent heats show pending copy for null deviation instead of bare dashes"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 若页面已经把炉次判定为异常/正常并纳入偏差收件箱，应尽量带出可解释的偏差值
   - 若当前阶段尚未计算，应明确区分“状态已推断、偏差未计算”
@@ -545,7 +559,8 @@
 - **如何测试**:
   1. 打开炉次浏览与偏差收件箱
   2. 抽查真实推断炉次的偏差字段显示
-  3. 确认主指标不再大面积显示 `--`，或页面明确说明“未计算”
+  3. 再打开 Dashboard，检查最近炉次中的偏差值展示
+  4. 确认 HeatList / Inbox / Dashboard 最近炉次中的 `null` 偏差都不再显示裸 `--` 或 `--%`，而是明确显示“待计算”
 
 ### P1 宿主连线设置页存在 React/DOM 控制台错误，首页会触发结构与更新深度告警
 - **状态**: 已修复并回归通过（2026-03-25）

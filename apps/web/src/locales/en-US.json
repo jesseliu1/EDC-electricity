@@ -233,6 +233,7 @@
     "startTime": "Start Time",
     "endTime": "End Time",
     "deviation": "Deviation",
+    "deviationPending": "Pending",
     "status": "Status",
     "statusNormal": "Normal",
     "statusAbnormal": "Abnormal",

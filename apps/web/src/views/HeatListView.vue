@@ -84,10 +84,14 @@ function dataSourceText(source: HeatItem['recordSource']) {
 }
 
 function getDeviationClass(val: number | null): string {
-  if (val === null) return 'text-slate-400'
+  if (val === null) return 'text-slate-600 font-semibold'
   if (val > 10) return 'text-red-500 font-bold'
   if (val > 5) return 'text-orange-500 font-semibold'
   return 'text-slate-600'
+}
+
+function formatDeviation(value: number | null) {
+  return value === null ? t('heat.deviationPending') : `${value}%`
 }
 
 function getDeviationBarClass(value: number | null) {
@@ -190,7 +194,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
+  <div
+    class="flex flex-col gap-6"
+    data-testid="heat-list-page"
+  >
     <PageHeader
       :title="t('heat.title')"
       subtitle="Heat Browser"
@@ -384,8 +391,11 @@ onMounted(() => {
                 <td class="px-4 py-4">
                   <div class="flex items-center gap-2">
                     <span class="text-xs text-slate-400">偏离度</span>
-                    <span :class="['text-sm', getDeviationClass(item.deviationPercent)]">
-                      {{ item.deviationPercent !== null ? `${item.deviationPercent}%` : '--' }}
+                    <span
+                      :data-testid="`heat-deviation-${item.id}`"
+                      :class="['text-sm', getDeviationClass(item.deviationPercent)]"
+                    >
+                      {{ formatDeviation(item.deviationPercent) }}
                     </span>
                   </div>
                   <div class="w-20 h-1 bg-slate-200 rounded-full mt-1 overflow-hidden">
@@ -512,7 +522,7 @@ onMounted(() => {
                               平均偏差
                             </div>
                             <div class="mt-2 text-2xl font-bold text-slate-900">
-                              {{ item.avgDeviationPercent !== null ? `${item.avgDeviationPercent}%` : '--' }}
+                              {{ formatDeviation(item.avgDeviationPercent) }}
                             </div>
                             <div class="mt-1 text-xs text-slate-500">
                               与默认黄金基线对比

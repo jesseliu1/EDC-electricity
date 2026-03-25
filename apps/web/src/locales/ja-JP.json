@@ -233,6 +233,7 @@
     "startTime": "開始時間",
     "endTime": "終了時間",
     "deviation": "偏差",
+    "deviationPending": "算出待ち",
     "status": "ステータス",
     "statusNormal": "正常",
     "statusAbnormal": "異常",

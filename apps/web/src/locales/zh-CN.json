@@ -233,6 +233,7 @@
     "startTime": "开始时间",
     "endTime": "结束时间",
     "deviation": "偏差",
+    "deviationPending": "待计算",
     "status": "状态",
     "statusNormal": "正常",
     "statusAbnormal": "异常",

@@ -53,10 +53,35 @@
 - [x] 已完成列表假搜索控件第一刀收口：BaselineListView 的“搜索名称...”已接成本地即时过滤，HeatList / TaskList 仍待后续处理
 - [x] 已完成列表假搜索控件第二刀收口：TaskListView 顶部搜索框已接成本地即时过滤并修正文案，HeatListView 仍待后续处理
 - [x] 已完成列表假搜索控件第三刀收口：HeatListView 无数据支撑的设备 ID / 合金号输入已改为明确禁用态并补说明，正式页不再保留可输入但不生效的筛选框
+- [x] 已完成真实推断炉次空偏差展示第三轮收口：HeatList 与 Dashboard 最近炉次已把 `deviation=null` 明确显示为“待计算”，与 Inbox 既有口径对齐，不再长期显示裸 `--`
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第二十六批 issue：真实推断炉次空偏差展示收口）
+
+- [x] 已按 investigate 顺序继续处理 `P1 真实推断炉次普遍缺少偏差值，导致炉次浏览主指标长期显示 --`
+  - [x] 已确认这条 issue 当前在 `master` 的实际剩余问题集中在 `apps/web/src/views/HeatListView.vue` 与 `apps/web/src/components/dashboard/HeatList.vue`：两处仍把 `deviationPercent === null` 直接渲染成 `--`
+  - [x] 已确认 `apps/web/src/views/InboxView.vue` 其实已在前序批次收口，当前对 `deviationPercent === null` 已显示 `待计算`，不再需要重复改业务逻辑
+  - [x] 已确认当前问题不是后端偏差计算错误，而是前端对 `null` 偏差值的展示分支仍沿用旧占位符；本轮不伪造数值、不改偏差判定规则
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/HeatListView.vue` 已新增 `formatDeviation()`，炉次列表主偏差值与展开区平均偏差值在 `null` 时统一显示 `heat.deviationPending`，不再显示裸 `--`
+  - [x] `apps/web/src/components/dashboard/HeatList.vue` 已把 Dashboard 最近炉次中的 `null` 偏差值改为显示 `heat.deviationPending`，不再显示 `--`
+  - [x] 已补稳定测试锚点：`heat-list-page`、`heat-deviation-{id}`、`dashboard-recent-heat-deviation-{id}`
+  - [x] 四套语言包已补 `heat.deviationPending`，与 Inbox/Task 既有“待计算”口径对齐
+  - [x] 本轮未修改后端 `deviation_percent` 计算逻辑、未补任何推断偏差算法，也未改动异常/正常判定规则
+- [x] 本轮测试留痕
+  - [x] 测试范围：HeatList 主偏差展示、HeatList 展开区平均偏差展示、Dashboard 最近炉次偏差展示、Inbox 既有待计算口径回归、EDC 前端 locale 结构、EDC 前端构建
+  - [x] 验证步骤：构造 `deviation_percent=null` 的真实推断炉次；打开 Dashboard，确认最近炉次显示“待计算”；打开 HeatList，确认主偏差值不再显示 `--`；打开 Inbox，确认异常项仍显示“待计算”而不是 `--%`
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "heat list and dashboard recent heats show pending copy for null deviation instead of bare dashes"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；HeatList 与 Dashboard 最近炉次不再把 `null` 偏差值渲染成裸 `--`
+  - [x] 未覆盖项：本轮没有为 `live_inferred` 炉次补真实偏差计算，也没有收口 `time_offset_percent / mismatch_duration_minutes` 等其它 `null` 指标；当前仅处理用户最常见的偏差展示误导
+  - [x] 未补 `docs/lessons.md`：已有“空指标展示不能把 `null` 直接包装成 `--%`”的通用经验，本轮直接沿用
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中仍 open 的低风险 UI/前端问题，优先选择仍会误导用户状态判断的展示层缺口
 
 ### 2026-03-25（第二十五批 issue：HeatListView 假筛选控件收口）
 

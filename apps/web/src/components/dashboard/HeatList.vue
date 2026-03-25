@@ -30,10 +30,14 @@ withDefaults(defineProps<Props>(), {
 
 // 偏差值颜色
 const getDeviationClass = (val: number | null): string => {
-  if (val === null) return 'text-slate-400'
+  if (val === null) return 'text-slate-600 font-semibold'
   if (val > 10) return 'text-red-500 font-bold'
   if (val > 5) return 'text-orange-500 font-semibold'
   return 'text-slate-600'
+}
+
+const formatDeviation = (value: number | null): string => {
+  return value === null ? t('heat.deviationPending') : `+${value}%`
 }
 
 // 状态圆点颜色
@@ -136,13 +140,10 @@ const handleViewDetail = (heatNo: string) => {
             </td>
             <td class="px-4 py-3.5">
               <span
+                :data-testid="`dashboard-recent-heat-deviation-${heat.id}`"
                 :class="['text-sm', getDeviationClass(heat.deviationPercent)]"
               >
-                {{
-                  heat.deviationPercent !== null
-                    ? `+${heat.deviationPercent}%`
-                    : '--'
-                }}
+                {{ formatDeviation(heat.deviationPercent) }}
               </span>
             </td>
             <td class="px-4 py-3.5">
