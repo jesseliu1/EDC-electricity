@@ -673,7 +673,7 @@
   3. 确认会出现下载、弹窗或明确提示
 
 ### P1 基线详情页“编辑 / 创建新版本”按钮当前无任何反馈
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 基线详情
 - **复现步骤**:
   1. 打开任一基线详情页，例如 `/baselines/baseline-001`
@@ -685,6 +685,19 @@
   - 对用户来说表现为按钮无响应
 - **当前证据**:
   - Playwright 已分别验证 `编辑` 与 `创建新版本` 点击前后均停留在同一详情页
+- **调查结论（2026-03-25）**:
+  - 复核当前 `master` 后确认，该 issue 与最初记录已有偏差：`创建新版本` 按钮已绑定 `ElMessage.info(t('baseline.detail.newVersionHint'))`，不是纯静默按钮。
+  - `编辑` 按钮也已有现成链路：草稿基线会打开编辑对话框，非草稿基线会给出 `baseline.detail.editDraftOnly` 提示，而不是静默无响应。
+  - 本轮剩余风险不在业务逻辑本身，而在于这些反馈行为缺少稳定 `data-testid` 和定向回归，后续容易无感回退。
+- **修复结果**:
+  - `apps/web/src/views/BaselineDetailView.vue` 已补 `baseline-detail-page`、`baseline-detail-edit-button`、`baseline-detail-new-version-button` 测试锚点。
+  - `apps/web/e2e/coverage.spec.ts` 已新增定向回归，覆盖“发布态点击编辑会出现仅草稿可编辑提示”“点击创建新版本会出现开发中提示”。
+  - 本轮未改动基线详情编辑逻辑、创建新版本逻辑或任何后端链路；也未新增 locale key，继续复用现有 `baseline.detail.newVersionHint / baseline.detail.editDraftOnly`。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "baseline detail action buttons provide visible feedback instead of staying silent"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 两个按钮应有明确动作：进入编辑态、弹窗创建新版本，或明确提示暂未支持
   - 不应作为主操作长期静默无响应

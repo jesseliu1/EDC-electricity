@@ -321,6 +321,34 @@ async function mockBaselineLibrary(page: Page) {
   })
 }
 
+async function mockBaselineDetail(page: Page) {
+  await mockBaselineLibrary(page)
+
+  await page.route(/\/api\/baselines\/baseline-001$/, async route => {
+    await fulfillJson(route, {
+      id: 'baseline-001',
+      name: '标准基线 v2.1',
+      description: '用于正式回归的标准曲线',
+      definition_id: 'def-001',
+      definition_name: '标准熔炼基线',
+      source_heat_id: 'heat-001',
+      selected_start_time: '2026-03-20T08:00:00Z',
+      selected_end_time: '2026-03-20T08:35:00Z',
+      tolerance_percent: 12,
+      status: 'published',
+      version: 2,
+      curve_source: 'live_edc',
+      created_at: '2026-03-20T08:40:00Z',
+      updated_at: '2026-03-20T08:40:00Z',
+      published_at: '2026-03-20T08:45:00Z',
+      curves_data: [],
+      power_curve: [],
+      voltage_curve: [],
+      temperature: null
+    })
+  })
+}
+
 async function mockBaselineLibraryWithRefreshCounters(
   page: Page,
   counters: { list: number; active: number }
@@ -720,6 +748,26 @@ test.describe('EDC web extended coverage', () => {
       page.locator('.el-message__content').filter({ hasText: '黄金基线导出入口开发中' })
     ).toBeVisible()
     await expect(page).toHaveURL(/\/edc\/baselines$/)
+  })
+
+  test('baseline detail action buttons provide visible feedback instead of staying silent', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await mockBaselineDetail(page)
+
+    await page.goto('baselines/baseline-001')
+    await expect(page.getByTestId('baseline-detail-page')).toBeVisible()
+
+    await page.getByTestId('baseline-detail-edit-button').click()
+    await expect(
+      page.locator('.el-message__content').filter({ hasText: '仅草稿状态可编辑' })
+    ).toBeVisible()
+    await expect(page).toHaveURL(/\/edc\/baselines\/baseline-001$/)
+
+    await page.getByTestId('baseline-detail-new-version-button').click()
+    await expect(
+      page.locator('.el-message__content').filter({ hasText: '创建新版本功能开发中' })
+    ).toBeVisible()
+    await expect(page).toHaveURL(/\/edc\/baselines\/baseline-001$/)
   })
 
   test('task list shows real status counts and can open detail and complete a task', async ({ page }) => {

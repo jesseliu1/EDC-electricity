@@ -44,10 +44,33 @@
 - [x] 已完成炉次浏览“导出 Excel”按钮收口，点击后会给出明确占位反馈，不再静默无响应
 - [x] 已完成黄金基线库“导出”按钮收口，点击后会给出明确占位反馈，不再静默无响应
 - [x] 已完成报表列表页“历史查询 / 导出昨日报告 PDF”按钮收口，点击后会给出明确占位反馈，不再静默无响应
+- [x] 已完成基线详情页“编辑 / 创建新版本”按钮收口，当前反馈行为已补稳定测试锚点和定向回归，不再处于无护栏状态
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第十七批 issue：基线详情动作按钮反馈护栏收口）
+
+- [x] 已按 investigate 顺序复核 `P1 基线详情页“编辑 / 创建新版本”按钮当前无任何反馈`
+  - [x] 已确认该 issue 在当前 `master` 上与原始描述已有偏差：`创建新版本` 按钮已接到 `ElMessage.info(t('baseline.detail.newVersionHint'))`
+  - [x] 已确认 `编辑` 按钮也不是纯静默按钮：草稿基线会进入现有编辑对话框，非草稿基线会提示 `baseline.detail.editDraftOnly`
+  - [x] 已确认当前没有必要再扩到新的编辑/发版业务实现；这轮剩余风险主要是缺少稳定测试锚点和定向回归，现有反馈行为容易回退
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/BaselineDetailView.vue` 已新增 `baseline-detail-page`、`baseline-detail-edit-button`、`baseline-detail-new-version-button` 测试锚点
+  - [x] `apps/web/e2e/coverage.spec.ts` 已新增基线详情页定向回归，覆盖“发布态点击编辑会出现仅草稿可编辑提示”“点击创建新版本会出现开发中提示”
+  - [x] 本轮未改动基线详情编辑逻辑、创建新版本逻辑、后端接口或任何业务数据结构
+  - [x] 本轮未新增 locale key：当前页面已复用既有 `baseline.detail.newVersionHint / baseline.detail.editDraftOnly`
+- [x] 本轮测试留痕
+  - [x] 测试范围：基线详情页动作按钮可见反馈、现有 locale 结构、EDC 前端构建
+  - [x] 验证步骤：打开 `/baselines/baseline-001`；点击“编辑”；确认发布态会出现“仅草稿状态可编辑”提示且页面停留在详情页；再点击“创建新版本”；确认出现“创建新版本功能开发中”提示且页面仍停留在详情页
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "baseline detail action buttons provide visible feedback instead of staying silent"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；基线详情页现有反馈行为已被稳定测试覆盖，不再依赖人工点测才能发现回退
+  - [x] 未覆盖项：本轮没有新增真正的“创建新版本”业务链路，也没有单独补“草稿基线点击编辑后完成保存”的 E2E；当前重点仅为“动作按钮不能静默且现有反馈需有护栏”
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中剩余低风险、可验证、可回滚的前端交互/占位入口问题，优先选择其它无反馈按钮或展示层收口
 
 ### 2026-03-25（第十六批 issue：报表列表占位按钮反馈收口）
 

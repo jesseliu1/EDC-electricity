@@ -234,7 +234,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
+  <div
+    class="flex flex-col gap-6"
+    data-testid="baseline-detail-page"
+  >
     <SystemReadinessBanner
       section="baselines"
       test-id="baseline-detail-runtime-banner"
@@ -261,6 +264,7 @@ onMounted(async () => {
           {{ t('baseline.defaultBadge') }}
         </StatusBadge>
         <button
+          data-testid="baseline-detail-edit-button"
           class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
           @click="handleEdit"
         >
@@ -286,6 +290,7 @@ onMounted(async () => {
           {{ baseline?.status === 'published' ? t('common.disable') : t('baseline.publish') }}
         </button>
         <button
+          data-testid="baseline-detail-new-version-button"
           class="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
           @click="handleCreateVersion"
         >
