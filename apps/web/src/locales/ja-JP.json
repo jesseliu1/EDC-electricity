@@ -242,6 +242,8 @@
     "cuttingTimeline": "切り分け判定タイムライン",
     "range": "区間",
     "compareWithBaseline": "ベースラインと比較",
+    "exportAction": "Excel を出力",
+    "exportHint": "Excel 出力入口は開発中です",
     "pickBaselineStart": "開始点選択",
     "pickBaselineEnd": "終了点選択",
     "resetBaselineRange": "区間リセット",

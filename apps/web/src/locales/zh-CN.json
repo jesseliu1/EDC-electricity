@@ -242,6 +242,8 @@
     "cuttingTimeline": "切割判定时间轴",
     "range": "区间",
     "compareWithBaseline": "与基线对比",
+    "exportAction": "导出 Excel",
+    "exportHint": "导出 Excel 入口开发中",
     "pickBaselineStart": "选基线起点",
     "pickBaselineEnd": "选基线终点",
     "resetBaselineRange": "重置选区",

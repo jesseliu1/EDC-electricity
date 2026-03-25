@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { ElDatePicker, ElPagination } from 'element-plus'
+import { ElDatePicker, ElMessage, ElPagination } from 'element-plus'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -172,6 +172,10 @@ function handleViewDetail(id: string) {
   router.push(`/heats/${id}`)
 }
 
+function handleExport() {
+  ElMessage.info(t('heat.exportHint'))
+}
+
 function toggleExpand(id: string) {
   const nextExpanded = expandedHeatId.value === id ? '' : id
   expandedHeatId.value = nextExpanded
@@ -194,10 +198,12 @@ onMounted(() => {
     >
       <template #actions>
         <button
+          data-testid="heat-export-button"
           class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+          @click="handleExport"
         >
           <span class="material-symbols-outlined text-[18px]">download</span>
-          导出 Excel
+          {{ t('heat.exportAction') }}
         </button>
       </template>
     </PageHeader>

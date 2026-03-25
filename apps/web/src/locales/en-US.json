@@ -242,6 +242,8 @@
     "cuttingTimeline": "Cutting Timeline",
     "range": "Range",
     "compareWithBaseline": "Compare with Baseline",
+    "exportAction": "Export Excel",
+    "exportHint": "Excel export entry is under development",
     "pickBaselineStart": "Pick Start",
     "pickBaselineEnd": "Pick End",
     "resetBaselineRange": "Reset Range",

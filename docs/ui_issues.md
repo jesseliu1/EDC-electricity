@@ -605,7 +605,7 @@
   3. 确认会出现明确动作或说明，不再是静默无响应
 
 ### P1 炉次浏览“导出 Excel”按钮当前无任何反馈或下载动作
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: 炉次浏览
 - **复现步骤**:
   1. 打开“炉次浏览”页面
@@ -617,6 +617,18 @@
 - **当前证据**:
   - Playwright 已验证点击前后仍停留在 `/heats`
   - 页面正文与浏览器状态均无变化
+- **调查结论（2026-03-25）**:
+  - 根因已确认是炉次浏览页保留了一个视觉上可点击的导出按钮，但没有绑定任何动作处理函数。
+  - 当前代码中并不存在可直接复用的 Excel 导出链路，因此本轮最小修复应先让按钮给出明确反馈，而不是继续保持无响应。
+- **修复结果**:
+  - `apps/web/src/views/HeatListView.vue` 已新增 `handleExport()`，点击右上角按钮后会通过 `ElMessage.info` 显示“导出 Excel 入口开发中”。
+  - 炉次浏览导出按钮已新增 `heat-export-button` 测试锚点，并切到 locale 文案 `heat.exportAction / heat.exportHint`。
+  - `apps/web/src/locales/zh-CN.json`、`zh-TW.json`、`ja-JP.json`、`en-US.json` 已补齐 `heat.exportAction / heat.exportHint`。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat list export button shows explicit placeholder feedback instead of staying silent"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 导出按钮应触发真实导出、显式禁用或明确提示“暂未支持”
   - 不应作为可点击主操作长期无反馈

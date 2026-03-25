@@ -41,10 +41,33 @@
 - [x] 已完成炉次浏览展开区 CTA 文案校正，“查看完整报告” 已改为与详情跳转一致的“查看炉次详情”
 - [x] 已完成黄金基线库“刷新数据”按钮收口，点击后会触发真实重拉并显示加载态，不再静默无响应
 - [x] 已完成任务列表页“新建纠偏任务”主按钮收口，点击后会给出明确占位反馈，不再静默无响应
+- [x] 已完成炉次浏览“导出 Excel”按钮收口，点击后会给出明确占位反馈，不再静默无响应
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第十四批 issue：炉次浏览导出按钮占位反馈收口）
+
+- [x] 已按 investigate 顺序完成 `P1 炉次浏览“导出 Excel”按钮当前无任何反馈或下载动作`
+  - [x] 已复核当前 `master` 中 `apps/web/src/views/HeatListView.vue` 的“导出 Excel”按钮没有绑定 `@click`
+  - [x] 已确认根因是正式页面保留了导出主操作样式，但没有接到下载、禁用态或提示消息，因此表现成静默无响应
+  - [x] 已确认当前没有现成的 Excel 导出链路可直接复用，本轮最小修复应先补明确反馈，不扩到真实导出实现
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/HeatListView.vue` 已新增 `handleExport()`，点击后会通过 `ElMessage.info` 显示“导出 Excel 入口开发中”
+  - [x] 炉次浏览导出按钮已补 `heat-export-button` 测试锚点，并切到 locale 文案 `heat.exportAction / heat.exportHint`
+  - [x] 四套语言包已补齐 `heat.exportAction / heat.exportHint`
+  - [x] 未改动筛选逻辑、详情跳转、后端导出接口或任何业务数据结构
+- [x] 本轮测试留痕
+  - [x] 测试范围：炉次浏览导出按钮交互反馈、locale 结构、EDC 前端构建
+  - [x] 验证步骤：打开“炉次浏览”页面；点击右上角“导出 Excel”；确认页面仍停留在 `/heats`，但会出现明确“开发中”提示消息，而不是静默无响应
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat list export button shows explicit placeholder feedback instead of staying silent"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；炉次浏览导出按钮已不再静默无响应，定向回归确认点击后会出现明确提示消息
+  - [x] 未覆盖项：本轮没有新增真实 Excel 导出能力；当前修复重点仅为“导出按钮不能无反馈”
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中剩余低风险、可验证、可回滚的前端交互/占位入口问题，优先选择其它无反馈按钮
 
 ### 2026-03-25（第十三批 issue：任务列表主按钮占位反馈收口）
 

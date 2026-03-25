@@ -450,6 +450,16 @@ test.describe('EDC web smoke flows', () => {
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
   })
 
+  test('heat list export button shows explicit placeholder feedback instead of staying silent', async ({ page }) => {
+    await mockHeatSmoke(page)
+    await page.goto('heats')
+
+    await expect(page.getByTestId('heat-export-button')).toBeVisible()
+    await page.getByTestId('heat-export-button').click()
+    await expect(page.locator('.el-message__content').filter({ hasText: '导出 Excel 入口开发中' })).toBeVisible()
+    await expect(page).toHaveURL(/\/edc\/heats$/)
+  })
+
   test('can open and save the manual adjust dialog', async ({ page }) => {
     await mockHeatSmoke(page)
     await page.goto('heats/issue-heat')
