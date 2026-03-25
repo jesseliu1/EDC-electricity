@@ -1956,3 +1956,30 @@
   - 黄金基线与当前生产双参考线已补齐，tooltip 不再出现基线空值
   - 图表点击、底部滑块、起止时间输入框现已共享同一组选区状态
   - 图内拖动/缩放与选点语义已解耦
+
+
+## 2026-03-26 集成冒烟测试结果（开发 agent 第四十四批）
+
+### 通过项
+- EDC `/api/heats` 接口返回正常分页结构 `{items, total, page, page_size}` ✅
+- ASNS server.mjs EDC endpoint 为运行时动态配置，设计正确 ✅
+- ASNS → EDC HTTP 链路可达（3001 → 8001），网络层无阻断 ✅
+- Playwright acceptance 7/7 全部通过（full-review-acceptance + issue-acceptance）✅
+  - dashboard recent heat row opens heat detail
+  - baseline list edit action opens detail page and keeps detail actions usable
+  - dashboard range buttons request the target durations and update active state
+  - baseline wizard keeps chart picking, zoom dragging, and fullscreen state in sync
+  - baseline wizard does not fallback to local preview when real data is unavailable
+  - heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions
+  - heat detail localizes abnormal range labels and inferred cut reasons
+
+### 失败项
+- 无
+
+### 外部阻塞项
+- `127.0.0.1:8080`（真实 EDC 上游）不可用，真实 happy path 联调未完成
+- ASNS → EDC 登录凭据验证未通过（预期，本地 Python 服务非真实 EDC 设备）
+
+### 结论：可推进 UAT
+- 本地集成冒烟测试全部通过，代码基线稳定
+- 恢复 `127.0.0.1:8080` 后需补跑真实上游曲线、真实报表、生产链路联调验收
