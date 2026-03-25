@@ -9,6 +9,25 @@ import type {
   TaskUpdatePayload
 } from '@/api/task'
 
+function resolveDetailErrorMessage(error: unknown): string {
+  if (!error || typeof error !== 'object') {
+    return '任务详情加载失败'
+  }
+
+  const response = (error as { response?: { data?: { message?: string; detail?: string } } }).response
+  const message = response?.data?.message
+  if (typeof message === 'string' && message.trim()) {
+    return message
+  }
+
+  const detail = response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail
+  }
+
+  return '任务详情加载失败'
+}
+
 export interface TaskItem {
   id: string
   taskNo: string
@@ -77,6 +96,10 @@ export const useTaskStore = defineStore('task', {
     list: [] as TaskItem[],
     current: null as TaskDetail | null,
     loading: false,
+    detailLoading: false,
+    detailLoaded: false,
+    detailError: null as string | null,
+    detailRequestToken: 0,
     page: 1,
     pageSize: 10,
     total: 0,
@@ -144,16 +167,38 @@ export const useTaskStore = defineStore('task', {
       this.page = 1
       await this.fetchList()
     },
+    clearDetail() {
+      this.detailRequestToken += 1
+      this.current = null
+      this.detailLoading = false
+      this.detailLoaded = false
+      this.detailError = null
+    },
     async fetchDetail(id: string) {
-      this.loading = true
+      const requestToken = this.detailRequestToken + 1
+      this.detailRequestToken = requestToken
+      this.current = null
+      this.detailError = null
+      this.detailLoaded = false
+      this.detailLoading = true
       try {
         const data = await taskApi.get(id)
+        if (requestToken !== this.detailRequestToken) {
+          return
+        }
         this.current = mapTaskDetail(data)
+        this.detailLoaded = true
       } catch (error) {
+        if (requestToken !== this.detailRequestToken) {
+          return
+        }
         console.error('Task detail request failed.', error)
         this.current = null
+        this.detailError = resolveDetailErrorMessage(error)
       } finally {
-        this.loading = false
+        if (requestToken === this.detailRequestToken) {
+          this.detailLoading = false
+        }
       }
     },
     async saveDetail(id: string, payload: TaskUpdatePayload) {

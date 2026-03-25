@@ -21,6 +21,27 @@
 
 ## 记录
 
+### 2026-03-25 设置表单取消动作：没有已保存快照时不要放“取消修改”
+
+- **错误模式**: 在设置页或编辑表单里直接放出“取消 / 放弃修改”按钮，但 store 只有一份正在编辑的可变 `data`，没有“最近一次已加载/已保存”的快照；结果按钮不是 silent no-op，就是只能靠整页重拉才能回退。
+- **正确做法**: 只要页面公开了取消/放弃修改动作，就必须为对应区块保留最近一次已加载或已保存的快照；保存成功后同步更新快照，取消时只回退该区块的未保存字段。若当前没有快照和回退语义，就不要把按钮做成可点击主交互。
+- **适用场景**: 设置页、编辑抽屉、分区保存的配置卡片、任何“允许先改值、再决定保存还是取消”的表单。
+- **相关文档**: `apps/web/src/stores/setting.ts`, `apps/web/src/views/SettingsView.vue`
+
+### 2026-03-25 详情页状态机：不能只靠 `current === null` 区分“加载中”
+
+- **错误模式**: 详情页只写“有数据则渲染正文，否则显示 loading”，把 `404/500`、路由切换中的空态和真正的请求中都折叠到同一个 `null` 分支里，结果接口失败后页面长期停留在 `pending / 加载中...`。
+- **正确做法**: 详情页至少拆成成功 / loading / error 三态；store 要给详情请求单独维护 `detailLoading / detailError / requestToken`，不要复用列表页通用 `loading`。若路由参数可切换，还要用请求 token 或等价护栏避免过期响应回写。
+- **适用场景**: 报表详情、任务详情、炉次详情、任何通过路由参数加载单条明细的页面。
+- **相关文档**: `apps/web/src/views/ReportDetailView.vue`, `apps/web/src/views/TaskDetailView.vue`, `apps/web/src/stores/report.ts`, `apps/web/src/stores/task.ts`
+
+### 2026-03-25 后端测试基座：共享 SQLite runtime state 不能跨用例直接复用
+
+- **错误模式**: 只重置 FastAPI API 模块里的 in-memory store，却继续复用同一个 `apps/server/data/asns.db`；同时 pytest client fixture 没显式跑 startup 初始化。结果一部分用例先报 `no such table: settings`，补上 `init_db()` 后又会被上一条测试留下的 `runtime_*` 行重新污染，形成顺序相关。
+- **正确做法**: 对依赖 FastAPI lifespan 的后端测试，client fixture 必须先显式执行 startup 所需的初始化；如果测试复用同一个 SQLite 文件，还要在每条测试前清掉 runtime 持久化行，再按当前默认 in-memory 状态重新 seed。对会写同一 SQLite runtime state 的 pytest，默认按串行执行处理，不要并发硬跑。
+- **适用场景**: FastAPI + SQLAlchemy + SQLite 本地测试、会把运行态缓存持久化到数据库的 MVP 后端、AI 代理在同一机器上并行启动多条 pytest 时。
+- **相关文档**: `apps/server/tests/conftest.py`, `apps/server/src/runtime_state.py`
+
 ### 2026-03-25 前端测试基座：不要假设 Node test 环境一定注入 `import.meta.env`
 
 - **错误模式**: 在前端共享模块里直接于模块顶层读取 `import.meta.env.*` 并立刻派生 URL/常量，默认只有 Vite 浏览器运行时会执行，忽略了 Node test 也会 import 同一模块。

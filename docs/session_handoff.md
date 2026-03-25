@@ -15,9 +15,11 @@
   - 下一阶段不再是继续点修 UI issue，而是交给 **Code X + `review` skill** 做 **full review / full test**
 - 最新 QA 同步：
   - `apps/web` 的 `lint / test:i18n / build` 与关键 Playwright 抽测已通过，mocked 回归层面基本成立
-  - 当前真实联调仍被环境阻塞：`127.0.0.1:8000` 不可达、`127.0.0.1:8080` 不可达
+  - 当前本地 review/test 后端 `127.0.0.1:8000` 已恢复可达，运行副本后端 `127.0.0.1:8001` 与宿主 `127.0.0.1:3001` 也在线
+  - 当前真实联调仍剩一项外部阻塞：`127.0.0.1:8080` 不可达
   - `Heat Detail` 在详情失败时“手动调整”按钮 silent no-op 已按最小方案收口：当前按钮会进入禁用态，并显示明确不可用提示
   - ASNS 宿主 `npm test` 的 `import.meta.env` / `Invalid URL` 基座问题已在本轮修复，`npm test / lint / build` 当前都可运行
+  - EDC 后端 pytest 入口也已恢复：可直接用运行副本现有 venv 对主仓 `apps/server` 跑最小用例
 
 ### 下一阶段目标
 
@@ -44,8 +46,9 @@
   - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run test`
   - 若要补宿主浏览器级验证，应优先把此前一次性 Playwright 控制台脚本收成可复用入口
 - EDC 后端测试
-  - 目标应覆盖至少：`tests/test_baselines_dashboard_api.py`、`tests/test_heats_api.py`、`tests/test_tasks_reports_settings_api.py`
-  - 但当前机器的前置阻塞尚未解除，见下面“已知环境缺口”
+  - 现有可用最小入口：
+    - `cd apps/server && /home/openclaw/edc-electricity-server/venv/bin/pytest tests/test_baselines_dashboard_api.py::test_baseline_definition_crud_and_metric_workflow tests/test_tasks_reports_settings_api.py::test_settings_get_and_update -q`
+  - 后续可继续扩到：`tests/test_baselines_dashboard_api.py`、`tests/test_heats_api.py`、`tests/test_tasks_reports_settings_api.py`
 
 ### 重点回归面
 
@@ -59,25 +62,27 @@
 
 ### 已知环境缺口
 
-- EDC 后端 pytest 目前 **不能直接在这台机器上跑**
-  - `apps/server/pyproject.toml` 已声明 `pytest` / `pytest-asyncio`
-  - `apps/server/README.md` 口径是 `uv sync --all-extras` + `uv run pytest`
-  - 但当前机器缺少 `uv`
-  - 当前机器缺少 `python3.11`
-  - 当前 `apps/server/venv` 不是完整虚拟环境，只剩 `lib/python3.11/site-packages`
-  - 其中 `pytest/` 与 `pytest_asyncio/` 目录本体也不完整，不能直接作为可运行入口复用
+- EDC 后端 pytest 当前已恢复到“可运行的临时基线”，但还不是标准环境
+  - 当前可用入口依赖运行副本现有 venv：`/home/openclaw/edc-electricity-server/venv/bin/pytest`
+  - `apps/server/tests/conftest.py` 已补 startup 初始化，并在每条测试前清理 `runtime_*` SQLite 持久化残留，因此最小用例当前可稳定串行通过
+  - 仍未回到项目文档推荐的 `uv + Python 3.11` 标准形态；若后续要做完整后端回归，最好再补齐标准环境
+- `127.0.0.1:8080` 仍是外部 EDC 上游依赖阻塞
+  - 当前仓库内没有对应的本地服务定义或可直接启动入口
+  - 当前应把它视为“真实上游未恢复”，而不是继续在仓内伪造一个临时 8080 服务
 - ASNS 宿主 `npm test` 当前已恢复为稳定最小入口
   - `import.meta.env` / `Invalid URL` 的 Node test 基座问题已收口
   - 仍缺少的是宿主浏览器级自动化入口，而不是模块级单测可运行性
 
 ### 建议下一步
 
-1. 优先在安全前提下补齐 EDC 后端测试环境
-   - 推荐方案：在项目约束内提供 `uv` + Python 3.11，再执行 `cd apps/server && uv sync --all-extras && uv run pytest`
-   - 不建议方案：直接用系统 `python3.13` 强行跑 `apps/server`，因为 `pyproject` 明确要求 `>=3.11,<3.12`
+1. 先复用当前已恢复的本地基线继续 full review/full test
+   - 本地 API 基线：`http://127.0.0.1:8000`
+   - 运行副本 API：`http://127.0.0.1:8001`
+   - 宿主：`http://127.0.0.1:3001/`
+   - 后端最小 pytest：使用 `/home/openclaw/edc-electricity-server/venv/bin/pytest`
 2. 然后由 Code X + `review` skill 做 full review/full test
    - 先跑前端/宿主基础验证
-   - 再补全后端 pytest
+   - 再把后端 pytest 从“最小入口可跑”扩到更完整的模块覆盖
    - 然后优先复跑以下真实 acceptance 面：
      - Dashboard 最近炉次 -> Heat Detail
      - Heat Detail 手动调整
@@ -87,6 +92,7 @@
      - Reports 列表 -> 详情
      - Baselines 列表 -> 详情动作
    - 最后汇总未覆盖项、真实阻塞和是否可继续部署/联调
+3. 若要进入真实 EDC 上游联调，再单独解决 `127.0.0.1:8080` 外部依赖
 
 > 下面内容保留为历史上下文，不再代表当前“下一步”。
 

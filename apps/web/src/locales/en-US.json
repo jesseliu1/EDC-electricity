@@ -345,7 +345,9 @@
     "improvement": "Improvement",
     "prevention": "Prevention",
     "exportPdf": "Export PDF",
-    "completeRequired": "Please fill cause analysis, improvement and prevention first"
+    "completeRequired": "Please fill cause analysis, improvement and prevention first",
+    "detailLoadFailed": "Failed to load task details",
+    "detailReloadHint": "Refresh the page or check the backend tasks API."
   },
   "inbox": {
     "title": "Deviation Inbox",

@@ -8,7 +8,7 @@
 
 **当前阶段**: 功能开发基本完成（真实联调 / 完整验收待完成）
 
-**当前步骤**: 测试基座收口与 review 交接准备
+**当前步骤**: review / full test 已收口并准备提交；下一步转入部署联调（真实 EDC 上游 happy path 仍待 `127.0.0.1:8080` 恢复）
 
 **进度**: 功能开发 100%，真实联调 / 完整验收未完成
 
@@ -63,11 +63,125 @@
 - [x] 已完成剩余 16 条“已修复并回归通过” tracked issues 的最小回归与标准状态归一化：`docs/ui_issues.md` 已不再残留该状态文案
 - [x] 已完成 EDC 后端 pytest 环境缺口最小调查：确认项目配置本身完整，但当前服务器缺少可直接运行的 `uv` / `python3.11`，且 `apps/server/venv` 仅残留不完整 `site-packages`，本轮不做高风险环境重建，改以文档留痕和下一阶段 handoff 收口
 - [x] 已完成 ASNS 宿主 `npm test` 最小基座修复：`hostConnectivitySync.ts` 的环境变量读取已兼容 Node test 环境，`npm test / lint / build` 当前均可运行
-- [x] 已同步 QA 新发现：当前 `127.0.0.1:8000` 与 `127.0.0.1:8080` 都不可达，真实联调仍受环境阻塞；`Heat Detail` 在详情失败时“手动调整”按钮 silent no-op 已按最小方案收口为禁用态 + 明确提示
+- [x] 已同步 QA 新发现与当前运行态：`127.0.0.1:8000` 健康检查已恢复，`127.0.0.1:8080` 仍作为外部依赖阻塞；`Heat Detail` 在详情失败时“手动调整”按钮 silent no-op 已按最小方案收口为禁用态 + 明确提示
+- [x] 已恢复本地 review/test 基线第一步：主仓 `apps/server` 已可在 `127.0.0.1:8000` 提供健康检查与运行态接口，`pytest` 入口已恢复到“可执行并可稳定串行跑最小用例”
+- [x] 已确认 `127.0.0.1:8080` 仍未恢复：当前仓库内无对应本地服务定义，现阶段仅能作为外部依赖阻塞记录，不在本轮扩架构伪造上游
+- [x] 已完成 Settings 页“取消修改”silent no-op 收口：未保存的报表时间/默认容许误差现可回退到最近一次已加载或已保存的值
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第四十批：full review / full test sweep）
+
+- [x] 已开始按 `docs/session_handoff.md` 第 2 项推进 full review / full test
+  - [x] 当前执行顺序按用户拍板：`apps/web lint -> test:i18n -> build -> apps/server pytest -> 7 条 Playwright acceptance`
+  - [x] 本轮坚持最小改动原则：先执行验证与留痕，不扩新 scope；若仅出现 `8080` 外部依赖阻塞，则如实记录为未覆盖项
+- [x] 当前已完成验证
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 结果：通过
+  - [x] 执行命令：`/home/openclaw/edc-electricity-server/venv/bin/pytest apps/server/tests/test_heats_api.py -x --tb=short -q`
+  - [x] 结果：失败（路径错误）— 该路径 `apps/server/tests/` 不存在，是 Codex 用了错误目录
+  - [x] 【已纠正】正确命令：`cd /home/openclaw/edc-electricity-server && /home/openclaw/edc-electricity-server/venv/bin/pytest tests/ -p no:randomly --tb=short -q`
+  - [x] 【已验证】正确路径下全量结果：本轮直接补跑为 **62 passed**，仅保留 `python_multipart` 与 `datetime.utcnow()` 相关 warnings
+  - [x] SQLite 路径问题是伪阻塞：Codex 从 repo root 跑时路径不对，与业务逻辑无关；`/home/openclaw/edc-electricity-server/` 目录下正常
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/full-review-acceptance.spec.ts -g "dashboard recent heat row opens heat detail"`
+  - [x] 结果：通过；Dashboard 最近炉次点击后可进入 `/edc/heats/dashboard-heat-001`，Heat Detail 页面成功加载
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"`
+  - [x] 结果：通过；手动调整弹窗的多指标对照、异常区间、选点同步、缩放/拖拽交互当前均稳定
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat detail create task button posts to tasks api and opens the created task detail"`
+  - [x] 结果：通过；Heat Detail 发起创建任务后会 `POST /api/tasks` 并进入对应 Task Detail
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat detail replaces legacy live heat urls with the canonical heat id returned by the api"`
+  - [x] 结果：通过；旧 live heat URL 当前仍会立即 replace 到 API 返回的 canonical URL
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "expanded heat row uses a detail CTA that matches the detail navigation target"`
+  - [x] 结果：通过；Heat List 展开区 CTA 文案与详情跳转目标当前保持一致
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "reports and inbox pages can navigate into detail pages"`
+  - [x] 结果：通过；Reports 列表当前仍可进入详情页，详情成功态可正常退出 loading
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/full-review-acceptance.spec.ts -g "baseline list edit action opens detail page and keeps detail actions usable"`
+  - [x] 结果：通过；Baselines 列表可进入详情页，详情页动作反馈保持可见
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 结果：通过
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：通过；仍有既有大 chunk warning（`elementPlus` / `echarts`），但不影响本轮构建成功
+  - [x] 未覆盖项：`127.0.0.1:8080` 仍是外部 EDC 上游阻塞，因此本轮所有前端 acceptance 都基于 mocked / 本地可控基线；未覆盖真实上游曲线、真实报表数据与空数据外的生产链路联调
+  - [x] 当前状态：本轮 full review / full test 已 commit；前端 `lint / test:i18n / build` 通过，后端在正确运行目录口径下本轮直接补跑 `62 passed`，7 条指定 Playwright acceptance 全部通过
+  - [x] 下一步：进入部署联调；若要做真实 EDC 上游 happy path 验收，仍需先恢复 `127.0.0.1:8080`
+
+### 2026-03-25（第三十九批 issue：Settings 页“取消修改”silent no-op 收口）
+
+- [x] 已按 investigate 顺序完成根因定位
+  - [x] 已确认 `apps/web/src/views/SettingsView.vue` 中偏差阈值卡片底部的“取消修改”按钮此前未绑定任何 `@click`，点击后不会触发回退或提示
+  - [x] 已确认 `apps/web/src/stores/setting.ts` 只有单份可变 `data`，没有“最近一次已加载/已保存”的快照，因此视图层即使接入按钮也无法精确回滚
+  - [x] 已确认当前问题属于前端表单状态管理缺口，不涉及后端接口、业务规则或数据结构变更
+- [x] 已完成最小修复
+  - [x] `apps/web/src/stores/setting.ts` 已新增 `savedData` 快照与 `resetTolerance()`；`fetchSettings()` 会同步初始化快照，`saveTolerance()/saveReport()/saveCutting()` 成功后会更新对应已保存值
+  - [x] `apps/web/src/views/SettingsView.vue` 已把取消按钮接到 `resetTolerance()`，并补充 `settings-reset-tolerance`、`settings-report-generation-hour-input`、`settings-default-tolerance-input` 稳定测试锚点
+  - [x] 本轮未修改设置接口协议、保存链路或切割配置业务行为，只收口 tolerance 区块取消动作的真实回退能力
+- [x] 本轮测试留痕
+  - [x] 测试范围：Settings 页 tolerance 区块未保存草稿回退、现有设置页 lint/i18n/build 回归
+  - [x] 验证步骤：模拟设置页拉取默认 `report_generation_hour=2` 与 `default_tolerance_percent=15`；分别改为 `5` 与 `13.5`；点击“取消”；确认两个输入值都回退到最近一次已加载快照；随后执行 lint、locale 检查与 build
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "settings cancel resets unsaved tolerance fields back to the last saved snapshot"`
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：定向 Playwright 回归通过；`lint` 通过；`test:i18n` 通过；`build` 通过
+  - [x] 未覆盖项/风险：本轮只收口了偏差阈值卡片里的取消动作；切割配置区当前仍只有显式保存按钮、没有取消按钮，因此未新增该区块的快照回退 UI。真实 acceptance 深链仍受 `8080` 外部依赖与空数据环境影响
+  - [x] 当前状态：Settings 页“取消修改”已不再是 silent no-op，未保存输入会回退到最近一次已加载/已保存值
+  - [x] 下一步：继续按 acceptance 优先级处理 `Baseline 来源炉次伪链接`，并在当前可用的 `8000 + 8001 + 3001` 本地基线上继续最小化 full test sweep
+  - [x] 备注：按当前会话约束，本轮未执行 `commit/push`，仅保留工作树改动
+
+### 2026-03-25（第三十八批 issue：Task Detail 404 loading 收口）
+
+- [x] 已按 investigate 顺序完成根因定位
+  - [x] 已确认后端 `GET /api/tasks/:id` 在不存在任务时会返回 `404` 与明确错误信息，不是接口无响应
+  - [x] 已确认前端 `apps/web/src/views/TaskDetailView.vue` 只有“成功态 / loading 态”两类分支，`current === null` 会直接回落到 `pending / 加载中...`
+  - [x] 已确认 `apps/web/src/stores/task.ts` 仅复用列表页通用 `loading`，缺少详情请求专属的 `detailLoading / detailError / requestToken`，因此 404 会被误映射成持续 loading
+- [x] 已完成最小修复
+  - [x] `apps/web/src/stores/task.ts` 已新增 `detailLoading / detailLoaded / detailError / detailRequestToken`，并补 `clearDetail()` 与详情错误信息解析
+  - [x] `fetchDetail()` 已按 request token 收口，失败时会写入 `detailError`，成功/失败都能明确结束详情 loading
+  - [x] `apps/web/src/views/TaskDetailView.vue` 已改为成功 / loading / 错误三态，并改用监听 `taskId` 的 `watch(..., { immediate: true })`
+  - [x] 四套 locale 已补 `task.detailLoadFailed / task.detailReloadHint`
+  - [x] 本轮未改任务创建、保存、完成、导出等业务逻辑，只处理任务详情错误态
+- [x] 本轮测试留痕
+  - [x] 测试范围：Task Detail 404 错误态退出 loading、task store/i18n 构建有效性、受影响前端静态检查
+  - [x] 验证步骤：模拟 `/api/tasks/nonexistent-task` 返回 `404`；直接打开任务详情；确认页面进入显式错误态且 loading 节点消失；随后执行 lint、locale 检查与 build
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/loading-error-states.spec.ts -g "task detail exits loading state and shows explicit error when detail request fails"`
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：定向 Playwright 回归通过；`lint` 通过；`test:i18n` 通过；`build` 通过
+  - [x] 未覆盖项/风险：本轮只覆盖了任务详情 404/错误态，没有顺手扩到真实任务保存/完成链路；真实 acceptance 仍受空数据环境影响，当前 `heats/tasks/reports=0` 时很多深链只能停在 error-state / empty-state 层验证
+  - [x] 当前状态：Task Detail 404 loading 已收口为明确错误态
+  - [x] 下一步：继续按 acceptance 优先级处理 `Settings 取消修改 silent no-op`，再处理 `Baseline 来源炉次伪链接`
+
+### 2026-03-25（第三十七批 issue：review/full test 基线恢复第一轮）
+
+- [x] 已按 investigate 顺序完成证据收集
+  - [x] 已确认当前机器实际在线端口不是 handoff 中旧口径的 `8000/8080`，而是运行副本后端 `127.0.0.1:8001`、宿主 `*:3001`
+  - [x] 已确认当前手动恢复的 review/test 后端 `127.0.0.1:8000` 可由主仓 `apps/server` 启动，不需要先改业务代码
+  - [x] 已确认 `127.0.0.1:8080` 目前仍不可达，且当前仓库内没有对应可直接启动的本地服务定义；`runtime-status` 中的 `edc.base_url=http://localhost:8080` 仍代表外部 EDC 上游依赖，而不是本仓库内进程
+  - [x] 已确认 EDC 后端 pytest 的最新真实阻塞不再是“没有 pytest 可执行文件”，而是测试基座没有显式触发 startup 初始化、且共享 SQLite runtime rows 会造成顺序相关
+- [x] 已完成最小修复
+  - [x] `apps/server/tests/conftest.py` 已让 `client` fixture 显式依赖 `reset_in_memory_stores`
+  - [x] `client` fixture 已在创建 `AsyncClient` 前执行 `init_db()`，确保测试环境初始化 `settings` 表等数据库结构
+  - [x] `client` fixture 已在每条测试前删除 `settings` 表中的 `runtime_*` 持久化残留，再执行 `load_runtime_state()`，避免不同用例被同一个 `apps/server/data/asns.db` 的 runtime state 污染
+  - [x] 已用运行副本现成的 venv 从主仓 `apps/server` 启动本地 review/test 后端到 `127.0.0.1:8000`，不碰现有 `8001` 运行面
+  - [x] 本轮未改 EDC/ASNS 业务逻辑、接口协议、数据结构，也未伪造 `8080` 上游服务
+- [x] 本轮测试留痕
+  - [x] 测试范围：`8000/8001/3001/8080` 端口可达性、主仓后端健康检查、主仓后端运行态接口、EDC 后端 pytest 最小基座、ASNS 宿主最小测试入口
+  - [x] 验证步骤：先核对监听端口与现有进程；确认 `8001` 与 `3001` 当前已在线、`8080` 拒绝连接；用运行副本 venv 串行验证主仓 `apps/server` 的最小 pytest；修正 `tests/conftest.py` 后再次串行验证；最后确认 `127.0.0.1:8000/health` 与 `/api/settings/runtime-status` 可访问，宿主 `npm test` 仍通过
+  - [x] 执行命令：`ss -ltnp | rg '(:8000|:8001|:3001|:8080)'`
+  - [x] 执行命令：`curl http://127.0.0.1:8000/health`
+  - [x] 执行命令：`curl http://127.0.0.1:8000/api/settings/runtime-status`
+  - [x] 执行命令：`curl http://127.0.0.1:8001/health`
+  - [x] 执行命令：`curl -I http://127.0.0.1:3001/`
+  - [x] 执行命令：`curl -I http://127.0.0.1:8080/`
+  - [x] 执行命令：`cd apps/server && /home/openclaw/edc-electricity-server/venv/bin/pytest tests/test_baselines_dashboard_api.py::test_baseline_definition_crud_and_metric_workflow tests/test_tasks_reports_settings_api.py::test_settings_get_and_update -q`
+  - [x] 执行命令：`npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run test`
+  - [x] 结果：`127.0.0.1:8000` 当前已返回 `200 {"status":"ok"}`，`/api/settings/runtime-status` 可正常返回运行态 JSON；`127.0.0.1:8001` 仍健康；`127.0.0.1:3001` 仍返回 `200`；`127.0.0.1:8080` 仍连接失败；后端两条最小 pytest 串行通过；ASNS 宿主 `npm test` 8 条测试通过
+  - [x] 未覆盖项：本轮恢复的 `8000` 是用于 review/test 的本地手动进程，不是持久 systemd 服务；`8080` 外部上游仍缺失，因此任何依赖真实 EDC 上游的 acceptance 路径仍未恢复；当前 pytest 入口仍依赖运行副本现成 venv（Python 3.13），尚未回到项目文档推荐的 `uv + Python 3.11` 标准形态
+  - [x] 当前状态：本地 review/full test 已不再被“8000 不通 / pytest 完全跑不起来”阻塞；当前主阻塞已经收敛为 `8080` 外部依赖不可达，以及后续是否要把临时 pytest/8000 基线进一步标准化
+  - [x] 下一步：继续保持 `8000` 健康，优先在不扩架构的前提下复核这一基线是否稳定；若需要真实上游联调，则必须由外部补齐 `8080` 或提供明确替代环境，再进入更深的 acceptance / review 测试
 
 ### 2026-03-25（第三十六批 issue：Heat Detail error-state 手动调整按钮 silent no-op 收口）
 
@@ -2227,6 +2341,33 @@
   - [x] 已记录当前服务器上的代码库、运行库、发布目录与 systemd service 指向关系
   - [x] 已记录 GitHub -> 主仓 -> 运行副本 / 发布目录 的单向同步口径
   - [x] 已补 EDC 后端、EDC 前端、ASNS 三条同步流程与最小验收命令
+
+### 2026-03-25（review/full test：compare 路径与 stale live inferred 列表偏差口径收口）
+- [x] 已完成 compare 路径最小后端修复
+  - [x] `apps/server/src/api/heats.py` 已先对异常区间 fallback 使用 `_coerce_curve_points()`，避免 compare 运行态混入 `dict` 曲线点时再访问 `.timestamp`
+  - [x] compare 视图已优先复用请求链路里已 hydrate 的 `baseline_power_curve / baseline_voltage_curve`，不再回退到 `_BASELINE_STORE` 的空主曲线
+  - [x] display 当前曲线 fallback 已按来源收口：只有当前窗走 direct live fallback 时，display 才直接复用这组短窗曲线；否则仍优先尝试 display-window live 曲线，保住 `±60` 分钟展示口径
+- [x] 已完成 stale live inferred 列表偏差口径最小修复
+  - [x] `apps/server/src/api/heats.py` 的 `_build_heat_list_view()` / `_build_heat_list_views()` / `list_heats()` 已新增 `recompute_live_inferred_deviation` 开关
+  - [x] 默认 `/api/heats` 列表对“刚推断出来且 `deviation_percent / avg_deviation_percent` 仍为 `null`”的 `live_inferred` 记录保留待计算态，不再在默认列表层即时补算偏差
+  - [x] 当请求显式带 `status` 筛选时，列表仍会临时重算 live inferred 偏差与状态，保持异常筛选链路可用
+- [x] 已完成最小测试修正
+  - [x] `apps/server/tests/test_heats_api.py` 中 compare 相关 monkeypatch 用例已在 compare 前显式清空 shared baseline cache，避免前置 `/api/heats` 预热把后续 hydrate stub 吃掉
+  - [x] compare cache 回归已改为断言“第二次请求不再新增 channel load”，并与当前“首个 compare 同时拉当前窗 + display 窗”的实现一致
+  - [x] stale live inferred 回归已恢复为断言默认列表继续返回 `deviation_percent=null`
+- [x] 本轮测试留痕
+  - [x] 测试范围：compare dict live curves、hydrated baseline 主曲线/metric curves、baseline 时间戳重映射、compare cache 复用、display-window fallback、默认 `/api/heats` live inferred 待计算口径、`status=abnormal` 列表重算
+  - [x] 验证步骤：先串行跑 compare 定向 4 条；再串行跑 `does_not_alias_stale_live_record_into_all_current_rows` 与 `list_heats_recomputes_status_before_filtering`；最后串行跑 `tests/test_heats_api.py`
+  - [x] 执行命令：`cd apps/server && /home/openclaw/edc-electricity-server/venv/bin/pytest tests/test_heats_api.py -k "accepts_dict_live_curves_without_500 or prefers_hydrated_baseline_metric_curves or rebases_baseline_curve_timestamps_into_current_heat_window or reuses_short_ttl_cache" -q`
+  - [x] 执行命令：`cd apps/server && /home/openclaw/edc-electricity-server/venv/bin/pytest tests/test_heats_api.py -k "does_not_alias_stale_live_record_into_all_current_rows or list_heats_recomputes_status_before_filtering" -q`
+  - [x] 执行命令：`cd apps/server && /home/openclaw/edc-electricity-server/venv/bin/pytest tests/test_heats_api.py -q`
+  - [x] 执行命令：`cd apps/server && python -m pytest tests/test_heats_api.py -k 'compare or live_curves or fallback or stale_live or recomputes_status' -x -q 2>&1 | tail -30`
+  - [x] 执行命令：`cd apps/server && /home/openclaw/edc-electricity-server/venv/bin/python -m pytest tests/test_heats_api.py -k 'compare or live_curves or fallback or stale_live or recomputes_status' -x -q 2>&1 | tail -30`
+  - [x] 执行命令：`git diff --check`
+  - [x] 结果：上述三组串行回归均通过，`tests/test_heats_api.py` 当前为 `32 passed`；用户指定的 `python -m pytest ...` 在当前机器直接失败，原因是 shell 环境不存在 `python` 命令；随后用等价可用的运行副本 venv 命令重跑，同组筛选结果为 `14 passed, 18 deselected`；`git diff --check` 通过
+  - [x] 未覆盖项/风险：`tests/test_baselines_dashboard_api.py::test_dashboard_endpoints` 仍会在本地直连 `8080` 不可达时失败，属于外部 EDC 依赖阻塞；并行跑多条 pytest 仍可能命中共享 SQLite runtime state 的 `settings.key` 唯一键冲突，本轮已按既有规则改为串行验证
+  - [x] 当前状态：compare 路径与 stale live inferred 默认列表偏差口径已收口，当前 diff 已通过 `git diff --check`，后端 `heats` 主测试文件已恢复为全绿
+  - [x] 下一步：按 acceptance 优先级继续处理 `Task Detail 404 loading`、`Settings 取消修改 silent no-op`、`Baseline 来源炉次伪链接`
 
 ---
 

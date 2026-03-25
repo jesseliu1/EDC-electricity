@@ -27,9 +27,14 @@ const defaultSettings: SystemSettings = {
   baselineLengthScopeMode: 'definition'
 }
 
+function cloneSettings(settings: SystemSettings): SystemSettings {
+  return { ...settings }
+}
+
 export const useSettingStore = defineStore('setting', {
   state: () => ({
-    data: { ...defaultSettings },
+    data: cloneSettings(defaultSettings),
+    savedData: cloneSettings(defaultSettings),
     loading: false
   }),
   actions: {
@@ -39,18 +44,23 @@ export const useSettingStore = defineStore('setting', {
         const settingsResult = await settingApi.getAll()
 
         const map = Object.fromEntries(settingsResult.items.map(item => [item.key, item.value]))
-        this.data.defaultTolerancePercent = Number(map.default_tolerance_percent || 15)
-        this.data.edcBaseUrl = map.edc_base_url || 'http://localhost:8080'
-        this.data.edcApiKey = map.edc_api_key || ''
-        this.data.reportGenerationHour = Number(map.report_generation_hour || 2)
-        this.data.timeTolerancePercent = Number(map.time_tolerance_percent || 10)
-        this.data.majorIssueDurationMinutes = Number(map.major_issue_duration_minutes || 8)
-        this.data.workStartTime = map.work_start_time || '08:00'
-        this.data.workEndTime = map.work_end_time || '18:00'
-        this.data.breakPeriods = map.break_periods || '12:00-13:00'
+        const nextData: SystemSettings = {
+          defaultTolerancePercent: Number(map.default_tolerance_percent || 15),
+          edcBaseUrl: map.edc_base_url || 'http://localhost:8080',
+          edcApiKey: map.edc_api_key || '',
+          reportGenerationHour: Number(map.report_generation_hour || 2),
+          timeTolerancePercent: Number(map.time_tolerance_percent || 10),
+          majorIssueDurationMinutes: Number(map.major_issue_duration_minutes || 8),
+          workStartTime: map.work_start_time || '08:00',
+          workEndTime: map.work_end_time || '18:00',
+          breakPeriods: map.break_periods || '12:00-13:00',
+          baselineLengthScopeMode: 'definition'
+        }
         const mode = map.baseline_length_scope_mode
-        this.data.baselineLengthScopeMode =
+        nextData.baselineLengthScopeMode =
           mode === 'system' || mode === 'production_line' ? mode : 'definition'
+        this.data = cloneSettings(nextData)
+        this.savedData = cloneSettings(nextData)
       } catch (error) {
         console.warn('Settings fallback to default.', error)
       } finally {
@@ -59,9 +69,11 @@ export const useSettingStore = defineStore('setting', {
     },
     async saveTolerance() {
       await settingApi.updateTolerance(this.data.defaultTolerancePercent)
+      this.savedData.defaultTolerancePercent = this.data.defaultTolerancePercent
     },
     async saveReport() {
       await settingApi.updateReport(this.data.reportGenerationHour)
+      this.savedData.reportGenerationHour = this.data.reportGenerationHour
     },
     async saveCutting() {
       await settingApi.updateCutting({
@@ -75,6 +87,16 @@ export const useSettingStore = defineStore('setting', {
           .filter(Boolean)
       })
       await settingApi.updateBaselineLengthScope(this.data.baselineLengthScopeMode)
+      this.savedData.timeTolerancePercent = this.data.timeTolerancePercent
+      this.savedData.majorIssueDurationMinutes = this.data.majorIssueDurationMinutes
+      this.savedData.workStartTime = this.data.workStartTime
+      this.savedData.workEndTime = this.data.workEndTime
+      this.savedData.breakPeriods = this.data.breakPeriods
+      this.savedData.baselineLengthScopeMode = this.data.baselineLengthScopeMode
+    },
+    resetTolerance() {
+      this.data.defaultTolerancePercent = this.savedData.defaultTolerancePercent
+      this.data.reportGenerationHour = this.savedData.reportGenerationHour
     }
   }
 })

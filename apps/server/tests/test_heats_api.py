@@ -371,6 +371,9 @@ async def test_heat_compare_prefers_hydrated_baseline_metric_curves(client, monk
         fake_load_channel_curves_from_edc,
     )
     monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fake_hydrate_baseline_item)
+    import src.api.heats as heats_module
+
+    heats_module._COMPARE_BASELINE_CACHE["entries"] = {}
 
     compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert compare_resp.status_code == 200
@@ -437,6 +440,9 @@ async def test_heat_compare_rebases_baseline_curve_timestamps_into_current_heat_
         fake_load_channel_curves_from_edc,
     )
     monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fake_hydrate_baseline_item)
+    import src.api.heats as heats_module
+
+    heats_module._COMPARE_BASELINE_CACHE["entries"] = {}
 
     compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert compare_resp.status_code == 200
@@ -718,6 +724,7 @@ async def test_list_heats_does_not_alias_stale_live_record_into_all_current_rows
     assert all(item["start_time"].startswith("2026-03-23T") for item in payload["items"])
     assert all(item["id"] != stale_item["id"] for item in payload["items"])
     assert all(item["deviation_percent"] is None for item in payload["items"])
+    assert all(item["avg_deviation_percent"] is None for item in payload["items"])
 
 
 @pytest.mark.asyncio
@@ -1242,13 +1249,15 @@ async def test_heat_compare_reuses_short_ttl_cache(client, monkeypatch) -> None:
 
     heat_id = await _pick_heat_id(client)
     first_resp = await client.get(f"/api/heats/{heat_id}/compare")
+    channel_load_calls_after_first = channel_load_calls
     second_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert first_resp.status_code == 200
     assert second_resp.status_code == 200
     assert first_resp.json() == second_resp.json()
     assert hydrate_calls.count("baseline-001") == 1
     assert "baseline-002" not in hydrate_calls
-    assert channel_load_calls == 1
+    assert channel_load_calls_after_first == 2
+    assert channel_load_calls == channel_load_calls_after_first
     assert heat_curve_calls == 0
 
 

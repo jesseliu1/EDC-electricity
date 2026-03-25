@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
@@ -14,6 +14,8 @@ const taskStore = useTaskStore()
 
 const taskId = computed(() => String(route.params.id || ''))
 const task = computed(() => taskStore.current)
+const detailLoading = computed(() => taskStore.detailLoading)
+const detailError = computed(() => taskStore.detailError)
 
 const form = reactive({
   causeAnalysis: '',
@@ -22,7 +24,10 @@ const form = reactive({
 })
 
 async function loadDetail() {
-  if (!taskId.value) return
+  if (!taskId.value) {
+    taskStore.clearDetail()
+    return
+  }
   await taskStore.fetchDetail(taskId.value)
   form.causeAnalysis = taskStore.current?.causeAnalysis || ''
   form.improvement = taskStore.current?.improvement || ''
@@ -62,9 +67,13 @@ function formatDeviation(value: number | null) {
   return value === null ? t('task.deviationPending') : `${value}%`
 }
 
-onMounted(() => {
-  void loadDetail()
-})
+watch(
+  taskId,
+  () => {
+    void loadDetail()
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -175,12 +184,27 @@ onMounted(() => {
     
     <!-- 空状态 -->
     <div
-      v-else
+      v-else-if="detailLoading"
       class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card"
+      data-testid="task-detail-loading"
     >
       <span class="material-symbols-outlined text-slate-300 text-5xl">pending</span>
       <p class="text-sm text-slate-400 mt-3">
         {{ t('common.loading') }}
+      </p>
+    </div>
+
+    <div
+      v-else
+      class="py-16 flex flex-col items-center justify-center bg-white rounded-xl border border-border-light shadow-card"
+      data-testid="task-detail-error"
+    >
+      <span class="material-symbols-outlined text-amber-400 text-5xl">warning</span>
+      <p class="text-sm text-slate-600 mt-3 font-medium">
+        {{ detailError || t('task.detailLoadFailed') }}
+      </p>
+      <p class="text-xs text-slate-400 mt-2">
+        {{ t('task.detailReloadHint') }}
       </p>
     </div>
   </div>

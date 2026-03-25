@@ -2,7 +2,104 @@
 
 > 记录本轮联调测试中发现的 UI、交互或逻辑问题。
 
+## 2026-03-25 Full Review / Full Test 复验记录
+
+- 后端 pytest 入口补充复验
+  - 执行命令：`/home/openclaw/edc-electricity-server/venv/bin/pytest apps/server/tests/test_heats_api.py -x --tb=short -q`
+  - 首次结果：失败，setup 阶段即报 `sqlite3.OperationalError: unable to open database file`
+  - 最小定位：`apps/server/src/config.py` 当前数据库 URL 仍为 `sqlite+aiosqlite:///./data/asns.db`，从仓库根目录跑这条命令时会把 SQLite 指向不存在的 `./data/asns.db`
+  - 补充证据：本轮已以 `/home/openclaw/edc-electricity-server/` 为工作目录直接执行 `venv/bin/pytest tests/ -p no:randomly --tb=short -q`，结果 `62 passed`
+  - 当前结论：repo-root 这条命令暴露的是 cwd 依赖，不是 `heats` API 业务断言回归；后端 pytest 在正确运行目录下当前为全绿
+  - 未覆盖项：本轮未在主仓目录下直接修复数据库 URL 的 cwd 依赖问题，因此“从 repo root 直接调用 pytest”仍不是稳定口径
+- Dashboard 最近炉次 -> Heat Detail 复验
+  - 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/full-review-acceptance.spec.ts -g "dashboard recent heat row opens heat detail"`
+  - 结果：通过
+  - 当前结论：Dashboard 最近炉次表格行点击后可进入 `/edc/heats/dashboard-heat-001`，Heat Detail 页面正常可见
+  - 未覆盖项：这条复验依赖本轮新增的最小 acceptance spec，当前只覆盖导航闭环，不额外扩到 compare 深层交互
+- Heat Detail 手动调整复验
+  - 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"`
+  - 结果：通过
+  - 当前结论：Heat Detail 手动调整弹窗当前仍具备多指标对照、异常区间展示、选点同步与稳定缩放/拖拽交互
+  - 未覆盖项：本轮复验基于 mocked acceptance；`8080` 外部 EDC 上游仍不可达，因此未覆盖真实上游曲线输入下的 happy path 联调
+- 生成纠偏任务 -> Task Detail 复验
+  - 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat detail create task button posts to tasks api and opens the created task detail"`
+  - 结果：通过
+  - 当前结论：Heat Detail 当前仍可调用 `POST /api/tasks` 创建任务，并跳转到对应 Task Detail 页面
+  - 未覆盖项：本轮复验仍基于 mocked acceptance；真实上游/真实数据为空时的任务创建联调未在本轮扩做
+- legacy -> canonical URL 复验
+  - 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat detail replaces legacy live heat urls with the canonical heat id returned by the api"`
+  - 结果：通过
+  - 当前结论：旧 `live-heat-*` 深链当前仍会立即替换到 API 返回的 canonical heat id，不会长期停留在漂移地址
+  - 未覆盖项：本轮复验仍基于 mocked acceptance；现场 `8000` / 真实上游联调下的 compare 点数范围未在此命令里重跑
+- Heat List 行展开 / CTA 复验
+  - 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "expanded heat row uses a detail CTA that matches the detail navigation target"`
+  - 结果：通过
+  - 当前结论：Heat List 展开区 CTA 当前仍显示“查看炉次详情”，点击后可进入对应 Heat Detail
+  - 未覆盖项：本轮复验只覆盖 CTA 文案与跳转一致性，不额外扩到导出/筛选等其他 heat list 交互
+- Reports 列表 -> 详情复验
+  - 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "reports and inbox pages can navigate into detail pages"`
+  - 结果：通过
+  - 当前结论：Reports 列表当前仍可进入 Report Detail，详情成功态能正常退出 loading
+  - 未覆盖项：该用例同时顺带覆盖了 Inbox -> Heat Detail；但真实上游/真实报表数据为空时的 acceptance 仍未在本轮扩做
+- Baselines 列表 -> 详情动作复验
+  - 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/full-review-acceptance.spec.ts -g "baseline list edit action opens detail page and keeps detail actions usable"`
+  - 结果：通过
+  - 当前结论：Baselines 列表当前可经“编辑”动作进入详情页，详情页“编辑 / 创建新版本”按钮仍保持明确反馈，不是 silent no-op
+  - 未覆盖项：这条复验依赖本轮新增的最小 acceptance spec，当前覆盖列表进入详情与详情动作反馈，不额外扩到基线曲线展示或真实上游 source heat 联调
+
 ## 跟踪问题 (Tracked)
+
+### P1 EDC 后端 pytest 基座未显式触发生命周期，且共享 SQLite runtime state 导致顺序相关
+- **状态**: 验收通过（2026-03-25）
+- **页面/模块**: EDC 后端 / pytest 基座 / `apps/server/tests/conftest.py`
+- **复现步骤**:
+  1. 在主仓 `apps/server` 目录使用现有可用 venv 执行最小 pytest
+  2. 先跑会触发 `persist_runtime_state()` 的基线定义或设置相关用例
+  3. 再继续跑第二条同样依赖 runtime state 的用例
+- **实际结果**:
+  - 修复前测试 client 不会自动触发 FastAPI lifespan，导致首次写 runtime state 时直接报 `sqlite3.OperationalError: no such table: settings`
+  - 补上 `init_db()` 后，如果继续复用同一个 `apps/server/data/asns.db`，不同用例又会吃到前一条测试留下的 `runtime_*` 持久化数据，出现顺序相关断言漂移
+- **调查结论（2026-03-25）**:
+  - 根因不是 pytest 不存在，而是测试基座没有显式补应用 startup 初始化，同时只重置了 in-memory store，没有隔离 SQLite 里的 runtime rows。
+  - 当前 `httpx.ASGITransport` 版本不会自动处理 FastAPI lifespan，因此需要在 fixture 内手动初始化数据库。
+  - 使用共享 SQLite 文件时，如果不在测试前清掉 `runtime_*` 行，`load_runtime_state()` 会把上个用例的持久化状态重新灌回内存，形成顺序相关。
+- **修复结果**:
+  - `apps/server/tests/conftest.py` 中的 `client` fixture 已显式依赖 `reset_in_memory_stores`
+  - fixture 已在建 client 前执行 `init_db()`
+  - fixture 已在每条测试前删除 `settings` 表中的 `runtime_*` 持久化行，再调用 `load_runtime_state()` 以当前默认 in-memory 状态重新 seed
+  - 本轮未改任何后端业务接口或 runtime 持久化业务逻辑
+- **回归结果**:
+  - `cd apps/server && /home/openclaw/edc-electricity-server/venv/bin/pytest tests/test_baselines_dashboard_api.py::test_baseline_definition_crud_and_metric_workflow tests/test_tasks_reports_settings_api.py::test_settings_get_and_update -q` 通过
+- **期望结果**:
+  - pytest 最小入口应可稳定执行，不再因为测试基座缺少 startup 初始化或共享 SQLite 残留而失败
+- **严重程度**: 中
+- **如何测试**:
+  1. 使用同一 venv 串行执行上述两条 pytest
+  2. 确认两条用例都通过
+  3. 确认不再出现 `no such table: settings` 或受前一条用例影响的顺序相关断言漂移
+
+### P1 `127.0.0.1:8080` 当前仍不可达，真实 EDC 上游依赖未恢复
+- **状态**: 已确认外部阻塞（2026-03-25）
+- **页面/模块**: 本地联调 / 外部 EDC 上游 / 真实 acceptance 前置依赖
+- **复现步骤**:
+  1. 在当前机器访问 `http://127.0.0.1:8080/`
+  2. 再查看主仓后端 `runtime-status` 中返回的 `edc.base_url`
+- **实际结果**:
+  - `127.0.0.1:8080` 当前直接 `connection refused`
+  - 主仓后端 `http://127.0.0.1:8000/api/settings/runtime-status` 仍返回 `edc.base_url: "http://localhost:8080"`
+  - 当前仓库内可直接确认的本地服务只有 review/test 后端 `8000`、运行副本后端 `8001`、ASNS 宿主 `3001`
+- **调查结论（2026-03-25）**:
+  - `8080` 当前对应的是外部 EDC 上游依赖口径，不是本仓库内已有的可直接启动服务。
+  - 当前仓库与 `deploy/` 下没有对应的 `8080` 本地服务定义；在没有明确上游实现或替代环境前，不应在本轮临时伪造一个看似可用的 `8080`。
+  - 因此这条阻塞只能如实记录为外部依赖未恢复，而不是继续扩 scope 做架构级替代。
+- **期望结果**:
+  - 若要进入真实 EDC 上游联调，需由外部提供可达的 `8080` 服务或明确的替代环境
+  - 当前仓库内的 full review / full test 应优先基于已恢复的 `8000` 与 pytest 基线推进
+- **严重程度**: 中
+- **如何测试**:
+  1. 运行 `curl -I http://127.0.0.1:8080/`
+  2. 再运行 `curl http://127.0.0.1:8000/api/settings/runtime-status`
+  3. 确认 `8080` 仍不可达，但 `8000` 本地 review/test 基线已恢复
 
 ### P1 ASNS 宿主 `npm test` 在 Node 测试环境因 `import.meta.env` 未注入而直接失败
 - **状态**: 验收通过（2026-03-25）
@@ -274,6 +371,10 @@
   - `apps/server/src/api/heats.py` 已把 compare 基线曲线重映射到当前炉次核心时间窗
   - compare 当前曲线展示已扩到当前炉次前后各 `60` 分钟
   - `apps/web/src/views/HeatDetailView.vue` 已把 x 轴固定为当前炉次前后各 `60` 分钟，避免再被历史基线绝对时间拉成跨天图
+- **补充复验（2026-03-25）**:
+  - `apps/server/src/api/heats.py` 已继续收口 compare 运行态边界：顶层 baseline 主曲线优先复用本次请求链路里已 hydrate 的 `baseline_power_curve / baseline_voltage_curve`
+  - 当当前窗只拿到 direct live 曲线时，display 曲线会先安全复用这组短窗结果；当 display-window live 曲线可用时，仍优先使用 `±60` 分钟窗口结果，不再被短窗 fallback 抢占
+  - compare 相关 pytest 已补共享 baseline cache 预热清理与缓存口径断言，串行回归通过
 - **期望结果**:
   - 新建基线切到炉次详情 compare 时，图表应以当前炉次为锚点
   - 展示范围应为“当前炉次本体 + 前后各 60 分钟上下文”
@@ -655,6 +756,10 @@
   - `apps/web/src/components/dashboard/HeatList.vue` 已把最近炉次表中的 `null` 偏差值改为显示 `heat.deviationPending`
   - 四套语言包已补齐 `heat.deviationPending`，并补稳定测试锚点：`heat-list-page`、`heat-deviation-{id}`、`dashboard-recent-heat-deviation-{id}`
   - Inbox 沿用既有 `inbox.deviationPending` 展示，不再重复修改其业务逻辑
+- **补充复验（2026-03-25）**:
+  - `apps/server/src/api/heats.py` 已把默认 `/api/heats` 列表的 live inferred 偏差口径收紧为“保持待计算”：对刚推断出来且 `deviation_percent / avg_deviation_percent` 仍为 `null` 的记录，默认列表不再即时补算偏差
+  - 当请求显式带 `status` 筛选时，列表仍会临时重算 live inferred 偏差与状态，只用于筛选/状态判定，避免破坏异常筛选链路
+  - `apps/server/tests/test_heats_api.py -k "does_not_alias_stale_live_record_into_all_current_rows or list_heats_recomputes_status_before_filtering"` 串行通过，证明“默认列表保留待计算”与“状态筛选前可重算”两条口径同时成立
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过
@@ -1526,8 +1631,45 @@
 - **严重程度**: 中
 - **如何测试**:
   1. 在设置页逐个点击左侧分类项
-  2. 确认右侧内容会发生明确切换、定位或筛选
-  3. 不再出现“只有按钮高亮变化，内容完全不动”的伪导航
+ 2. 确认右侧内容会发生明确切换、定位或筛选
+ 3. 不再出现“只有按钮高亮变化，内容完全不动”的伪导航
+
+### P1 设置页“取消修改”当前为 silent no-op，未保存表单值不会回退
+- **状态**: 验收通过（2026-03-25）
+- **页面/模块**: 系统设置 / 偏差阈值
+- **复现步骤**:
+  1. 打开“系统设置”页面
+  2. 修改“报表生成时间”或“默认容许误差”，但不点击保存
+  3. 点击底部“取消”
+- **实际结果**:
+  - 修复前点击后没有 toast、没有回退、没有任何视觉反馈
+  - 修复前输入框会继续保留未保存的新值，看起来像“取消”根本没有生效
+  - 用户无法判断当前是按钮失效、暂不支持取消，还是已经偷偷保存
+- **当前证据**:
+  - `apps/web/src/views/SettingsView.vue` 原先渲染了“取消修改”按钮，但没有绑定 `@click`
+  - `apps/web/src/stores/setting.ts` 原先只维护单份可变 `data`，没有最近一次已加载/已保存的快照
+- **调查结论（2026-03-25）**:
+  - 根因已确认不是后端拒绝回退，也不是 Element Plus 输入框本身失效，而是前端没有实现“取消”所需的最小状态模型。
+  - 既然页面已经公开了“取消”动作，就必须能回到最近一次已加载/已保存的状态；最小修复就是给 store 增加快照，并把按钮接到对应区块的回退动作。
+- **修复结果**:
+  - `apps/web/src/stores/setting.ts` 已新增 `savedData` 快照与 `resetTolerance()`；`fetchSettings()` 会初始化快照，`saveTolerance()/saveReport()/saveCutting()` 成功后会同步更新对应已保存值。
+  - `apps/web/src/views/SettingsView.vue` 已把“取消”按钮接到 `resetTolerance()`，当前会回退偏差阈值卡片内未保存的“报表生成时间 / 默认容许误差”输入值。
+  - 页面已新增稳定测试锚点：`settings-reset-tolerance`、`settings-report-generation-hour-input`、`settings-default-tolerance-input`。
+  - 本轮未扩到切割配置新增取消按钮，也未改动任何设置保存接口。
+- **回归结果**:
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "settings cancel resets unsaved tolerance fields back to the last saved snapshot"` 通过
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web build` 通过
+- **期望结果**:
+  - 点击“取消”后，未保存的设置值应回退到最近一次已加载或已保存的状态
+  - 正式页面不应保留看似可用、实际完全无行为的取消按钮
+- **严重程度**: 中
+- **如何测试**:
+  1. 打开设置页，记录当前“报表生成时间 / 默认容许误差”
+  2. 分别改成新值，但不要点击保存
+  3. 点击“取消”
+  4. 确认两个输入框都回到原始值，而不是继续保留未保存草稿
 
 ### P1 真实推断炉次 ID 会随重新推断漂移，旧详情链接很快失效为“炉次不存在”
 - **状态**: 验收通过（2026-03-24）
@@ -1673,6 +1815,41 @@
   2. 确认浏览器发起 `POST /api/tasks`，且请求体包含当前 `heat_id`
   3. 确认页面跳转到 `/tasks/:id`
   4. 再到任务详情核对该任务可见、关联炉次编号正确；若偏差值为空，应显示“待计算”而不是伪造百分比
+
+### P1 Task Detail 在 404 场景长期停留在“加载中”
+- **状态**: 验收通过（2026-03-25）
+- **页面/模块**: 纠偏任务 / 任务详情
+- **复现步骤**:
+  1. 直接打开不存在的任务详情，例如 `/edc/tasks/nonexistent-task`
+  2. 等待详情请求返回
+  3. 观察页面正文区域是否退出 loading
+- **实际结果**:
+  - 修复前后端会返回 `404` 与明确错误信息“任务不存在”
+  - 但前端任务详情页只有“有数据”与“加载中”两态
+  - `fetchDetail()` 失败后虽然请求已结束，页面仍会继续显示 `pending / 加载中...`
+- **调查结论（2026-03-25）**:
+  - 根因不是任务接口无响应，而是 `apps/web/src/views/TaskDetailView.vue` 仅通过 `taskStore.current` 是否存在判断页面状态，没有独立的详情 loading / error 分支
+  - `apps/web/src/stores/task.ts` 也沿用了列表页的通用 `loading`，缺少详情请求级别的 `detailLoading / detailError / requestToken`
+  - 因此 404/失败场景被误映射成“仍在加载中”
+- **修复结果**:
+  - `apps/web/src/stores/task.ts` 已新增 `detailLoading / detailLoaded / detailError / detailRequestToken` 与 `clearDetail()`
+  - `fetchDetail()` 已补独立错误信息解析与请求 token 护栏，避免失败态继续停在 loading
+  - `apps/web/src/views/TaskDetailView.vue` 已改为成功 / loading / 错误三态，并改用 `watch(taskId, ..., { immediate: true })` 驱动详情加载
+  - 四套 locale 已补 `task.detailLoadFailed / task.detailReloadHint`
+  - 本轮未改任务创建、保存、完成等业务逻辑，仅收口任务详情错误态
+- **回归结果**:
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/loading-error-states.spec.ts -g "task detail exits loading state and shows explicit error when detail request fails"` 通过
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web build` 通过
+- **期望结果**:
+  - 任务详情请求若返回 404/5xx，应明确退出 loading 并显示错误态
+  - 页面不应把“无数据 / 加载失败”继续伪装成“仍在加载中”
+- **严重程度**: 高
+- **如何测试**:
+  1. 打开不存在的任务详情 ID
+  2. 确认页面显示后端错误信息与重试提示，而不是持续显示 loading
+  3. 确认 `task-detail-loading` 已消失，`task-detail-error` 可见
 
 ### P1 宿主连线设置页点击“测试连接”会触发 React 渲染循环错误
 - **状态**: 验收通过（2026-03-25）

@@ -137,4 +137,23 @@ test.describe('EDC loading error states', () => {
     )
     await expect(page.getByTestId('heat-detail-loading')).toHaveCount(0)
   })
+
+  test('task detail exits loading state and shows explicit error when detail request fails', async ({
+    page,
+  }) => {
+    await mockRuntimeStatus(page)
+
+    await page.route('**/api/tasks/nonexistent-task', async (route) => {
+      await fulfillJson(route, { detail: '任务不存在' }, 404)
+    })
+
+    await page.goto('tasks/nonexistent-task')
+
+    await expect(page.getByTestId('task-detail-error')).toBeVisible()
+    await expect(page.getByTestId('task-detail-error')).toContainText('任务不存在')
+    await expect(page.getByTestId('task-detail-error')).toContainText(
+      '请刷新页面或检查后端任务接口状态。'
+    )
+    await expect(page.getByTestId('task-detail-loading')).toHaveCount(0)
+  })
 })

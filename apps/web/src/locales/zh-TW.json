@@ -345,7 +345,9 @@
     "improvement": "改善方法",
     "prevention": "預防對策",
     "exportPdf": "匯出PDF",
-    "completeRequired": "請先填寫原因分析、改善方法與預防對策"
+    "completeRequired": "請先填寫原因分析、改善方法與預防對策",
+    "detailLoadFailed": "任務詳情載入失敗",
+    "detailReloadHint": "請重新整理頁面或檢查後端任務介面狀態。"
   },
   "inbox": {
     "title": "偏差收件箱",

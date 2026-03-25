@@ -118,6 +118,10 @@ async function saveCutting() {
   ElMessage.success(t('common.success'))
 }
 
+function resetTolerance() {
+  settingStore.resetTolerance()
+}
+
 function handleViewportChange() {
   syncActiveSection()
 }
@@ -326,6 +330,7 @@ onBeforeUnmount(() => {
                     v-model="settingStore.data.reportGenerationHour"
                     :min="0"
                     :max="23"
+                    data-testid="settings-report-generation-hour-input"
                   />
                   <button
                     type="button"
@@ -342,6 +347,7 @@ onBeforeUnmount(() => {
                   v-model="settingStore.data.defaultTolerancePercent"
                   :min="0"
                   :max="100"
+                  data-testid="settings-default-tolerance-input"
                 />
               </el-form-item>
             </div>
@@ -349,9 +355,11 @@ onBeforeUnmount(() => {
           <div class="flex justify-end gap-3 mt-4">
             <button
               type="button"
+              data-testid="settings-reset-tolerance"
               class="px-4 py-2 bg-white border border-border-light text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+              @click="resetTolerance"
             >
-              取消修改
+              {{ t('common.cancel') }}
             </button>
             <button
               type="button"

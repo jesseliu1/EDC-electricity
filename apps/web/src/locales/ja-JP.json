@@ -345,7 +345,9 @@
     "improvement": "改善方法",
     "prevention": "予防対策",
     "exportPdf": "PDF出力",
-    "completeRequired": "原因分析・改善方法・予防対策を入力してください"
+    "completeRequired": "原因分析・改善方法・予防対策を入力してください",
+    "detailLoadFailed": "タスク詳細の読み込みに失敗しました",
+    "detailReloadHint": "ページを再読み込みするか、バックエンドのタスク API を確認してください。"
   },
   "inbox": {
     "title": "偏差受信箱",

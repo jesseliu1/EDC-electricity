@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete
 
 from src.api.baseline_definitions import _DEFINITION_STORE
 from src.api.baselines import _BASELINE_STORE
@@ -29,7 +30,10 @@ from src.api.settings import (
 )
 from src.api.tasks import _SHOWTIME_TASK_STORE, _TASK_STORE
 from src.config import settings
+from src.database import async_session_maker, init_db
+from src.models import Setting
 from src.main import app
+from src.runtime_state import _SECTION_TO_KEY, load_runtime_state
 
 
 def _build_test_reference_heats() -> dict[str, dict]:
@@ -43,8 +47,13 @@ def _build_test_reference_heats() -> dict[str, dict]:
 
 
 @pytest.fixture
-async def client():
+async def client(reset_in_memory_stores):
     """创建测试客户端"""
+    await init_db()
+    async with async_session_maker() as session:
+        await session.execute(delete(Setting).where(Setting.key.in_(_SECTION_TO_KEY.values())))
+        await session.commit()
+    await load_runtime_state()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 

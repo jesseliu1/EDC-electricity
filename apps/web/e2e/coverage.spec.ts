@@ -1245,6 +1245,27 @@ test.describe('EDC web extended coverage', () => {
     ).toBe(false)
   })
 
+  test('settings cancel resets unsaved tolerance fields back to the last saved snapshot', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await mockSettingsWorkflow(page)
+    await page.goto('settings')
+
+    const reportHourInput = page
+      .getByTestId('settings-report-generation-hour-input')
+      .locator('input')
+    const toleranceInput = page.getByTestId('settings-default-tolerance-input').locator('input')
+
+    await expect(reportHourInput).toHaveValue('2')
+    await expect(toleranceInput).toHaveValue('15')
+
+    await reportHourInput.fill('5')
+    await toleranceInput.fill('13.5')
+    await page.getByTestId('settings-reset-tolerance').click()
+
+    await expect(reportHourInput).toHaveValue('2')
+    await expect(toleranceInput).toHaveValue('15')
+  })
+
   test('settings side navigation scrolls to matching sections and updates active state', async ({ page }) => {
     await mockRuntimeStatus(page)
     await mockSettingsWorkflow(page)

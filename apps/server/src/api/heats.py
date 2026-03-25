@@ -1297,6 +1297,7 @@ def _build_heat_list_view(
     item: dict[str, Any],
     *,
     hydrated_baseline_item: dict[str, Any] | None = None,
+    recompute_live_inferred_deviation: bool = False,
 ) -> dict[str, Any]:
     """列表接口只返回轻量字段，不在此处触发基线 hydrate 或实时取数。"""
     response_item = dict(item)
@@ -1310,6 +1311,15 @@ def _build_heat_list_view(
         )
 
     if response_item.get("status") == "pending":
+        return response_item
+
+    preserve_pending_live_inferred_deviation = (
+        str(response_item.get("record_source") or "").strip().lower() == "live_inferred"
+        and response_item.get("deviation_percent") is None
+        and response_item.get("avg_deviation_percent") is None
+        and not recompute_live_inferred_deviation
+    )
+    if preserve_pending_live_inferred_deviation:
         return response_item
 
     baseline_power_curve = _rebase_curve_points_to_window(
@@ -1340,8 +1350,11 @@ def _build_heat_list_view(
     )
     return response_item
 
-
-async def _build_heat_list_views(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+async def _build_heat_list_views(
+    items: list[dict[str, Any]],
+    *,
+    recompute_live_inferred_deviation: bool = False,
+) -> list[dict[str, Any]]:
     baseline_ids = sorted(
         {
             baseline_id
@@ -1354,6 +1367,7 @@ async def _build_heat_list_views(items: list[dict[str, Any]]) -> list[dict[str, 
         _build_heat_list_view(
             item,
             hydrated_baseline_item=hydrated_baselines.get(_resolve_primary_baseline_id(item) or ""),
+            recompute_live_inferred_deviation=recompute_live_inferred_deviation,
         )
         for item in items
     ]
@@ -1420,15 +1434,21 @@ def _build_heat_compare_view(item: dict[str, Any]) -> dict[str, Any]:
     if not baseline_item:
         return response_item
 
-    baseline_power_curve = _coerce_curve_points(baseline_item.get("power_curve"))
-    baseline_voltage_curve = _coerce_curve_points(baseline_item.get("voltage_curve"))
+    baseline_power_curve = _coerce_curve_points(
+        response_item.get("baseline_power_curve") or baseline_item.get("power_curve")
+    )
+    baseline_voltage_curve = _coerce_curve_points(
+        response_item.get("baseline_voltage_curve") or baseline_item.get("voltage_curve")
+    )
     current_power_curve = _coerce_curve_points(response_item.get("power_curve"))
 
     if baseline_power_curve:
         response_item["baseline_power_curve"] = baseline_power_curve
     if baseline_voltage_curve:
         response_item["baseline_voltage_curve"] = baseline_voltage_curve
-    response_item["baseline_curve_source"] = str(baseline_item.get("curve_source") or "none")
+    response_item["baseline_curve_source"] = str(
+        item.get("baseline_curve_source") or baseline_item.get("curve_source") or "none"
+    )
 
     if item.get("status") == "pending" or not baseline_power_curve or not current_power_curve:
         return response_item
@@ -1868,7 +1888,9 @@ def _ensure_deviation_ranges(
     if deviation_ranges or item.get("status") != "abnormal":
         return deviation_ranges
 
-    power_curve = item["power_curve"]
+    power_curve = _coerce_curve_points(item.get("power_curve"))
+    if not power_curve:
+        return deviation_ranges
     mid_index = max(len(power_curve) // 2, 1)
     start_point = power_curve[max(mid_index - 5, 0)]
     end_point = power_curve[min(mid_index + 4, len(power_curve) - 1)]
@@ -2226,7 +2248,10 @@ async def list_heats(
     started_at = perf_counter()
     items = list((await _list_heat_store()).values())
     items.sort(key=lambda x: x["start_time"], reverse=True)
-    prepared_items = await _build_heat_list_views(items)
+    prepared_items = await _build_heat_list_views(
+        items,
+        recompute_live_inferred_deviation=status is not None,
+    )
 
     if status:
         prepared_items = [item for item in prepared_items if item["status"] == status]
@@ -2456,13 +2481,23 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     )
     live_curves = _resolve_heat_curves_from_shared_channels(item, shared_current_curves)
     display_live_curves = _resolve_heat_curves_from_shared_channels(item, display_current_curves)
+    direct_live_fallback_keys: set[str] = set()
     if not live_curves.get("power") or not live_curves.get("voltage"):
         direct_live_curves = await _load_heat_curves_from_edc(item) or {}
         if not live_curves.get("power") and direct_live_curves.get("power"):
-            live_curves["power"] = direct_live_curves["power"]
+            live_curves["power"] = _coerce_curve_points(direct_live_curves["power"])
+            direct_live_fallback_keys.add("power")
         if not live_curves.get("voltage") and direct_live_curves.get("voltage"):
-            live_curves["voltage"] = direct_live_curves["voltage"]
-    if not display_live_curves.get("power") or not display_live_curves.get("voltage"):
+            live_curves["voltage"] = _coerce_curve_points(direct_live_curves["voltage"])
+            direct_live_fallback_keys.add("voltage")
+    needs_display_window_live_curves = (
+        (not display_live_curves.get("power") and "power" not in direct_live_fallback_keys)
+        or (
+            not display_live_curves.get("voltage")
+            and "voltage" not in direct_live_fallback_keys
+        )
+    )
+    if needs_display_window_live_curves:
         direct_display_live_curves = await _load_heat_curves_from_edc_window(
             item,
             start_time=compare_display_start,
@@ -2475,12 +2510,16 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
             and direct_display_live_curves.get("voltage")
         ):
             display_live_curves["voltage"] = direct_display_live_curves["voltage"]
+    if not display_live_curves.get("power") and live_curves.get("power"):
+        display_live_curves["power"] = _coerce_curve_points(live_curves["power"])
+    if not display_live_curves.get("voltage") and live_curves.get("voltage"):
+        display_live_curves["voltage"] = _coerce_curve_points(live_curves["voltage"])
 
     if live_curves:
         if live_curves.get("power"):
-            item["power_curve"] = live_curves["power"]
+            item["power_curve"] = _coerce_curve_points(live_curves["power"])
         if live_curves.get("voltage"):
-            item["voltage_curve"] = live_curves["voltage"]
+            item["voltage_curve"] = _coerce_curve_points(live_curves["voltage"])
         item["current_curve_source"] = "live_edc"
 
     if baseline_id:
