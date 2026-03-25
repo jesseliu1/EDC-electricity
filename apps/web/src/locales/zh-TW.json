@@ -309,7 +309,8 @@
       "demoSeed": "示範爐次台帳",
       "demoCurve": "示範曲線",
       "none": "暫無曲線"
-    }
+    },
+    "viewDetailAction": "檢視爐次詳情"
   },
   "task": {
     "title": "糾偏任務單",

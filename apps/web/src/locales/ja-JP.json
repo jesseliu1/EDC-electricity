@@ -309,7 +309,8 @@
       "demoSeed": "デモヒート台帳",
       "demoCurve": "デモ曲線",
       "none": "曲線なし"
-    }
+    },
+    "viewDetailAction": "ヒート詳細を見る"
   },
   "task": {
     "title": "是正タスク",

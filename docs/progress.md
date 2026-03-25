@@ -38,10 +38,32 @@
 - [x] 已完成任务列表状态 Tab 真实计数收口，页面不再显示 `(...)` 占位符
 - [x] 已完成偏差收件箱空偏差值文案收口，`deviation_percent=null` 时不再显示误导性的 `--%`
 - [x] 已完成主页面英文副标题/标签混排收口，默认中文界面不再泄漏 `Baseline Library / Action Orders / High Priority / Impact Warning / Heat:` 等英文残留
+- [x] 已完成炉次浏览展开区 CTA 文案校正，“查看完整报告” 已改为与详情跳转一致的“查看炉次详情”
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第十一批 issue：炉次浏览展开区 CTA 与详情跳转对齐）
+
+- [x] 已按 investigate 顺序完成 `P1 炉次浏览展开区“查看完整报告”文案与实际跳转不符，点击后进入的是炉次详情`
+  - [x] 已复核当前 `master` 中 `apps/web/src/views/HeatListView.vue` 的展开区按钮仍显示“查看完整报告”
+  - [x] 已确认同一按钮的点击处理是 `@click.stop="handleViewDetail(item.id)"`，而 `handleViewDetail()` 只会跳转到 `/heats/:id`
+  - [x] 已确认这不是路由错误，而是 CTA 文案和现有详情跳转语义不一致；本轮不扩 scope 到日报/审计报告链路
+- [x] 已完成最小修复
+  - [x] 炉次浏览展开区按钮文案已改为 locale 驱动的 `heat.viewDetailAction`
+  - [x] 四套语言包已补齐 `heat.viewDetailAction`，默认中文环境下显示“查看炉次详情”
+  - [x] 未改动 `handleViewDetail()`、路由结构、报表页入口或任何后端链路
+- [x] 本轮测试留痕
+  - [x] 测试范围：炉次浏览展开区 CTA 文案、详情跳转链路、locale 结构、EDC 前端构建
+  - [x] 验证步骤：打开“炉次浏览”；展开一条炉次；确认按钮文案已变为“查看炉次详情”且不再出现“报告”；点击后仍进入 `/heats/:id` 对应的炉次详情页
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "expanded heat row uses a detail CTA that matches the detail navigation target"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；展开区 CTA 已显示准确详情文案，点击后继续稳定进入炉次详情页
+  - [x] 未覆盖项：本轮没有新增“从炉次浏览直接进入日报/审计报告”的能力；Playwright 运行时仍出现既有 `runtime-status` 代理拒绝日志，但未影响本轮 heat smoke 用例通过
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中剩余低风险、可验证、可回滚的前端展示/交互收口项
 
 ### 2026-03-25（第十批 issue：主页面英文副标题与标签混排收口）
 

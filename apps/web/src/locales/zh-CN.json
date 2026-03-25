@@ -309,7 +309,8 @@
       "demoSeed": "演示炉次台账",
       "demoCurve": "演示曲线",
       "none": "暂无曲线"
-    }
+    },
+    "viewDetailAction": "查看炉次详情"
   },
   "task": {
     "title": "纠偏任务单",

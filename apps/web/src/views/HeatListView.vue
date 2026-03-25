@@ -511,7 +511,7 @@ onMounted(() => {
                         @click.stop="handleViewDetail(item.id)"
                       >
                         <span class="material-symbols-outlined text-[18px]">description</span>
-                        查看完整报告
+                        {{ t('heat.viewDetailAction') }}
                       </button>
                     </div>
                   </div>

@@ -430,7 +430,7 @@ test.describe('EDC web smoke flows', () => {
     await expect(page.getByText('真实数据基线定义').first()).toBeVisible()
   })
 
-  test('can expand a heat row and navigate to detail', async ({ page }) => {
+  test('expanded heat row uses a detail CTA that matches the detail navigation target', async ({ page }) => {
     await mockHeatSmoke(page)
     await page.goto('heats')
 
@@ -442,7 +442,10 @@ test.describe('EDC web smoke flows', () => {
     await expect(expandedCard).toBeVisible()
     await expect(expandedCard.getByText('功率微缩曲线')).toBeVisible()
 
-    await expandedCard.getByTestId('heat-view-report-button').click()
+    const detailButton = expandedCard.getByTestId('heat-view-report-button')
+    await expect(detailButton).toHaveText(/查看炉次详情/)
+    await expect(detailButton).not.toHaveText(/报告/)
+    await detailButton.click()
     await expect(page).toHaveURL(/\/edc\/heats\/issue-heat/)
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
   })

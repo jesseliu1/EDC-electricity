@@ -309,7 +309,8 @@
       "demoSeed": "Demo heat ledger",
       "demoCurve": "Demo curve",
       "none": "No curve"
-    }
+    },
+    "viewDetailAction": "View Heat Detail"
   },
   "task": {
     "title": "Correction Tasks",

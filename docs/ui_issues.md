@@ -1304,7 +1304,7 @@
   3. 不再是静默无响应
 
 ### P1 炉次浏览展开区“查看完整报告”文案与实际跳转不符，点击后进入的是炉次详情
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: 炉次浏览 / 行展开摘要卡
 - **复现步骤**:
   1. 打开“炉次浏览”
@@ -1317,6 +1317,18 @@
 - **当前证据**:
   - Playwright 点击后页面进入 `http://127.0.0.1:3000/edc/heats/live-heat-...`
   - `apps/web/src/views/HeatListView.vue` 当前按钮文案为“查看完整报告”，但 `@click.stop="handleViewDetail(item.id)"` 实际调用的是详情跳转
+- **调查结论（2026-03-25）**:
+  - 根因已确认是同一按钮的 CTA 文案与 `handleViewDetail()` 的既有跳转目标不一致，不是路由错误。
+  - 当前按钮行为明确属于“进入单炉次详情”；若未来真要进入报告页，应另起链路而不是继续复用这个详情入口。
+- **修复结果**:
+  - `apps/web/src/views/HeatListView.vue` 已将展开区按钮改为 locale 文案 `t('heat.viewDetailAction')`，默认中文显示“查看炉次详情”。
+  - `apps/web/src/locales/zh-CN.json`、`zh-TW.json`、`ja-JP.json`、`en-US.json` 已补齐 `heat.viewDetailAction`。
+  - 已更新现有 Playwright smoke，用例会同时断言按钮不再出现“报告”文案且点击后仍进入 `/heats/:id`。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "expanded heat row uses a detail CTA that matches the detail navigation target"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 若目标页是炉次详情，应把文案改成“查看炉次详情”之类的准确表述
   - 若确实要去报告页，则应跳转到对应报表链路
