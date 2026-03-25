@@ -2405,3 +2405,13 @@
 - 炉次详情链已做前端请求去重；若后续仍慢，下一步应转到后端 `compare` 与详情聚合链路继续收重
 - 单台 EDC 设备，架构预留多台扩展能力
 - 模块化设计，支持按插件销售
+
+---
+
+## 2026-03-25 23:51 巡检收口（PM agent）
+
+- 当前状态：已 commit（f09ceb8），工作树干净
+- 本轮完成：前端 lint/test:i18n/build 通过，后端 pytest 62 passed（需在 /home/openclaw/edc-electricity-server 目录执行），7 条 Playwright acceptance 全绿
+- 外部阻塞：127.0.0.1:8080（真实 EDC 上游）仍不可用，真实 happy path 联调未验证
+- 下一步：恢复 127.0.0.1:8080 后进行真实 EDC 上游 happy path 联调验收；当前本地基线可进入部署联调阶段
+- 未覆盖项：真实上游曲线、真实报表数据、生产链路联调
