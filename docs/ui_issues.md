@@ -1192,7 +1192,7 @@
   4. 在宿主明确连通与明确断开两种情况下分别验证提示是否符合实际状态
 
 ### P1 报表列表页“历史查询 / 导出昨日报告 PDF”按钮仍是占位按钮，无任何行为
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 日报与审计 / 报表列表
 - **复现步骤**:
   1. 打开“日报与审计”列表页
@@ -1205,6 +1205,18 @@
 - **当前证据**:
   - Playwright 点击两按钮后页面停留在 `/reports`
   - `apps/web/src/views/ReportListView.vue` 当前仅渲染两个按钮，未绑定任何 `@click` 或处理函数
+- **调查结论（2026-03-25）**:
+  - 根因已确认是报表列表页顶部两个按钮都只是静态占位按钮，没有绑定任何动作处理函数。
+  - 当前代码中并不存在可直接复用的历史查询交互和昨日报告 PDF 导出链路，因此本轮最小修复应先让按钮给出明确反馈，而不是继续保持无响应。
+- **修复结果**:
+  - `apps/web/src/views/ReportListView.vue` 已新增 `handleHistoryQuery()` 与 `handleExportYesterdayPdf()`，点击按钮后会分别通过 `ElMessage.info` 显示“历史查询入口开发中”“昨日报告 PDF 导出入口开发中”。
+  - 两个按钮已新增 `report-history-query-button`、`report-export-pdf-button` 测试锚点，并切到 locale 文案 `report.historyQueryAction / report.historyQueryHint / report.exportYesterdayPdfAction / report.exportYesterdayPdfHint`。
+  - `apps/web/src/locales/zh-CN.json`、`zh-TW.json`、`ja-JP.json`、`en-US.json` 已补齐上述四个 `report.*` 文案 key。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "report list placeholder buttons show explicit feedback instead of staying silent"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - “历史查询”应进入可用的日期检索流程，或明确标记暂未开放
   - “导出昨日报告 PDF”应触发真实导出，或在当前不支持时给出明确反馈

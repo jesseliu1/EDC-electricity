@@ -43,10 +43,33 @@
 - [x] 已完成任务列表页“新建纠偏任务”主按钮收口，点击后会给出明确占位反馈，不再静默无响应
 - [x] 已完成炉次浏览“导出 Excel”按钮收口，点击后会给出明确占位反馈，不再静默无响应
 - [x] 已完成黄金基线库“导出”按钮收口，点击后会给出明确占位反馈，不再静默无响应
+- [x] 已完成报表列表页“历史查询 / 导出昨日报告 PDF”按钮收口，点击后会给出明确占位反馈，不再静默无响应
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第十六批 issue：报表列表占位按钮反馈收口）
+
+- [x] 已按 investigate 顺序完成 `P1 报表列表页“历史查询 / 导出昨日报告 PDF”按钮仍是占位按钮，无任何行为`
+  - [x] 已复核当前 `master` 中 `apps/web/src/views/ReportListView.vue` 顶部两个按钮均未绑定 `@click`
+  - [x] 已确认根因是报表列表页保留了工具栏主操作样式，但没有接到日期检索、导出请求、禁用态或提示消息，因此表现成静默无响应
+  - [x] 已确认当前没有现成的历史查询弹窗链路和昨日报告 PDF 导出链路可直接复用，本轮最小修复应先补明确反馈，不扩到真实功能实现
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/ReportListView.vue` 已新增 `handleHistoryQuery()` 与 `handleExportYesterdayPdf()`，点击后会分别通过 `ElMessage.info` 显示“历史查询入口开发中”“昨日报告 PDF 导出入口开发中”
+  - [x] 报表列表页两个按钮已补 `report-history-query-button`、`report-export-pdf-button` 测试锚点，并切到 locale 文案 `report.historyQueryAction / report.historyQueryHint / report.exportYesterdayPdfAction / report.exportYesterdayPdfHint`
+  - [x] 四套语言包已补齐上述四个 `report.*` 文案 key
+  - [x] 未改动报表列表跳详情逻辑、后端查询协议、PDF 导出接口或任何业务数据结构
+- [x] 本轮测试留痕
+  - [x] 测试范围：报表列表页顶部占位按钮交互反馈、locale 结构、EDC 前端构建
+  - [x] 验证步骤：打开“日报与审计”页面；点击“历史查询”；确认页面仍停留在 `/reports`，但会出现明确“开发中”提示；再点击“导出昨日报告 PDF”；确认仍停留在 `/reports`，并出现明确“开发中”提示，而不是静默无响应
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "report list placeholder buttons show explicit feedback instead of staying silent"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；报表列表页两个占位按钮已不再静默无响应，定向回归确认点击后会出现明确提示消息
+  - [x] 未覆盖项：本轮没有新增真实历史查询交互和昨日报告 PDF 导出能力；当前修复重点仅为“正式页占位按钮不能无反馈”
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中剩余低风险、可验证、可回滚的前端交互/占位入口问题，优先选择基线详情页或类似工具栏无反馈按钮
 
 ### 2026-03-25（第十五批 issue：黄金基线库导出按钮占位反馈收口）
 

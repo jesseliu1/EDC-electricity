@@ -755,6 +755,22 @@ test.describe('EDC web extended coverage', () => {
     await expect(page).toHaveURL(/\/edc\/tasks$/)
   })
 
+  test('report list placeholder buttons show explicit feedback instead of staying silent', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await mockReportsAndInbox(page)
+    await page.goto('reports')
+
+    await expect(page.getByTestId('report-list-page')).toBeVisible()
+
+    await page.getByTestId('report-history-query-button').click()
+    await expect(page.locator('.el-message__content').filter({ hasText: '历史查询入口开发中' })).toBeVisible()
+    await expect(page).toHaveURL(/\/edc\/reports$/)
+
+    await page.getByTestId('report-export-pdf-button').click()
+    await expect(page.locator('.el-message__content').filter({ hasText: '昨日报告 PDF 导出入口开发中' })).toBeVisible()
+    await expect(page).toHaveURL(/\/edc\/reports$/)
+  })
+
   test('reports and inbox pages can navigate into detail pages', async ({ page }) => {
     await mockRuntimeStatus(page)
     await mockReportsAndInbox(page)

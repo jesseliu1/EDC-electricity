@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ElMessage } from 'element-plus'
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -10,6 +11,14 @@ import { useReportStore } from '@/stores/report'
 const { t } = useI18n()
 const router = useRouter()
 const reportStore = useReportStore()
+
+function handleHistoryQuery() {
+  ElMessage.info(t('report.historyQueryHint'))
+}
+
+function handleExportYesterdayPdf() {
+  ElMessage.info(t('report.exportYesterdayPdfHint'))
+}
 
 function handleView(date: string) {
   router.push(`/reports/${date}`)
@@ -38,16 +47,20 @@ onMounted(() => {
     >
       <template #actions>
         <button
+          data-testid="report-history-query-button"
           class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+          @click="handleHistoryQuery"
         >
           <span class="material-symbols-outlined text-[18px]">calendar_month</span>
-          历史查询
+          {{ t('report.historyQueryAction') }}
         </button>
         <button
+          data-testid="report-export-pdf-button"
           class="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
+          @click="handleExportYesterdayPdf"
         >
           <span class="material-symbols-outlined text-[18px]">picture_as_pdf</span>
-          导出昨日报告 PDF
+          {{ t('report.exportYesterdayPdfAction') }}
         </button>
       </template>
     </PageHeader>
