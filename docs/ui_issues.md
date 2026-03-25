@@ -639,7 +639,7 @@
   3. 确认会触发下载或出现明确提示，不再是无反馈状态
 
 ### P1 黄金基线库“导出”按钮当前无任何反馈或导出动作
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 黄金基线库 / 列表页
 - **复现步骤**:
   1. 打开“黄金基线库”
@@ -651,6 +651,18 @@
 - **当前证据**:
   - Playwright 已验证点击前后均停留在 `/baselines`
   - 页面正文无任何新增状态
+- **调查结论（2026-03-25）**:
+  - 根因已确认是黄金基线库列表页保留了一个视觉上可点击的导出按钮，但没有绑定任何动作处理函数。
+  - 当前代码中并不存在可直接复用的基线导出链路，因此本轮最小修复应先让按钮给出明确反馈，而不是继续保持无响应。
+- **修复结果**:
+  - `apps/web/src/views/BaselineListView.vue` 已新增 `handleExport()`，点击右上角按钮后会通过 `ElMessage.info` 显示“黄金基线导出入口开发中”。
+  - 黄金基线库导出按钮已新增 `baseline-export-button` 测试锚点，并切到 locale 文案 `common.export / baseline.exportHint`。
+  - `apps/web/src/locales/zh-CN.json`、`zh-TW.json`、`ja-JP.json`、`en-US.json` 已补齐 `baseline.exportHint`。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "baseline list export button shows explicit placeholder feedback instead of staying silent"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 导出按钮应触发真实导出、显式禁用或给出明确提示
   - 不应保留一个可点击但无反馈的主操作

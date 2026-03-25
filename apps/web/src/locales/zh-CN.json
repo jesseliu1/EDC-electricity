@@ -128,6 +128,7 @@
     "createBaseline": "新建基线",
     "refresh": "刷新数据",
     "refreshing": "刷新中...",
+    "exportHint": "黄金基线导出入口开发中",
     "selectHeat": "选择炉次",
     "previewCurve": "预览曲线",
     "setParams": "设置参数",

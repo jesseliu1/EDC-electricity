@@ -128,6 +128,7 @@
     "createBaseline": "ベースライン作成",
     "refresh": "データを更新",
     "refreshing": "更新中...",
+    "exportHint": "ゴールデンベースライン出力入口は開発中です",
     "selectHeat": "ヒート選択",
     "previewCurve": "曲線プレビュー",
     "setParams": "パラメータ設定",

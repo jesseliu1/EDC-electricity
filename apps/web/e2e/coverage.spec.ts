@@ -709,6 +709,19 @@ test.describe('EDC web extended coverage', () => {
     await expect(refreshButton).toContainText('刷新数据')
   })
 
+  test('baseline list export button shows explicit placeholder feedback instead of staying silent', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await mockBaselineLibrary(page)
+
+    await page.goto('baselines')
+    await expect(page.getByTestId('baseline-list-page')).toBeVisible()
+    await page.getByTestId('baseline-export-button').click()
+    await expect(
+      page.locator('.el-message__content').filter({ hasText: '黄金基线导出入口开发中' })
+    ).toBeVisible()
+    await expect(page).toHaveURL(/\/edc\/baselines$/)
+  })
+
   test('task list shows real status counts and can open detail and complete a task', async ({ page }) => {
     await mockRuntimeStatus(page)
     await mockTaskWorkflow(page)

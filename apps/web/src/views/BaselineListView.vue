@@ -46,6 +46,10 @@ async function handleRefresh() {
   await Promise.all([baselineStore.fetchList(), baselineStore.fetchActiveBaseline()])
 }
 
+function handleExport() {
+  ElMessage.info(t('baseline.exportHint'))
+}
+
 function getQueryStringValue(value: unknown): string {
   if (typeof value === 'string') return value
   if (Array.isArray(value) && typeof value[0] === 'string') return value[0]
@@ -171,10 +175,12 @@ onMounted(() => {
           {{ baselineStore.loading ? t('baseline.refreshing') : t('baseline.refresh') }}
         </button>
         <button
+          data-testid="baseline-export-button"
           class="flex items-center gap-2 bg-white border border-border-light text-slate-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+          @click="handleExport"
         >
           <span class="material-symbols-outlined text-[18px]">download</span>
-          导出
+          {{ t('common.export') }}
         </button>
         <button
           data-testid="baseline-create-button"

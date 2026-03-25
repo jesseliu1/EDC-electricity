@@ -128,6 +128,7 @@
     "createBaseline": "新建基線",
     "refresh": "重新整理資料",
     "refreshing": "重新整理中...",
+    "exportHint": "黃金基線匯出入口開發中",
     "selectHeat": "選擇爐次",
     "previewCurve": "預覽曲線",
     "setParams": "設定參數",
