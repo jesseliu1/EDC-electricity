@@ -286,6 +286,11 @@ async def test_baseline_definition_crud_and_metric_workflow(client) -> None:
     list_resp = await client.get("/api/baseline-definitions")
     assert list_resp.status_code == 200
     assert list_resp.json()["total"] >= 2
+    instance_counts = {
+        item["id"]: item["instance_count"] for item in list_resp.json()["items"]
+    }
+    assert instance_counts["def-001"] == 1
+    assert instance_counts["def-002"] == 1
 
     create_resp = await client.post(
         "/api/baseline-definitions",
@@ -302,6 +307,7 @@ async def test_baseline_definition_crud_and_metric_workflow(client) -> None:
     created = create_resp.json()
     definition_id = created["id"]
     assert created["definition_name"] == "测试定义"
+    assert created["instance_count"] == 0
     assert len(created["metrics"]) == 1
 
     update_resp = await client.patch(
@@ -387,6 +393,10 @@ async def test_baseline_crud_publish_disable_and_delete(client) -> None:
     created = create_resp.json()
     baseline_id = created["id"]
     assert created["status"] == "draft"
+
+    definition_resp = await client.get("/api/baseline-definitions/def-001")
+    assert definition_resp.status_code == 200
+    assert definition_resp.json()["instance_count"] == 2
 
     detail_resp = await client.get(f"/api/baselines/{baseline_id}")
     assert detail_resp.status_code == 200

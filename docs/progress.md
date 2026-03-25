@@ -48,10 +48,34 @@
 - [x] 已完成设置页左侧分类伪导航收口，当前已改为真实页内导航并随定位更新 active 态
 - [x] 已完成侧边栏分组/全局搜索 i18n 告警第二轮收口，相关调用口径已移除 fallback 并补控制台 missing-key 回归
 - [x] 已完成炉次详情“生成纠偏任务”最小真实闭环，Heat Detail 已可创建任务并跳转 `/tasks/:id`，任务展示对空偏差统一降级为“待计算”
+- [x] 已完成黄金基线定义页实例数量真实计数收口，定义列表/详情不再把 `instance_count` 固定写死为 `0`
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第二十一批 issue：黄金基线定义实例数量真实计数收口）
+
+- [x] 已按 investigate 顺序复核 `P1 黄金基线定义页实例数量长期显示 0，与基线库真实实例不一致`
+  - [x] 已确认根因集中在后端 `apps/server/src/api/baseline_definitions.py`：`_to_response()` 当前把 `instance_count` 直接写死为 `0`
+  - [x] 已确认现有真实实例口径已经存在于 `apps/server/src/api/baselines.py` 的 `_BASELINE_STORE`，每条基线实例都带有 `definition_id`
+  - [x] 已确认最小修复不需要新增接口、重构 schema 或修改前端读取面，只需在定义响应层按现有 `definition_id` 统计实例数
+- [x] 已完成最小修复
+  - [x] `apps/server/src/api/baseline_definitions.py` 已新增 `_build_instance_count_map()`，按现有基线实例的 `definition_id` 聚合真实数量
+  - [x] `list_definitions()` 已在一次请求内复用同一份实例计数映射，不再对每张定义卡片返回固定 `0`
+  - [x] `get_definition()`、创建/更新等单定义返回也已统一走同一计数口径
+  - [x] `apps/server/tests/test_baselines_dashboard_api.py` 已补断言：初始 `def-001 / def-002` 实例数与种子基线一致；新建一条 `def-001` 基线后，对应定义详情实例数会从 `1` 变成 `2`
+  - [x] 本轮未新增任何前端字段、没有改动定义页布局，也未扩到“删除定义前阻止有关联实例”等其它 TODO
+- [x] 本轮测试留痕
+  - [x] 测试范围：黄金基线定义列表/详情实例计数口径；基线创建后定义实例计数联动；后端改动语法有效性
+  - [x] 验证步骤：读取定义列表，确认 `def-001 / def-002` 实例数量与当前 `_BASELINE_STORE` 一致；新建一条 `definition_id=def-001` 的基线后，再读取定义详情，确认 `instance_count` 增为 `2`
+  - [x] 执行命令：`python3 -m py_compile apps/server/src/api/baseline_definitions.py apps/server/tests/test_baselines_dashboard_api.py`
+  - [x] 尝试执行但环境缺失：`PYTHONPATH=venv/lib/python3.11/site-packages python3 -m pytest tests/test_baselines_dashboard_api.py -k "baseline_definition_crud_and_metric_workflow or baseline_crud_publish_disable_and_delete"`（该环境中的 `pytest` wheel 只有 namespace 包，无可执行入口）
+  - [x] 尝试执行但环境缺失：`PYTHONPATH=venv/lib/python3.11/site-packages:. python3 - <<'PY' ... import src.api.baseline_definitions ... PY`（导入链路在 `fastapi.APIRouter` 处失败，说明当前 shell 只能拿到残缺依赖包，无法跑真实 FastAPI 运行时）
+  - [x] 结果：后端 `py_compile` 通过；测试代码断言已补齐，但本机 Python 依赖执行入口残缺，未能完成真实 pytest/函数级运行验证
+  - [x] 未覆盖项：本轮未在完整 Python 运行环境里执行 API 集成测试，也未处理“删除仍有关联实例的定义时应阻止删除”的后续业务约束；当前重点仅为把长期固定为 `0` 的实例数量接到真实基线计数
+  - [x] 未补 `docs/lessons.md`：本轮属于直接移除后端硬编码 TODO 并复用现有数据源，没有新增超出既有经验的通用模式
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中仍 open 的低风险前端/读取面问题，优先选择不需要新增业务规则的展示层收口
 
 ### 2026-03-25（第二十批 issue：炉次详情生成纠偏任务最小闭环）
 

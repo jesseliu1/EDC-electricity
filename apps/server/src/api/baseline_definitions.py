@@ -112,7 +112,12 @@ _DEFINITION_STORE: dict[str, dict[str, Any]] = {
 }
 
 
-def _to_response(item: dict[str, Any]) -> BaselineDefinitionResponse:
+def _to_response(
+    item: dict[str, Any],
+    *,
+    instance_count_map: dict[str, int] | None = None,
+) -> BaselineDefinitionResponse:
+    counts = instance_count_map or _build_instance_count_map()
     metrics = [
         MetricDefinitionResponse(
             id=m["id"],
@@ -131,10 +136,22 @@ def _to_response(item: dict[str, Any]) -> BaselineDefinitionResponse:
         expected_duration_minutes=item["expected_duration_minutes"],
         status=item["status"],
         metrics=metrics,
-        instance_count=0,  # TODO: 后续关联实例后计算
+        instance_count=counts.get(str(item["id"]), 0),
         created_at=item["created_at"],
         updated_at=item["updated_at"],
     )
+
+
+def _build_instance_count_map() -> dict[str, int]:
+    from .baselines import _BASELINE_STORE
+
+    counts: dict[str, int] = {}
+    for item in _BASELINE_STORE.values():
+        definition_id = str(item.get("definition_id") or "").strip()
+        if not definition_id:
+            continue
+        counts[definition_id] = counts.get(definition_id, 0) + 1
+    return counts
 
 
 def _get_or_404(definition_id: str) -> dict[str, Any]:
@@ -255,8 +272,12 @@ async def list_definitions(
     start = (page - 1) * page_size
     end = start + page_size
     paged = items[start:end]
+    instance_count_map = _build_instance_count_map()
 
-    return BaselineDefinitionListResponse(items=[_to_response(x) for x in paged], total=total)
+    return BaselineDefinitionListResponse(
+        items=[_to_response(x, instance_count_map=instance_count_map) for x in paged],
+        total=total,
+    )
 
 
 @router.get("/{definition_id}", response_model=BaselineDefinitionResponse)

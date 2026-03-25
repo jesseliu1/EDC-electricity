@@ -1247,20 +1247,29 @@
   3. 点击“导出昨日报告 PDF”，确认出现真实下载或明确提示
 
 ### P1 黄金基线定义页实例数量长期显示 0，与基线库真实实例不一致
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: 黄金基线定义 / 后端定义列表读取面
 - **复现步骤**:
   1. 打开“黄金基线定义”页面
   2. 观察每条定义卡片中的“实例数量”
   3. 对照“黄金基线库”中实际已创建的基线实例
 - **实际结果**:
-  - 当前各定义卡片均显示 `实例数量 0`
-  - 但“黄金基线库”实际已有至少 3 条基线实例，且 `baseline-001`、`baseline-6dbeb2e4-...` 等都绑定到了对应定义
+  - 修复前各定义卡片均显示 `实例数量 0`
+  - 修复前“黄金基线库”实际已有对应定义的基线实例，定义页却固定显示为 `0`
   - 这会误导用户判断“该定义尚未产出任何基线”
-- **当前证据**:
-  - `GET /api/baseline-definitions` 当前返回的 `instance_count` 全为 `0`
-  - `GET /api/baselines?page=1&page_size=5` 已返回 3 条实例，并带有 `definition_id`
-  - `apps/server/src/api/baseline_definitions.py:134` 当前明确写死 `instance_count=0  # TODO: 后续关联实例后计算`
+- **调查结论（2026-03-25）**:
+  - 根因已确认在后端 `apps/server/src/api/baseline_definitions.py`：定义响应层 `_to_response()` 直接把 `instance_count` 写死为 `0`
+  - 真实实例口径已经存在于 `apps/server/src/api/baselines.py` 的 `_BASELINE_STORE`，每条基线都带有 `definition_id`
+  - 最小修复不需要新增接口或改前端，只需在定义列表/详情返回时按当前基线实例的 `definition_id` 聚合数量
+- **修复结果**:
+  - `apps/server/src/api/baseline_definitions.py` 已新增 `_build_instance_count_map()`，按现有基线实例真实统计每个定义的关联数量
+  - `list_definitions()` 已在单次请求内复用同一份计数映射，定义列表不再把 `instance_count` 固定返回为 `0`
+  - `get_definition()`、创建/更新等单定义返回也已统一复用同一计数口径
+  - `apps/server/tests/test_baselines_dashboard_api.py` 已补断言，覆盖初始种子计数和新建 `def-001` 基线后实例数增量
+- **回归结果**:
+  - `python3 -m py_compile apps/server/src/api/baseline_definitions.py apps/server/tests/test_baselines_dashboard_api.py` 通过
+  - 尝试执行 `PYTHONPATH=venv/lib/python3.11/site-packages python3 -m pytest tests/test_baselines_dashboard_api.py -k "baseline_definition_crud_and_metric_workflow or baseline_crud_publish_disable_and_delete"` 未成功：当前环境里的 `pytest` 仅为 namespace 包，无可执行入口
+  - 尝试执行带 `PYTHONPATH=venv/lib/python3.11/site-packages:.` 的函数级运行验证未成功：导入链路在 `fastapi.APIRouter` 处失败，说明当前 shell 依赖包不完整，无法在本机跑真实 FastAPI 运行态测试
 - **期望结果**:
   - 定义列表中的实例数量应基于真实基线实例计算
   - 定义页与基线库应保持相同口径，不应一边显示“已有基线”，另一边固定为 0
@@ -1269,6 +1278,7 @@
   1. 创建或保留多条已知绑定定义的基线实例
   2. 刷新“黄金基线定义”与“黄金基线库”
   3. 核对每个定义的实例数量是否与基线库中的真实数量一致
+  4. 如在完整 Python 依赖环境下，可进一步执行 `tests/test_baselines_dashboard_api.py` 中对应断言，确认新建 `def-001` 基线后实例数会从 `1` 增为 `2`
 
 ### P1 多个列表页搜索/筛选控件仍是纯展示占位，输入后不会改变结果
 - **状态**: 新发现待处理（2026-03-21）
