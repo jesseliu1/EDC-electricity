@@ -851,8 +851,10 @@ async function syncDetailRouteToCanonicalId(requestedId: string) {
   if (!resolvedId || resolvedId === requestedId || heatId.value !== requestedId) return
 
   await router.replace({
-    path: `/heats/${resolvedId}`,
+    name: 'HeatDetail',
+    params: { id: resolvedId },
     query: route.query,
+    hash: route.hash,
   })
 }
 

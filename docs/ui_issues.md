@@ -205,7 +205,7 @@
   4. 确认基线曲线落在当前炉次核心窗口内，当前曲线能看到前后 60 分钟上下文
 
 ### P1 炉次详情 compare 图表刷新后偶发回退为全天范围，时间窗口不稳定
-- **状态**: 新发现待处理（2026-03-24）
+- **状态**: 已按最小方案修复并回归通过（2026-03-25）
 - **页面/模块**: 炉次详情 / 与基线对比
 - **复现步骤**:
   1. 打开炉次详情：`/edc/heats/live-heat-0ef1bbda-1774314300000-30`
@@ -224,12 +224,12 @@
   - 当前问题的第一层根因不是单纯 ECharts 随机渲染错误，而是用户打开的链接 `live-heat-0ef1bbda-1774314300000-30` 属于旧的 `live_inferred` URL。
   - 后端 `apps/server/src/api/heats.py` 在 `_get_or_404() -> resolve_heat_record() -> _resolve_live_heat_candidate()` 这条链路中，会把旧 live heat id 重新解析到“当前最接近”的 canonical 炉次，而不是稳定锁定到首次打开时的那一条。
   - 本地实测同一旧 URL 当前已被后端解析成新的 canonical id `live-heat-0ef1bbda-1774314600000-30`，对应时间窗也从截图里的 `08:39 ~ 09:07` 漂移成了 `08:53 ~ 09:25`。
-  - 前端 `apps/web/src/views/HeatDetailView.vue` 当前始终只使用 `route.params.id` 调 `fetchDetail()`，详情加载后并不会把地址替换成后端返回的 canonical id，因此用户会持续停留在一个会漂移的旧链接上。
+  - 修复前，前端 `apps/web/src/views/HeatDetailView.vue` 始终只使用 `route.params.id` 调 `fetchDetail()`，详情加载后不会把地址替换成后端返回的 canonical id，因此用户会持续停留在一个会漂移的旧链接上。
   - 这会导致“同一个地址刷新后看到的实际炉次对象已经变了”，进而表现成 compare 图表时间窗口与内容不稳定。
-- **建议修改方式（先记录，不代表本条已修复）**:
-  - 前端详情页在 `fetchDetail()` 成功后，如果 `heatStore.current.base.id` 与当前路由参数不同，应立即 `router.replace()` 到后端返回的 canonical id，避免用户继续停留在旧 live heat 链接上。
-  - 后端对 legacy / 非当前 canonical live heat id 的解析规则可继续收紧，避免“最接近匹配”跨到另一条实际已变化的炉次；至少在详情深链场景中，应优先保证同一链接的解析稳定性。
-  - 在完成上述 canonical 化收口前，用旧 `live_inferred` URL 做详情排查时，应先确认后端实际返回的 `heat.id / start_time / end_time`，否则很容易把“换了一条炉次”的现象误判成“同一图表随机变大”。
+- **本轮修复结果（2026-03-25）**:
+  - `apps/web/src/views/HeatDetailView.vue` 已在 `fetchDetail()` 成功后，若 `heatStore.current.base.id` 与当前 `route.params.id` 不一致，则立即通过命名路由 `HeatDetail` 执行 `router.replace()` 到 canonical id，并保留当前 `query/hash`
+  - `apps/web/e2e/app.spec.ts` 已新增定向回归，覆盖“访问旧 live heat URL -> API 返回 canonical heat id -> 页面立即替换到 canonical URL -> 再次访问同一 legacy URL 仍稳定替换”的完整链路
+  - 本轮未改动后端 compare 窗口实现、legacy 解析规则或 ECharts 图表本体
 - **继续调查补充（2026-03-24）**:
   - “为什么 compare 当前曲线没有稳定扩到 ±60 分钟”这条，已确认不是 EDC 源头没有数据。按同一炉次窗口直接调用 EDC `get_local_datas`，功率与电压在“炉次本体 + 前后各 60 分钟”范围内都能返回约 `1789` 个点。
   - 在当前源码下，直接调用后端内部链路 `resolve_heat_record -> _resolve_compare_display_window -> _load_channel_curves_from_edc -> _build_metric_curve_series`，也能正确生成约 `1794` 个点的 `current_curve`，说明“±60 分钟展示窗口”代码路径本身是成立的。
@@ -240,6 +240,10 @@
   - 在现场联调前，先重启 `8000` 服务并确认其实际运行代码已包含 compare 窗口修复，再复验旧 URL / 新 canonical URL 的 `/compare` 返回点数与时间范围。
   - compare 卡片可增加明确的窗口说明，例如“当前展示：炉次本体 + 前后各 60 分钟上下文”，并在图上增加核心炉次窗口高亮，降低“看起来像全天”的误判。
   - 若 `baseline_curve_source=none`，页面应显式提示“当前仅展示当前生产上下文曲线”，避免用户把单条长曲线误解成全日回放。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat detail replaces legacy live heat urls with the canonical heat id returned by the api"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 炉次详情 compare 图表应稳定收口到“当前炉次 30 分钟本体 + 前后各 60 分钟上下文”
   - 无论刷新页面、重新进入详情还是切换基线 tab，图表横轴范围都不应偶发回退为全天范围
@@ -250,7 +254,8 @@
   2. 记录每次“与基线对比”图表的横轴起止时间
   3. 确认每次都稳定落在“当前炉次本体 + 前后各 60 分钟上下文”
   4. 如切换不同基线 tab，也确认横轴范围不会扩成全天
-  5. 若问题只在部分刷新后出现，需补充记录其触发条件
+  5. 对前端最小修复，可直接验证旧 URL 会被立即替换成 API 返回的 canonical URL，不再长时间停留在会漂移的 legacy 地址
+  6. 若问题只在部分刷新后出现，需补充记录其触发条件
 
 ### P1 炉次详情异常原因与切割原因文案出现英文和技术 key，语言不统一
 - **状态**: 已修复并回归通过（2026-03-25）

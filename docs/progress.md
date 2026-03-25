@@ -49,10 +49,32 @@
 - [x] 已完成侧边栏分组/全局搜索 i18n 告警第二轮收口，相关调用口径已移除 fallback 并补控制台 missing-key 回归
 - [x] 已完成炉次详情“生成纠偏任务”最小真实闭环，Heat Detail 已可创建任务并跳转 `/tasks/:id`，任务展示对空偏差统一降级为“待计算”
 - [x] 已完成黄金基线定义页实例数量真实计数收口，定义列表/详情不再把 `instance_count` 固定写死为 `0`
+- [x] 已完成旧 live heat 深链的 canonical 路由校准回归收口，重复打开 legacy URL 会稳定 replace 到当前 canonical heat id
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第二十二批 issue：Heat Detail canonical 深链校准回归）
+
+- [x] 已按 investigate 顺序复核 `P1 炉次详情 compare 图表刷新后偶发回退为全天范围，时间窗口不稳定`
+  - [x] 已确认这条 issue 在当前范围内的最小根因仍是“旧 live heat URL 漂移”，不是单纯图表组件随机放大
+  - [x] 已确认当前 `apps/web/src/views/HeatDetailView.vue` 已存在 `fetchDetail()` 后按 `heatStore.current.base.id` 校准路由的雏形逻辑，但此前缺少稳定自动回归，也没有在 issue 文档里正式收口
+  - [x] 已确认本轮不扩到后端 compare 窗口实现、缓存或现场 `8000` 服务代码版本复核，只收口“legacy URL 应立即 replace 到 canonical URL”这一层
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/HeatDetailView.vue` 已把 canonical 路由替换收敛为命名路由 `HeatDetail`，并保留 `query/hash`，避免 legacy URL 停留在地址栏
+  - [x] `apps/web/e2e/app.spec.ts` 已新增定向回归：访问旧 `live-heat-*` URL 时，若 API 返回 canonical heat id，页面会立即 `router.replace()` 到 canonical URL；重复再次打开同一 legacy URL 仍会稳定收口到 canonical URL
+  - [x] 本轮未修改 compare 曲线计算、后端 legacy 解析规则或任何 ECharts 展示逻辑
+- [x] 本轮测试留痕
+  - [x] 测试范围：Heat Detail canonical 深链校准、重复访问 legacy URL 的稳定性、EDC 前端构建
+  - [x] 验证步骤：访问旧 `live-heat-*` 详情 URL；mock compare/timeline 接口返回 canonical heat id；确认页面会自动 replace 到 canonical URL；再次访问同一 legacy URL，确认仍会稳定 replace 到同一 canonical URL
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat detail replaces legacy live heat urls with the canonical heat id returned by the api"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；定向回归确认 legacy live heat URL 会被立即校准到 canonical URL，重复再次打开同一旧 URL 也不会停留在漂移地址上
+  - [x] 未覆盖项：本轮没有在现场运行中的 `8000` compare 服务上复验“窗口点数是否仍命中旧实现/旧缓存”，也没有处理后端 legacy 解析策略本身；当前仅收口前端 URL 稳定性
+  - [x] 未补 `docs/lessons.md`：当前仓库已有 `2026-03-24 live inferred 详情深链：前端不能长期停留在旧推断 URL` 的同类经验，本轮直接按既有规则补回归与留痕
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中仍 open、且无需扩到架构或后端业务口径的低风险项
 
 ### 2026-03-25（第二十一批 issue：黄金基线定义实例数量真实计数收口）
 

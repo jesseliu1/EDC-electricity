@@ -559,4 +559,138 @@ test.describe('EDC web smoke flows', () => {
     await expect(dialog).toBeHidden()
     await expect(page.locator('.el-message').filter({ hasText: '成功' })).toBeVisible()
   })
+
+  test('heat detail replaces legacy live heat urls with the canonical heat id returned by the api', async ({
+    page,
+  }) => {
+    const legacyHeatId = 'live-heat-0ef1bbda-1774314300000-30'
+    const canonicalHeatId = 'live-heat-0ef1bbda-1774314600000-30'
+    const powerCurve = buildCurvePoints('2026-03-22T08:50:00Z', 46, 1, 438, 6)
+    const voltageCurve = buildCurvePoints('2026-03-22T08:50:00Z', 46, 1, 386, 1.5)
+    const compareCounts = {
+      legacy: 0,
+      canonical: 0,
+    }
+
+    const comparePayload = {
+      heat: {
+        id: canonicalHeatId,
+        heat_no: 'H20260322-001',
+        description: null,
+        start_time: '2026-03-22T08:53:00Z',
+        end_time: '2026-03-22T09:25:00Z',
+        baseline_id: 'baseline-001',
+        deviation_percent: 18.5,
+        avg_deviation_percent: 9.2,
+        time_offset_percent: 4.8,
+        mismatch_duration_minutes: 4,
+        schedule_tag: 'work',
+        cut_reason: 'time_offset_exceed',
+        cut_status: 'normal',
+        major_issue: false,
+        blocked_by_issue: false,
+        status: 'abnormal',
+        temperature: 1458,
+        created_at: '2026-03-22T08:53:00Z',
+        record_source: 'live_inferred',
+        current_curve_source: 'live_edc',
+        baseline_curve_source: 'none',
+        power_curve: powerCurve,
+        voltage_curve: voltageCurve,
+      },
+      baselines: [
+        {
+          baseline: {
+            id: 'baseline-001',
+            name: '标准基线 v2.1',
+            power_curve: powerCurve.map((item) => ({ ...item, value: 460 })),
+            voltage_curve: voltageCurve.map((item) => ({ ...item, value: 385 })),
+            tolerance_percent: 15,
+          },
+          metric_curves: [],
+          deviation_ranges: [],
+          max_deviation: 18.5,
+          avg_deviation: 9.2,
+        },
+      ],
+      deviation_ranges: [],
+      max_deviation: 18.5,
+      avg_deviation: 9.2,
+    }
+
+    const timelinePayload = {
+      heat_id: canonicalHeatId,
+      events: [
+        {
+          timestamp: '2026-03-22T08:53:00Z',
+          event_type: 'stream_in',
+          title: '实时流入',
+          detail: '炉次进入切割判定队列',
+        },
+      ],
+    }
+
+    await page.route('**/api/settings/runtime-status**', async (route) => {
+      await fulfillJson(route, {
+        overall_code: 'ready',
+        host: {
+          is_connected: true,
+          machine_name: 'EDC Test Gateway',
+          last_sync_label: '2026-03-25 07:00:00',
+        },
+        edc: {
+          configured: true,
+          base_url: 'http://127.0.0.1:8080',
+          username_present: true,
+        },
+        active_baseline: {
+          id: 'baseline-001',
+          name: '标准基线 v2.1',
+          status: 'published',
+        },
+        runtime: {
+          showtime_enabled: false,
+          live_heat_inference_enabled: true,
+          baseline_length_scope_mode: 'definition',
+        },
+        pipelines: {
+          dashboard: { code: 'ready', ready: true },
+          heats: { code: 'ready', ready: true },
+          inbox: { code: 'ready', ready: true },
+          tasks: { code: 'ready', ready: true },
+          reports: { code: 'ready', ready: true },
+          baselines: { code: 'ready', ready: true },
+          settings: { code: 'ready', ready: true },
+        },
+      })
+    })
+    await page.route(`**/api/heats/${legacyHeatId}/compare`, async (route) => {
+      compareCounts.legacy += 1
+      await fulfillJson(route, comparePayload)
+    })
+    await page.route(`**/api/heats/${canonicalHeatId}/compare`, async (route) => {
+      compareCounts.canonical += 1
+      await fulfillJson(route, comparePayload)
+    })
+    await page.route(`**/api/heats/${legacyHeatId}/cutting-timeline`, async (route) => {
+      await fulfillJson(route, timelinePayload)
+    })
+    await page.route(`**/api/heats/${canonicalHeatId}/cutting-timeline`, async (route) => {
+      await fulfillJson(route, timelinePayload)
+    })
+
+    await page.goto(`heats/${legacyHeatId}`)
+    await expect(page.getByTestId('heat-detail-page')).toBeVisible()
+    await expect(page).toHaveURL(new RegExp(`/edc/heats/${canonicalHeatId}$`))
+    await expect(page.getByText(`ID: ${canonicalHeatId}`)).toBeVisible()
+
+    await page.goto(`heats/${legacyHeatId}`)
+    await expect(page).toHaveURL(new RegExp(`/edc/heats/${canonicalHeatId}$`))
+    await expect(page.getByText(`ID: ${canonicalHeatId}`)).toBeVisible()
+
+    expect(compareCounts).toEqual({
+      legacy: 2,
+      canonical: 2,
+    })
+  })
 })
