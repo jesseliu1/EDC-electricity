@@ -67,7 +67,7 @@ onMounted(() => {
     <!-- 页面头部 -->
     <PageHeader
       :title="t('task.title')"
-      subtitle="Action Orders"
+      :subtitle="t('task.subtitle')"
       description="管理由 AI 生成或人工创建的纠偏任务单，跟踪执行进度。"
     >
       <template #actions>
@@ -138,7 +138,7 @@ onMounted(() => {
             <div>
               <div class="flex items-center gap-3 mb-1">
                 <span class="text-xs text-red-500 font-mono font-bold">{{ item.taskNo }}</span>
-                <span class="text-xs text-slate-400">{{ item.heatId ? `Heat: ${item.heatId}` : '' }}</span>
+                <span class="text-xs text-slate-400">{{ item.heatId ? `${t('task.relatedHeat')}: ${item.heatId}` : '' }}</span>
               </div>
               <p class="text-sm font-semibold text-slate-800">
                 {{ item.taskNo }} : 纠偏任务

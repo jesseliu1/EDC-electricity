@@ -50,7 +50,7 @@ onMounted(() => {
     <!-- 页面头部 -->
     <PageHeader
       :title="t('settings.title')"
-      subtitle="System Configuration"
+      :subtitle="t('settings.subtitle')"
     />
 
     <SystemReadinessBanner
@@ -202,7 +202,7 @@ onMounted(() => {
             <span class="material-symbols-outlined text-orange-500 text-[20px] mt-0.5">info</span>
             <div>
               <p class="text-sm font-semibold text-orange-700">
-                Impact Warning
+                {{ t('settings.impactWarningTitle') }}
               </p>
               <p class="text-xs text-orange-600 mt-0.5">
                 收紧阈值可能导致过渡态下出现更多的误报。

@@ -114,6 +114,7 @@
   },
   "baseline": {
     "title": "黄金基线库",
+    "subtitle": "基线管理",
     "name": "基线名称",
     "definitionName": "基线定义",
     "status": "状态",
@@ -312,6 +313,7 @@
   },
   "task": {
     "title": "纠偏任务单",
+    "subtitle": "任务执行",
     "taskNo": "任务编号",
     "relatedHeat": "关联炉次",
     "deviation": "偏差百分比",
@@ -328,12 +330,15 @@
   },
   "inbox": {
     "title": "偏差收件箱",
+    "pageDescription": "需要立即关注并分析的工艺偏差项。",
     "deviationList": "偏差列表",
+    "highPriority": "高优先级",
     "viewDetail": "查看详情",
     "deviationPending": "待计算"
   },
   "report": {
     "title": "日报与审计",
+    "subtitle": "报表审计",
     "dailyReport": "生产日报",
     "date": "日期",
     "totalHeats": "总炉数",
@@ -347,6 +352,7 @@
   },
   "settings": {
     "title": "系统设置",
+    "subtitle": "全局参数",
     "defaultTolerance": "默认容许误差",
     "edcConnection": "EDC连接配置",
     "hostManagedConnection": "宿主系统连接",
@@ -372,6 +378,7 @@
     "workEndTime": "下班时间",
     "breakPeriods": "休息时段",
     "breakPeriodsPlaceholder": "如 12:00-13:00,15:30-15:45",
+    "impactWarningTitle": "影响提示",
     "baselineLengthScopeMode": "基线等长校验范围",
     "scopeDefinition": "按基线定义",
     "scopeSystem": "按系统全局",

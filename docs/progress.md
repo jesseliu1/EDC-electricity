@@ -37,10 +37,33 @@
 - [x] 已完成宿主连线设置页 React 渲染循环与 nested button 结构问题收口，点击“测试连接”不再触发更新深度错误
 - [x] 已完成任务列表状态 Tab 真实计数收口，页面不再显示 `(...)` 占位符
 - [x] 已完成偏差收件箱空偏差值文案收口，`deviation_percent=null` 时不再显示误导性的 `--%`
+- [x] 已完成主页面英文副标题/标签混排收口，默认中文界面不再泄漏 `Baseline Library / Action Orders / High Priority / Impact Warning / Heat:` 等英文残留
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第十批 issue：主页面英文副标题与标签混排收口）
+
+- [x] 已按 investigate 顺序完成 `P1 多个页面仍残留英文副标题与英文标签，正式中文界面存在中英混排`
+  - [x] 已复核当前 `master` 仍存在源码级硬编码英文：`BaselineListView.vue` 的 `Baseline Library`、`TaskListView.vue` 的 `Action Orders / Heat:`、`ReportListView.vue` 的 `Reports & Audit`、`InboxView.vue` 的英文说明与 `High Priority`、`SettingsView.vue` 的 `System Configuration / Impact Warning`、`DashboardView.vue` 的 `Heat:`
+  - [x] 已确认根因是多个主页面直接把英文副标题和标签写死在模板里，而不是接口返回英文或 locale fallback
+  - [x] 已复核 `ReportDetailView.vue` 当前已使用 `t('report.detailSubtitle')`，issue 中提到的报表详情英文副标题更接近历史现场残留，而不是这轮 `master` 仍在生效的硬编码点
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/BaselineListView.vue`、`TaskListView.vue`、`ReportListView.vue`、`InboxView.vue`、`SettingsView.vue`、`DashboardView.vue` 已将硬编码英文副标题/标签切到 locale 或现有中文标签
+  - [x] 任务列表与 Dashboard 的 `Heat:` 已统一改为复用现有 locale `task.relatedHeat`
+  - [x] 四套语言包已补齐 `baseline.subtitle / task.subtitle / inbox.pageDescription / inbox.highPriority / report.subtitle / settings.subtitle / settings.impactWarningTitle`
+  - [x] 已为基线列表页补 `baseline-list-page` 测试锚点，便于后续稳定回归
+- [x] 本轮测试留痕
+  - [x] 测试范围：Dashboard / Baselines / Tasks / Reports / Inbox / Settings 的默认中文文案、locale 结构、EDC 前端构建
+  - [x] 验证步骤：在默认中文环境下依次打开 Dashboard、基线库、任务、报表、收件箱、设置页，确认不再出现 `Baseline Library / Action Orders / Reports & Audit / Require immediate attention... / High Priority / System Configuration / Impact Warning / Heat:`，并检查对应中文副标题或标签已经出现
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "default zh-CN pages do not leak English subtitles or labels"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；默认中文环境下六个主页面的残留英文副标题/标签已被本地化回归覆盖
+  - [x] 未覆盖项：本轮只收口“中文界面仍泄漏英文”的展示问题，没有把现有中文硬编码描述统一迁移到 locale，也没有新增真实后端环境下的多语言切换回归
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中剩余低风险、可验证、可回滚的 UI / 前端收口项，优先选择纯展示层或交互层问题
 
 ### 2026-03-25（第九批 issue：偏差收件箱空偏差值文案收口）
 

@@ -114,6 +114,7 @@
   },
   "baseline": {
     "title": "ゴールデンベースライン",
+    "subtitle": "ベースライン管理",
     "name": "ベースライン名",
     "definitionName": "定義",
     "status": "ステータス",
@@ -312,6 +313,7 @@
   },
   "task": {
     "title": "是正タスク",
+    "subtitle": "タスク実行",
     "taskNo": "タスク番号",
     "relatedHeat": "関連ヒート",
     "deviation": "偏差率",
@@ -328,12 +330,15 @@
   },
   "inbox": {
     "title": "偏差受信箱",
+    "pageDescription": "すぐに確認と分析が必要な工程偏差を一覧します。",
     "deviationList": "偏差リスト",
+    "highPriority": "高優先",
     "viewDetail": "詳細表示",
     "deviationPending": "算出待ち"
   },
   "report": {
     "title": "日報・監査",
+    "subtitle": "レポート監査",
     "dailyReport": "生産日報",
     "date": "日付",
     "totalHeats": "総ヒート数",
@@ -347,6 +352,7 @@
   },
   "settings": {
     "title": "設定",
+    "subtitle": "全体設定",
     "defaultTolerance": "デフォルト許容誤差",
     "edcConnection": "EDC接続設定",
     "hostManagedConnection": "宿主システム接続",
@@ -372,6 +378,7 @@
     "workEndTime": "勤務終了",
     "breakPeriods": "休憩時間帯",
     "breakPeriodsPlaceholder": "例 12:00-13:00,15:30-15:45",
+    "impactWarningTitle": "影響に関する注意",
     "baselineLengthScopeMode": "基線等長検証範囲",
     "scopeDefinition": "定義単位",
     "scopeSystem": "システム全体",

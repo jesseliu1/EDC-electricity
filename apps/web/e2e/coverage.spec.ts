@@ -285,6 +285,42 @@ async function mockReportsAndInbox(page: Page) {
   })
 }
 
+async function mockBaselineLibrary(page: Page) {
+  await page.route(/\/api\/baselines\/active$/, async route => {
+    await fulfillJson(route, {
+      id: 'baseline-001',
+      name: '标准基线 v2.1',
+      status: 'published',
+      version: 2
+    })
+  })
+
+  await page.route(/\/api\/baselines(\?.*)?$/, async route => {
+    await fulfillJson(route, {
+      items: [
+        {
+          id: 'baseline-001',
+          name: '标准基线 v2.1',
+          description: '用于正式回归的标准曲线',
+          definition_id: 'def-001',
+          definition_name: '标准熔炼基线',
+          source_heat_id: 'heat-001',
+          selected_start_time: '2026-03-20T08:00:00Z',
+          selected_end_time: '2026-03-20T08:35:00Z',
+          tolerance_percent: 12,
+          status: 'published',
+          version: 2,
+          curve_source: 'live_edc',
+          created_at: '2026-03-20T08:40:00Z',
+          updated_at: '2026-03-20T08:40:00Z',
+          published_at: '2026-03-20T08:45:00Z'
+        }
+      ],
+      total: 1
+    })
+  })
+}
+
 async function mockTaskWorkflow(page: Page) {
   const detailBody = {
     id: 'mock-task-1',
@@ -393,6 +429,47 @@ async function mockTaskWorkflow(page: Page) {
       ...payload,
       status: 'completed',
       completed_at: '2026-03-12T12:00:00Z'
+    })
+  })
+}
+
+async function mockDashboardOverview(page: Page) {
+  await page.route('**/api/dashboard/stats', async route => {
+    await fulfillJson(route, {
+      today_heats: 8,
+      avg_deviation: 12.4,
+      pending_tasks: 3,
+      active_baseline: '标准基线 v2.1',
+      normal_rate: 75
+    })
+  })
+
+  await page.route('**/api/dashboard/realtime?**', async route => {
+    await fulfillJson(route, {
+      timestamp: '2026-03-20T08:30:00Z',
+      baseline_id: 'baseline-001',
+      baseline_name: '标准基线 v2.1',
+      power_source_label: '总有功功率',
+      voltage_source_label: 'A相电压',
+      power: [],
+      voltage: [],
+      baseline_power: [],
+      baseline_voltage: []
+    })
+  })
+
+  await page.route('**/api/dashboard/recent-heats?**', async route => {
+    await fulfillJson(route, {
+      items: [
+        {
+          id: 'heat-001',
+          heat_no: 'H20260320-001',
+          start_time: '2026-03-20T08:00:00Z',
+          end_time: '2026-03-20T08:35:00Z',
+          status: 'abnormal',
+          deviation_percent: 18.2
+        }
+      ]
     })
   })
 }
@@ -649,6 +726,51 @@ test.describe('EDC web extended coverage', () => {
     await expect(page.getByTestId('inbox-page')).toBeVisible()
     await expect(page.getByTestId('inbox-deviation-inbox-null-001')).toHaveText('待计算')
     await expect(page.getByTestId('inbox-row-inbox-null-001')).not.toContainText('--%')
+  })
+
+  test('default zh-CN pages do not leak English subtitles or labels', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await mockDashboardOverview(page)
+    await mockTaskWorkflow(page)
+    await mockBaselineLibrary(page)
+    await mockReportsAndInbox(page)
+    await mockSettingsWorkflow(page)
+
+    await page.goto('')
+    await expect(page.getByTestId('dashboard-page')).toBeVisible()
+    await expect(page.getByTestId('dashboard-page')).toContainText('关联炉次: heat-001')
+    await expect(page.getByTestId('dashboard-page')).not.toContainText('Heat:')
+
+    await page.goto('baselines')
+    await expect(page.getByTestId('baseline-list-page')).toBeVisible()
+    await expect(page.getByTestId('baseline-list-page')).toContainText('基线管理')
+    await expect(page.getByTestId('baseline-list-page')).not.toContainText('Baseline Library')
+
+    await page.goto('tasks')
+    await expect(page.getByTestId('task-list-page')).toBeVisible()
+    await expect(page.getByTestId('task-list-page')).toContainText('任务执行')
+    await expect(page.getByTestId('task-list-page')).toContainText('关联炉次: heat-001')
+    await expect(page.getByTestId('task-list-page')).not.toContainText('Action Orders')
+    await expect(page.getByTestId('task-list-page')).not.toContainText('Heat:')
+
+    await page.goto('reports')
+    await expect(page.getByTestId('report-list-page')).toBeVisible()
+    await expect(page.getByTestId('report-list-page')).toContainText('报表审计')
+    await expect(page.getByTestId('report-list-page')).not.toContainText('Reports & Audit')
+
+    await page.goto('inbox')
+    await expect(page.getByTestId('inbox-page')).toBeVisible()
+    await expect(page.getByTestId('inbox-page')).toContainText('需要立即关注并分析的工艺偏差项。')
+    await expect(page.getByTestId('inbox-page')).toContainText('高优先级')
+    await expect(page.getByTestId('inbox-page')).not.toContainText('Require immediate attention and analysis for process deviations.')
+    await expect(page.getByTestId('inbox-page')).not.toContainText('High Priority')
+
+    await page.goto('settings')
+    await expect(page.getByTestId('settings-page')).toBeVisible()
+    await expect(page.getByTestId('settings-page')).toContainText('全局参数')
+    await expect(page.getByTestId('settings-page')).toContainText('影响提示')
+    await expect(page.getByTestId('settings-page')).not.toContainText('System Configuration')
+    await expect(page.getByTestId('settings-page')).not.toContainText('Impact Warning')
   })
 
   test('report detail shows explicit error state when detail request fails', async ({ page }) => {

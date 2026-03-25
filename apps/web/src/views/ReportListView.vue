@@ -33,7 +33,7 @@ onMounted(() => {
     <!-- 页面头部 -->
     <PageHeader
       :title="t('report.title')"
-      subtitle="Reports & Audit"
+      :subtitle="t('report.subtitle')"
       description="昨日偏差统计与数据审计管理"
     >
       <template #actions>

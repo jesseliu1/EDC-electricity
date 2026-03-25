@@ -359,21 +359,33 @@
   3. 切换三种校验范围，确认功能不受影响
 
 ### P1 多个页面仍残留英文副标题与英文标签，正式中文界面存在中英混排
-- **状态**: 新发现待处理（2026-03-21）
-- **页面/模块**: Dashboard / Inbox / Tasks / Reports / Settings
+- **状态**: 已修复并回归通过（2026-03-25）
+- **页面/模块**: Dashboard / Baselines / Inbox / Tasks / Reports / Settings
 - **复现步骤**:
   1. 以默认中文环境打开各主页面
   2. 观察页面标题区、副标题、状态标签和辅助文案
 - **实际结果**:
-  - 当前已发现多处中英混排，例如：
-    - Dashboard / 基线库：`Baseline Library`
+  - 修复前默认中文界面仍会泄漏英文副标题/标签，例如：
+    - 基线库：`Baseline Library`
     - 任务页：`Action Orders`
     - 报表页：`Reports & Audit`
-    - 报表详情：`Data compiled from 00:00 to 23:59`
-    - 收件箱：`Require immediate attention and analysis for process deviations.`
-    - 收件箱卡片：`High Priority`、`Deviation`
+    - 收件箱：`Require immediate attention and analysis for process deviations.`、`High Priority`
     - 设置页：`System Configuration`、`Impact Warning`
-  - 这些文案与当前简体中文主界面并不统一
+    - Dashboard / 任务列表：`Heat:`
+  - 这类硬编码英文会让正式中文界面出现明显中英混排
+- **调查结论（2026-03-25）**:
+  - 根因已确认是多个主页面直接把英文副标题和标签写死在模板里，不是接口返回英文，也不是 locale 缺 key fallback。
+  - `ReportDetailView.vue` 当前已使用 `t('report.detailSubtitle')`，issue 里提到的报表详情英文副标题更接近历史现场残留，而不是这轮 `master` 仍在生效的代码路径。
+- **修复结果**:
+  - `apps/web/src/views/BaselineListView.vue`、`TaskListView.vue`、`ReportListView.vue`、`InboxView.vue`、`SettingsView.vue`、`DashboardView.vue` 已将上述英文副标题/标签切到 locale 或现有中文标签。
+  - `apps/web/src/locales/zh-CN.json`、`zh-TW.json`、`ja-JP.json`、`en-US.json` 已补齐 `baseline.subtitle / task.subtitle / inbox.pageDescription / inbox.highPriority / report.subtitle / settings.subtitle / settings.impactWarningTitle`。
+  - 任务列表与 Dashboard 的 `Heat:` 已统一改为复用 `task.relatedHeat`，避免再次出现独立硬编码。
+  - 已为基线列表页补 `baseline-list-page` 测试锚点，并新增默认中文环境下的 mixed-language 定向回归。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "default zh-CN pages do not leak English subtitles or labels"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 默认中文界面应统一为中文文案，或至少遵循明确的双语策略
   - 不应在同一页面同时混用大量英文副标题和英文状态标签

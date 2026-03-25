@@ -114,6 +114,7 @@
   },
   "baseline": {
     "title": "黃金基線庫",
+    "subtitle": "基線管理",
     "name": "基線名稱",
     "definitionName": "基線定義",
     "status": "狀態",
@@ -312,6 +313,7 @@
   },
   "task": {
     "title": "糾偏任務單",
+    "subtitle": "任務執行",
     "taskNo": "任務編號",
     "relatedHeat": "關聯爐次",
     "deviation": "偏差百分比",
@@ -328,12 +330,15 @@
   },
   "inbox": {
     "title": "偏差收件箱",
+    "pageDescription": "需要立即關注並分析的製程偏差項目。",
     "deviationList": "偏差列表",
+    "highPriority": "高優先級",
     "viewDetail": "檢視詳情",
     "deviationPending": "待計算"
   },
   "report": {
     "title": "日報與稽核",
+    "subtitle": "報表審計",
     "dailyReport": "生產日報",
     "date": "日期",
     "totalHeats": "總爐數",
@@ -347,6 +352,7 @@
   },
   "settings": {
     "title": "系統設定",
+    "subtitle": "全域參數",
     "defaultTolerance": "預設容許誤差",
     "edcConnection": "EDC連線設定",
     "hostManagedConnection": "宿主系統連線",
@@ -372,6 +378,7 @@
     "workEndTime": "下班時間",
     "breakPeriods": "休息時段",
     "breakPeriodsPlaceholder": "例如 12:00-13:00,15:30-15:45",
+    "impactWarningTitle": "影響提示",
     "baselineLengthScopeMode": "基線等長校驗範圍",
     "scopeDefinition": "按基線定義",
     "scopeSystem": "按系統全域",

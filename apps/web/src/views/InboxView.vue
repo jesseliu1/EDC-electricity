@@ -39,7 +39,7 @@ onMounted(async () => {
 
     <PageHeader
       :title="t('inbox.title')"
-      description="Require immediate attention and analysis for process deviations."
+      :description="t('inbox.pageDescription')"
     >
       <template #actions>
         <div class="flex items-center gap-2 bg-orange-50 text-orange-700 font-medium px-3 py-1.5 rounded text-sm border border-orange-200">
@@ -81,7 +81,7 @@ onMounted(async () => {
                   v-if="item.status === 'abnormal'"
                   class="bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider"
                 >
-                  High Priority
+                  {{ t('inbox.highPriority') }}
                 </span>
               </div>
               <div class="text-sm text-slate-500 flex items-center gap-3">

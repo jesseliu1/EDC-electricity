@@ -135,11 +135,14 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6">
+  <div
+    class="flex flex-col gap-6"
+    data-testid="baseline-list-page"
+  >
     <!-- 页面头部 -->
     <PageHeader
       :title="t('baseline.title')"
-      subtitle="Baseline Library"
+      :subtitle="t('baseline.subtitle')"
       description="沉淀与管理经过专家验证的最佳熔炼曲线，作为系统偏差分析的对比基准。"
     >
       <template #actions>

@@ -320,7 +320,7 @@ onMounted(() => {
                 {{ item.taskNo }}
               </p>
               <p class="text-xs text-slate-500">
-                Heat: {{ item.heatId }}
+                {{ t('task.relatedHeat') }}: {{ item.heatId }}
               </p>
               <div class="flex items-center justify-between mt-2">
                 <span class="text-xs text-slate-400">{{ item.updatedAt }}</span>

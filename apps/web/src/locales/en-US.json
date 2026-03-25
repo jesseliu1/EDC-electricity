@@ -114,6 +114,7 @@
   },
   "baseline": {
     "title": "Golden Baselines",
+    "subtitle": "Baseline Management",
     "name": "Baseline Name",
     "definitionName": "Definition",
     "status": "Status",
@@ -312,6 +313,7 @@
   },
   "task": {
     "title": "Correction Tasks",
+    "subtitle": "Task Workflow",
     "taskNo": "Task No.",
     "relatedHeat": "Related Heat",
     "deviation": "Deviation %",
@@ -328,12 +330,15 @@
   },
   "inbox": {
     "title": "Deviation Inbox",
+    "pageDescription": "Items that need immediate attention and deviation analysis.",
     "deviationList": "Deviation List",
+    "highPriority": "High Priority",
     "viewDetail": "View Detail",
     "deviationPending": "Pending"
   },
   "report": {
     "title": "Reports & Audit",
+    "subtitle": "Reporting Operations",
     "dailyReport": "Daily Report",
     "date": "Date",
     "totalHeats": "Total Heats",
@@ -347,6 +352,7 @@
   },
   "settings": {
     "title": "Settings",
+    "subtitle": "System Configuration",
     "defaultTolerance": "Default Tolerance",
     "edcConnection": "EDC Connection",
     "hostManagedConnection": "Host-managed Connection",
@@ -372,6 +378,7 @@
     "workEndTime": "Work End Time",
     "breakPeriods": "Break Periods",
     "breakPeriodsPlaceholder": "e.g. 12:00-13:00,15:30-15:45",
+    "impactWarningTitle": "Impact Warning",
     "baselineLengthScopeMode": "Baseline Length Scope",
     "scopeDefinition": "By Definition",
     "scopeSystem": "System-wide",
