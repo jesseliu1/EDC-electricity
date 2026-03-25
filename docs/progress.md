@@ -59,10 +59,30 @@
 - [x] 已完成报表详情“接口成功但页面长期加载中”问题的复验收口：当前 `master` 上成功态/失败态都能退出 loading，issue 已转为“验收通过”
 - [x] 已完成 compare 时间窗口不稳定 issue 的状态文案归一化：当前仓库最小修复与定向回归已足够按“验收通过”收口，现场 `8000` 运行态差异保留为未覆盖风险说明
 - [x] 已完成任务列表状态 Tab 计数 issue 的标准状态归一化：当前 `master` 代码与定向回归一致，文档状态已统一为“验收通过”
+- [x] 已完成偏差收件箱空偏差文案 issue 的标准状态归一化：当前 `master` 代码与定向回归一致，文档状态已统一为“验收通过”
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第三十二批 issue：偏差收件箱空偏差文案状态文案归一化收口）
+
+- [x] 已按 investigate 顺序复核 `P1 偏差收件箱异常卡片显示 Deviation --%，与“偏差收件箱”语义不符`
+  - [x] 已确认当前 `apps/web/src/views/InboxView.vue` 通过 `formatDeviation()` 处理 `deviationPercent`，在 `null` 时统一显示 `t('inbox.deviationPending')`
+  - [x] 已确认当前页面已使用 `t('heat.deviation')` 作为偏差标签，且保留了 `inbox-deviation-*` 稳定测试锚点
+  - [x] 已判断该条 issue 在当前 `master` 上已满足标准关单条件；本轮无需修改业务代码，只需复跑现有回归并统一文档状态
+- [x] 已完成最小收口
+  - [x] 本轮未修改 `InboxView` 逻辑，仅将 `docs/ui_issues.md` 中该条 issue 从“已修复并回归通过”统一为“验收通过”
+  - [x] `docs/progress.md` 已新增本轮复验记录，明确这是 docs-only 的状态归一化收口
+  - [x] 本轮未补 `docs/lessons.md`：没有新增可复用错误模式，只是复验既有修复结果并统一状态文案
+- [x] 本轮测试留痕
+  - [x] 测试范围：偏差收件箱空偏差值展示、异常卡片偏差文案、`null` 偏差值降级文案
+  - [x] 验证步骤：构造 `deviation_percent=null` 的异常炉次；进入偏差收件箱；确认右侧偏差值区域显示“待计算”，且卡片不再出现 `--%`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "inbox shows a pending-copy fallback instead of misleading empty deviation percent"`
+  - [x] 执行命令：`git diff --check`
+  - [x] 结果：命令通过；当前 `master` 上偏差收件箱不再显示误导性的 `Deviation --%`
+  - [x] 未覆盖项：本轮没有重新补跑 lint/build，全量行为仍以此前回归记录为准；当前重点仅为验证空偏差展示语义未回退
+  - [x] 下一步：继续挑选 `docs/ui_issues.md` 中仍是“已修复并回归通过”的低风险条目，按同样方式统一到标准关单口径
 
 ### 2026-03-25（第三十一批 issue：任务列表状态计数状态文案归一化收口）
 

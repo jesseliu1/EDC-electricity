@@ -494,7 +494,7 @@
   3. 确认不会再出现 `(...)` 占位符
 
 ### P1 偏差收件箱异常卡片显示 `Deviation --%`，与“偏差收件箱”语义不符
-- **状态**: 已修复并回归通过（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 偏差收件箱
 - **复现步骤**:
   1. 打开“偏差收件箱”页面
@@ -514,6 +514,9 @@
   - `apps/web/src/views/InboxView.vue` 现已对 `deviationPercent === null` 显示明确文案 `待计算`，不再展示 `--%`。
   - 偏差标签已改为 locale 文案 `t('heat.deviation')`，避免继续输出硬编码 `Deviation`。
   - 已补 `inbox.deviationPending` locale key 和 `inbox-deviation-*` 测试锚点。
+- **复验结论（2026-03-25）**:
+  - 当前 `master` 的 `InboxView` 代码与 issue 修复描述一致，页面已稳定使用“待计算”替代误导性的 `--%`
+  - 本轮复跑现有定向回归后确认该语义仍稳定，因此仅将状态文案从“已修复并回归通过”统一为“验收通过”
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过
