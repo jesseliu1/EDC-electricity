@@ -61,10 +61,45 @@
 - [x] 已完成任务列表状态 Tab 计数 issue 的标准状态归一化：当前 `master` 代码与定向回归一致，文档状态已统一为“验收通过”
 - [x] 已完成偏差收件箱空偏差文案 issue 的标准状态归一化：当前 `master` 代码与定向回归一致，文档状态已统一为“验收通过”
 - [x] 已完成剩余 16 条“已修复并回归通过” tracked issues 的最小回归与标准状态归一化：`docs/ui_issues.md` 已不再残留该状态文案
+- [x] 已完成 EDC 后端 pytest 环境缺口最小调查：确认项目配置本身完整，但当前服务器缺少可直接运行的 `uv` / `python3.11`，且 `apps/server/venv` 仅残留不完整 `site-packages`，本轮不做高风险环境重建，改以文档留痕和下一阶段 handoff 收口
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第三十四批 issue：EDC 后端 pytest 环境缺口调查与下一阶段 review/full test handoff）
+
+- [x] 已按 investigate 顺序完成 EDC 后端 pytest 环境缺口的 10 分钟最小调查
+  - [x] 已确认 `apps/server/pyproject.toml` 已声明 `pytest`、`pytest-asyncio` 作为 `dev` optional dependencies，`uv.lock` 也包含对应锁定依赖
+  - [x] 已确认 `apps/server/README.md` 当前标准开发口径就是 `uv sync --all-extras` 与 `uv run pytest`
+  - [x] 已确认当前服务器缺少 `uv`、缺少 `python3.11`，而系统 `python3` 为 `3.13`
+  - [x] 已确认仓内 `apps/server/venv` 不是完整虚拟环境：只有 `lib/python3.11/site-packages`，没有 `bin/python`、`bin/pytest` 或等价可执行入口
+  - [x] 已进一步确认该 `site-packages` 也是不完整拷贝：`pytest/` 与 `pytest_asyncio/` 目录仅剩 `__pycache__`，无法作为可运行入口直接复用
+- [x] 已完成最小处置
+  - [x] 本轮未改 EDC/ASNS 业务代码，也未强行引入全局装包、Python 版本切换或 CI/架构级改造
+  - [x] 由于当前机器同时缺少 `uv`、`python3.11`，且仓内残留的 `apps/server/venv` 不是完整可执行环境，本轮判断“不存在可在当前约束下安全补齐并验证一条 pytest 的最小代码改动”
+  - [x] 已将阻塞原因、可选方案、以及给下一阶段 Code X + `review` skill 的 full review/full test handoff 写入 `docs/session_handoff.md`
+  - [x] 本轮未更新 `docs/ui_issues.md`：这不是某条 tracked UI issue 的状态变化，而是测试环境缺口调查与交接收口
+  - [x] 已补 `docs/lessons.md`：新增“不要把残缺 `site-packages` 误判成可运行虚拟环境”的环境检查经验
+- [x] 本轮测试/验证留痕
+  - [x] 测试范围：EDC 后端 pytest 运行前提、仓内 Python 配置完整性、当前服务器是否具备可复用的最小测试入口；以及下一阶段 full review/full test handoff 完整性
+  - [x] 验证步骤：检查 `pyproject.toml / README / uv.lock`；检查 `apps/server/venv` 结构与 `site-packages` 内容；验证当前机器是否存在 `uv` / `python3.11`；尝试以最小方式调用现有 pytest 依赖；若入口不可用则停止扩大并改为 docs-only handoff
+  - [x] 执行命令：`rg --files -g 'pyproject.toml' -g 'requirements*.txt' -g 'poetry.lock' -g 'Pipfile' -g 'tox.ini' -g 'pytest.ini' -g 'setup.cfg' -g '.python-version'`
+  - [x] 执行命令：`sed -n '1,240p' apps/server/pyproject.toml`
+  - [x] 执行命令：`sed -n '1,220p' apps/server/README.md`
+  - [x] 执行命令：`ls -la apps/server`
+  - [x] 执行命令：`ls -la apps/server/venv`
+  - [x] 执行命令：`find apps/server/venv -maxdepth 3 -type f \\( -path '*/bin/*' -o -path '*/Scripts/*' \\)`
+  - [x] 执行命令：`python3.11 --version`
+  - [x] 执行命令：`python3 -m pytest apps/server/tests/test_baselines_dashboard_api.py -k "baseline_definition_crud_and_metric_workflow or baseline_crud_publish_disable_and_delete"`
+  - [x] 执行命令：`PYTHONPATH=apps/server/venv/lib/python3.11/site-packages python3 - <<'PY' ... import pytest, fastapi, httpx, pydantic, pydantic_core ... PY`
+  - [x] 执行命令：`PYTHONPATH=apps/server/venv/lib/python3.11/site-packages python3 -m pytest apps/server/tests/test_baselines_dashboard_api.py -k baseline_definition_crud_and_metric_workflow -q`
+  - [x] 执行命令：`PYTHONPATH=apps/server/venv/lib/python3.11/site-packages python3 - <<'PY' ... import pytest ... PY`
+  - [x] 执行命令：`PYTHONPATH=apps/server/venv/lib/python3.11/site-packages python3 - <<'PY' ... from _pytest.config import main ... PY`
+  - [x] 结果：项目配置面已具备标准 pytest 依赖声明，但当前服务器不具备可运行该入口的前提；`python3.11` 与 `uv` 都不存在，`apps/server/venv` 仅为不完整残留，`pytest`/`pytest_asyncio` 包本体不完整，因此本轮无法在“不全局装包 / 不重建环境 / 不跨 Python 大版本”的约束下安全补齐并验证真实 pytest 入口
+  - [x] 未覆盖项：本轮没有重建 Python 3.11 虚拟环境、没有安装 `uv`、没有运行任何真实后端 pytest；下一阶段 full review/full test 前仍需先补齐 Python 测试环境
+  - [x] 当前状态：当前开发/收口阶段已完成；项目代码与文档已进入“交给 Code X + `review` skill 做 full review/full test”的准备态，但 EDC 后端 pytest 环境仍是已知前置阻塞
+  - [x] 下一步：Code X 进入下一阶段时，应优先解决后端测试入口（推荐 `uv + Python 3.11`），然后按 `docs/session_handoff.md` 中的全量回归范围执行 `review` + full test，而不是继续修改已收口的 UI issue
 
 ### 2026-03-25（第三十三批 issue：剩余 16 条 tracked issues 标准关单归一化与最小回归）
 

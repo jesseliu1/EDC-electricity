@@ -4,6 +4,77 @@
 
 ---
 
+## 2026-03-25 最新交接（优先于下面历史内容）
+
+- 当前开发/收口阶段已完成：`docs/ui_issues.md` 中 tracked issues 已统一收口到标准状态，最近两次收口提交已推到 `origin/master`
+  - `6d7b985` `docs: close remaining tracked issue statuses`
+  - `7d5cbfb` `docs: finalize progress closure state`
+- 当前仓库状态：
+  - 分支：`master`
+  - 工作树：干净
+  - 下一阶段不再是继续点修 UI issue，而是交给 **Code X + `review` skill** 做 **full review / full test**
+
+### 下一阶段目标
+
+- 目标：在不重新理解整段历史上下文的前提下，直接对当前 `master` 做一轮完整审查与完整回归，判断是否达到可继续联调/部署的质量门槛
+- 建议工作模式：
+  - 先读 `docs/progress.md` 最新两轮记录，确认已收口 issue 与当前未覆盖项
+  - 再读 `docs/ui_issues.md`，抽查已验收条目的证据口径
+  - 启动 `review` skill，重点看回归盲区、测试入口缺口、环境依赖问题，而不是重新做 UI 小修
+
+### 建议测试范围
+
+- EDC 前端基础回归
+  - `pnpm --dir apps/web lint`
+  - `pnpm --dir apps/web test:i18n`
+  - `pnpm --dir apps/web build`
+- EDC 前端关键 Playwright 回归
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/loading-error-states.spec.ts`
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts`
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts`
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts`
+- ASNS 宿主基础回归
+  - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run lint`
+  - `npm --prefix 'docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統' run build`
+  - 若要补宿主浏览器级验证，应优先把此前一次性 Playwright 控制台脚本收成可复用入口
+- EDC 后端测试
+  - 目标应覆盖至少：`tests/test_baselines_dashboard_api.py`、`tests/test_heats_api.py`、`tests/test_tasks_reports_settings_api.py`
+  - 但当前机器的前置阻塞尚未解除，见下面“已知环境缺口”
+
+### 重点回归面
+
+- Dashboard / Heat Detail 的 timeout/error state 不再伪装为空态或长期 loading
+- i18n missing-key 告警、默认中文界面的中英混排、不完整 locale 回退
+- Heat Detail 的状态口径拆分、异常原因/切割原因本地化
+- Baseline/Task/Heat 列表中的占位按钮、假搜索/假筛选、误导性空偏差文案
+- `live_inferred` canonical URL 替换与 Heat Detail 创建任务最小闭环
+- ASNS 宿主设置页的 `Maximum update depth exceeded` / nested button 风险是否仍无回流
+
+### 已知环境缺口
+
+- EDC 后端 pytest 目前 **不能直接在这台机器上跑**
+  - `apps/server/pyproject.toml` 已声明 `pytest` / `pytest-asyncio`
+  - `apps/server/README.md` 口径是 `uv sync --all-extras` + `uv run pytest`
+  - 但当前机器缺少 `uv`
+  - 当前机器缺少 `python3.11`
+  - 当前 `apps/server/venv` 不是完整虚拟环境，只剩 `lib/python3.11/site-packages`
+  - 其中 `pytest/` 与 `pytest_asyncio/` 目录本体也不完整，不能直接作为可运行入口复用
+- ASNS `npm test` 当前也不是稳定入口
+  - 现状会因 `import.meta.env` 在 Node 测试环境未定义而失败
+  - 这不是已收口 UI issue 的直接业务回退，但属于下一阶段应纳入的测试工程化缺口
+
+### 建议下一步
+
+1. 优先在安全前提下补齐 EDC 后端测试环境
+   - 推荐方案：在项目约束内提供 `uv` + Python 3.11，再执行 `cd apps/server && uv sync --all-extras && uv run pytest`
+   - 不建议方案：直接用系统 `python3.13` 强行跑 `apps/server`，因为 `pyproject` 明确要求 `>=3.11,<3.12`
+2. 然后由 Code X + `review` skill 做 full review/full test
+   - 先跑前端/宿主基础验证
+   - 再补全后端 pytest
+   - 最后汇总未覆盖项、真实阻塞和是否可继续部署/联调
+
+> 下面内容保留为历史上下文，不再代表当前“下一步”。
+
 ## 当前状态
 
 - 当前阶段：MVP 完成，进入联调整体验收与真实 EDC 替换收口阶段
