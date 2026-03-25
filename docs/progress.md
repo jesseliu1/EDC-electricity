@@ -96,10 +96,13 @@
   - [x] 执行命令：`pnpm --dir apps/web test:i18n`
   - [x] 执行命令：`pnpm --dir apps/web build`
   - [x] 执行命令：`git diff --check`
-  - [x] 结果：EDC 4 组定向 Playwright 复验在修正一处设置页测试定位后全部通过；随后 `pnpm --dir apps/web lint`、`test:i18n`、`build` 也均通过；`docs/ui_issues.md` 已不再残留旧状态行；后端 `py_compile` 通过，但 `pytest` 因当前系统 Python 缺少 `pytest` 无法执行；ASNS `lint/build` 通过，`npm test` 因 Node 测试环境中 `import.meta.env` 未定义而失败，不作为本轮两条宿主 UI issue 的验收阻塞；`git diff --check` 通过
+  - [x] 执行命令：`git status --short --branch`
+  - [x] 执行命令：`git commit -m "docs: close remaining tracked issue statuses"`
+  - [x] 执行命令：`git push`
+  - [x] 结果：EDC 4 组定向 Playwright 复验在修正一处设置页测试定位后全部通过；随后 `pnpm --dir apps/web lint`、`test:i18n`、`build` 也均通过；`docs/ui_issues.md` 已不再残留旧状态行；后端 `py_compile` 通过，但 `pytest` 因当前系统 Python 缺少 `pytest` 无法执行；ASNS `lint/build` 通过，`npm test` 因 Node 测试环境中 `import.meta.env` 未定义而失败，不作为本轮两条宿主 UI issue 的验收阻塞；`git diff --check` 通过；本轮收口提交 `6d7b985 docs: close remaining tracked issue statuses` 已成功推送到 `origin/master`
   - [x] 未覆盖项：ASNS 两条 issue 本轮未重新执行此前的一次性 Playwright 控制台脚本，只以 `lint/build + 代码面复核` 作为最小证据；后端 baseline definition 计数仍缺真实 `pytest` 运行环境；Playwright 运行中出现的 `NO_COLOR` 与本地 Vite proxy warning 为测试环境噪音，不代表当前业务回退
-  - [x] 当前状态：剩余 16 条 tracked issues 已全部统一为“验收通过”，本轮最小定向回归与前端最终基础验证均已完成，待做的是 git 收口与推送
-  - [x] 下一步：执行 `git status` 自检、原子 commit、push，并输出最终 commit hash、验证结果与未覆盖风险
+  - [x] 当前状态：剩余 16 条 tracked issues 已全部统一为“验收通过”；本轮最小定向回归、前端最终基础验证、docs 留痕、commit 与 push 均已完成；当前分支状态为 `master...origin/master` 且工作树干净
+  - [x] 下一步：若继续推进，优先处理未覆盖的测试环境缺口：为后端补可运行的 `pytest` 环境，为 ASNS 宿主补稳定可复用的浏览器自动化入口，而不是继续修改已收口 issue 的业务代码
 
 ### 2026-03-25（第三十二批 issue：偏差收件箱空偏差文案状态文案归一化收口）
 
