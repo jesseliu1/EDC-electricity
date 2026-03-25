@@ -317,6 +317,8 @@
   "task": {
     "title": "糾偏任務單",
     "subtitle": "任務執行",
+    "createAction": "新建糾偏任務",
+    "createHint": "新建糾偏任務入口開發中",
     "taskNo": "任務編號",
     "relatedHeat": "關聯爐次",
     "deviation": "偏差百分比",

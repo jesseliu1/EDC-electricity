@@ -317,6 +317,8 @@
   "task": {
     "title": "Correction Tasks",
     "subtitle": "Task Workflow",
+    "createAction": "Create Correction Task",
+    "createHint": "Correction task creation entry is under development",
     "taskNo": "Task No.",
     "relatedHeat": "Related Heat",
     "deviation": "Deviation %",

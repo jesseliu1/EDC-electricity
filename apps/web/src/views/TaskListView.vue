@@ -2,7 +2,7 @@
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElPagination } from 'element-plus'
+import { ElMessage, ElPagination } from 'element-plus'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -44,6 +44,10 @@ function handleViewDetail(id: string) {
   router.push(`/tasks/${id}`)
 }
 
+function handleCreateTask() {
+  ElMessage.info(t('task.createHint'))
+}
+
 function statusFilterLabel(key: TaskFilterKey, label: string) {
   const count = taskStore.statusCounts[key]
   return count === null ? label : `${label} (${count})`
@@ -72,10 +76,12 @@ onMounted(() => {
     >
       <template #actions>
         <button
+          data-testid="task-create-button"
           class="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
+          @click="handleCreateTask"
         >
           <span class="material-symbols-outlined text-[18px]">add</span>
-          新建纠偏任务
+          {{ t('task.createAction') }}
         </button>
       </template>
     </PageHeader>

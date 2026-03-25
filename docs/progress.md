@@ -40,10 +40,33 @@
 - [x] 已完成主页面英文副标题/标签混排收口，默认中文界面不再泄漏 `Baseline Library / Action Orders / High Priority / Impact Warning / Heat:` 等英文残留
 - [x] 已完成炉次浏览展开区 CTA 文案校正，“查看完整报告” 已改为与详情跳转一致的“查看炉次详情”
 - [x] 已完成黄金基线库“刷新数据”按钮收口，点击后会触发真实重拉并显示加载态，不再静默无响应
+- [x] 已完成任务列表页“新建纠偏任务”主按钮收口，点击后会给出明确占位反馈，不再静默无响应
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第十三批 issue：任务列表主按钮占位反馈收口）
+
+- [x] 已按 investigate 顺序完成 `P1 任务列表页“新建纠偏任务”按钮当前无任何反馈或跳转`
+  - [x] 已复核当前 `master` 中 `apps/web/src/views/TaskListView.vue` 的右上角主按钮没有绑定 `@click`
+  - [x] 已确认根因是正式页面保留了主 CTA 按钮样式，但没有接到跳转、弹窗或提示消息，因此用户看到的是“像可用但无响应”的占位入口
+  - [x] 已确认当前没有现成的新建任务页或弹窗链路可直接复用，本轮最小修复应先补明确反馈，不扩到任务创建业务
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/TaskListView.vue` 已新增 `handleCreateTask()`，点击主按钮后会通过 `ElMessage.info` 显示明确“开发中”提示
+  - [x] 任务列表主按钮已补 `task-create-button` 测试锚点，并切到 locale 文案 `task.createAction / task.createHint`
+  - [x] 四套语言包已补齐 `task.createAction / task.createHint`
+  - [x] 未改动任务列表筛选、任务详情、任务创建接口或任何后端链路
+- [x] 本轮测试留痕
+  - [x] 测试范围：任务列表主按钮交互反馈、locale 结构、EDC 前端构建
+  - [x] 验证步骤：打开“纠偏任务单”页面；点击右上角“新建纠偏任务”；确认页面仍停留在 `/tasks`，但会出现明确“开发中”提示消息，而不是静默无响应
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "task list create button shows explicit placeholder feedback instead of staying silent"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：以上命令均通过；任务列表主按钮已不再静默无响应，定向回归确认点击后会出现明确提示消息
+  - [x] 未覆盖项：本轮没有新增真正的任务创建表单或跳转链路；当前修复重点仅为“主 CTA 不能无反馈”
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中剩余低风险、可验证、可回滚的前端交互/占位入口问题，优先选择其它无反馈按钮
 
 ### 2026-03-25（第十二批 issue：黄金基线库刷新按钮接入真实反馈）
 

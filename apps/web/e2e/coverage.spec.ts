@@ -731,6 +731,17 @@ test.describe('EDC web extended coverage', () => {
     await expect(page.getByText('已完成')).toBeVisible()
   })
 
+  test('task list create button shows explicit placeholder feedback instead of staying silent', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await mockTaskWorkflow(page)
+    await page.goto('tasks')
+
+    await expect(page.getByTestId('task-list-page')).toBeVisible()
+    await page.getByTestId('task-create-button').click()
+    await expect(page.locator('.el-message__content').filter({ hasText: '新建纠偏任务入口开发中' })).toBeVisible()
+    await expect(page).toHaveURL(/\/edc\/tasks$/)
+  })
+
   test('reports and inbox pages can navigate into detail pages', async ({ page }) => {
     await mockRuntimeStatus(page)
     await mockReportsAndInbox(page)

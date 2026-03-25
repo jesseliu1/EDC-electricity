@@ -571,7 +571,7 @@
   3. 验证宿主页面交互仍正常
 
 ### P1 任务列表页“新建纠偏任务”按钮当前无任何反馈或跳转
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: 纠偏任务单 / 列表页
 - **复现步骤**:
   1. 打开“纠偏任务单”页面
@@ -583,6 +583,18 @@
 - **当前证据**:
   - Playwright 已验证点击前后均停留在 `/tasks`
   - 页面正文无任何新增 UI 状态
+- **调查结论（2026-03-25）**:
+  - 根因已确认是任务列表页保留了一个视觉上可点击的主 CTA，但没有绑定任何动作处理函数。
+  - 当前代码中并不存在可直接复用的新建任务表单或跳转页，因此本轮最小修复应先让按钮给出明确反馈，而不是继续保持无响应。
+- **修复结果**:
+  - `apps/web/src/views/TaskListView.vue` 已新增 `handleCreateTask()`，点击右上角主按钮后会通过 `ElMessage.info` 显示“新建纠偏任务入口开发中”。
+  - 任务列表主按钮已新增 `task-create-button` 测试锚点，并切到 locale 文案 `task.createAction / task.createHint`。
+  - `apps/web/src/locales/zh-CN.json`、`zh-TW.json`、`ja-JP.json`、`en-US.json` 已补齐 `task.createAction / task.createHint`。
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "task list create button shows explicit placeholder feedback instead of staying silent"` 通过
+  - `pnpm --dir apps/web build` 通过
 - **期望结果**:
   - 按钮应有明确动作：跳转、弹窗、禁用态说明，三者至少占其一
   - 不应保留一个看起来可用但实际无反馈的主按钮

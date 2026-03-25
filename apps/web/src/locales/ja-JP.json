@@ -317,6 +317,8 @@
   "task": {
     "title": "是正タスク",
     "subtitle": "タスク実行",
+    "createAction": "是正タスクを作成",
+    "createHint": "新規是正タスク入口は開発中です",
     "taskNo": "タスク番号",
     "relatedHeat": "関連ヒート",
     "deviation": "偏差率",

@@ -317,6 +317,8 @@
   "task": {
     "title": "纠偏任务单",
     "subtitle": "任务执行",
+    "createAction": "新建纠偏任务",
+    "createHint": "新建纠偏任务入口开发中",
     "taskNo": "任务编号",
     "relatedHeat": "关联炉次",
     "deviation": "偏差百分比",
