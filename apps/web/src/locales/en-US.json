@@ -22,11 +22,16 @@
     "info": "Info",
     "previousPage": "Previous",
     "viewAll": "View All",
+    "detail": "Detail",
+    "searchHeatId": "Search heat ID...",
     "noDescription": "No description",
     "noData": "No data",
     "disable": "Disable"
   },
   "nav": {
+    "groupOverview": "Overview",
+    "groupMonitor": "Monitoring & Analysis",
+    "groupManage": "Management",
     "dashboard": "Dashboard",
     "baselines": "Golden Baselines",
     "heats": "Heat Browser",

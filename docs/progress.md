@@ -39,6 +39,25 @@
 
 ## 已完成
 
+### 2026-03-25（第四批 issue：全局 locale 缺 key 收口）
+
+- [x] 已按 investigate 顺序完成 `P1 侧边栏分组与全局搜索占位缺少 locale key，控制台持续报 i18n 告警`
+  - [x] 已确认问题根因是四套 locale 缺少 `nav.groupOverview / nav.groupMonitor / nav.groupManage / common.searchHeatId / common.detail`
+  - [x] 组件有 fallback，所以页面表面可用；但 `vue-i18n` 仍会持续报 missing key，属于可见但未收口的国际化缺陷
+- [x] 已完成最小修复
+  - [x] `apps/web/src/locales/zh-CN.json`
+  - [x] `apps/web/src/locales/zh-TW.json`
+  - [x] `apps/web/src/locales/ja-JP.json`
+  - [x] `apps/web/src/locales/en-US.json`
+  - [x] 以上文件已同步补齐 5 个缺失 key，运行时不再依赖 fallback 文案
+- [x] 本轮测试留痕
+  - [x] 测试范围：四套语言包 key 结构与占位符一致性
+  - [x] 验证步骤：补齐缺失 key 后执行仓库现有 i18n 回归脚本，确认语言包结构无回归
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 结果：通过；locale 结构回归已收口
+  - [x] 未覆盖项：本轮未重新打开浏览器抓控制台，只从“key 已存在且四套语言包一致”角度验证；其它与英文副标题相关的文案问题仍单独保留
+  - [x] 下一步：继续处理 Dashboard 硬编码副标题或其他仍在线的 P1/P2 issue
+
 ### 2026-03-25（第三批 issue：炉次详情原因文案本地化）
 
 - [x] 已按 investigate 顺序完成 `P1 炉次详情异常原因与切割原因文案出现英文和技术 key，语言不统一` 的根因定位

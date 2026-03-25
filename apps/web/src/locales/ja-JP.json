@@ -22,11 +22,16 @@
     "info": "情報",
     "previousPage": "前へ",
     "viewAll": "すべて表示",
+    "detail": "詳細",
+    "searchHeatId": "ヒート ID を検索...",
     "noDescription": "説明なし",
     "noData": "データなし",
     "disable": "無効化"
   },
   "nav": {
+    "groupOverview": "生産概要",
+    "groupMonitor": "監視と分析",
+    "groupManage": "管理",
     "dashboard": "ダッシュボード",
     "baselines": "ゴールデンベースライン",
     "heats": "ヒート閲覧",

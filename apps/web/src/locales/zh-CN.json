@@ -22,11 +22,16 @@
     "info": "提示",
     "previousPage": "上一页",
     "viewAll": "查看全部",
+    "detail": "详情",
+    "searchHeatId": "搜索炉次 ID...",
     "noDescription": "暂无描述",
     "noData": "暂无数据",
     "disable": "停用"
   },
   "nav": {
+    "groupOverview": "生产概览",
+    "groupMonitor": "监控与分析",
+    "groupManage": "管理",
     "dashboard": "总览",
     "baselines": "黄金基线库",
     "heats": "炉次浏览",

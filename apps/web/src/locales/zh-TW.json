@@ -22,11 +22,16 @@
     "info": "提示",
     "previousPage": "上一頁",
     "viewAll": "查看全部",
+    "detail": "詳情",
+    "searchHeatId": "搜尋爐次 ID...",
     "noDescription": "暫無描述",
     "noData": "暫無資料",
     "disable": "停用"
   },
   "nav": {
+    "groupOverview": "生產總覽",
+    "groupMonitor": "監控與分析",
+    "groupManage": "管理",
     "dashboard": "總覽",
     "baselines": "黃金基線庫",
     "heats": "爐次瀏覽",

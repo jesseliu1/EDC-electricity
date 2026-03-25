@@ -83,7 +83,7 @@
   4. 若请求失败，确认页面会明确报错，而不是停留在占位文案
 
 ### P1 侧边栏分组与全局搜索占位缺少 locale key，控制台持续报 i18n 告警
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: 全局导航 / 顶部搜索
 - **复现步骤**:
   1. 打开任意 EDC 页面
@@ -106,6 +106,15 @@
   - `apps/web/src/views/HeatDetailView.vue` 当前会读取 `t(\`heat.cutReason.${current.base.cutReason || 'unknown'}\`)`
   - `apps/web/src/locales/zh-CN.json` 当前未定义这些 key
   - Playwright 控制台已稳定复现这些警告
+- **调查结论（2026-03-25）**:
+  - 当前问题不是组件逻辑错误，而是 locale 文件缺少 `nav.groupOverview / nav.groupMonitor / nav.groupManage / common.searchHeatId / common.detail` 这些运行时会读取的 key。
+  - 组件虽然提供了 fallback 文案，所以页面肉眼看起来基本正常，但 `vue-i18n` 仍会持续输出 missing key 告警。
+  - 上轮已顺带补齐 `heat.cutReason.live_inferred`，本轮继续把这条 issue 剩余的全局 key 缺口补全。
+- **修复结果**:
+  - 四套 locale 已新增上述 5 个 key，不再依赖运行时 fallback 兜底。
+  - 侧边栏分组标题、顶部搜索占位和 Dashboard 最近炉次“详情”按钮现都可直接命中正式 locale 文案。
+- **回归结果**:
+  - `pnpm --dir apps/web test:i18n` 通过
 - **期望结果**:
   - 侧边栏分组标题与搜索占位应在 locale 文件中有正式定义
   - 默认语言和其它语言不应持续输出 i18n missing key 告警
