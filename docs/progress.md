@@ -47,10 +47,39 @@
 - [x] 已完成基线详情页“编辑 / 创建新版本”按钮收口，当前反馈行为已补稳定测试锚点和定向回归，不再处于无护栏状态
 - [x] 已完成设置页左侧分类伪导航收口，当前已改为真实页内导航并随定位更新 active 态
 - [x] 已完成侧边栏分组/全局搜索 i18n 告警第二轮收口，相关调用口径已移除 fallback 并补控制台 missing-key 回归
+- [x] 已完成炉次详情“生成纠偏任务”最小真实闭环，Heat Detail 已可创建任务并跳转 `/tasks/:id`，任务展示对空偏差统一降级为“待计算”
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第二十批 issue：炉次详情生成纠偏任务最小闭环）
+
+- [x] 已按 investigate 顺序复核 `P1 炉次详情“生成纠偏任务”当前只是开发中提示，真实任务链路无法从异常炉次发起`
+  - [x] 已确认当前 `apps/web/src/views/HeatDetailView.vue` 的 `handleCreateTask()` 只有 `ElMessage.info(t('heat.createTaskHint'))`，按钮仍是纯占位入口
+  - [x] 已确认现有 `POST /api/tasks`、`/tasks/:id` 路由和 `TaskDetailView.vue` 已具备最小闭环能力，无需新建任务表单或任务确认页
+  - [x] 已确认后端 `apps/server/src/api/tasks.py` 虽已存在创建接口，但新建任务仍写死占位 `heat_no / deviation_percent`，若直接接通前端会把伪数据带到任务详情
+- [x] 已完成最小修复
+  - [x] `apps/web/src/views/HeatDetailView.vue` 已改为调用现有 `taskApi.create({ heat_id })`，成功后直接跳转 `/tasks/:id`，并补 `heat-create-task-button` 测试锚点与重复点击保护
+  - [x] `apps/server/src/api/tasks.py` 已复用现有 heat 查询能力，创建任务时带入当前炉次真实 `heat_no` 与已有偏差摘要，不再对新任务写死演示编号
+  - [x] `apps/server/src/schemas/task.py`、`apps/web/src/api/task.ts`、`apps/web/src/stores/task.ts` 已把任务 `deviation_percent` 收口为可空；若来源炉次尚无偏差值，前端改为展示“待计算”，不再伪造百分比
+  - [x] `apps/web/src/views/TaskListView.vue`、`apps/web/src/views/TaskDetailView.vue`、`apps/web/src/views/DashboardView.vue` 已统一对空偏差走 `task.deviationPending`
+  - [x] `apps/web/e2e/app.spec.ts` 已新增定向回归，覆盖 Heat Detail 点击创建任务后真实发起 `POST /api/tasks` 并打开创建出的任务详情页
+  - [x] 本轮未新增任务创建表单、任务去重策略、二次确认弹窗或后端状态机改造
+- [x] 本轮测试留痕
+  - [x] 测试范围：炉次详情创建任务主链路、任务详情跳转、任务空偏差展示、EDC 前端 locale 结构、EDC 前端构建、后端改动语法有效性
+  - [x] 验证步骤：打开任一炉次详情；点击“生成纠偏任务”；确认浏览器发起 `POST /api/tasks` 且请求体包含当前 `heat_id`；创建成功后跳转到 `/tasks/:id`；任务详情页可见关联炉次编号，若偏差缺失则展示“待计算”
+  - [x] 执行命令：`pnpm --dir apps/web lint`
+  - [x] 执行命令：`pnpm --dir apps/web test:i18n`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat detail create task button posts to tasks api and opens the created task detail"`
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 执行命令：`python3 -m py_compile apps/server/src/api/tasks.py apps/server/src/schemas/task.py`
+  - [x] 尝试执行但环境缺失：`uv run pytest tests/test_tasks_reports_settings_api.py -k tasks_crud_and_pdf`（当前 shell 无 `uv`）
+  - [x] 尝试执行但环境缺失：`python3 -m pytest tests/test_tasks_reports_settings_api.py -k tasks_crud_and_pdf`（系统 Python 未安装 `pytest`，且无 FastAPI/Pydantic 依赖）
+  - [x] 结果：前端 `lint / test:i18n / Playwright / build` 全部通过；后端 `py_compile` 通过；后端 pytest 因本机缺少测试运行环境未能执行
+  - [x] 未覆盖项：本轮未在带完整 Python 依赖的环境里执行 FastAPI 集成测试，也未新增“同一炉次重复创建任务”的业务去重约束；当前重点仅为打通最小真实创建链路并避免新任务伪造偏差值
+  - [x] 未补 `docs/lessons.md`：本轮仍属于既有“主链路动作按钮必须真实接通或明确禁用”“空指标不能伪造数值”经验的组合应用，没有新增更广泛的新模式
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中仍未收口、且最小改动可验证的 EDC/ASNS 前端问题，优先选择仍处于占位或误导展示状态的主链路入口
 
 ### 2026-03-25（第十九批 issue：全局导航 i18n 告警护栏收口）
 

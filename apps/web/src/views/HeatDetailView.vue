@@ -26,6 +26,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import type { ECharts, EChartsOption } from 'echarts'
 import dayjs from 'dayjs'
 import type { HeatDataSource } from '@/api/heat'
+import { taskApi } from '@/api/task'
 import { useHeatStore } from '@/stores/heat'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
@@ -89,6 +90,7 @@ const detailError = computed(() => heatStore.detailError)
 const editingDescription = ref(false)
 const descriptionDraft = ref('')
 const activeBaselineId = ref('')
+const creatingTask = ref(false)
 
 const manualAdjustVisible = ref(false)
 const manualAdjustFullscreen = ref(false)
@@ -761,8 +763,19 @@ watch(
   { immediate: true, deep: true }
 )
 
-function handleCreateTask() {
-  ElMessage.info(t('heat.createTaskHint'))
+async function handleCreateTask() {
+  if (!heatId.value || creatingTask.value) return
+
+  creatingTask.value = true
+  try {
+    const createdTask = await taskApi.create({ heat_id: heatId.value })
+    await router.push(`/tasks/${createdTask.id}`)
+  } catch (error) {
+    console.error('Create correction task from heat detail failed.', error)
+    ElMessage.error(t('heat.createTaskFailed'))
+  } finally {
+    creatingTask.value = false
+  }
 }
 
 function openManualAdjust() {
@@ -897,11 +910,16 @@ watch(heatId, (requestedId) => {
           {{ t('heat.manualAdjust') }}
         </button>
         <button
-          class="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors"
+          data-testid="heat-create-task-button"
+          :disabled="creatingTask"
+          :class="[
+            'flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+            creatingTask ? 'cursor-not-allowed opacity-60' : 'hover:bg-primary-dark',
+          ]"
           @click="handleCreateTask"
         >
           <span class="material-symbols-outlined text-[18px]">assignment</span>
-          {{ t('heat.createTask') }}
+          {{ creatingTask ? t('common.loading') : t('heat.createTask') }}
         </button>
       </template>
     </PageHeader>

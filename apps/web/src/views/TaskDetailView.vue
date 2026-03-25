@@ -58,6 +58,10 @@ function handleExportPdf() {
   window.open(taskApi.exportPdfUrl(taskId.value), '_blank')
 }
 
+function formatDeviation(value: number | null) {
+  return value === null ? t('task.deviationPending') : `${value}%`
+}
+
 onMounted(() => {
   void loadDetail()
 })
@@ -104,7 +108,9 @@ onMounted(() => {
         </div>
         <div class="flex justify-between items-center py-1 border-t border-slate-50 pt-3 mt-1">
           <span class="text-slate-500">{{ t('task.deviation') }}</span>
-          <span class="font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">{{ task.deviationPercent }}%</span>
+          <span class="font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">
+            {{ formatDeviation(task.deviationPercent) }}
+          </span>
         </div>
       </div>
 

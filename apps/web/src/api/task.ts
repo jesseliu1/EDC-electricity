@@ -6,7 +6,7 @@ export interface TaskItemResponse {
   id: string
   task_no: string
   heat_id: string
-  deviation_percent: number
+  deviation_percent: number | null
   cause_analysis: string | null
   improvement: string | null
   prevention: string | null

@@ -46,9 +46,19 @@ async def test_tasks_crud_and_pdf(client) -> None:
     detail_resp = await client.get(f"/api/tasks/{first_id}", params={"showtime": "true"})
     assert detail_resp.status_code == 200
 
+    heat_resp = await client.get("/api/heats/heat-001")
+    assert heat_resp.status_code == 200
+
     create_resp = await client.post("/api/tasks", json={"heat_id": "heat-001"})
     assert create_resp.status_code == 201
     created_id = create_resp.json()["id"]
+    assert create_resp.json()["heat_id"] == "heat-001"
+    assert create_resp.json()["deviation_percent"] == heat_resp.json()["deviation_percent"]
+
+    created_detail_resp = await client.get(f"/api/tasks/{created_id}")
+    assert created_detail_resp.status_code == 200
+    assert created_detail_resp.json()["heat_no"] == heat_resp.json()["heat_no"]
+    assert created_detail_resp.json()["deviation_snapshot"]["max_deviation"] == heat_resp.json()["deviation_percent"]
 
     update_resp = await client.patch(
         f"/api/tasks/{created_id}",

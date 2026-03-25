@@ -148,6 +148,10 @@ const taskStatusLabel = (status: TaskStatus) => {
   return t('task.statusCancelled')
 }
 
+const formatTaskDeviation = (value: number | null) => {
+  return value === null ? t('task.deviationPending') : `${value}%`
+}
+
 onMounted(() => {
   void dashboardStore.fetchAll()
 })
@@ -329,7 +333,7 @@ onMounted(() => {
                     'text-xs px-2 py-0.5 rounded font-medium',
                     taskStatusClass(item.status),
                   ]"
-                >{{ taskStatusLabel(item.status) }} · {{ item.deviationPercent }}%</span>
+                >{{ taskStatusLabel(item.status) }} · {{ formatTaskDeviation(item.deviationPercent) }}</span>
               </div>
             </div>
           </div>

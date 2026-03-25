@@ -13,7 +13,7 @@ export interface TaskItem {
   id: string
   taskNo: string
   heatId: string
-  deviationPercent: number
+  deviationPercent: number | null
   status: TaskStatus
   createdAt: string
   updatedAt: string

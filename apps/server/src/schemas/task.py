@@ -25,7 +25,7 @@ class TaskResponse(BaseModel):
     id: str = Field(..., description="任务ID")
     task_no: str = Field(..., description="任务编号")
     heat_id: str = Field(..., description="关联炉次ID")
-    deviation_percent: float = Field(..., description="偏差百分比")
+    deviation_percent: float | None = Field(default=None, description="偏差百分比")
     cause_analysis: str | None = Field(default=None, description="原因分析")
     improvement: str | None = Field(default=None, description="改善方法")
     prevention: str | None = Field(default=None, description="预防对策")

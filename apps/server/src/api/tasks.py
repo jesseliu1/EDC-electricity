@@ -136,18 +136,23 @@ async def get_task(task_id: str) -> TaskDetailResponse:
 @router.post("", response_model=TaskResponse, status_code=201)
 async def create_task(data: TaskCreate) -> TaskResponse:
     """创建纠偏任务。"""
+    from .heats import _build_heat_list_view, _get_or_404 as _get_heat_or_404
+
     now = _now()
+    heat_item = _build_heat_list_view(await _get_heat_or_404(data.heat_id))
     task_id = f"task-{uuid4()}"
     item = {
         "id": task_id,
         "task_no": f"T{now.strftime('%Y%m%d')}-{now.strftime('%H%M%S')}",
         "heat_id": data.heat_id,
-        "heat_no": f"H{now.strftime('%Y%m%d')}-NEW",
-        "deviation_percent": 18.5,
+        "heat_no": heat_item["heat_no"],
+        "deviation_percent": heat_item.get("deviation_percent"),
         "deviation_snapshot": {
-            "max_deviation": 18.5,
-            "avg_deviation": 9.2,
-            "deviation_ranges": [{"start": 18000, "end": 26000, "deviation": 18.5}],
+            "max_deviation": heat_item.get("deviation_percent"),
+            "avg_deviation": heat_item.get("avg_deviation_percent"),
+            "deviation_ranges": [],
+            "time_offset_percent": heat_item.get("time_offset_percent"),
+            "mismatch_duration_minutes": heat_item.get("mismatch_duration_minutes"),
         },
         "cause_analysis": None,
         "improvement": None,

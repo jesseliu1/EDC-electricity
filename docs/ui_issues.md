@@ -1432,28 +1432,42 @@
   3. 不再出现“报告”文案指向炉次详情的歧义
 
 ### P1 炉次详情“生成纠偏任务”当前只是开发中提示，真实任务链路无法从异常炉次发起
-- **状态**: 新发现待处理（2026-03-21）
+- **状态**: 已修复并回归通过（2026-03-25）
 - **页面/模块**: 炉次详情 / 任务链路入口
 - **复现步骤**:
   1. 打开任一异常或正常炉次详情
   2. 点击顶部“生成纠偏任务”
   3. 观察页面跳转、任务列表变化与提示信息
 - **实际结果**:
-  - 点击后仅出现提示：`任务创建入口开发中`
-  - 页面不会跳转到任务创建/任务详情，也不会真正生成任务记录
-  - 当前后端任务列表为空，真实链路下也无法从偏差炉次继续推进到任务处理
-- **当前证据**:
-  - Playwright 点击后稳定出现 toast：`任务创建入口开发中`
-  - `apps/web/src/views/HeatDetailView.vue` 当前 `handleCreateTask()` 只有 `ElMessage.info(t('heat.createTaskHint'))`
-  - `GET /api/tasks?page=1&page_size=20` 当前返回空列表
+  - 修复前点击后仅出现提示：`任务创建入口开发中`
+  - 修复前页面不会跳转到任务创建/任务详情，也不会真正生成任务记录
+  - 修复前后端创建接口虽然存在，但新任务会写入占位 `heat_no / deviation_percent`
+- **调查结论（2026-03-25）**:
+  - 直接根因是 `apps/web/src/views/HeatDetailView.vue` 的 `handleCreateTask()` 仍停留在 `ElMessage.info(t('heat.createTaskHint'))`，前端没有调用现有任务创建接口
+  - 现有 `POST /api/tasks`、`/tasks/:id` 路由和任务详情页已经足够支撑最小真实闭环，不需要额外新建任务创建页
+  - 后端 `apps/server/src/api/tasks.py` 创建接口原本写死占位 `heat_no / deviation_percent`，如果直接接前端会把演示值带进真实链路，因此需要一并复用已有 heat 查询能力
+- **修复结果**:
+  - `apps/web/src/views/HeatDetailView.vue` 已改为调用现有 `taskApi.create({ heat_id })`，成功后直接跳转 `/tasks/:id`，并补 `heat-create-task-button` 测试锚点与重复点击保护
+  - `apps/server/src/api/tasks.py` 已复用现有 heat 查询能力，创建任务时带入真实 `heat_no` 与已有偏差摘要，不再写死演示编号
+  - `apps/server/src/schemas/task.py` 与前端任务类型已收口为允许 `deviation_percent=null`；若来源炉次本身尚未算出偏差，任务列表/任务详情/Dashboard 任务预览统一展示“待计算”，不再伪造百分比
+  - 本轮未扩到新的任务表单、确认弹窗、重复创建去重或后端任务工作流改造
+- **回归结果**:
+  - `pnpm --dir apps/web lint` 通过
+  - `pnpm --dir apps/web test:i18n` 通过
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat detail create task button posts to tasks api and opens the created task detail"` 通过
+  - `pnpm --dir apps/web build` 通过
+  - `python3 -m py_compile apps/server/src/api/tasks.py apps/server/src/schemas/task.py` 通过
+  - 尝试补后端 pytest：`uv run pytest tests/test_tasks_reports_settings_api.py -k tasks_crud_and_pdf` 未执行，原因是当前 shell 无 `uv`
+  - 尝试补后端 pytest：`python3 -m pytest tests/test_tasks_reports_settings_api.py -k tasks_crud_and_pdf` 未执行，原因是系统 Python 未安装 `pytest` 且缺 FastAPI/Pydantic 依赖
 - **期望结果**:
   - 炉次详情应能基于当前炉次真实生成纠偏任务，或至少进入明确的创建确认流程
   - 不应在主链路页面保留只有提示、不产生任何业务结果的任务入口
 - **严重程度**: 中
 - **如何测试**:
   1. 在炉次详情点击“生成纠偏任务”
-  2. 确认任务被创建，或进入任务创建确认页
-  3. 再到任务列表/任务详情核对该任务可见且状态一致
+  2. 确认浏览器发起 `POST /api/tasks`，且请求体包含当前 `heat_id`
+  3. 确认页面跳转到 `/tasks/:id`
+  4. 再到任务详情核对该任务可见、关联炉次编号正确；若偏差值为空，应显示“待计算”而不是伪造百分比
 
 ### P1 宿主连线设置页点击“测试连接”会触发 React 渲染循环错误
 - **状态**: 已修复并回归通过（2026-03-25）

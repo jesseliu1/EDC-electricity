@@ -460,6 +460,88 @@ test.describe('EDC web smoke flows', () => {
     await expect(page).toHaveURL(/\/edc\/heats$/)
   })
 
+  test('heat detail create task button posts to tasks api and opens the created task detail', async ({
+    page,
+  }) => {
+    await mockHeatSmoke(page)
+    await page.route('**/api/settings/runtime-status**', async (route) => {
+      await fulfillJson(route, {
+        overall_code: 'ready',
+        host: { is_connected: true, machine_name: 'EDC Test Gateway', last_sync_label: '2026-03-25 10:00:00' },
+        edc: { configured: true, base_url: 'http://60.251.229.32', username_present: true },
+        active_baseline: { id: 'baseline-001', name: '标准基线 v2.1', status: 'published' },
+        runtime: { showtime_enabled: false, live_heat_inference_enabled: true, baseline_length_scope_mode: 'definition' },
+        pipelines: {
+          dashboard: { code: 'ready', ready: true },
+          heats: { code: 'ready', ready: true },
+          inbox: { code: 'ready', ready: true },
+          tasks: { code: 'ready', ready: true },
+          reports: { code: 'ready', ready: true },
+          baselines: { code: 'ready', ready: true },
+          settings: { code: 'ready', ready: true },
+        },
+      })
+    })
+
+    let createPayload: Record<string, unknown> | null = null
+    await page.route('**/api/tasks', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.fallback()
+        return
+      }
+
+      createPayload = JSON.parse(route.request().postData() || '{}')
+      await fulfillJson(
+        route,
+        {
+          id: 'task-from-heat-001',
+          task_no: 'T20260325-001',
+          heat_id: 'issue-heat',
+          deviation_percent: 18.5,
+          cause_analysis: null,
+          improvement: null,
+          prevention: null,
+          status: 'pending',
+          created_at: '2026-03-25T10:00:00Z',
+          updated_at: '2026-03-25T10:00:00Z',
+          completed_at: null,
+        },
+        201
+      )
+    })
+    await page.route('**/api/tasks/task-from-heat-001', async (route) => {
+      await fulfillJson(route, {
+        id: 'task-from-heat-001',
+        task_no: 'T20260325-001',
+        heat_id: 'issue-heat',
+        heat_no: 'H20260313-001',
+        deviation_percent: 18.5,
+        deviation_snapshot: {
+          max_deviation: 18.5,
+          avg_deviation: 9.2,
+          deviation_ranges: [],
+        },
+        cause_analysis: null,
+        improvement: null,
+        prevention: null,
+        status: 'pending',
+        created_at: '2026-03-25T10:00:00Z',
+        updated_at: '2026-03-25T10:00:00Z',
+        completed_at: null,
+      })
+    })
+
+    await page.goto('heats/issue-heat')
+
+    await expect(page.getByTestId('heat-detail-page')).toBeVisible()
+    await page.getByTestId('heat-create-task-button').click()
+
+    expect(createPayload).toEqual({ heat_id: 'issue-heat' })
+    await expect(page).toHaveURL(/\/edc\/tasks\/task-from-heat-001$/)
+    await expect(page.getByTestId('task-detail-page')).toBeVisible()
+    await expect(page.getByTestId('task-detail-page')).toContainText('H20260313-001')
+  })
+
   test('can open and save the manual adjust dialog', async ({ page }) => {
     await mockHeatSmoke(page)
     await page.goto('heats/issue-heat')

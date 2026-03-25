@@ -48,6 +48,10 @@ function handleCreateTask() {
   ElMessage.info(t('task.createHint'))
 }
 
+function formatDeviation(value: number | null) {
+  return value === null ? t('task.deviationPending') : `${value}%`
+}
+
 function statusFilterLabel(key: TaskFilterKey, label: string) {
   const count = taskStore.statusCounts[key]
   return count === null ? label : `${label} (${count})`
@@ -150,7 +154,7 @@ onMounted(() => {
                 {{ item.taskNo }} : 纠偏任务
               </p>
               <p class="text-xs text-slate-400 mt-1">
-                偏差: {{ item.deviationPercent }}%
+                偏差: {{ formatDeviation(item.deviationPercent) }}
               </p>
             </div>
           </div>
