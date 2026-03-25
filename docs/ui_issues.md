@@ -407,7 +407,7 @@
   3. 确认文案风格一致，不再出现明显中英混排
 
 ### P1 报表详情接口已返回成功，但页面仍长期停留在“加载中”
-- **状态**: 已确认当前代码无法复现（2026-03-25）
+- **状态**: 验收通过（2026-03-25）
 - **页面/模块**: 日报与审计 / 报表详情
 - **复现步骤**:
   1. 进入报表列表页
@@ -433,6 +433,12 @@
   - 现有回归 `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "reports and inbox pages can navigate into detail pages"` 已再次通过，报表列表跳转到详情后可正常渲染详情正文。
   - 同文件内还保留了失败态回归 `report detail shows explicit error state when detail request fails`，用于覆盖“详情请求失败时必须退出 loading”的分支。
   - 结合当前代码与回归结果，这条问题更接近历史现场已修复、但 issue 文档尚未收口，而不是当前 `master` 上仍稳定存在的缺陷。
+- **复验结论（2026-03-25）**:
+  - 本轮再次复用现有成功态与失败态 Playwright 回归，确认当前 `master` 的报表详情在两条路径上都能正确退出 loading
+  - 这轮未修改业务代码，仅将 issue 正式从“已确认当前代码无法复现”收口为“验收通过”
+- **回归结果**:
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "reports and inbox pages can navigate into detail pages"` 通过
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "report detail shows explicit error state when detail request fails"` 通过
 - **期望结果**:
   - 报表详情接口返回成功后，页面应正常展示统计卡和偏差炉次列表
   - 若响应数据结构与前端预期不符，应明确报错，而不是无限显示 loading

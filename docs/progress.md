@@ -56,10 +56,31 @@
 - [x] 已完成真实推断炉次空偏差展示第三轮收口：HeatList 与 Dashboard 最近炉次已把 `deviation=null` 明确显示为“待计算”，与 Inbox 既有口径对齐，不再长期显示裸 `--`
 - [x] 已完成手动调整弹窗多余“选基线起点 / 选基线终点”按钮问题的复验收口：当前 `master` 已无该按钮，issue 状态已从“待复验”更新为“验收通过”
 - [x] 已完成手动调整专项第二轮待复验条目收口：多指标对照、选点同步输入框、滑块/缩放交互三项在当前 `master` 复验通过，issue 状态已统一更新为“验收通过”
+- [x] 已完成报表详情“接口成功但页面长期加载中”问题的复验收口：当前 `master` 上成功态/失败态都能退出 loading，issue 已转为“验收通过”
 
 ---
 
 ## 已完成
+
+### 2026-03-25（第二十九批 issue：报表详情长期 loading 复验收口）
+
+- [x] 已按 investigate 顺序复核 `P1 报表详情接口已返回成功，但页面仍长期停留在“加载中”`
+  - [x] 已确认 `apps/web/src/views/ReportDetailView.vue` 当前成功态、loading 态、失败态分支清晰分离：`detail` 成功后进入正文，失败时进入显式错误态，不存在代码层面的无限 loading 分支
+  - [x] 已确认 `docs/ui_issues.md` 先前也已记录“当前代码无法复现”，这轮重点是补充复验证据并正式收口
+  - [x] 已判断本轮无需修改业务代码；最小正确动作是复用现有 Playwright 成功态/失败态回归并更新文档状态
+- [x] 已完成最小收口
+  - [x] 本轮未修改 `ReportDetailView` 或 store 逻辑，仅将 `docs/ui_issues.md` 中该条 issue 从“已确认当前代码无法复现”收口为“验收通过”
+  - [x] `docs/progress.md` 已新增本轮复验记录，明确这是一轮 docs-only 验收收口
+  - [x] 本轮未补 `docs/lessons.md`：没有新增可复用错误模式，属于对既有修复结果与回归的再次确认
+- [x] 本轮测试留痕
+  - [x] 测试范围：报表详情成功态退出 loading、报表详情失败态退出 loading、报表列表进入详情主链路
+  - [x] 验证步骤：从报表列表点击进入详情，确认成功响应后显示统计卡与空异常列表，且 loading 节点消失；再模拟详情接口 404，确认页面进入显式错误态且 loading 节点消失
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "reports and inbox pages can navigate into detail pages"`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "report detail shows explicit error state when detail request fails"`
+  - [x] 执行命令：`git diff --check`
+  - [x] 结果：以上命令均通过；当前 `master` 上报表详情成功/失败两条路径都不会卡在 loading
+  - [x] 未覆盖项：本轮没有重新扩测真实服务器返回的全部报表字段组合，仅复验了当前前端成功态/失败态主链路；若现场数据结构再次偏离 mock 契约，仍需单独排查
+  - [x] 下一步：继续处理 `docs/ui_issues.md` 中其余仍非“验收通过/已修复并回归通过”的低风险项，优先仍可通过现有回归直接收口的展示层问题
 
 ### 2026-03-25（第二十八批 issue：手动调整专项第二轮待复验收口）
 
