@@ -2639,3 +2639,52 @@ EDC 前端（apps/web，/edc/）
 - [x] 验证：dist/index.html 资源路径已变为 /asns/assets/...
 - [x] 重启 ASNS 宿主（PID 2159066，PORT=3001，ASNS_BASE_PATH=/）
 - [x] 线上验证：https://hopeofthepantheon.me/asns/ 资源路径正确，页面可正常加载
+
+### 2026-03-26（第四十六批：服务清理与 ASNS 功能验收）
+
+**执行人**: edc-codex-2 subagent
+
+#### 1. ASNS 页面加载验证 ✅
+- `https://hopeofthepantheon.me/asns/` 返回 HTTP 200
+- JS 资源 `/asns/assets/index-CXLXGqQv.js` 返回 HTTP 200
+- CSS 资源 `/asns/assets/index-Cj_hHHNb.css` 返回 HTTP 200
+- 浏览器快照确认：页面正常渲染，显示 
+
+### 2026-03-26（第四十六批：服务清理与 ASNS 功能验收）
+
+**执行人**: edc-codex-2 subagent
+
+#### 1. ASNS 页面加载验证 ✅
+- `https://hopeofthepantheon.me/asns/` 返回 HTTP 200
+- JS 资源 `/asns/assets/index-CXLXGqQv.js` 返回 HTTP 200
+- CSS 资源 `/asns/assets/index-Cj_hHHNb.css` 返回 HTTP 200
+- 浏览器快照确认：页面正常渲染，无空白
+
+#### 2. 旧 uvicorn 实例清理 ✅
+- 已 kill PID 2129768（8000 端口旧实例）
+- 当前仅保留 PID 2145878（8001 端口，由 edc-backend.service systemd 管理）
+- 验证：`ss -tlnp` 确认 8000 端口已无监听
+
+#### 3. asns-host.service systemd 管理确认 ✅
+- asns-host.service: active (running)，enabled（开机自启）
+- Main PID: 2161734 (node server.mjs，port 3001)
+- 启动日志：`ASNS host listening on 3001 with base path /`
+- 结论：node 进程由 systemd 管理，重启后会自动恢复，无需手动启动
+
+#### 4. ASNS 连线设置功能验证 ✅
+- 点击导航「连线设置」页面正常渲染
+- EDC 连接状态：**在线**，已连接节点 `http://60.251.229.32`
+- 26 devices / 2286 channels 已同步，2127 使能通道
+- 「EDC 连接就绪」状态显示正常
+- 「测试连接」「同步通道」按钮可见可操作
+- 来源通道目录：设备列表、逐条加入/整组加入/移除功能均可交互
+- 最近同步时间：2026/3/26 00:26:38
+
+#### 5. 服务整体状态
+| 服务 | 端口 | PID | 状态 |
+|------|------|-----|------|
+| ASNS 后端（edc-backend.service） | 8001 | 2145878 | ✅ systemd 管理，运行中 |
+| ASNS 后端（旧实例，已清理） | 8000 | 2129768 | ✅ 已 kill |
+| ASNS 宿主（asns-host.service） | 3001 | 2161734 | ✅ systemd 管理，运行中 |
+| ASNS 界面（nginx /asns/） | 443 | — | ✅ 正常，JS/CSS 200 |
+| EDC 前端（nginx /edc/） | 443 | — | ✅ 运行中 |
