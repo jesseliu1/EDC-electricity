@@ -2688,3 +2688,12 @@ EDC 前端（apps/web，/edc/）
 | ASNS 宿主（asns-host.service） | 3001 | 2161734 | ✅ systemd 管理，运行中 |
 | ASNS 界面（nginx /asns/） | 443 | — | ✅ 正常，JS/CSS 200 |
 | EDC 前端（nginx /edc/） | 443 | — | ✅ 运行中 |
+
+### 2026-03-26（第四十七批：UAT 端到端验收）
+
+- [x] 真实设备连接验证：EDC Gateway (60.251.229.32) 在线，26台设备/2286通道/2127使能通道，最后同步 2026/3/26 00:26:38
+- [x] 真实炉次数据验证：/api/heats 返回真实炉次 H20260326-0000（record_source=live_edc），数据来自真实设备
+- [x] 活跃基线验证：标准基线 v2.1 已发布，状态正常
+- [x] Dashboard 统计验证：今日炉次1条，正常率100%，待处理任务0条
+- [x] 主机连接状态验证：is_connected=true，machine_name=EDC Gateway (60.251.229.32)
+- [x] UAT 最终结论：系统已完全接入真实数据，运行正常，可推进正式上线
