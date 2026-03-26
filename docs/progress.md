@@ -2623,3 +2623,19 @@ EDC 前端（apps/web，/edc/）
 **当前阻塞原因：**
 - 真实硬件设备 8080 未接入，ASNS 无法拉取真实数据
 - 等设备就位 + 提供 IP/账密后，配置 ASNS_EDC_BASE_URL 即可启动真实数据联调
+
+### 2026-03-26（第四十五批：ASNS 页面 base path 修复）
+
+- [x] 问题定位：ASNS dist 构建时未设置 base path，资源路径为 `/assets/...` 导致页面空白
+- [x] 修复：`VITE_ASNS_BASE_PATH=/asns/ npm run build` 重新构建
+- [x] 验证：`dist/index.html` 资源路径已变为 `/asns/assets/...`
+- [x] 重启 ASNS 宿主（PID 2159066，PORT=3001，ASNS_BASE_PATH=/）
+- [x] 线上验证：`https://hopeofthepantheon.me/asns/` 资源路径正确，页面可正常加载
+
+### 2026-03-26（第四十五批：ASNS 页面 base path 修复）
+
+- [x] 问题定位：ASNS dist 构建时未设置 base path，资源路径为 /assets/... 导致页面空白
+- [x] 修复：VITE_ASNS_BASE_PATH=/asns/ npm run build 重新构建
+- [x] 验证：dist/index.html 资源路径已变为 /asns/assets/...
+- [x] 重启 ASNS 宿主（PID 2159066，PORT=3001，ASNS_BASE_PATH=/）
+- [x] 线上验证：https://hopeofthepantheon.me/asns/ 资源路径正确，页面可正常加载
