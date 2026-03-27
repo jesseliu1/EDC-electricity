@@ -38,6 +38,7 @@ interface Props {
   baselineName?: string | null
   powerSourceLabel?: string | null
   voltageSourceLabel?: string | null
+  errorMessage?: string | null
 }
 
 interface Emits {
@@ -85,6 +86,27 @@ const powerSeries = computed(() => props.power.map((item) => item.value))
 const baselineSeries = computed(() =>
   props.baselinePower.map((item) => item.value)
 )
+const hasChartData = computed(() => props.power.length > 0 && props.baselinePower.length > 0)
+const showRealtimeErrorState = computed(() => Boolean(props.errorMessage) && !hasChartData.value)
+const showRealtimeWarning = computed(() => Boolean(props.errorMessage) && hasChartData.value)
+const powerSourceText = computed(() => {
+  if (props.powerSourceLabel) {
+    return props.powerSourceLabel
+  }
+  if (props.errorMessage) {
+    return t('dashboard.realtimeSourceUnavailable')
+  }
+  return '未绑定宿主通道'
+})
+const voltageSourceText = computed(() => {
+  if (props.voltageSourceLabel) {
+    return props.voltageSourceLabel
+  }
+  if (props.errorMessage) {
+    return t('dashboard.realtimeSourceUnavailable')
+  }
+  return '未绑定宿主通道'
+})
 
 const option = computed<EChartsOption>(() => ({
   grid: {
@@ -220,7 +242,42 @@ const option = computed<EChartsOption>(() => ({
       </div>
     </div>
 
-    <div class="flex-1 min-h-[300px]">
+    <div
+      v-if="showRealtimeWarning"
+      class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+      data-testid="dashboard-realtime-warning"
+    >
+      <div class="font-semibold">
+        {{ t('dashboard.realtimeLoadFailedTitle') }}
+      </div>
+      <div class="mt-1 text-amber-700">
+        {{ errorMessage }}
+      </div>
+    </div>
+
+    <div
+      v-if="showRealtimeErrorState"
+      class="flex flex-1 min-h-[300px] items-center justify-center rounded-xl border border-dashed border-rose-200 bg-rose-50/80 px-6 text-center"
+      data-testid="dashboard-realtime-error"
+    >
+      <div class="max-w-xl">
+        <div class="text-sm font-semibold text-rose-700">
+          {{ t('dashboard.realtimeLoadFailedTitle') }}
+        </div>
+        <div class="mt-2 text-sm leading-6 text-rose-600">
+          {{ errorMessage }}
+        </div>
+        <div class="mt-3 text-xs text-rose-500">
+          {{ t('dashboard.realtimeLoadFailedHint') }}
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-else
+      class="flex-1 min-h-[300px]"
+      data-testid="dashboard-realtime-chart"
+    >
       <v-chart
         class="w-full h-full"
         :option="option"
@@ -236,16 +293,22 @@ const option = computed<EChartsOption>(() => ({
         <div class="text-xs uppercase tracking-wider text-slate-400">
           功率来源
         </div>
-        <div class="mt-1 text-sm font-medium text-slate-700">
-          {{ powerSourceLabel || '未绑定宿主通道' }}
+        <div
+          class="mt-1 text-sm font-medium text-slate-700"
+          data-testid="dashboard-power-source"
+        >
+          {{ powerSourceText }}
         </div>
       </div>
       <div class="rounded-lg border border-border-light bg-slate-50 px-4 py-3">
         <div class="text-xs uppercase tracking-wider text-slate-400">
           电压来源
         </div>
-        <div class="mt-1 text-sm font-medium text-slate-700">
-          {{ voltageSourceLabel || '未绑定宿主通道' }}
+        <div
+          class="mt-1 text-sm font-medium text-slate-700"
+          data-testid="dashboard-voltage-source"
+        >
+          {{ voltageSourceText }}
         </div>
       </div>
     </div>

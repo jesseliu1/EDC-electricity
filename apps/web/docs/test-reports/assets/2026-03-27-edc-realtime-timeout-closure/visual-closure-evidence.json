@@ -1,0 +1,89 @@
+{
+  "generatedAt": "2026-03-27T12:25:37.306Z",
+  "mockedPass": {
+    "url": "http://127.0.0.1:3001/edc/ (mocked realtime success)",
+    "screenshot": "/home/openclaw/projects/EDC-electricity/apps/web/docs/test-reports/assets/2026-03-27-edc-realtime-timeout-closure/mocked-dashboard-pass-1.png",
+    "fullScreenshot": "/home/openclaw/projects/EDC-electricity/apps/web/docs/test-reports/assets/2026-03-27-edc-realtime-timeout-closure/mocked-dashboard-pass-1-full.png",
+    "dom": {
+      "subtitle": "数据时间 2026-03-27 11:15 · 对比基线 标准基线 v2.1 · 1小时",
+      "powerSource": "SSTW / 总有功功率 / kW",
+      "voltageSource": "SSTW / A相电压 / V",
+      "warningVisible": 0
+    },
+    "review": {
+      "width": 1086,
+      "height": 302,
+      "targets": {
+        "curveBlue": {
+          "count": 1735,
+          "bbox": {
+            "minX": 62,
+            "minY": 80,
+            "maxX": 1025,
+            "maxY": 114,
+            "width": 964,
+            "height": 35
+          }
+        },
+        "curveOrange": {
+          "count": 751,
+          "bbox": {
+            "minX": 62,
+            "minY": 86,
+            "maxX": 1025,
+            "maxY": 91,
+            "width": 964,
+            "height": 6
+          }
+        }
+      }
+    }
+  },
+  "publicFailure": {
+    "url": "https://hopeofthepantheon.me/edc/",
+    "screenshot": "/home/openclaw/projects/EDC-electricity/apps/web/docs/test-reports/assets/2026-03-27-edc-realtime-timeout-closure/public-dashboard-realtime-error.png",
+    "fullScreenshot": "/home/openclaw/projects/EDC-electricity/apps/web/docs/test-reports/assets/2026-03-27-edc-realtime-timeout-closure/public-dashboard-failure-full.png",
+    "dom": {
+      "warningText": "部分仪表盘数据暂未成功返回\n请求超时，请检查后端服务状态或接口性能\n实时曲线拉取失败：EDC 登录超时（ConnectTimeout），请检查当前环境到上游 EDC 的网络连通性\n请求超时，请检查后端服务状态或接口性能",
+      "errorText": "实时曲线当前不可用\n实时曲线拉取失败：EDC 登录超时（ConnectTimeout），请检查当前环境到上游 EDC 的网络连通性\n当前不是“没有曲线”，而是实时曲线请求失败。请先检查后端到上游 EDC 的连通性。",
+      "powerSource": "实时曲线请求失败，来源信息暂不可用",
+      "voltageSource": "实时曲线请求失败，来源信息暂不可用"
+    },
+    "review": {
+      "width": 1086,
+      "height": 302,
+      "targets": {
+        "roseBg": {
+          "count": 318764,
+          "bbox": {
+            "minX": 0,
+            "minY": 0,
+            "maxX": 1085,
+            "maxY": 301,
+            "width": 1086,
+            "height": 302
+          }
+        },
+        "roseText": {
+          "count": 1127,
+          "bbox": {
+            "minX": 260,
+            "minY": 102,
+            "maxX": 829,
+            "maxY": 168,
+            "width": 570,
+            "height": 67
+          }
+        },
+        "curveBlue": {
+          "count": 0,
+          "bbox": null
+        },
+        "curveOrange": {
+          "count": 0,
+          "bbox": null
+        }
+      }
+    }
+  }
+}

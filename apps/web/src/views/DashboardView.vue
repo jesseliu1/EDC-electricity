@@ -20,7 +20,7 @@ const recentHeatsPending = computed(
   () => dashboardStore.loading && !dashboardStore.recentHeatsLoaded
 )
 const dashboardWarnings = computed(() =>
-  [dashboardStore.statsError, dashboardStore.recentHeatsError].filter(
+  [dashboardStore.statsError, dashboardStore.realtimeError, dashboardStore.recentHeatsError].filter(
     (item): item is string => Boolean(item)
   )
 )
@@ -79,6 +79,8 @@ const stats = computed(() => [
     description:
       statsUnavailable.value
         ? t('dashboard.statsLoadFailedHint')
+        : dashboardStore.realtimeError
+          ? t('dashboard.realtimeLoadFailedHint')
         : dashboardStore.realtime.timestamp
           ? dayjs(dashboardStore.realtime.timestamp).format('YYYY-MM-DD HH:mm')
           : '',
@@ -234,6 +236,7 @@ onMounted(() => {
         :baseline-name="dashboardStore.realtime.baselineName"
         :power-source-label="dashboardStore.realtime.powerSourceLabel"
         :voltage-source-label="dashboardStore.realtime.voltageSourceLabel"
+        :error-message="dashboardStore.realtimeError"
         @range-change="handleRangeChange"
       />
     </div>

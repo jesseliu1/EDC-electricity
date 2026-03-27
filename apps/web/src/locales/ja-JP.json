@@ -110,6 +110,9 @@
     "realtimeSubtitleBaseline": "比較基線 {baseline}",
     "loadWarningTitle": "ダッシュボードの一部データをまだ取得できていません",
     "statsLoadFailedHint": "現在はプレースホルダー値を表示しています。しばらくしてから再試行してください。",
+    "realtimeLoadFailedTitle": "リアルタイム曲線は現在利用できません",
+    "realtimeLoadFailedHint": "本当に曲線が空なのではなく、リアルタイム曲線の取得自体が失敗しています。まずはバックエンドから上流 EDC への接続性を確認してください。",
+    "realtimeSourceUnavailable": "リアルタイム要求に失敗したため、ソース情報は現在取得できません",
     "recentHeatsReloadHint": "ページを再読み込みするか、バックエンドのヒート API を確認してください。"
   },
   "baseline": {

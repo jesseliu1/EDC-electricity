@@ -67,8 +67,8 @@ const getStatusLabel = (status: HeatStatus): string => {
   }
 }
 
-const handleViewDetail = (heatNo: string) => {
-  router.push(`/heats/${heatNo}`)
+const handleViewDetail = (heatId: string) => {
+  router.push(`/heats/${heatId}`)
 }
 </script>
 
@@ -128,7 +128,7 @@ const handleViewDetail = (heatNo: string) => {
             v-for="heat in heats"
             :key="heat.id"
             class="border-b border-border-light last:border-0 hover:bg-slate-50 transition-colors cursor-pointer group"
-            @click="handleViewDetail(heat.heatNo)"
+            @click="handleViewDetail(heat.id)"
           >
             <td class="px-6 py-3.5">
               <span class="text-sm font-medium text-slate-800">{{

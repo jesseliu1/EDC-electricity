@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 from time import perf_counter
@@ -33,6 +34,7 @@ class EDCClient:
         self.password = password
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
         self._token: str | None = None
+        self._login_lock = asyncio.Lock()
 
     async def __aenter__(self) -> EDCClient:
         return self
@@ -46,19 +48,26 @@ class EDCClient:
 
     async def login(self) -> str:
         """登录并返回 token。"""
-        response = await self._client.post(
-            "/login",
-            json={"username": self.username, "password": self.password},
-        )
-        payload = self._parse_json_response(response)
-        self._ensure_success(payload, action="登录")
+        if self._token:
+            return self._token
 
-        token = payload.get("data") or payload.get("token")
-        if not isinstance(token, str) or not token:
-            raise EDCClientError("EDC 登录成功但未返回有效 token")
+        async with self._login_lock:
+            if self._token:
+                return self._token
 
-        self._token = token
-        return token
+            payload = await self._post_json(
+                "/login",
+                action="登录",
+                payload={"username": self.username, "password": self.password},
+            )
+            self._ensure_success(payload, action="登录")
+
+            token = payload.get("data") or payload.get("token")
+            if not isinstance(token, str) or not token:
+                raise EDCClientError("EDC 登录成功但未返回有效 token")
+
+            self._token = token
+            return token
 
     async def get_all_sensor_list(self) -> list[dict[str, Any]]:
         """获取设备与通道清单。"""
@@ -102,18 +111,30 @@ class EDCClient:
     async def _systemcfg_request(self, request_name: str, value: object) -> dict[str, Any]:
         """调用 systemcfg 指令式接口。"""
         token = await self._ensure_token()
-        response = await self._client.post(
+        payload = await self._post_json(
             "/systemcfg",
-            json={"request": request_name, "value": value, "token": token},
+            action=request_name,
+            payload={"request": request_name, "value": value, "token": token},
         )
-        payload = self._parse_json_response(response)
         self._ensure_success(payload, action=request_name)
         return payload
 
     async def _ensure_token(self) -> str:
-        if self._token:
-            return self._token
         return await self.login()
+
+    async def _post_json(self, path: str, *, action: str, payload: object) -> dict[str, Any]:
+        try:
+            response = await self._client.post(path, json=payload)
+        except httpx.TimeoutException as exc:
+            raise EDCClientError(
+                f"EDC {action}超时（{exc.__class__.__name__}），请检查当前环境到上游 EDC 的网络连通性"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise EDCClientError(
+                f"EDC {action}请求失败（{exc.__class__.__name__}），请检查当前环境到上游 EDC 的网络连通性"
+            ) from exc
+
+        return self._parse_json_response(response)
 
     def _parse_json_response(self, response: httpx.Response) -> dict[str, Any]:
         try:
@@ -175,3 +196,39 @@ class EDCClient:
     def _looks_like_decimal_bytes(self, payload: str) -> bool:
         parts = payload.split(",")
         return bool(parts) and all(part.isdigit() for part in parts)
+
+
+_SHARED_CLIENTS: dict[tuple[str, str, str, float], EDCClient] = {}
+_SHARED_CLIENTS_LOCK = asyncio.Lock()
+
+
+async def get_shared_edc_client(
+    *,
+    base_url: str,
+    username: str,
+    password: str,
+    timeout: float = 30.0,
+) -> EDCClient:
+    """返回按连接配置复用的共享 EDC client。"""
+    client_key = (base_url.rstrip("/"), username, password, float(timeout))
+    async with _SHARED_CLIENTS_LOCK:
+        client = _SHARED_CLIENTS.get(client_key)
+        if client is None:
+            client = EDCClient(
+                base_url=base_url,
+                username=username,
+                password=password,
+                timeout=timeout,
+            )
+            _SHARED_CLIENTS[client_key] = client
+        return client
+
+
+async def close_shared_edc_clients() -> None:
+    """关闭当前进程内缓存的共享 EDC clients。"""
+    async with _SHARED_CLIENTS_LOCK:
+        clients = list(_SHARED_CLIENTS.values())
+        _SHARED_CLIENTS.clear()
+
+    for client in clients:
+        await client.aclose()

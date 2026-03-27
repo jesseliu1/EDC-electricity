@@ -22,7 +22,7 @@ from ..schemas import (
     MessageResponse,
 )
 from ..schemas.common import CurvePoint
-from ..services import EDCClient, EDCClientError
+from ..services import EDCClientError, get_shared_edc_client
 
 # 引用 definition store 以做关联校验
 from .baseline_definitions import _DEFINITION_STORE
@@ -285,32 +285,19 @@ async def _resolve_baseline_time_window(item: dict[str, Any]) -> tuple[datetime,
     if isinstance(selected_start, datetime) and isinstance(selected_end, datetime):
         return selected_start, selected_end
 
-    from .heats import (
-        _HEAT_STORE,
-        _parse_live_heat_id,
-        build_live_heat_lookup_context,
-        resolve_heat_time_window,
-    )
+    from .heats import build_live_heat_lookup_context, resolve_heat_time_window
 
     source_heat_id = str(item.get("source_heat_id") or "").strip()
-    if (
-        not is_mock_dataset_enabled()
-        and source_heat_id
-        and source_heat_id not in _HEAT_STORE
-        and _parse_live_heat_id(source_heat_id) is None
-    ):
-        end_time = datetime.now()
-        return end_time - timedelta(hours=1), end_time
-
-    preferred_live_context = build_live_heat_lookup_context(
-        definition_id=str(item.get("definition_id") or "") or None
-    )
-    source_window = await resolve_heat_time_window(
-        source_heat_id,
-        preferred_live_context=preferred_live_context,
-    )
-    if source_window:
-        return source_window
+    if source_heat_id:
+        preferred_live_context = build_live_heat_lookup_context(
+            definition_id=str(item.get("definition_id") or "") or None
+        )
+        source_window = await resolve_heat_time_window(
+            source_heat_id,
+            preferred_live_context=preferred_live_context,
+        )
+        if source_window:
+            return source_window
 
     end_time = datetime.now()
     return end_time - timedelta(hours=1), end_time
@@ -340,19 +327,20 @@ async def _load_baseline_curves_from_edc(
         return None
 
     try:
-        async with EDCClient(**config) as client:
-            tasks = {
-                str(metric["id"]): asyncio.create_task(
-                    client.get_local_datas(
-                        suid=channel["suid"],
-                        cuid=channel["cuid"],
-                        start_time=start_time,
-                        end_time=end_time,
-                    )
+        client = await get_shared_edc_client(**config)
+        await client.login()
+        tasks = {
+            str(metric["id"]): asyncio.create_task(
+                client.get_local_datas(
+                    suid=channel["suid"],
+                    cuid=channel["cuid"],
+                    start_time=start_time,
+                    end_time=end_time,
                 )
-                for metric, channel in bound_metrics
-            }
-            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+            )
+            for metric, channel in bound_metrics
+        }
+        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
     except EDCClientError:
         return None
 

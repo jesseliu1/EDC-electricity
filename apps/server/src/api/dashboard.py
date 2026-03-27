@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from time import perf_counter
 from typing import Any, Literal
@@ -17,6 +18,8 @@ from .baselines import _BASELINE_STORE
 from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE, get_edc_connection_config
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+DASHBOARD_REALTIME_EDC_TIMEOUT_SECONDS = 8.0
 
 
 async def _sorted_dashboard_heats() -> list[dict[str, Any]]:
@@ -129,21 +132,27 @@ async def _load_realtime_curves_from_edc(
         return None
 
     try:
-        async with EDCClient(**config) as client:
-            power_points = await client.get_local_datas(
-                suid=power_channel["suid"],
-                cuid=power_channel["cuid"],
-                start_time=start_time,
-                end_time=end_time,
+        async with EDCClient(
+            **config,
+            timeout=DASHBOARD_REALTIME_EDC_TIMEOUT_SECONDS,
+        ) as client:
+            await client.login()
+            power_points, voltage_points = await asyncio.gather(
+                client.get_local_datas(
+                    suid=power_channel["suid"],
+                    cuid=power_channel["cuid"],
+                    start_time=start_time,
+                    end_time=end_time,
+                ),
+                client.get_local_datas(
+                    suid=voltage_channel["suid"],
+                    cuid=voltage_channel["cuid"],
+                    start_time=start_time,
+                    end_time=end_time,
+                ),
             )
-            voltage_points = await client.get_local_datas(
-                suid=voltage_channel["suid"],
-                cuid=voltage_channel["cuid"],
-                start_time=start_time,
-                end_time=end_time,
-            )
-    except EDCClientError:
-        return None
+    except EDCClientError as exc:
+        raise EDCClientError(f"实时曲线拉取失败：{exc}") from exc
 
     if not power_points or not voltage_points:
         return None
@@ -222,11 +231,22 @@ async def get_realtime_data(
     start_time = end_time - delta
 
     sources = _resolve_dashboard_sources()
-    realtime_curves = await _load_realtime_curves_from_edc(
-        duration=duration,
-        start_time=start_time,
-        end_time=end_time,
-    )
+    try:
+        realtime_curves = await _load_realtime_curves_from_edc(
+            duration=duration,
+            start_time=start_time,
+            end_time=end_time,
+        )
+    except EDCClientError as exc:
+        detail = str(exc)
+        log_event(
+            "api_dashboard_realtime",
+            duration=duration,
+            duration_ms=round((perf_counter() - started_at) * 1000, 1),
+            available=False,
+            error=detail,
+        )
+        raise HTTPException(status_code=503, detail=detail) from exc
 
     if realtime_curves is None:
         log_event(
@@ -234,6 +254,7 @@ async def get_realtime_data(
             duration=duration,
             duration_ms=round((perf_counter() - started_at) * 1000, 1),
             available=False,
+            error="no_realtime_data",
         )
         raise HTTPException(
             status_code=503,

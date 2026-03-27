@@ -1,0 +1,71 @@
+{
+  "heatId": "live-heat-0ef1bbda-1774525500000-30",
+  "baselineIds": [
+    "baseline-3c06ba5d-185b-48b3-a40d-9e4ace627851",
+    "baseline-4674a3e3-3d3d-4237-b2e0-ea2b2cc1a388",
+    "baseline-7be8ab5d-1e22-47f5-8b56-413b8a9f8971",
+    "baseline-001"
+  ],
+  "baselineNames": [
+    "test1",
+    "UAT发布闭环-1774523955793",
+    "legacy source baseline",
+    "标准基线 v2.1"
+  ],
+  "pageUrl": "http://127.0.0.1:3001/edc/heats/live-heat-0ef1bbda-1774525500000-30",
+  "compareApi": {
+    "status": 200,
+    "selectedBaselineId": "baseline-3c06ba5d-185b-48b3-a40d-9e4ace627851",
+    "selectedBaselineName": "test1",
+    "metricSummaries": [
+      {
+        "metricKey": "power",
+        "metricName": "总有功功率",
+        "baselinePoints": 359,
+        "currentPoints": 1471
+      },
+      {
+        "metricKey": "voltage",
+        "metricName": "A相电压",
+        "baselinePoints": 360,
+        "currentPoints": 1471
+      }
+    ]
+  },
+  "runtime": {
+    "found": true,
+    "activeBaselineId": "baseline-3c06ba5d-185b-48b3-a40d-9e4ace627851",
+    "activeBaselineName": "test1",
+    "seriesSummary": [
+      {
+        "name": "总有功功率-黄金基线",
+        "type": "line",
+        "pointCount": 359
+      },
+      {
+        "name": "总有功功率-当前生产",
+        "type": "line",
+        "pointCount": 1471
+      },
+      {
+        "name": "A相电压-黄金基线",
+        "type": "line",
+        "pointCount": 360
+      },
+      {
+        "name": "A相电压-当前生产",
+        "type": "line",
+        "pointCount": 1471
+      }
+    ],
+    "chartSize": {
+      "width": 814,
+      "height": 320
+    }
+  },
+  "screenshots": {
+    "checkpoint1": "docs/test-reports/assets/2026-03-26-heat-compare/cp01-heat-list-entry.png",
+    "checkpoint2": "docs/test-reports/assets/2026-03-26-heat-compare/cp02-heat-detail-overview.png",
+    "checkpoint3": "docs/test-reports/assets/2026-03-26-heat-compare/cp03-heat-compare-visual.png"
+  }
+}

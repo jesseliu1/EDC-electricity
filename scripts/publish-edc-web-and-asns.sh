@@ -76,8 +76,28 @@ cp -a "$web_dir/dist/assets/." "$webroot/$new_assets_dir/"
 cp "$web_dir/dist/index.html" "$webroot/index.html"
 sed -i "s#/edc/assets/#/edc/$new_assets_dir/#g" "$webroot/index.html"
 
+entry_js="$(find "$webroot/$new_assets_dir" -maxdepth 1 -name 'index-*.js' -print -quit)"
+if [[ -z "${entry_js:-}" ]]; then
+  echo "Failed to find EDC entry script in $webroot/$new_assets_dir." >&2
+  exit 1
+fi
+sed -i \
+  -e "s#\"assets/#\"$new_assets_dir/#g" \
+  -e "s#'assets/#'$new_assets_dir/#g" \
+  "$entry_js"
+
 if [[ -f "$web_dir/dist/vite.svg" ]]; then
-  cp "$web_dir/dist/vite.svg" "$webroot/vite.svg"
+  if [[ -e "$webroot/vite.svg" ]]; then
+    if [[ -w "$webroot/vite.svg" ]]; then
+      cp "$web_dir/dist/vite.svg" "$webroot/vite.svg"
+    else
+      echo "Skipping vite.svg publish because target file is not writable: $webroot/vite.svg" >&2
+    fi
+  elif [[ -w "$webroot" ]]; then
+    cp "$web_dir/dist/vite.svg" "$webroot/vite.svg"
+  else
+    echo "Skipping vite.svg publish because target directory is not writable: $webroot" >&2
+  fi
 fi
 
 if ! grep -q "/edc/$new_assets_dir/" "$webroot/index.html"; then

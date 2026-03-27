@@ -1,0 +1,39 @@
+{
+  "edc": {
+    "title": "AI老师傅 - 智慧熔炼偏差分析",
+    "recentRows": 1,
+    "recentItems": {
+      "items": []
+    },
+    "sourceSummary": "功率来源\n未绑定宿主通道\n电压来源\n未绑定宿主通道",
+    "screenshot": "docs/test-reports/assets/2026-03-27-edc-asns-live-check/public-edc-dashboard.png"
+  },
+  "asns": {
+    "title": "My Google AI Studio App",
+    "iframeCount": 0,
+    "screenshot": "docs/test-reports/assets/2026-03-27-edc-asns-live-check/public-asns-home.png",
+    "consoleIssues": []
+  },
+  "shared": {
+    "responses": [
+      {
+        "url": "https://hopeofthepantheon.me/api/settings/runtime-status",
+        "status": 200
+      },
+      {
+        "url": "https://hopeofthepantheon.me/api/settings/runtime-status",
+        "status": 200
+      },
+      {
+        "url": "https://hopeofthepantheon.me/api/dashboard/recent-heats?limit=3",
+        "status": 200
+      }
+    ],
+    "consoleIssues": [
+      "Dashboard stats request failed. AxiosError: timeout of 10000ms exceeded\n    at h.ontimeout (https://hopeofthepantheon.me/edc/assets-github-20260327T010033Z/index-Dw-z35KT.js:4:6509)\n    at z.request (https://hopeofthepantheon.me/edc/assets-github-20260327T010033Z/index-Dw-z35KT.js:6:2080)\n    at async Proxy.fetchStats (https://hopeofthepantheon.me/edc/assets-github-20260327T010033Z/DashboardView-C03GBR7T.js:1:12094)\n    at async Promise.all (index 0)\n    at async Proxy.fetchAll (https://hopeofthepantheon.me/edc/assets-github-20260327T010033Z/DashboardView-C03GBR7T.js:1:13125)",
+      "Dashboard realtime request failed. AxiosError: timeout of 10000ms exceeded\n    at h.ontimeout (https://hopeofthepantheon.me/edc/assets-github-20260327T010033Z/index-Dw-z35KT.js:4:6509)\n    at z.request (https://hopeofthepantheon.me/edc/assets-github-20260327T010033Z/index-Dw-z35KT.js:6:2080)\n    at async Proxy.fetchRealtime (https://hopeofthepantheon.me/edc/assets-github-20260327T010033Z/DashboardView-C03GBR7T.js:1:12302)\n    at async Promise.all (index 1)\n    at async Proxy.fetchAll (https://hopeofthepantheon.me/edc/assets-github-20260327T010033Z/DashboardView-C03GBR7T.js:1:13125)",
+      "Dashboard recent heats request failed. AxiosError: timeout of 10000ms exceeded\n    at h.ontimeout (https://hopeofthepantheon.me/edc/assets-github-20260327T010033Z/index-Dw-z35KT.js:4:6509)\n    at z.request (https://hopeofthepantheon.me/edc/assets-github-20260327T010033Z/index-Dw-z35KT.js:6:2080)\n    at async Proxy.fetchRecentHeats (https://hopeofthepantheon.me/edc/assets-github-20260327T010033Z/DashboardView-C03GBR7T.js:1:12511)\n    at async Promise.all (index 2)\n    at async Proxy.fetchAll (https://hopeofthepantheon.me/edc/assets-github-20260327T010033Z/DashboardView-C03GBR7T.js:1:13125)"
+    ],
+    "pageErrors": []
+  }
+}

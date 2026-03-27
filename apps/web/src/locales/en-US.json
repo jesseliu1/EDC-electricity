@@ -110,6 +110,9 @@
     "realtimeSubtitleBaseline": "Baseline {baseline}",
     "loadWarningTitle": "Some dashboard data could not be loaded",
     "statsLoadFailedHint": "Placeholder values are shown for now. Try again shortly.",
+    "realtimeLoadFailedTitle": "Realtime curves are currently unavailable",
+    "realtimeLoadFailedHint": "This is not a genuine empty chart. The realtime curve request failed, so check backend connectivity to the upstream EDC first.",
+    "realtimeSourceUnavailable": "Realtime request failed, so source details are unavailable for now",
     "recentHeatsReloadHint": "Refresh the page or check the backend heats API."
   },
   "baseline": {

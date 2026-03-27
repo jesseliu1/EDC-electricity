@@ -76,6 +76,11 @@ interface DataZoomPayload {
 }
 
 type ExposedChart = ECharts | { value?: ECharts | undefined }
+type ChartRuntimeSeriesSummary = {
+  name: string
+  type: string
+  pointCount: number
+}
 
 const { t } = useI18n()
 const route = useRoute()
@@ -158,6 +163,20 @@ const compareSeriesCount = computed(() => {
       : [primaryComparisonMetric.value]
   return metricCurves.length * 2
 })
+
+function summarizeChartSeries(option: EChartsOption): ChartRuntimeSeriesSummary[] {
+  const rawSeries = option.series
+  const seriesList = Array.isArray(rawSeries) ? rawSeries : rawSeries ? [rawSeries] : []
+
+  return seriesList.map((series) => {
+    const candidate = series as { name?: string; type?: string; data?: unknown[] }
+    return {
+      name: String(candidate.name || ''),
+      type: String(candidate.type || ''),
+      pointCount: Array.isArray(candidate.data) ? candidate.data.length : 0,
+    }
+  })
+}
 
 function normalizedTimestamp(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === '') return null
@@ -436,6 +455,10 @@ const compareOption = computed<EChartsOption>(() => {
     dataZoom: firstCurrentCurve.length > 120 ? [{ type: 'inside' }] : undefined,
   }
 })
+
+const compareRuntimeSeriesSummary = computed(() =>
+  JSON.stringify(summarizeChartSeries(compareOption.value))
+)
 
 const manualAdjustContext = computed(() => {
   if (!current.value) {
@@ -1011,6 +1034,9 @@ watch(heatId, (requestedId) => {
             class="h-80"
             data-testid="heat-compare-chart"
             :data-series-count="compareSeriesCount"
+            :data-runtime-series-summary="compareRuntimeSeriesSummary"
+            :data-active-baseline-id="selectedComparison?.baseline.id || ''"
+            :data-active-baseline-name="selectedComparison?.baseline.name || ''"
           />
         </div>
 

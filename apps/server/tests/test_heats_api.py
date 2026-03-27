@@ -6,8 +6,9 @@ from datetime import datetime, timedelta
 import pytest
 
 from src.api.baseline_definitions import _resolve_preview_window
-from src.api.baselines import _resolve_baseline_time_window
+from src.api.baselines import _BASELINE_STORE, _resolve_baseline_time_window
 from src.api.settings import _SETTINGS_STORE
+from src.runtime_state import load_runtime_state, persist_runtime_state
 from src.schemas.common import CurvePoint
 
 
@@ -75,6 +76,43 @@ async def _pick_heat_id(client, *, require_baseline: bool = True) -> str:
         for item in list_resp.json()["items"]
         if not require_baseline or item.get("baseline_id") is not None
     )
+
+
+class _FakeSharedEDCClient:
+    def __init__(
+        self,
+        *,
+        point_map: dict[tuple[str, str], list[CurvePoint]] | None = None,
+    ) -> None:
+        self._token: str | None = None
+        self.login_calls = 0
+        self.requests: list[dict[str, object]] = []
+        self.point_map = point_map or {}
+
+    async def login(self) -> str:
+        if self._token:
+            return self._token
+        self.login_calls += 1
+        self._token = "fake-token"
+        return self._token
+
+    async def get_local_datas(
+        self,
+        *,
+        suid: str,
+        cuid: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[CurvePoint]:
+        self.requests.append(
+            {
+                "suid": str(suid),
+                "cuid": str(cuid),
+                "start_time": start_time,
+                "end_time": end_time,
+            }
+        )
+        return list(self.point_map.get((str(suid), str(cuid)), []))
 
 
 @pytest.mark.asyncio
@@ -382,6 +420,59 @@ async def test_heat_compare_prefers_hydrated_baseline_metric_curves(client, monk
     assert payload["baseline"]["power_curve"][0]["value"] == 701.0
     assert first_baseline["metric_curves"][0]["baseline_curve"][0]["value"] == 701.0
     assert first_baseline["metric_curves"][1]["baseline_curve"][1]["value"] == 382.0
+
+
+@pytest.mark.asyncio
+async def test_heat_compare_fetches_baseline_metric_curves_via_shared_edc_client(
+    client, monkeypatch
+) -> None:
+    heat_id = await _pick_heat_id(client)
+    baseline_item = _BASELINE_STORE["baseline-001"]
+    baseline_item["selected_start_time"] = datetime(2026, 3, 22, 8, 0)
+    baseline_item["selected_end_time"] = datetime(2026, 3, 22, 8, 30)
+
+    fake_client = _FakeSharedEDCClient(
+        point_map={
+            ("2349", "199"): [
+                CurvePoint(timestamp=1000, value=701.0),
+                CurvePoint(timestamp=2000, value=702.0),
+            ],
+            ("2349", "128"): [
+                CurvePoint(timestamp=1000, value=381.0),
+                CurvePoint(timestamp=2000, value=382.0),
+            ],
+        }
+    )
+
+    async def fake_get_shared_edc_client(**_kwargs):
+        return fake_client
+
+    async def fake_load_heat_curves_from_edc(_item):
+        return None
+
+    async def fake_load_channel_curves_from_edc(**_kwargs):
+        return {}
+
+    monkeypatch.setattr("src.api.baselines.get_shared_edc_client", fake_get_shared_edc_client)
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fake_load_heat_curves_from_edc)
+    monkeypatch.setattr(
+        "src.api.heats._load_channel_curves_from_edc",
+        fake_load_channel_curves_from_edc,
+    )
+
+    import src.api.heats as heats_module
+
+    heats_module._COMPARE_BASELINE_CACHE["entries"] = {}
+
+    compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
+    assert compare_resp.status_code == 200
+    payload = compare_resp.json()
+    first_baseline = payload["baselines"][0]
+    assert payload["baseline"]["power_curve"][0]["value"] == 701.0
+    assert payload["baseline"]["voltage_curve"][1]["value"] == 382.0
+    assert first_baseline["metric_curves"][0]["baseline_curve"][0]["value"] == 701.0
+    assert first_baseline["metric_curves"][1]["baseline_curve"][1]["value"] == 382.0
+    assert fake_client.login_calls == 1
 
 
 @pytest.mark.asyncio
@@ -954,18 +1045,22 @@ async def test_preview_and_baseline_time_window_use_definition_context_for_live_
 async def test_baseline_time_window_skips_live_lookup_for_non_live_missing_source(
     monkeypatch,
 ) -> None:
-    async def fail_resolve_heat_time_window(*_args, **_kwargs):
-        raise AssertionError("should not resolve live heat window for non-live missing source")
+    calls: list[str] = []
+
+    async def fake_resolve_heat_time_window(heat_id: str, **_kwargs):
+        calls.append(heat_id)
+        return None
 
     monkeypatch.setattr(
         "src.api.heats.resolve_heat_time_window",
-        fail_resolve_heat_time_window,
+        fake_resolve_heat_time_window,
     )
 
     window_start, window_end = await _resolve_baseline_time_window(
         {"definition_id": "def-001", "source_heat_id": "heat-ref-999"}
     )
 
+    assert calls == ["heat-ref-999"]
     assert (window_end - window_start).total_seconds() == 3600
 
 
@@ -1338,6 +1433,80 @@ async def test_heat_compare_reuses_shared_baseline_cache_across_different_heats(
     assert second_resp.status_code == 200
     assert hydrate_calls.count("baseline-001") == 1
     assert "baseline-002" not in hydrate_calls
+
+
+@pytest.mark.asyncio
+async def test_startup_restore_compare_flow_keeps_restored_baseline_window(
+    client,
+    monkeypatch,
+) -> None:
+    restored_start = datetime(2026, 3, 23, 8, 0)
+    restored_end = datetime(2026, 3, 23, 8, 30)
+    baseline_item = _BASELINE_STORE["baseline-001"]
+    baseline_item["source_heat_id"] = "heat-001"
+    baseline_item["selected_start_time"] = restored_start
+    baseline_item["selected_end_time"] = restored_end
+    _SETTINGS_STORE["active_baseline_id"]["value"] = "baseline-001"
+
+    await persist_runtime_state("baselines", "settings_store")
+
+    baseline_item["selected_start_time"] = None
+    baseline_item["selected_end_time"] = None
+    _SETTINGS_STORE["active_baseline_id"]["value"] = ""
+    await load_runtime_state()
+
+    assert _BASELINE_STORE["baseline-001"]["selected_start_time"] == restored_start
+    assert _BASELINE_STORE["baseline-001"]["selected_end_time"] == restored_end
+    assert _SETTINGS_STORE["active_baseline_id"]["value"] == "baseline-001"
+
+    fake_client = _FakeSharedEDCClient(
+        point_map={
+            ("2349", "199"): [
+                CurvePoint(timestamp=1000, value=711.0),
+                CurvePoint(timestamp=2000, value=712.0),
+            ],
+            ("2349", "128"): [
+                CurvePoint(timestamp=1000, value=391.0),
+                CurvePoint(timestamp=2000, value=392.0),
+            ],
+        }
+    )
+
+    async def fake_get_shared_edc_client(**_kwargs):
+        return fake_client
+
+    async def fake_load_heat_curves_from_edc(_item):
+        return None
+
+    async def fake_load_channel_curves_from_edc(**_kwargs):
+        return {}
+
+    monkeypatch.setattr("src.api.baselines.get_shared_edc_client", fake_get_shared_edc_client)
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fake_load_heat_curves_from_edc)
+    monkeypatch.setattr(
+        "src.api.heats._load_channel_curves_from_edc",
+        fake_load_channel_curves_from_edc,
+    )
+
+    import src.api.heats as heats_module
+
+    heats_module._COMPARE_BASELINE_CACHE["entries"] = {}
+
+    heat_id = await _pick_heat_id(client)
+    compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
+    assert compare_resp.status_code == 200
+    payload = compare_resp.json()
+    assert payload["baseline"]["power_curve"][0]["value"] == 711.0
+    assert payload["baselines"][0]["metric_curves"][1]["baseline_curve"][1]["value"] == 392.0
+    assert fake_client.login_calls == 1
+    assert {
+        (
+            request["start_time"],
+            request["end_time"],
+        )
+        for request in fake_client.requests
+        if request["cuid"] in {"199", "128"}
+    } == {(restored_start, restored_end)}
 
 
 @pytest.mark.asyncio

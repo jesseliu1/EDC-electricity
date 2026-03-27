@@ -19,7 +19,7 @@ from ..schemas.baseline_definition import (
     MetricDefinitionUpdate,
 )
 from ..schemas.common import MessageResponse
-from ..services import EDCClient, EDCClientError
+from ..services import EDCClientError, get_shared_edc_client
 from .settings import _HOST_CHANNEL_STORE, get_edc_connection_config
 
 router = APIRouter(prefix="/baseline-definitions", tags=["BaselineDefinitions"])
@@ -211,19 +211,20 @@ async def _build_preview_curves(
 
     if bound_metrics and config["base_url"] and config["username"] and config["password"]:
         try:
-            async with EDCClient(**config) as client:
-                tasks = {
-                    str(metric["id"]): asyncio.create_task(
-                        client.get_local_datas(
-                            suid=channel["suid"],
-                            cuid=channel["cuid"],
-                            start_time=range_start,
-                            end_time=range_end,
-                        )
+            client = await get_shared_edc_client(**config)
+            await client.login()
+            tasks = {
+                str(metric["id"]): asyncio.create_task(
+                    client.get_local_datas(
+                        suid=channel["suid"],
+                        cuid=channel["cuid"],
+                        start_time=range_start,
+                        end_time=range_end,
                     )
-                    for metric, channel in bound_metrics
-                }
-                results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+                )
+                for metric, channel in bound_metrics
+            }
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
         except EDCClientError:
             results = []
             tasks = {}

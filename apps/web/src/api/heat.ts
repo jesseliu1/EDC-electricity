@@ -1,5 +1,7 @@
 import { client } from './client'
 
+const HEAT_LIST_TIMEOUT_MS = 45000
+
 export type HeatStatus = 'normal' | 'abnormal' | 'pending'
 export type HeatDataSource =
   | 'live_edc'
@@ -127,7 +129,12 @@ export interface HeatResumeCuttingPayload {
 }
 
 export const heatApi = {
-  list: (query: HeatListQuery) => client.get<HeatListResponse>('/heats', { params: query }),
+  list: (query: HeatListQuery) =>
+    client.get<HeatListResponse>('/heats', {
+      params: query,
+      timeout: HEAT_LIST_TIMEOUT_MS,
+      meta: { operation: 'heat_list' }
+    }),
   get: (id: string) => client.get<HeatResponseItem>(`/heats/${id}`),
   getCurve: (id: string) => client.get<HeatWithCurveResponse>(`/heats/${id}/curve`),
   getCompare: (id: string) => client.get<HeatCompareResponse>(`/heats/${id}/compare`),

@@ -1,11 +1,15 @@
 """基线、基线定义与仪表盘 API 测试。"""
 
+from datetime import datetime
+
 import pytest
 
+from src.api.baselines import _BASELINE_STORE
 from src.api.heats import _COMPARE_BASELINE_CACHE, _COMPARE_CHANNEL_CURVE_CACHE, _HEAT_COMPARE_CACHE
 from src.api.settings import _HOST_CHANNEL_STORE
 from src.config import settings
 from src.schemas.common import CurvePoint
+from src.services import EDCClientError
 
 HOST_SYNC_HEADERS = {"X-ASNS-Host-Sync": "true"}
 SHOWTIME_HEADERS = {"X-Showtime": "true"}
@@ -17,6 +21,43 @@ def _seed_compare_caches() -> None:
     _COMPARE_CHANNEL_CURVE_CACHE["entries"] = {
         "curve-001": {"payload": {"2349:199": []}}
     }
+
+
+class _FakeSharedEDCClient:
+    def __init__(
+        self,
+        *,
+        point_map: dict[tuple[str, str], list[CurvePoint]] | None = None,
+    ) -> None:
+        self._token: str | None = None
+        self.login_calls = 0
+        self.requests: list[dict[str, object]] = []
+        self.point_map = point_map or {}
+
+    async def login(self) -> str:
+        if self._token:
+            return self._token
+        self.login_calls += 1
+        self._token = "fake-token"
+        return self._token
+
+    async def get_local_datas(
+        self,
+        *,
+        suid: str,
+        cuid: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[CurvePoint]:
+        self.requests.append(
+            {
+                "suid": str(suid),
+                "cuid": str(cuid),
+                "start_time": start_time,
+                "end_time": end_time,
+            }
+        )
+        return list(self.point_map.get((str(suid), str(cuid)), []))
 
 
 @pytest.mark.asyncio
@@ -110,6 +151,24 @@ async def test_dashboard_realtime_does_not_fallback_when_mock_enabled(client, mo
     response = await client.get("/api/dashboard/realtime", params={"duration": "1h"})
     assert response.status_code == 503
     assert "未获取到真实实时数据" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_realtime_surfaces_edc_transport_failure(client, monkeypatch) -> None:
+    async def fake_load_realtime_curves_from_edc(**_kwargs):
+        raise EDCClientError(
+            "实时曲线拉取失败：EDC 登录超时（ConnectTimeout），请检查当前环境到上游 EDC 的网络连通性"
+        )
+
+    monkeypatch.setattr(
+        "src.api.dashboard._load_realtime_curves_from_edc",
+        fake_load_realtime_curves_from_edc,
+    )
+
+    response = await client.get("/api/dashboard/realtime", params={"duration": "1h"})
+    assert response.status_code == 503
+    assert "实时曲线拉取失败" in response.json()["detail"]
+    assert "ConnectTimeout" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -224,25 +283,110 @@ async def test_definition_preview_curves_prefers_preview_builder(client, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_baseline_detail_fetches_curves_via_shared_client_and_source_heat_window(
+    client, monkeypatch
+) -> None:
+    baseline_item = _BASELINE_STORE["baseline-001"]
+    baseline_item["source_heat_id"] = "heat-001"
+    baseline_item["selected_start_time"] = None
+    baseline_item["selected_end_time"] = None
+
+    fake_client = _FakeSharedEDCClient(
+        point_map={
+            ("2349", "199"): [
+                CurvePoint(timestamp=1000, value=301.0),
+                CurvePoint(timestamp=2000, value=302.0),
+            ],
+            ("2349", "128"): [
+                CurvePoint(timestamp=1000, value=211.0),
+                CurvePoint(timestamp=2000, value=212.0),
+            ],
+        }
+    )
+
+    async def fake_get_shared_edc_client(**_kwargs):
+        return fake_client
+
+    monkeypatch.setattr("src.api.baselines.get_shared_edc_client", fake_get_shared_edc_client)
+
+    from src.api.heats import build_live_heat_lookup_context, resolve_heat_time_window
+
+    expected_start, expected_end = await resolve_heat_time_window(
+        "heat-001",
+        preferred_live_context=build_live_heat_lookup_context(definition_id="def-001"),
+    )
+
+    first_response = await client.get("/api/baselines/baseline-001")
+    second_response = await client.get("/api/baselines/baseline-001")
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+    payload = first_response.json()
+    assert payload["curve_source"] == "live_edc"
+    assert payload["power_curve"][0]["value"] == 301.0
+    assert payload["voltage_curve"][1]["value"] == 212.0
+    assert payload["curves_data"][0]["points"][1]["value"] == 302.0
+    assert fake_client.login_calls == 1
+    assert {
+        (
+            request["start_time"],
+            request["end_time"],
+        )
+        for request in fake_client.requests
+        if request["cuid"] in {"199", "128"}
+    } == {(expected_start, expected_end)}
+
+
+@pytest.mark.asyncio
+async def test_definition_preview_curves_fetches_points_via_shared_client(
+    client, monkeypatch
+) -> None:
+    fake_client = _FakeSharedEDCClient(
+        point_map={
+            ("2349", "199"): [
+                CurvePoint(timestamp=1000, value=401.0),
+                CurvePoint(timestamp=2000, value=402.0),
+            ],
+            ("2349", "128"): [
+                CurvePoint(timestamp=1000, value=221.0),
+                CurvePoint(timestamp=2000, value=222.0),
+            ],
+        }
+    )
+
+    async def fake_get_shared_edc_client(**_kwargs):
+        return fake_client
+
+    monkeypatch.setattr(
+        "src.api.baseline_definitions.get_shared_edc_client",
+        fake_get_shared_edc_client,
+    )
+
+    response = await client.get(
+        "/api/baseline-definitions/def-001/preview-curves",
+        params={"heat_id": "heat-001"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["curves_data"][0]["points"][0]["value"] == 401.0
+    assert payload["curves_data"][1]["points"][1]["value"] == 222.0
+    assert fake_client.login_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_definition_preview_curves_rejects_empty_real_data_when_mock_disabled(
     client, monkeypatch
 ) -> None:
     settings.enable_mock_dataset = False
+    fake_client = _FakeSharedEDCClient()
 
-    class FakeClient:
-        def __init__(self, **_kwargs) -> None:
-            pass
+    async def fake_get_shared_edc_client(**_kwargs):
+        return fake_client
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb) -> None:
-            return None
-
-        async def get_local_datas(self, **_kwargs):
-            return []
-
-    monkeypatch.setattr("src.api.baseline_definitions.EDCClient", FakeClient)
+    monkeypatch.setattr(
+        "src.api.baseline_definitions.get_shared_edc_client",
+        fake_get_shared_edc_client,
+    )
 
     response = await client.get(
         "/api/baseline-definitions/def-001/preview-curves",
@@ -257,21 +401,15 @@ async def test_definition_preview_curves_do_not_fallback_when_mock_enabled(
     client, monkeypatch
 ) -> None:
     settings.enable_mock_dataset = True
+    fake_client = _FakeSharedEDCClient()
 
-    class FakeClient:
-        def __init__(self, **_kwargs) -> None:
-            pass
+    async def fake_get_shared_edc_client(**_kwargs):
+        return fake_client
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb) -> None:
-            return None
-
-        async def get_local_datas(self, **_kwargs):
-            return []
-
-    monkeypatch.setattr("src.api.baseline_definitions.EDCClient", FakeClient)
+    monkeypatch.setattr(
+        "src.api.baseline_definitions.get_shared_edc_client",
+        fake_get_shared_edc_client,
+    )
 
     response = await client.get(
         "/api/baseline-definitions/def-001/preview-curves",

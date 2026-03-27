@@ -1,0 +1,45 @@
+{
+  "baselineId": "baseline-4674a3e3-3d3d-4237-b2e0-ea2b2cc1a388",
+  "pageUrl": "http://127.0.0.1:3001/edc/baselines/baseline-4674a3e3-3d3d-4237-b2e0-ea2b2cc1a388",
+  "api": {
+    "status": 200,
+    "curveSource": "live_edc",
+    "curvesData": [
+      {
+        "metricName": "总有功功率",
+        "pointCount": 350
+      },
+      {
+        "metricName": "A相电压",
+        "pointCount": 350
+      }
+    ],
+    "powerPoints": 350,
+    "voltagePoints": 350
+  },
+  "runtime": {
+    "found": true,
+    "baselineId": "baseline-4674a3e3-3d3d-4237-b2e0-ea2b2cc1a388",
+    "baselineName": "UAT发布闭环-1774523955793",
+    "seriesSummary": [
+      {
+        "name": "总有功功率 (kW)",
+        "type": "line",
+        "pointCount": 350
+      },
+      {
+        "name": "A相电压 (V)",
+        "type": "line",
+        "pointCount": 350
+      }
+    ],
+    "chartSize": {
+      "width": 814,
+      "height": 384
+    }
+  },
+  "screenshots": {
+    "full": "/tmp/baseline-detail-overview.png",
+    "chart": "/tmp/baseline-detail-chart.png"
+  }
+}

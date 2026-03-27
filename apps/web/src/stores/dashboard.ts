@@ -123,6 +123,8 @@ export const useDashboardStore = defineStore('dashboard', {
     statsLoaded: false,
     statsError: null as string | null,
     realtime: { ...defaultRealtime },
+    realtimeLoaded: false,
+    realtimeError: null as string | null,
     recentHeats: [] as RecentHeatItem[],
     recentHeatsLoaded: false,
     recentHeatsError: null as string | null,
@@ -144,12 +146,15 @@ export const useDashboardStore = defineStore('dashboard', {
     },
     async fetchRealtime(range?: TimeRange) {
       if (range) this.timeRange = range
+      this.realtimeError = null
       try {
         const data = await dashboardApi.getRealtime(this.timeRange)
         this.realtime = mapRealtime(data)
+        this.realtimeLoaded = true
       } catch (error) {
         console.error('Dashboard realtime request failed.', error)
-        this.realtime = { ...defaultRealtime }
+        this.realtimeError = resolveApiErrorMessage(error, '实时曲线加载失败')
+        this.realtimeLoaded = true
       }
     },
     async fetchRecentHeats(limit = 8) {

@@ -1,0 +1,132 @@
+{
+  "local-dashboard": {
+    "url": "http://127.0.0.1:3001/edc/",
+    "type": "dashboard",
+    "inspection": {
+      "pageVisible": true,
+      "loadWarningVisible": false,
+      "runtimeBannerVisible": false,
+      "sourceSummary": "功率来源\nSSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW\n电压来源\nSSTW 380V-220V電力 · 三相智能电表 / A相电压 / V",
+      "recentHeatRows": 8,
+      "hasTodayHeatsCard": true,
+      "hasRealtimeChart": true,
+      "pass": true
+    },
+    "apiResults": {
+      "runtime-status": {
+        "status": 200,
+        "url": "http://127.0.0.1:3001/api/settings/runtime-status"
+      },
+      "tasks": {
+        "status": 200,
+        "url": "http://127.0.0.1:3001/api/tasks?status=in_progress&page=1&page_size=3"
+      },
+      "dashboard-realtime": {
+        "status": 200,
+        "url": "http://127.0.0.1:3001/api/dashboard/realtime?duration=1h"
+      },
+      "dashboard-stats": {
+        "status": 200,
+        "url": "http://127.0.0.1:3001/api/dashboard/stats"
+      },
+      "dashboard-recent-heats": {
+        "status": 200,
+        "url": "http://127.0.0.1:3001/api/dashboard/recent-heats?limit=8"
+      }
+    },
+    "consoleIssues": [],
+    "pageErrors": [],
+    "screenshot": "/home/openclaw/projects/EDC-electricity/docs/test-reports/assets/2026-03-26-dashboard-settings-smoke/local-dashboard.png"
+  },
+  "public-dashboard": {
+    "url": "https://hopeofthepantheon.me/edc/",
+    "type": "dashboard",
+    "inspection": {
+      "pageVisible": true,
+      "loadWarningVisible": false,
+      "runtimeBannerVisible": false,
+      "sourceSummary": "功率来源\nSSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW\n电压来源\nSSTW 380V-220V電力 · 三相智能电表 / A相电压 / V",
+      "recentHeatRows": 8,
+      "hasTodayHeatsCard": true,
+      "hasRealtimeChart": true,
+      "pass": true
+    },
+    "apiResults": {
+      "runtime-status": {
+        "status": 200,
+        "url": "https://hopeofthepantheon.me/api/settings/runtime-status"
+      },
+      "dashboard-stats": {
+        "status": 200,
+        "url": "https://hopeofthepantheon.me/api/dashboard/stats"
+      },
+      "dashboard-recent-heats": {
+        "status": 200,
+        "url": "https://hopeofthepantheon.me/api/dashboard/recent-heats?limit=8"
+      },
+      "tasks": {
+        "status": 200,
+        "url": "https://hopeofthepantheon.me/api/tasks?status=in_progress&page=1&page_size=3"
+      },
+      "dashboard-realtime": {
+        "status": 200,
+        "url": "https://hopeofthepantheon.me/api/dashboard/realtime?duration=1h"
+      }
+    },
+    "consoleIssues": [],
+    "pageErrors": [],
+    "screenshot": "/home/openclaw/projects/EDC-electricity/docs/test-reports/assets/2026-03-26-dashboard-settings-smoke/public-dashboard.png"
+  },
+  "local-settings": {
+    "url": "http://127.0.0.1:3001/edc/settings",
+    "type": "settings",
+    "inspection": {
+      "pageVisible": true,
+      "runtimeBannerVisible": false,
+      "navVisible": true,
+      "toleranceVisible": true,
+      "cuttingVisible": true,
+      "hostCardText": "宿主系统连接\n\n系统级 EDC 连接由 ASNS 宿主维护，当前页面只读展示宿主同步状态。\n\n宿主已连入\n当前应用不再直接修改 EDC 系统连接。若需变更连接地址、账号或重连，请返回宿主系统的“连接设置”。\n\nEDC API 地址\n\nhttp://60.251.229.32\n\n宿主节点\n\nEDC Gateway (60.251.229.32)\n\n最近同步\n\n2026/3/26 19:16:48\n\n宿主来源\n\nhttp://60.251.229.32\n\n发现设备数\n\n26\n\n发现通道数\n\n2286\n\n启用通道数\n\n2127",
+      "pass": true
+    },
+    "apiResults": {
+      "runtime-status": {
+        "status": 200,
+        "url": "http://127.0.0.1:3001/api/settings/runtime-status"
+      },
+      "settings": {
+        "status": 200,
+        "url": "http://127.0.0.1:3001/api/settings"
+      }
+    },
+    "consoleIssues": [],
+    "pageErrors": [],
+    "screenshot": "/home/openclaw/projects/EDC-electricity/docs/test-reports/assets/2026-03-26-dashboard-settings-smoke/local-settings.png"
+  },
+  "public-settings": {
+    "url": "https://hopeofthepantheon.me/edc/settings",
+    "type": "settings",
+    "inspection": {
+      "pageVisible": true,
+      "runtimeBannerVisible": false,
+      "navVisible": true,
+      "toleranceVisible": true,
+      "cuttingVisible": true,
+      "hostCardText": "宿主系统连接\n\n系统级 EDC 连接由 ASNS 宿主维护，当前页面只读展示宿主同步状态。\n\n宿主已连入\n当前应用不再直接修改 EDC 系统连接。若需变更连接地址、账号或重连，请返回宿主系统的“连接设置”。\n\nEDC API 地址\n\nhttp://60.251.229.32\n\n宿主节点\n\nEDC Gateway (60.251.229.32)\n\n最近同步\n\n2026/3/26 19:16:48\n\n宿主来源\n\nhttp://60.251.229.32\n\n发现设备数\n\n26\n\n发现通道数\n\n2286\n\n启用通道数\n\n2127",
+      "pass": true
+    },
+    "apiResults": {
+      "runtime-status": {
+        "status": 200,
+        "url": "https://hopeofthepantheon.me/api/settings/runtime-status"
+      },
+      "settings": {
+        "status": 200,
+        "url": "https://hopeofthepantheon.me/api/settings"
+      }
+    },
+    "consoleIssues": [],
+    "pageErrors": [],
+    "screenshot": "/home/openclaw/projects/EDC-electricity/docs/test-reports/assets/2026-03-26-dashboard-settings-smoke/public-settings.png"
+  }
+}

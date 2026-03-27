@@ -1,0 +1,45 @@
+{
+  "definitionId": "def-788f8b8e-2285-47fc-8e15-b47e1e41a493",
+  "heatId": "live-heat-0ef1bbda-1774523100000-30",
+  "pageUrl": "http://127.0.0.1:3001/edc/baselines",
+  "api": {
+    "status": 200,
+    "rangeStart": "2026-03-26T00:00:00",
+    "rangeEnd": "2026-03-27T00:00:00",
+    "curvesData": [
+      {
+        "metricName": "总有功功率",
+        "pointCount": 10074
+      },
+      {
+        "metricName": "A相电压",
+        "pointCount": 10074
+      }
+    ]
+  },
+  "runtime": {
+    "found": true,
+    "definitionId": "def-788f8b8e-2285-47fc-8e15-b47e1e41a493",
+    "heatId": "live-heat-0ef1bbda-1774523100000-30",
+    "seriesSummary": [
+      {
+        "name": "总有功功率",
+        "type": "line",
+        "pointCount": 10073
+      },
+      {
+        "name": "A相电压",
+        "type": "line",
+        "pointCount": 10073
+      }
+    ],
+    "chartSize": {
+      "width": 826,
+      "height": 420
+    }
+  },
+  "screenshots": {
+    "full": "/tmp/preview-curves-overview.png",
+    "chart": "/tmp/preview-curves-chart.png"
+  }
+}

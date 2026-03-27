@@ -105,6 +105,55 @@ test.describe('EDC loading error states', () => {
     await expect(page.locator('[data-testid="stat-card"]').first()).toContainText('--')
   })
 
+  test('dashboard shows realtime failure state instead of pretending host channels are unbound', async ({
+    page,
+  }) => {
+    await mockRuntimeStatus(page)
+    await mockDashboardTaskLists(page)
+
+    await page.route('**/api/dashboard/stats', async (route) => {
+      await fulfillJson(route, {
+        today_heats: 8,
+        avg_deviation: 6.2,
+        pending_tasks: 2,
+        active_baseline: '标准基线 v2.1',
+        normal_rate: 75.0,
+      })
+    })
+    await page.route('**/api/dashboard/recent-heats?**', async (route) => {
+      await fulfillJson(route, { items: [] })
+    })
+    await page.route('**/api/dashboard/realtime?duration=*', async (route) => {
+      await fulfillJson(
+        route,
+        {
+          detail:
+            '实时曲线拉取失败：EDC 登录超时（ConnectTimeout），请检查当前环境到上游 EDC 的网络连通性',
+        },
+        503
+      )
+    })
+
+    await page.goto('')
+
+    await expect(page.getByTestId('dashboard-load-warning')).toContainText(
+      '实时曲线拉取失败：EDC 登录超时'
+    )
+    await expect(page.getByTestId('dashboard-realtime-error')).toBeVisible()
+    await expect(page.getByTestId('dashboard-realtime-error')).toContainText(
+      '实时曲线当前不可用'
+    )
+    await expect(page.getByTestId('dashboard-power-source')).toContainText(
+      '实时曲线请求失败，来源信息暂不可用'
+    )
+    await expect(page.getByTestId('dashboard-power-source')).not.toContainText(
+      '未绑定宿主通道'
+    )
+    await expect(page.getByTestId('dashboard-voltage-source')).toContainText(
+      '实时曲线请求失败，来源信息暂不可用'
+    )
+  })
+
   test('heat detail exits loading state, disables manual adjust, and shows explicit error when compare request fails', async ({
     page,
   }) => {

@@ -110,6 +110,9 @@
     "realtimeSubtitleBaseline": "对比基线 {baseline}",
     "loadWarningTitle": "部分仪表盘数据暂未成功返回",
     "statsLoadFailedHint": "当前显示为占位值，请稍后重试。",
+    "realtimeLoadFailedTitle": "实时曲线当前不可用",
+    "realtimeLoadFailedHint": "当前不是“没有曲线”，而是实时曲线请求失败。请先检查后端到上游 EDC 的连通性。",
+    "realtimeSourceUnavailable": "实时曲线请求失败，来源信息暂不可用",
     "recentHeatsReloadHint": "请刷新页面或检查后端炉次接口状态。"
   },
   "baseline": {

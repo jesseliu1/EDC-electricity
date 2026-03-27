@@ -110,6 +110,9 @@
     "realtimeSubtitleBaseline": "對比基線 {baseline}",
     "loadWarningTitle": "部分儀表板資料暫未成功返回",
     "statsLoadFailedHint": "目前顯示為佔位值，請稍後再試。",
+    "realtimeLoadFailedTitle": "即時曲線目前不可用",
+    "realtimeLoadFailedHint": "目前不是「沒有曲線」，而是即時曲線請求失敗。請先檢查後端到上游 EDC 的連通性。",
+    "realtimeSourceUnavailable": "即時曲線請求失敗，來源資訊暫不可用",
     "recentHeatsReloadHint": "請重新整理頁面或檢查後端爐次介面狀態。"
   },
   "baseline": {

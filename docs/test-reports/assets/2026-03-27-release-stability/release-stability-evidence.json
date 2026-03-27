@@ -1,0 +1,181 @@
+{
+  "localDashboardStability": {
+    "cold": {
+      "loadMs": 7709,
+      "loadWarningVisible": false,
+      "runtimeBannerVisible": false,
+      "recentHeatRows": 8,
+      "sourceSummary": "功率来源\nSSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW\n电压来源\nSSTW 380V-220V電力 · 三相智能电表 / A相电压 / V",
+      "consoleIssues": [],
+      "pageErrors": [],
+      "pass": true
+    },
+    "detailResult": {
+      "recentHeatRowText": "H20260327-0104\t2026-03-27 01:04\t待计算\t\n正常\n\t详情",
+      "detailUrl": "http://127.0.0.1:3001/edc/heats/live-heat-0ef1bbda-1774574400000-30",
+      "runtimeSeriesSummary": "[{\"name\":\"总有功功率-黄金基线\",\"type\":\"line\",\"pointCount\":359},{\"name\":\"总有功功率-当前生产\",\"type\":\"line\",\"pointCount\":1094},{\"name\":\"A相电压-黄金基线\",\"type\":\"line\",\"pointCount\":360},{\"name\":\"A相电压-当前生产\",\"type\":\"line\",\"pointCount\":1094}]",
+      "pass": true
+    },
+    "repeatOpenRuns": [
+      {
+        "loadMs": 3878,
+        "loadWarningVisible": false,
+        "runtimeBannerVisible": false,
+        "recentHeatRows": 8,
+        "sourceSummary": "功率来源\nSSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW\n电压来源\nSSTW 380V-220V電力 · 三相智能电表 / A相电压 / V",
+        "consoleIssues": [],
+        "pageErrors": [],
+        "pass": true
+      },
+      {
+        "loadMs": 4021,
+        "loadWarningVisible": false,
+        "runtimeBannerVisible": false,
+        "recentHeatRows": 8,
+        "sourceSummary": "功率来源\nSSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW\n电压来源\nSSTW 380V-220V電力 · 三相智能电表 / A相电压 / V",
+        "consoleIssues": [],
+        "pageErrors": [],
+        "pass": true
+      }
+    ],
+    "refreshRuns": [
+      {
+        "phase": "initial",
+        "loadMs": 3884,
+        "loadWarningVisible": false,
+        "runtimeBannerVisible": false,
+        "recentHeatRows": 8,
+        "sourceSummary": "功率来源\nSSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW\n电压来源\nSSTW 380V-220V電力 · 三相智能电表 / A相电压 / V",
+        "consoleIssues": [],
+        "pageErrors": [],
+        "pass": true
+      },
+      {
+        "phase": "reload-1",
+        "loadMs": 3276,
+        "loadWarningVisible": false,
+        "recentHeatRows": 8,
+        "pass": true
+      },
+      {
+        "phase": "reload-2",
+        "loadMs": 3268,
+        "loadWarningVisible": false,
+        "recentHeatRows": 8,
+        "pass": true
+      }
+    ],
+    "screenshots": {
+      "cold": "/home/openclaw/projects/EDC-electricity/docs/test-reports/assets/2026-03-27-release-stability/local-dashboard-cold-start.png",
+      "detail": "/home/openclaw/projects/EDC-electricity/docs/test-reports/assets/2026-03-27-release-stability/local-dashboard-to-detail.png",
+      "refreshFinal": "/home/openclaw/projects/EDC-electricity/docs/test-reports/assets/2026-03-27-release-stability/local-dashboard-refresh-final.png"
+    },
+    "pass": true
+  },
+  "publicDashboardStability": {
+    "cold": {
+      "loadMs": 4156,
+      "loadWarningVisible": false,
+      "runtimeBannerVisible": false,
+      "recentHeatRows": 8,
+      "sourceSummary": "功率来源\nSSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW\n电压来源\nSSTW 380V-220V電力 · 三相智能电表 / A相电压 / V",
+      "consoleIssues": [],
+      "pageErrors": [],
+      "pass": true
+    },
+    "detailResult": {
+      "recentHeatRowText": "H20260327-0104\t2026-03-27 01:04\t待计算\t\n正常\n\t详情",
+      "detailUrl": "https://hopeofthepantheon.me/edc/heats/live-heat-0ef1bbda-1774574400000-30",
+      "runtimeSeriesSummary": "[{\"name\":\"总有功功率-黄金基线\",\"type\":\"line\",\"pointCount\":359},{\"name\":\"总有功功率-当前生产\",\"type\":\"line\",\"pointCount\":1099},{\"name\":\"A相电压-黄金基线\",\"type\":\"line\",\"pointCount\":360},{\"name\":\"A相电压-当前生产\",\"type\":\"line\",\"pointCount\":1099}]",
+      "pass": true
+    },
+    "repeatOpenRuns": [
+      {
+        "loadMs": 7685,
+        "loadWarningVisible": false,
+        "runtimeBannerVisible": false,
+        "recentHeatRows": 8,
+        "sourceSummary": "功率来源\nSSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW\n电压来源\nSSTW 380V-220V電力 · 三相智能电表 / A相电压 / V",
+        "consoleIssues": [],
+        "pageErrors": [],
+        "pass": true
+      },
+      {
+        "loadMs": 3868,
+        "loadWarningVisible": false,
+        "runtimeBannerVisible": false,
+        "recentHeatRows": 8,
+        "sourceSummary": "功率来源\nSSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW\n电压来源\nSSTW 380V-220V電力 · 三相智能电表 / A相电压 / V",
+        "consoleIssues": [],
+        "pageErrors": [],
+        "pass": true
+      }
+    ],
+    "refreshRuns": [
+      {
+        "phase": "initial",
+        "loadMs": 3858,
+        "loadWarningVisible": false,
+        "runtimeBannerVisible": false,
+        "recentHeatRows": 8,
+        "sourceSummary": "功率来源\nSSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW\n电压来源\nSSTW 380V-220V電力 · 三相智能电表 / A相电压 / V",
+        "consoleIssues": [],
+        "pageErrors": [],
+        "pass": true
+      },
+      {
+        "phase": "reload-1",
+        "loadMs": 3405,
+        "loadWarningVisible": false,
+        "recentHeatRows": 8,
+        "pass": true
+      },
+      {
+        "phase": "reload-2",
+        "loadMs": 3302,
+        "loadWarningVisible": false,
+        "recentHeatRows": 8,
+        "pass": true
+      }
+    ],
+    "screenshots": {
+      "cold": "/home/openclaw/projects/EDC-electricity/docs/test-reports/assets/2026-03-27-release-stability/public-dashboard-cold-start.png",
+      "detail": "/home/openclaw/projects/EDC-electricity/docs/test-reports/assets/2026-03-27-release-stability/public-dashboard-to-detail.png",
+      "refreshFinal": "/home/openclaw/projects/EDC-electricity/docs/test-reports/assets/2026-03-27-release-stability/public-dashboard-refresh-final.png"
+    },
+    "pass": true
+  },
+  "settingsSaveValidation": {
+    "loadMs": 2700,
+    "executed": true,
+    "riskAssessment": "low",
+    "scope": "local only, save existing report/tolerance values without modifying them",
+    "skipped": [
+      "settings-save-cutting"
+    ],
+    "skippedReason": "cutting 保存会额外触发更多配置写入，超出本轮最小范围",
+    "reportValueBefore": "2",
+    "toleranceValueBefore": "15",
+    "before": {
+      "status": 200,
+      "report_generation_hour": "2",
+      "default_tolerance_percent": "15.0"
+    },
+    "after": {
+      "status": 200,
+      "report_generation_hour": "2",
+      "default_tolerance_percent": "15.0"
+    },
+    "responses": {
+      "report": 200,
+      "tolerance": 200
+    },
+    "consoleIssues": [],
+    "pageErrors": [],
+    "screenshot": "/home/openclaw/projects/EDC-electricity/docs/test-reports/assets/2026-03-27-release-stability/local-settings-save-validation.png",
+    "pass": true
+  },
+  "summary": {
+    "pass": true
+  }
+}

@@ -21,6 +21,62 @@
 
 ## 记录
 
+### 2026-03-27 部署命令：`systemctl --user` 不能默认假设当前 shell 已带 user bus 环境
+
+- **错误模式**: 在 agent、脚本或非交互 shell 里直接执行 `systemctl --user stop/restart ...`，默认认为当前进程一定已经带上 `XDG_RUNTIME_DIR` 和 `DBUS_SESSION_BUS_ADDRESS`。结果命令本身不是服务故障，却先失败在“Failed to connect to user scope bus”。
+- **正确做法**: 只要运行 `systemctl --user`，就先判断当前 shell 是否具备 user bus 环境；在自动化脚本或非交互 shell 中，默认补齐 `XDG_RUNTIME_DIR=/run/user/$(id -u)` 与 `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus`，再执行服务控制命令。
+- **适用场景**: 发布脚本、重启本机 user service、部署联调、AI 代理执行 `systemctl --user` 的任何场景。
+- **相关文档**: `scripts/sync-edc-server.sh`, `scripts/publish-edc-web-and-asns.sh`
+
+### 2026-03-27 后端测试执行目录：相对 SQLite 路径的 pytest 不能忽略当前 cwd
+
+- **错误模式**: 后端配置使用相对 SQLite 路径（如 `sqlite+aiosqlite:///./data/asns.db`）时，从仓库根目录直接跑 `apps/server` 的 pytest，默认以为只要 `PYTHONPATH` 对了就够了。结果数据库路径相对到错误目录，测试初始化直接报 `sqlite3.OperationalError: unable to open database file`。
+- **正确做法**: 只要后端测试依赖相对数据库路径，就必须保证测试从正确工作目录启动；优先在对应服务目录内执行 pytest，或把数据库 URL 显式改成当前命令上下文可解析的绝对路径，不要只修 import 路径却忽略 cwd。
+- **适用场景**: FastAPI + SQLite 项目、本地 runtime DB 复用测试、仓库多子应用结构、AI 代理跨目录执行 pytest。
+- **相关文档**: `apps/server/src/config.py`, `apps/server/tests/conftest.py`
+
+### 2026-03-27 错误态语义：请求失败不能伪装成“未绑定 / 未配置 / 空数据”
+
+- **错误模式**: 接口请求实际失败或超时后，前端把状态静默清空成默认值，再沿用“未绑定宿主通道”“暂无数据”这类业务空态或配置空态文案，导致用户看到的是假空页，真实的 transport / backend failure 被掩盖。
+- **正确做法**: 请求失败必须优先展示真实失败原因；只有请求成功且业务上确实为空、未绑定或未配置时，才能显示对应空态文案。不要把“请求失败”降级成“业务为空”或“配置缺失”。
+- **适用场景**: Dashboard 实时曲线、列表页首屏加载、详情页数据卡片、宿主来源信息、任何“失败态”和“空态”都可能共存的页面。
+- **相关文档**: `apps/web/src/stores/dashboard.ts`, `apps/web/src/components/dashboard/RealtimeChart.vue`, `apps/web/src/views/DashboardView.vue`
+
+### 2026-03-27 上游依赖联调：本地 happy path 不能外推为部署环境也可达
+
+- **错误模式**: 用户本地部署或开发机上游依赖可达，就默认推断“部署机也应该一样”，把本地 happy path 当成公网 happy path 的替代证据。结果真实问题其实出在部署环境到上游服务的网络可达性，而不是应用代码本身。
+- **正确做法**: 只要链路依赖外部上游，就分别验证“本地环境 -> 上游”和“部署环境 -> 上游”。当用户说“我本地可以”时，下一步不是继续猜前端，而是直接检查部署机到上游的连通性、超时、认证与返回时间。
+- **适用场景**: EDC 上游、第三方 API、宿主反向代理、数据库/缓存等外部依赖联调，尤其是“本地正常、线上异常”的场景。
+- **相关文档**: `docs/test-reports/2026-03-27-edc-realtime-timeout-investigation.md`
+
+### 2026-03-27 shell 请求命令：带 `&` 的 URL 必须整体加引号
+
+- **错误模式**: 在 shell 里直接执行带查询串的 URL，但没有给整条 URL 加引号；像 `&page_size=5` 这类参数会被 shell 当成后台分隔符，最终命令实际请求的 URL 和以为的 URL 不一致，导致观测结果失真。
+- **正确做法**: 只要 URL 中包含 `&`、`?` 等 shell 敏感字符，就对整条 URL 加引号；不要凭“看起来能跑”就相信结果，必要时把实际请求 URL 明确打印出来再判断。
+- **适用场景**: `curl`、`wget`、shell 脚本里的 HTTP 调试、手工接口复验、任何带 query string 的命令行请求。
+- **相关文档**: `docs/progress.md`
+
+### 2026-03-27 视觉验收闭环：截图文件存在不等于已回看 PNG 内容
+
+- **错误模式**: 在图表页、Dashboard 或其它需要视觉验收的场景里，只要自动化已经生成截图文件，就把它当成“视觉闭环已完成”，继续依据 `API 200`、`series point count > 0`、`截图路径存在` 直接写“通过”，却没有重新打开 PNG 本身确认图里到底是可见曲线、明确错误态，还是误导性的假空态。
+- **正确做法**: 只要结论依赖截图，视觉闭环必须包含最后一步“截图后回看 PNG 本身”。允许结合 DOM、接口和像素审计辅助判断，但不能用“文件存在”替代“内容已复核”。只有截图内容本身已确认且结论已明确写出，才允许写“视觉通过”。
+- **适用场景**: `Dashboard` 实时曲线、`heat compare`、`炉次详情图表`、`baseline detail`、`preview-curves`、错误态截图验收、发布后 smoke 截图核验、任何需要用截图证明“页面真的长这样”的场景。
+- **相关文档**: `docs/test-reports/2026-03-27-visual-evidence-audit.md`, `docs/test-reports/2026-03-27-edc-realtime-timeout-investigation.md`
+
+### 2026-03-27 列表跳详情：展示编号不能替代 canonical 详情 ID
+
+- **错误模式**: 在 Dashboard 最近炉次列表里直接把展示给用户的 `heat_no` 当成详情路由参数，导致页面跳到 `/heats/H20260327-0002` 这类展示编号 URL，而后端详情接口实际只认 canonical `heat.id`，最终详情页请求 `404`。
+- **正确做法**: 任何列表跳详情都必须使用后端返回的 canonical 主键字段；展示编号、业务编号、炉次号只能用于显示，不能替代详情页路由参数。回归测试里也不能再偷懒把 `id` 和 `heat_no` 设成同一个值。
+- **适用场景**: Dashboard 最近炉次、Heat list、Baseline list、任务列表、任何“页面展示编号”和“真实详情主键”可能不同的前端跳转场景。
+- **相关文档**: `apps/web/src/components/dashboard/HeatList.vue`, `apps/web/e2e/full-review-acceptance.spec.ts`
+
+### 2026-03-26 图表验收：heat compare / 炉次详情曲线必须走视觉闭环
+
+- **错误模式**: 只看到 `compare API 200`、`data-series-count > 0`、tab/legend/source banner 正常、没有 console error，就直接把图表写成“正常/通过”，却没有证明前端最终 chart 入参仍有有效点，也没有提供肉眼可见折线截图。
+- **正确做法**: 曲线类页面只能按视觉闭环判通过：先确认 compare API 至少一条 current 曲线和一条 baseline 曲线有有效点；再确认前端 transform 后喂给 chart 的 runtime series 仍有有效点；最后必须提供带标注截图，且截图里肉眼能看到有效折线。以上三项缺任一项，都不能写“通过”。
+- **适用场景**: `heat compare`、`炉次详情图表`、`baseline detail`、`preview-curves`、任何需要证明“图表真的画出来了”的页面验收。
+- **相关文档**: `docs/test-reports/2026-03-26-heat-compare-uat.md`, `apps/web/src/views/HeatDetailView.vue`
+
 ### 2026-03-25 设置表单取消动作：没有已保存快照时不要放“取消修改”
 
 - **错误模式**: 在设置页或编辑表单里直接放出“取消 / 放弃修改”按钮，但 store 只有一份正在编辑的可变 `data`，没有“最近一次已加载/已保存”的快照；结果按钮不是 silent no-op，就是只能靠整页重拉才能回退。

@@ -34,6 +34,7 @@ from src.database import async_session_maker, init_db
 from src.models import Setting
 from src.main import app
 from src.runtime_state import _SECTION_TO_KEY, load_runtime_state
+from src.services import close_shared_edc_clients
 
 
 def _build_test_reference_heats() -> dict[str, dict]:
@@ -49,6 +50,7 @@ def _build_test_reference_heats() -> dict[str, dict]:
 @pytest.fixture
 async def client(reset_in_memory_stores):
     """创建测试客户端"""
+    await close_shared_edc_clients()
     await init_db()
     async with async_session_maker() as session:
         await session.execute(delete(Setting).where(Setting.key.in_(_SECTION_TO_KEY.values())))
@@ -56,6 +58,7 @@ async def client(reset_in_memory_stores):
     await load_runtime_state()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
+    await close_shared_edc_clients()
 
 
 @pytest.fixture(autouse=True)

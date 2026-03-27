@@ -27,6 +27,12 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
 
+type ChartRuntimeSeriesSummary = {
+  name: string
+  type: string
+  pointCount: number
+}
+
 const { t } = useI18n()
 const route = useRoute()
 const baselineStore = useBaselineStore()
@@ -120,6 +126,24 @@ const curveOption = computed<EChartsOption>(() => {
     series
   }
 })
+
+function summarizeChartSeries(option: EChartsOption): ChartRuntimeSeriesSummary[] {
+  const rawSeries = option.series
+  const seriesList = Array.isArray(rawSeries) ? rawSeries : rawSeries ? [rawSeries] : []
+
+  return seriesList.map((series) => {
+    const candidate = series as { name?: string; type?: string; data?: unknown[] }
+    return {
+      name: String(candidate.name || ''),
+      type: String(candidate.type || ''),
+      pointCount: Array.isArray(candidate.data) ? candidate.data.length : 0
+    }
+  })
+}
+
+const curveRuntimeSeriesSummary = computed(() =>
+  JSON.stringify(summarizeChartSeries(curveOption.value))
+)
 
 const curveBindingSummary = computed(() => {
   const curves = baseline.value?.curvesData || []
@@ -327,6 +351,10 @@ onMounted(async () => {
           :option="curveOption"
           autoresize
           class="h-96"
+          data-testid="baseline-detail-chart"
+          :data-runtime-series-summary="curveRuntimeSeriesSummary"
+          :data-baseline-id="baseline?.id || ''"
+          :data-baseline-name="baseline?.name || ''"
         />
       </div>
 

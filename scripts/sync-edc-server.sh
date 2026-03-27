@@ -25,6 +25,22 @@ log_step() {
   printf "\n==> %s\n" "$1"
 }
 
+wait_for_health() {
+  local attempts="${1:-10}"
+  local delay_seconds="${2:-1}"
+  local attempt=1
+
+  while (( attempt <= attempts )); do
+    if curl --fail --silent "$health_url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$delay_seconds"
+    attempt=$((attempt + 1))
+  done
+
+  curl --fail --silent --show-error "$health_url"
+}
+
 copy_if_exists() {
   local relative_path="$1"
 
@@ -84,7 +100,7 @@ log_step "Starting $service_name"
 systemctl --user start "$service_name"
 
 log_step "Checking backend health"
-curl --fail --silent --show-error "$health_url"
+wait_for_health 10 1
 
 printf "\nEDC runtime sync complete.\n"
 printf "Runtime backup: %s\n" "$backup_dir/runtime-pre-sync.tgz"

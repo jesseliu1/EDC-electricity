@@ -95,6 +95,11 @@ interface DataZoomPayload {
 }
 
 type ExposedChart = ECharts | { value?: ECharts | undefined }
+type ChartRuntimeSeriesSummary = {
+  name: string
+  type: string
+  pointCount: number
+}
 
 const props = withDefaults(defineProps<Props>(), {
   initialSourceHeatId: '',
@@ -419,6 +424,20 @@ function handleChartDataZoom(payload: DataZoomPayload) {
   }
 }
 
+function summarizeChartSeries(option: EChartsOption): ChartRuntimeSeriesSummary[] {
+  const rawSeries = option.series
+  const seriesList = Array.isArray(rawSeries) ? rawSeries : rawSeries ? [rawSeries] : []
+
+  return seriesList.map((series) => {
+    const candidate = series as { name?: string; type?: string; data?: unknown[] }
+    return {
+      name: String(candidate.name || ''),
+      type: String(candidate.type || ''),
+      pointCount: Array.isArray(candidate.data) ? candidate.data.length : 0
+    }
+  })
+}
+
 const chartOption = computed<EChartsOption>(() => {
   const definition = selectedDefinition.value
   if (!definition || !hasPreviewData.value) return {}
@@ -496,6 +515,10 @@ const chartOption = computed<EChartsOption>(() => {
     }))
   }
 })
+
+const chartRuntimeSeriesSummary = computed(() =>
+  JSON.stringify(summarizeChartSeries(chartOption.value))
+)
 
 const summaryStats = computed(() => {
   const definition = selectedDefinition.value
@@ -873,6 +896,9 @@ onMounted(async () => {
           <div
             class="relative"
             data-testid="baseline-wizard-chart"
+            :data-runtime-series-summary="chartRuntimeSeriesSummary"
+            :data-definition-id="formData.definitionId"
+            :data-heat-id="selectedHeatId"
           >
             <v-chart
               ref="inlineChartRef"
@@ -1107,6 +1133,9 @@ onMounted(async () => {
           <div
             class="h-full"
             data-testid="baseline-wizard-fullscreen-chart"
+            :data-runtime-series-summary="chartRuntimeSeriesSummary"
+            :data-definition-id="formData.definitionId"
+            :data-heat-id="selectedHeatId"
           >
             <v-chart
               ref="fullscreenChartRef"

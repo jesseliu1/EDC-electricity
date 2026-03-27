@@ -1,0 +1,55 @@
+{
+  "label": "local-dashboard-to-detail-debug",
+  "rowText": "H20260327-0002\t2026-03-27 00:02\t待计算\t\n异常\n\t详情",
+  "urlAfterClick": "http://127.0.0.1:3001/edc/heats/H20260327-0002",
+  "chartVisible": false,
+  "chartAttr": null,
+  "waitError": "TimeoutError: page.waitForSelector: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"heat-compare-chart\"]') to be visible\u001b[22m\n",
+  "consoleIssues": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Heat detail request failed. AxiosError: Request failed with status code 404\n    at jt (http://127.0.0.1:3001/edc/assets-github-20260326T131328Z/index-DmbiQFOW.js:4:1081)\n    at XMLHttpRequest.w (http://127.0.0.1:3001/edc/assets-github-20260326T131328Z/index-DmbiQFOW.js:4:5903)\n    at z.request (http://127.0.0.1:3001/edc/assets-github-20260326T131328Z/index-DmbiQFOW.js:6:2080)\n    at async Promise.all (index 1)\n    at async Proxy.fetchDetail (http://127.0.0.1:3001/edc/assets-github-20260326T131328Z/heat-zBpSY4Lw.js:1:3743)\n    at async Ge (http://127.0.0.1:3001/edc/assets-github-20260326T131328Z/HeatDetailView-B9VkWZQn.js:1:17705)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "pageErrors": [],
+  "responses": [
+    {
+      "status": 200,
+      "url": "http://127.0.0.1:3001/api/settings/runtime-status"
+    },
+    {
+      "status": 200,
+      "url": "http://127.0.0.1:3001/api/dashboard/realtime?duration=1h"
+    },
+    {
+      "status": 200,
+      "url": "http://127.0.0.1:3001/api/dashboard/stats"
+    },
+    {
+      "status": 200,
+      "url": "http://127.0.0.1:3001/api/dashboard/recent-heats?limit=8"
+    },
+    {
+      "status": 200,
+      "url": "http://127.0.0.1:3001/api/settings/runtime-status"
+    },
+    {
+      "status": 404,
+      "url": "http://127.0.0.1:3001/api/heats/H20260327-0002/cutting-timeline"
+    },
+    {
+      "status": 404,
+      "url": "http://127.0.0.1:3001/api/heats/H20260327-0002/compare"
+    },
+    {
+      "status": 200,
+      "url": "http://127.0.0.1:3001/api/settings/runtime-status"
+    },
+    {
+      "status": 200,
+      "url": "http://127.0.0.1:3001/api/settings/runtime-status"
+    }
+  ],
+  "bodyText": "precision_manufacturing\nAI老师傅\nAI老师傅智慧熔炼系统\n\n生产概览\n\ndashboard\n总览\n\n监控与分析\n\ngrid_on\n基线定义\nlibrary_books\n黄金基线库\ndataset\n炉次浏览\nmail\n偏差收件箱\nassignment\n纠偏任务单\npicture_as_pdf\n日报与审计\n\n管理\n\nsettings\n系统设置\nWG\n\n王工程师\n\n高级工艺主管\n\nexpand_more\n炉次详情\n宿主已连入 · 真实链路就绪\nsearch\nnotifications\nhelp\nhome\n总览\nchevron_right\n炉次详情\n-- ID: H20260327-0002\n\nFurnace-A01\n\n--\ntune\n手动调整\nassignment\n生成纠偏任务\nwarning\n\n炉次不存在\n\n请刷新页面或检查后端炉次接口状态。\n\n当前无可用炉次数据，无法手动调整。",
+  "htmlHead": "\n    <div id=\"app\" data-v-app=\"\"><div data-v-4c5d2566=\"\" data-v-715f6c12=\"\" class=\"h-screen flex overflow-hidden bg-background-light font-display\"><div data-v-4c5d2566=\"\" class=\"hidden lg:block\"><aside data-v-61ff996d=\"\" data-v-4c5d2566=\"\" class=\"h-full flex flex-col bg-surface-light border-r border-border-light transition-all duration-300 z-20 w-sidebar\"><div data-v-61ff996d=\"\" class=\"h-header flex items-center px-6 border-b border-border-light\"><div data-v-61ff996d=\"\" class=\"flex items-center gap-3 overflow-hidden\"><div data-v-61ff996d=\"\" class=\"shrink-0 w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary\"><span data-v-61ff996d=\"\" class=\"material-symbols-outlined text-[20px]\">precision_manufacturing</span></div><div data-v-61ff996d=\"\" class=\"flex flex-col min-w-0\"><h1 data-v-61ff996d=\"\" class=\"text-sm font-bold text-slate-900 leading-none tracking-tight\"> AI老师傅 </h1><span data-v-61ff996d=\"\" class=\"text-xs text-slate-500 font-medium mt-1\">AI老师傅智慧熔炼系统</span></div></div></div><nav data-v-61ff996d=\"\" class=\"flex-1 overflow-y-auto py-4 px-3\"><div data-v-61ff996d=\"\" class=\"\"><!----><p data-v-61ff996d=\"\" class=\"px-3 text-xs font-bold text-slate-400 uppercase tracking-wider mb-2\">生产概览</p><ul data-v-61ff996d=\"\" class=\"flex flex-col gap-1\"><li data-v-61ff996d=\"\"><button data-v-61ff996d=\"\" class=\"w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative text-slate-600 hover:bg-slate-100 hover:text-slate-900\"><!----><span data-v-61ff996d=\"\" class=\"material-symbols-outlined text-[20px] shrink-0 text-slate-400\" style=\"\">dashboard</span><span data-v-61ff996d=\"\" class=\"text-sm truncate\">总览</span></button></li></ul></div><div data-v-61ff996d=\"\" class=\"mt-4\"><div data-v-61ff996d=\"\" class=\"h-px bg-border-light mx-2 mb-3\"></div><p data-v-61ff996d=\"\" class=\"px-3 text-xs font-bold text-slate-400 uppercase tracking-wider mb-2\">监控与分析</p><ul data-v-61ff996d=\"\" class=\"flex flex-col gap-1\"><li data-v-61ff996d=\"\"><button data-v-61ff996d=\"\" class=\"w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative text-slate-600 hover:bg-slate-100 hover:text-slate-900\"><!----><span data-v-61ff996d=\"\" class=\"material-symbols-outlined text-[20px] shrink-0 text-slate-400\" style=\"\">grid_on</span><span data-v-61ff996d=\"\" class=\"text-sm truncate\">基线定义</span></button></li><li data-v-61ff996d=\"\"><button data-v-61ff996d=\"\" class=\"w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative text-slate-600 hover:bg-slate-100 hover:text-slate-900\"><!----><span data-v-61ff996d=\"\" class=\"material-symbols-outlined text-[20px] shrink-0 text-slate-400\" style=\"\">library_books</span><span data-v-61ff996d=\"\" class=\"text-sm truncate\">黄金基线库</span></button></li><li data-v-61ff996d=\"\"><button data-v-61ff996d=\"\" class=\"w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative bg-primary/10 text-primary font-bold\"><div data-v-61ff996d=\"\" class=\"absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-primary rounded-r-full\"></div><span data-v-61ff996d=\"\" class=\"material-symbols-outlined text-[20px] shrink-0\" style=\"font-variation-settings: &quot;FILL&quot; 1;\">dataset</span><span data-v-61ff996d=\"\" class=\"text-sm truncate\">炉次浏览</span></button></li><li data-v-61ff996d=\"\"><button data-v-61ff996d=\"\" class=\"w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative text-slate-600 hover:bg-slate-100 hover:text-slate-900\"><!----><span data-v-61ff996d=\"\" class=\"material-symbols-outlined text-[20px] shrink-0 text-slate-400\" style=\"\">mail</span><span data-v-61ff996d=\"\" class=\"text-sm truncate\">偏差收件箱</span></button></li><li data-v-61ff996d=\"\"><button data-v-61ff996d=\"\" class=\"w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 relative text-slate-600 hover:bg-slate-100 hover:text-slate-900\"><!----><span data-v-61ff996d=\"\" class=\"material-symbols-outlined text-[20px] shrink-0 text-slate-400",
+  "screenshot": "/home/openclaw/projects/EDC-electricity/docs/test-reports/assets/2026-03-27-release-stability-debug/local-dashboard-to-detail-debug.png"
+}

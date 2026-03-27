@@ -52,3 +52,5 @@ data/*.db
 *.tmp
 nul
 .tmp_run/
+.gstack/
+.gstack/

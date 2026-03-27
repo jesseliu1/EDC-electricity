@@ -86,8 +86,8 @@ async function mockDashboardRecentHeatToDetail(page: Page) {
     await fulfillJson(route, {
       items: [
         {
-          id: 'dashboard-heat-001',
-          heat_no: 'dashboard-heat-001',
+          id: 'dashboard-heat-001-id',
+          heat_no: 'H20260320-001',
           start_time: '2026-03-20T08:36:00Z',
           duration_minutes: 45,
           deviation_percent: 18.5,
@@ -97,11 +97,11 @@ async function mockDashboardRecentHeatToDetail(page: Page) {
     })
   })
 
-  await page.route('**/api/heats/dashboard-heat-001/compare', async (route) => {
+  await page.route('**/api/heats/dashboard-heat-001-id/compare', async (route) => {
     await fulfillJson(route, {
       heat: {
-        id: 'dashboard-heat-001',
-        heat_no: 'dashboard-heat-001',
+        id: 'dashboard-heat-001-id',
+        heat_no: 'H20260320-001',
         description: null,
         start_time: '2026-03-20T08:36:00Z',
         end_time: '2026-03-20T09:21:00Z',
@@ -159,9 +159,9 @@ async function mockDashboardRecentHeatToDetail(page: Page) {
     })
   })
 
-  await page.route('**/api/heats/dashboard-heat-001/cutting-timeline', async (route) => {
+  await page.route('**/api/heats/dashboard-heat-001-id/cutting-timeline', async (route) => {
     await fulfillJson(route, {
-      heat_id: 'dashboard-heat-001',
+      heat_id: 'dashboard-heat-001-id',
       events: [
         {
           timestamp: '2026-03-20T08:36:00Z',
@@ -242,9 +242,9 @@ test.describe('full review acceptance supplements', () => {
 
     await page.goto('')
     await expect(page.getByTestId('dashboard-page')).toBeVisible()
-    await page.locator('tbody tr').filter({ hasText: 'dashboard-heat-001' }).first().click()
+    await page.locator('tbody tr').filter({ hasText: 'H20260320-001' }).first().click()
 
-    await expect(page).toHaveURL(/\/edc\/heats\/dashboard-heat-001$/)
+    await expect(page).toHaveURL(/\/edc\/heats\/dashboard-heat-001-id$/)
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
   })
 

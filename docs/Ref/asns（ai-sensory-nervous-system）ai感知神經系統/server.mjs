@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -15,12 +16,82 @@ function normalizeEndpoint(endpoint) {
   return endpoint.trim().replace(/\/+$/, '');
 }
 
+function trimTrailingSlash(value) {
+  return `${value || ''}`.replace(/\/+$/, '');
+}
+
 function buildNodeName(endpoint) {
   try {
     return `EDC Gateway (${new URL(endpoint).host})`;
   } catch {
     return 'EDC Gateway';
   }
+}
+
+function buildProxyBody(req) {
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    return undefined;
+  }
+  if (req.body == null || req.body === '') {
+    return undefined;
+  }
+  if (Buffer.isBuffer(req.body) || typeof req.body === 'string') {
+    return req.body;
+  }
+  return JSON.stringify(req.body);
+}
+
+async function proxyRequest(req, res, upstreamBase) {
+  const targetUrl = new URL(req.originalUrl, `${trimTrailingSlash(upstreamBase)}/`);
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value == null) {
+      continue;
+    }
+    const lowerKey = key.toLowerCase();
+    if (lowerKey === 'host' || lowerKey === 'content-length' || lowerKey === 'connection') {
+      continue;
+    }
+    headers.set(key, Array.isArray(value) ? value.join(', ') : value);
+  }
+
+  const body = buildProxyBody(req);
+  if (
+    body != null &&
+    !headers.has('content-type') &&
+    typeof req.body === 'object' &&
+    !Buffer.isBuffer(req.body)
+  ) {
+    headers.set('content-type', 'application/json');
+  }
+
+  const upstreamResponse = await fetch(targetUrl, {
+    method: req.method,
+    headers,
+    body,
+    redirect: 'manual',
+  });
+
+  res.status(upstreamResponse.status);
+  upstreamResponse.headers.forEach((value, key) => {
+    const lowerKey = key.toLowerCase();
+    if (lowerKey === 'content-encoding' || lowerKey === 'transfer-encoding' || lowerKey === 'connection') {
+      return;
+    }
+    res.setHeader(key, value);
+  });
+
+  const payload = Buffer.from(await upstreamResponse.arrayBuffer());
+  res.end(payload);
+}
+
+function detectPublishedAssetsDir(indexFile) {
+  if (!existsSync(indexFile)) {
+    return null;
+  }
+  const html = readFileSync(indexFile, 'utf-8');
+  const match = html.match(/\/edc\/([^/]+)\/index-[^"']+\.js/);
+  return match?.[1] || null;
 }
 
 function decodeSensorPayload(rawText) {
@@ -130,9 +201,13 @@ async function fetchChannelSnapshot(endpoint, token) {
 function createHostApiRouter(basePath) {
   const router = express.Router();
   const basePrefix = basePath === '/' ? '' : basePath.slice(0, -1);
+  const compatibilityPrefixes = basePath === '/' ? ['/asns'] : [];
   const paths = ['/host-api/edc/test-connection', '/host-api/edc/sync-channels'];
   if (basePrefix) {
     paths.push(`${basePrefix}/host-api/edc/test-connection`, `${basePrefix}/host-api/edc/sync-channels`);
+  }
+  for (const prefix of compatibilityPrefixes) {
+    paths.push(`${prefix}/host-api/edc/test-connection`, `${prefix}/host-api/edc/sync-channels`);
   }
 
   router.post(paths, async (req, res) => {
@@ -177,12 +252,42 @@ const basePath = normalizeBasePath(process.env.ASNS_BASE_PATH || process.env.VIT
 const distDir = path.join(__dirname, 'dist');
 const indexFile = path.join(distDir, 'index.html');
 const basePrefix = basePath === '/' ? '' : basePath.slice(0, -1);
+const compatibilityPrefixes = basePath === '/' ? ['/asns'] : [];
+const edcWebRoot = process.env.ASNS_EDC_WEB_ROOT || '/var/www/edc-electricity';
+const edcIndexFile = path.join(edcWebRoot, 'index.html');
+const edcApiBase = process.env.ASNS_EDC_API_BASE || 'http://127.0.0.1:8001';
+const edcAssetsAliasDir = detectPublishedAssetsDir(edcIndexFile);
 
 app.use(express.json({ limit: '1mb' }));
 app.use(createHostApiRouter(basePath));
+app.use('/api', async (req, res, next) => {
+  try {
+    await proxyRequest(req, res, edcApiBase);
+  } catch (error) {
+    next(error);
+  }
+});
+
+if (existsSync(edcIndexFile)) {
+  if (edcAssetsAliasDir) {
+    app.use('/edc/assets', express.static(path.join(edcWebRoot, edcAssetsAliasDir)));
+  }
+  app.use('/edc', express.static(edcWebRoot));
+  app.get(['/edc', '/edc/*'], (_req, res) => {
+    res.sendFile(edcIndexFile);
+  });
+}
 
 if (basePath === '/') {
+  for (const prefix of compatibilityPrefixes) {
+    app.use(prefix, express.static(distDir));
+  }
   app.use(express.static(distDir));
+  for (const prefix of compatibilityPrefixes) {
+    app.get([prefix, `${prefix}/*`], (_req, res) => {
+      res.sendFile(indexFile);
+    });
+  }
   app.get('*', (_req, res) => {
     res.sendFile(indexFile);
   });
