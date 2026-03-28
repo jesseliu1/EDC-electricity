@@ -58,12 +58,7 @@ def _resolve_active_baseline() -> dict[str, Any] | None:
         item = _BASELINE_STORE.get(active_baseline_id)
         if item:
             return item
-
-    published = [item for item in _BASELINE_STORE.values() if item["status"] == "published"]
-    if not published:
-        return None
-    published.sort(key=lambda item: item["published_at"] or item["updated_at"], reverse=True)
-    return published[0]
+    return None
 
 
 def _resolve_dashboard_sources() -> dict[str, str | None]:

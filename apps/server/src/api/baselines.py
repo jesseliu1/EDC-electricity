@@ -215,9 +215,15 @@ def _resolve_active_baseline_item() -> dict[str, Any] | None:
         active_item = _BASELINE_STORE.get(active_baseline_id)
         if active_item and active_item["status"] == "published":
             return active_item
+    return None
 
-    published = _published_baselines()
-    return published[0] if published else None
+
+def _resolve_next_active_baseline_item(excluded_id: str | None = None) -> dict[str, Any] | None:
+    for item in _published_baselines():
+        if excluded_id and item["id"] == excluded_id:
+            continue
+        return item
+    return None
 
 
 def _to_baseline_response(item: dict[str, Any]) -> BaselineResponse:
@@ -638,7 +644,7 @@ async def disable_baseline(baseline_id: str) -> BaselineResponse:
     item["status"] = "disabled"
     item["updated_at"] = _now()
     if _SETTINGS_STORE.get("active_baseline_id", {}).get("value") == baseline_id:
-        next_active = _resolve_active_baseline_item()
+        next_active = _resolve_next_active_baseline_item(excluded_id=baseline_id)
         _SETTINGS_STORE["active_baseline_id"]["value"] = (
             str(next_active["id"]) if next_active else ""
         )

@@ -18,9 +18,24 @@ export interface PersistedConnectionState {
   meta: HostEdcMeta;
 }
 
+export interface PersistedHostChannelDraftItem {
+  id: string;
+  deviceName: string;
+  deviceType: string;
+  area: string;
+  suid: string;
+  cuid: string;
+  channelName: string;
+  unit: string;
+  lastValue: string;
+  status: 'online' | 'idle';
+}
+
 export interface HostConnectivityDraft {
   config: HostConnectivityConfig;
   addedChannelIds: string[];
+  addedChannels?: PersistedHostChannelDraftItem[];
+  channelCatalogSource?: string | null;
   savedAt: string;
   connection?: PersistedConnectionState | null;
 }
@@ -28,6 +43,8 @@ export interface HostConnectivityDraft {
 export interface RestoredHostConnectivityDraft {
   config: HostConnectivityConfig | null;
   addedChannelIds: string[];
+  addedChannels: PersistedHostChannelDraftItem[];
+  channelCatalogSource: string | null;
   savedAt: string | null;
   connection: PersistedConnectionState | null;
 }
@@ -41,6 +58,58 @@ export const hostSettingsStorageKey = 'asns-host-connectivity-draft';
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function normalizeSourceValue(value: string): string {
+  return value.trim().replace(/\/+$/, '');
+}
+
+function normalizeDraftChannel(value: unknown): PersistedHostChannelDraftItem | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Partial<PersistedHostChannelDraftItem>;
+  if (
+    !isNonEmptyString(candidate.id) ||
+    !isNonEmptyString(candidate.deviceName) ||
+    !isNonEmptyString(candidate.deviceType) ||
+    !isNonEmptyString(candidate.area) ||
+    !isNonEmptyString(candidate.suid) ||
+    !isNonEmptyString(candidate.cuid) ||
+    !isNonEmptyString(candidate.channelName) ||
+    !isNonEmptyString(candidate.unit) ||
+    !isNonEmptyString(candidate.lastValue) ||
+    (candidate.status !== 'online' && candidate.status !== 'idle')
+  ) {
+    return null;
+  }
+
+  return {
+    id: candidate.id,
+    deviceName: candidate.deviceName,
+    deviceType: candidate.deviceType,
+    area: candidate.area,
+    suid: candidate.suid,
+    cuid: candidate.cuid,
+    channelName: candidate.channelName,
+    unit: candidate.unit,
+    lastValue: candidate.lastValue,
+    status: candidate.status,
+  };
+}
+
+function dedupeDraftChannels(
+  items: PersistedHostChannelDraftItem[],
+): PersistedHostChannelDraftItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) {
+      return false;
+    }
+    seen.add(item.id);
+    return true;
+  });
 }
 
 function normalizeConnectionState(
@@ -95,24 +164,43 @@ export function restoreHostConnectivityDraft(
 
   const parsed = JSON.parse(raw) as Partial<HostConnectivityDraft>;
   const channelIds = new Set(availableChannelIds);
-
-  return {
-    config:
-      isNonEmptyString(parsed.config?.endpoint) &&
-      isNonEmptyString(parsed.config?.username) &&
-      typeof parsed.config?.password === 'string'
-        ? {
-            endpoint: parsed.config.endpoint,
-            username: parsed.config.username,
-            password: parsed.config.password,
-          }
-        : null,
-    addedChannelIds: Array.isArray(parsed.addedChannelIds)
+  const config =
+    isNonEmptyString(parsed.config?.endpoint) &&
+    isNonEmptyString(parsed.config?.username) &&
+    typeof parsed.config?.password === 'string'
+      ? {
+          endpoint: parsed.config.endpoint,
+          username: parsed.config.username,
+          password: parsed.config.password,
+        }
+      : null;
+  const channelCatalogSource = isNonEmptyString(parsed.channelCatalogSource)
+    ? normalizeSourceValue(parsed.channelCatalogSource)
+    : null;
+  const configSource = config ? normalizeSourceValue(config.endpoint) : null;
+  const canRestoreCatalog =
+    channelCatalogSource !== null &&
+    configSource !== null &&
+    channelCatalogSource === configSource;
+  const restoredChannels = canRestoreCatalog && Array.isArray(parsed.addedChannels)
+    ? dedupeDraftChannels(parsed.addedChannels.map(normalizeDraftChannel).filter(
+        (item): item is PersistedHostChannelDraftItem => item !== null,
+      ))
+    : [];
+  const restoredChannelIds = restoredChannels.length > 0
+    ? restoredChannels.map((item) => item.id)
+    : canRestoreCatalog && Array.isArray(parsed.addedChannelIds)
       ? parsed.addedChannelIds.filter(
           (channelId): channelId is string =>
             typeof channelId === 'string' && channelIds.has(channelId),
         )
-      : [],
+      : [];
+
+  return {
+    config,
+    addedChannelIds: restoredChannelIds,
+    addedChannels: restoredChannels,
+    channelCatalogSource: canRestoreCatalog ? channelCatalogSource : null,
     savedAt: isNonEmptyString(parsed.savedAt) ? parsed.savedAt : null,
     connection: normalizeConnectionState(parsed.connection, fallbackConnection),
   };
@@ -121,6 +209,12 @@ export function restoreHostConnectivityDraft(
 export function buildHostConnectivityDraft(
   draft: HostConnectivityDraft,
 ): HostConnectivityDraft {
+  const normalizedAddedChannels = Array.isArray(draft.addedChannels)
+    ? dedupeDraftChannels(draft.addedChannels.map(normalizeDraftChannel).filter(
+        (item): item is PersistedHostChannelDraftItem => item !== null,
+      ))
+    : [];
+
   return {
     config: {
       endpoint: draft.config.endpoint,
@@ -128,6 +222,10 @@ export function buildHostConnectivityDraft(
       password: draft.config.password,
     },
     addedChannelIds: Array.from(new Set(draft.addedChannelIds)),
+    addedChannels: normalizedAddedChannels,
+    channelCatalogSource: isNonEmptyString(draft.channelCatalogSource)
+      ? normalizeSourceValue(draft.channelCatalogSource)
+      : null,
     savedAt: draft.savedAt,
     connection: draft.connection
       ? {

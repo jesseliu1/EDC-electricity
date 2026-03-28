@@ -487,6 +487,53 @@ def get_edc_connection_config() -> dict[str, str]:
     }
 
 
+def _normalize_connection_identity(config: dict[str, str]) -> tuple[str, str, str]:
+    return (
+        config["base_url"].strip().rstrip("/"),
+        config["username"].strip(),
+        config["password"].strip(),
+    )
+
+
+def _build_disconnected_host_connectivity_status(source: str) -> dict[str, object]:
+    return {
+        "is_connected": False,
+        "machine_name": "--",
+        "last_sync_label": "--",
+        "meta": {
+            "source": source or "--",
+            "sensor_count": 0,
+            "channel_count": 0,
+            "enabled_channel_count": 0,
+        },
+    }
+
+
+def _clear_source_bound_definition_channels() -> bool:
+    from . import baseline_definitions as baseline_definitions_api
+
+    cleared = False
+    for definition in baseline_definitions_api._DEFINITION_STORE.values():
+        for metric in list(definition.get("metrics", [])):
+            if metric.get("edc_channel_id") is None:
+                continue
+            metric["edc_channel_id"] = None
+            cleared = True
+    return cleared
+
+
+def _reset_source_dependent_runtime_state(source: str) -> None:
+    global _HOST_CHANNEL_LAST_SYNC_AT
+
+    _HOST_CHANNEL_STORE.clear()
+    _HOST_CHANNEL_CATALOG_CACHE.clear()
+    _HOST_CHANNEL_LAST_SYNC_AT = None
+    _HOST_CONNECTIVITY_STATUS.clear()
+    _HOST_CONNECTIVITY_STATUS.update(_build_disconnected_host_connectivity_status(source))
+    _SETTINGS_STORE["active_baseline_id"]["value"] = ""
+    _clear_source_bound_definition_channels()
+
+
 def _invalidate_compare_runtime_caches() -> None:
     from .heats import invalidate_compare_runtime_caches
 
@@ -570,38 +617,48 @@ async def update_edc_connection(data: EDCConnectionRequest, request: Request) ->
     """更新 EDC 连接配置。"""
     global _HOST_CHANNEL_LAST_SYNC_AT
     _assert_host_sync_request(request)
+    previous_config = get_edc_connection_config()
+    next_config = {
+        "base_url": data.base_url.strip(),
+        "username": (
+            data.username.strip() if data.username is not None else previous_config["username"]
+        ),
+        "password": (
+            data.password.strip() if data.password is not None else previous_config["password"]
+        ),
+    }
+    source_changed = _normalize_connection_identity(previous_config) != _normalize_connection_identity(
+        next_config
+    )
     _SETTINGS_STORE["edc_base_url"]["value"] = data.base_url
     if data.username is not None:
         _SETTINGS_STORE["edc_username"]["value"] = data.username
     if data.password is not None:
         _SETTINGS_STORE["edc_password"]["value"] = data.password
     _SETTINGS_STORE["edc_api_key"]["value"] = data.api_key or ""
-    _HOST_CHANNEL_STORE.clear()
-    _HOST_CHANNEL_CATALOG_CACHE.clear()
-    _HOST_CHANNEL_LAST_SYNC_AT = None
-    _HOST_CONNECTIVITY_STATUS.clear()
-    _HOST_CONNECTIVITY_STATUS.update(
-        {
-            "is_connected": False,
-            "machine_name": "--",
-            "last_sync_label": "--",
-            "meta": {
-                "source": data.base_url,
-                "sensor_count": 0,
-                "channel_count": 0,
-                "enabled_channel_count": 0,
-            },
-        }
-    )
-    _invalidate_compare_runtime_caches()
-    await persist_runtime_state(
+    sections_to_persist = {
         "settings_store",
-        "host_channels",
         "host_channel_catalog",
         "host_channel_last_sync_at",
-        "host_connectivity_status",
-    )
-    return MessageResponse(message="EDC 连接配置已更新", success=True)
+    }
+    if source_changed:
+        _reset_source_dependent_runtime_state(next_config["base_url"])
+        sections_to_persist.update(
+            {
+                "host_channels",
+                "host_connectivity_status",
+                "baseline_definitions",
+            }
+        )
+    else:
+        _HOST_CHANNEL_CATALOG_CACHE.clear()
+        _HOST_CHANNEL_LAST_SYNC_AT = None
+    _invalidate_compare_runtime_caches()
+    await persist_runtime_state(*sections_to_persist)
+    message = "EDC 连接配置已更新"
+    if source_changed:
+        message = "EDC 连接配置已更新，旧来源绑定已清空"
+    return MessageResponse(message=message, success=True)
 
 
 @router.post("/edc-connection/test", response_model=MessageResponse)

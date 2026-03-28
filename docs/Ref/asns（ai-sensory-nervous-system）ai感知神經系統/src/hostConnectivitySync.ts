@@ -41,6 +41,10 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
+function normalizeConfigValue(value: string): string {
+  return trimTrailingSlash(value.trim());
+}
+
 function getBrowserOrigin(): string {
   if (typeof window === 'undefined') {
     return '';
@@ -130,6 +134,25 @@ export function getDefaultAddedChannelIds(catalog: readonly HostChannelMappingIt
   return Array.from(selectedIds).slice(0, 6);
 }
 
+export function normalizeSourceIdentity(value: string): string {
+  return normalizeConfigValue(value);
+}
+
+export function hasSourceIdentityChanged(
+  previous: HostConnectivityConfig | null,
+  next: HostConnectivityConfig,
+): boolean {
+  if (!previous) {
+    return false;
+  }
+
+  return (
+    normalizeConfigValue(previous.endpoint) !== normalizeConfigValue(next.endpoint) ||
+    previous.username.trim() !== next.username.trim() ||
+    previous.password.trim() !== next.password.trim()
+  );
+}
+
 export function reconcileAddedChannelIds(
   addedChannelIds: string[],
   catalog: readonly HostChannelMappingItem[],
@@ -202,7 +225,7 @@ export async function syncSelectionToBackend(
     },
   };
 
-  const saveConnection = fetch(`${appApiBase}/settings/edc-connection`, {
+  const connectionResponse = await fetch(`${appApiBase}/settings/edc-connection`, {
     method: 'PUT',
     headers: hostSyncHeaders,
     body: JSON.stringify({
@@ -211,6 +234,9 @@ export async function syncSelectionToBackend(
       password: config.password,
     }),
   });
+  if (!connectionResponse.ok) {
+    throw new Error('Settings sync failed');
+  }
 
   const saveChannels = fetch(`${appApiBase}/settings/host-channels`, {
     method: 'PUT',
@@ -224,12 +250,11 @@ export async function syncSelectionToBackend(
     body: JSON.stringify(connectionStatusPayload),
   });
 
-  const [connectionResponse, channelsResponse, connectivityStatusResponse] = await Promise.all([
-    saveConnection,
+  const [channelsResponse, connectivityStatusResponse] = await Promise.all([
     saveChannels,
     saveConnectivityStatus,
   ]);
-  if (!connectionResponse.ok || !channelsResponse.ok || !connectivityStatusResponse.ok) {
+  if (!channelsResponse.ok || !connectivityStatusResponse.ok) {
     throw new Error('Settings sync failed');
   }
 }

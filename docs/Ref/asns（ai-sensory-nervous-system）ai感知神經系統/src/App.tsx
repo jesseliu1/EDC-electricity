@@ -21,9 +21,10 @@ import {
   type PersistedConnectionState,
 } from './hostConnectivityState';
 import {
+  appApiBase,
   buildDisconnectedConnectionState,
   callHostApi,
-  reconcileAddedChannelIds,
+  normalizeSourceIdentity,
   syncSelectionToBackend,
 } from './hostConnectivitySync';
 import HostSettingsView from './SettingsView';
@@ -675,6 +676,38 @@ function resolveEmbeddedEdcUrl(): string {
     (typeof window !== 'undefined' ? new URL('/edc/', window.location.origin).toString() : '/edc/')
   );
 }
+
+async function fetchPersistedEdcConfig(): Promise<Config | null> {
+  try {
+    const response = await fetch(`${appApiBase}/settings`);
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as {
+      items?: Array<{ key?: string; value?: string | null }>
+    };
+    const entries = new Map(
+      (payload.items || [])
+        .filter((item): item is { key: string; value?: string | null } => typeof item.key === 'string')
+        .map((item) => [item.key, typeof item.value === 'string' ? item.value : '']),
+    );
+    const endpoint = (entries.get('edc_base_url') || '').trim();
+    const username = (entries.get('edc_username') || '').trim();
+    const password = entries.get('edc_password') || '';
+    if (!endpoint) {
+      return null;
+    }
+
+    return {
+      endpoint,
+      username,
+      password,
+    };
+  } catch {
+    return null;
+  }
+}
   
 export default function App() {  
   // 核心狀態  
@@ -690,9 +723,9 @@ export default function App() {
     
   // EDC API 配置狀態  
   const [config, setConfig] = useState<Config>({  
-    endpoint: 'http://60.251.229.32',
-    username: 'volapu',
-    password: 'admin',
+    endpoint: '',
+    username: '',
+    password: '',
   });  
   
   // 感測器清單 (落實 Nickname 優先邏輯)  
@@ -721,28 +754,35 @@ export default function App() {
 
     const bootstrap = async () => {
       try {
+        const persistedConfig = await fetchPersistedEdcConfig();
         const restored = restoreHostConnectivityDraft(
           window.localStorage.getItem(hostSettingsStorageKey),
           edcChannelSnapshot.map((item) => item.id),
           fallbackConnection,
         );
-        if (!restored) {
+        if (!restored && !persistedConfig) {
           return;
         }
-        if (restored.config) {
-          setConfig(restored.config);
+        const effectiveConfig = restored?.config || persistedConfig;
+        if (effectiveConfig) {
+          setConfig(effectiveConfig);
         }
-        if (restored.connection) {
+        if (restored?.connection) {
           setIsConnected(restored.connection.isConnected);
         }
-        if (!restored.config) {
+        if (!restored || !restored.config) {
           return;
         }
 
-        const restoredChannelIds = reconcileAddedChannelIds(restored.addedChannelIds, edcChannelSnapshot);
-        const selectedChannels = restoredChannelIds
-          .map((channelId) => edcChannelSnapshot.find((item) => item.id === channelId))
-          .filter((item): item is (typeof edcChannelSnapshot)[number] => Boolean(item));
+        const selectedChannels =
+          restored.addedChannels.length > 0
+            ? restored.addedChannels
+            : restored.channelCatalogSource === normalizeSourceIdentity(edcSnapshotMeta.source)
+              ? restored.addedChannelIds
+                  .map((channelId) => edcChannelSnapshot.find((item) => item.id === channelId))
+                  .filter((item): item is (typeof edcChannelSnapshot)[number] => Boolean(item))
+              : [];
+        const restoredChannelIds = selectedChannels.map((item) => item.id);
 
         const { response, data } = await callHostApi('/host-api/edc/test-connection', restored.config);
         const connectionState =
@@ -762,6 +802,8 @@ export default function App() {
             buildHostConnectivityDraft({
               config: restored.config,
               addedChannelIds: restoredChannelIds,
+              addedChannels: selectedChannels,
+              channelCatalogSource: restored.channelCatalogSource,
               savedAt: new Date().toISOString(),
               connection: connectionState,
             }),

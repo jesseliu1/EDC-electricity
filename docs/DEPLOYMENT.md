@@ -139,6 +139,21 @@ VITE_ASNS_EDC_APP_URL=/edc/
 VITE_ASNS_APP_API_BASE=/api
 ```
 
+- 这不是“建议项”，而是后续构建回归必须检查的硬项。
+  - 如果 ASNS 要挂在 `/asns/` 子路径下，构建产物里的资源路径必须是 `/asns/assets/...`，不能回退成根路径 `/assets/...`
+  - 一旦回退成 `/assets/...`，公网 `https://<host>/asns/` 会出现白屏，因为浏览器会去站点根路径抓 JS/CSS 并收到 `404`
+  - 因此每次 ASNS 构建 / 发布后，至少要补做以下回归检查：
+
+```bash
+curl -s https://<host>/asns/ | rg '/asns/assets/'
+curl -I https://<host>/asns/assets/<entry>.js
+```
+
+  - 判定标准：
+    - `/asns/` 返回的 HTML 中必须引用 `/asns/assets/...`
+    - 对应 JS/CSS 资源必须返回 `200`
+  - 当前仓库这一点的已知回归案例：曾因构建产物引用 `/assets/...`，导致 `/asns/` 白屏；后续发布不得跳过这条检查
+
 - 若使用 `npm start` / `node server.mjs`，运行时 `ASNS_BASE_PATH` 取决于反向代理是否剥离前缀：
 
 1. 如果反向代理会把 `/asns/` 剥掉后再转发到 `3001`

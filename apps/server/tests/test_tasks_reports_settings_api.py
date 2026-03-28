@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.api import settings as settings_api
+from src.api.baseline_definitions import _DEFINITION_STORE
 from src.api.heats import _COMPARE_BASELINE_CACHE, _COMPARE_CHANNEL_CURVE_CACHE, _HEAT_COMPARE_CACHE
+from src.api.settings import _HOST_CHANNEL_CATALOG_CACHE, _HOST_CHANNEL_STORE, _SETTINGS_STORE
 from src.runtime_state import load_runtime_state, persist_runtime_state
 from src.services import EDCClient
 
@@ -238,13 +240,14 @@ async def test_settings_get_and_update(client, monkeypatch) -> None:
     assert runtime_resp.status_code == 200
     assert runtime_resp.json()["overall_code"] == "ready"
     assert runtime_resp.json()["runtime"]["showtime_enabled"] is False
+    assert runtime_resp.json()["pipelines"]["dashboard"]["code"] == "ready"
     assert runtime_resp.json()["pipelines"]["heats"]["code"] == "ready"
     assert runtime_resp.json()["pipelines"]["inbox"]["code"] == "ready"
     assert runtime_resp.json()["pipelines"]["tasks"]["code"] == "ready"
     assert runtime_resp.json()["pipelines"]["reports"]["code"] == "ready"
     assert runtime_resp.json()["pipelines"]["baselines"]["code"] == "ready"
     assert runtime_resp.json()["pipelines"]["settings"]["code"] == "ready"
-    assert runtime_resp.json()["active_baseline"]["id"] == "baseline-001"
+    assert runtime_resp.json()["active_baseline"]["id"] is None
 
     runtime_showtime_resp = await client.get("/api/settings/runtime-status", params={"showtime": "true"})
     assert runtime_showtime_resp.status_code == 200
@@ -489,3 +492,96 @@ async def test_runtime_state_prefers_explicit_app_edc_config_and_clears_old_host
     assert payload["host"]["is_connected"] is False
     assert payload["host"]["meta"]["source"] == "http://env-edc-host"
     assert payload["edc"]["host_channel_total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_switching_edc_source_clears_source_bound_runtime_state(client) -> None:
+    _HOST_CHANNEL_STORE.clear()
+    _HOST_CHANNEL_STORE.extend(
+        [
+            {
+                "id": "sensor-9-128",
+                "device_name": "测试设备 · 三相智能电表",
+                "device_type": "三相智能电表",
+                "area": "测试区域",
+                "suid": "sensor-9",
+                "cuid": "128",
+                "channel_name": "B相电压",
+                "unit": "V",
+                "last_value": "226.8",
+                "status": "online",
+            }
+        ]
+    )
+    _HOST_CHANNEL_CATALOG_CACHE.clear()
+    _HOST_CHANNEL_CATALOG_CACHE.extend([item.copy() for item in _HOST_CHANNEL_STORE])
+    _SETTINGS_STORE["active_baseline_id"]["value"] = "baseline-001"
+    _DEFINITION_STORE["def-001"]["metrics"][0]["edc_channel_id"] = "sensor-9-128"
+
+    response = await client.put(
+        "/api/settings/edc-connection",
+        json={
+            "base_url": "http://61.216.55.133",
+            "username": "admin",
+            "password": "admin",
+        },
+        headers=HOST_SYNC_HEADERS,
+    )
+    assert response.status_code == 200
+    assert response.json()["message"] == "EDC 连接配置已更新，旧来源绑定已清空"
+    assert _HOST_CHANNEL_STORE == []
+    assert _HOST_CHANNEL_CATALOG_CACHE == []
+    assert _SETTINGS_STORE["active_baseline_id"]["value"] == ""
+    assert _DEFINITION_STORE["def-001"]["metrics"][0]["edc_channel_id"] is None
+
+    host_status_resp = await client.get("/api/settings/host-connectivity-status")
+    assert host_status_resp.status_code == 200
+    payload = host_status_resp.json()
+    assert payload["is_connected"] is False
+    assert payload["meta"]["source"] == "http://61.216.55.133"
+    assert payload["meta"]["enabled_channel_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_updating_same_edc_source_keeps_existing_host_channels(client) -> None:
+    _HOST_CHANNEL_STORE.clear()
+    _HOST_CHANNEL_STORE.extend(
+        [
+            {
+                "id": "sensor-9-128",
+                "device_name": "测试设备 · 三相智能电表",
+                "device_type": "三相智能电表",
+                "area": "测试区域",
+                "suid": "sensor-9",
+                "cuid": "128",
+                "channel_name": "B相电压",
+                "unit": "V",
+                "last_value": "226.8",
+                "status": "online",
+            }
+        ]
+    )
+    _HOST_CHANNEL_CATALOG_CACHE.clear()
+    _HOST_CHANNEL_CATALOG_CACHE.extend([item.copy() for item in _HOST_CHANNEL_STORE])
+    _SETTINGS_STORE["edc_base_url"]["value"] = "http://61.216.55.133"
+    _SETTINGS_STORE["edc_username"]["value"] = "admin"
+    _SETTINGS_STORE["edc_password"]["value"] = "admin"
+    _SETTINGS_STORE["active_baseline_id"]["value"] = "baseline-001"
+    _DEFINITION_STORE["def-001"]["metrics"][0]["edc_channel_id"] = "sensor-9-128"
+
+    response = await client.put(
+        "/api/settings/edc-connection",
+        json={
+            "base_url": "http://61.216.55.133",
+            "username": "admin",
+            "password": "admin",
+        },
+        headers=HOST_SYNC_HEADERS,
+    )
+    assert response.status_code == 200
+    assert response.json()["message"] == "EDC 连接配置已更新"
+    assert len(_HOST_CHANNEL_STORE) == 1
+    assert _HOST_CHANNEL_STORE[0]["id"] == "sensor-9-128"
+    assert _HOST_CHANNEL_CATALOG_CACHE == []
+    assert _SETTINGS_STORE["active_baseline_id"]["value"] == "baseline-001"
+    assert _DEFINITION_STORE["def-001"]["metrics"][0]["edc_channel_id"] == "sensor-9-128"

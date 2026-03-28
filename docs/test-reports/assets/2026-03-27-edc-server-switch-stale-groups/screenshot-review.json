@@ -1,0 +1,91 @@
+{
+  "version": "1.0",
+  "issue": "2026-03-27-edc-server-switch-stale-groups",
+  "environment": "public",
+  "script_path": "apps/web/e2e/asns-edc-host-switch-investigation.spec.ts",
+  "screenshot_dir": "docs/test-reports/assets/2026-03-27-edc-server-switch-stale-groups/public",
+  "reviewed_at": "2026-03-27T14:12:10Z",
+  "overall_result": "fail",
+  "review_method": "manual-image-review-plus-dom-cross-check",
+  "why_correct": "6 张 PNG 已逐张打开回看；回看结果与 Playwright 断言及 evidence.json 中的运行态 / host_channels / dashboard_realtime 结果交叉一致。第三张图在首次回看时发现未滚到旧组区域，已修脚本并重跑后再回看，说明本次回看动作本身有效且能发现证据缺口。",
+  "screenshots": [
+    {
+      "file": "01-home-before-open-settings.png",
+      "step": "进入 ASNS 宿主页",
+      "action": "goto",
+      "review_result": "pass",
+      "observed": [
+        "看到了宿主桌面和 6 个入口图标",
+        "看到了底部 Dock",
+        "看到了连线设置和 EDC electricity 两个入口"
+      ],
+      "missing": []
+    },
+    {
+      "file": "02-after-click-open-settings.png",
+      "step": "点击 Dock 中的连线设置",
+      "action": "click",
+      "review_result": "pass",
+      "observed": [
+        "看到了连线设置窗口已打开",
+        "看到了连接来源、EDC URL、账户名、密码字段",
+        "看到了系统状态为等待验证"
+      ],
+      "missing": []
+    },
+    {
+      "file": "03-settings-old-groups-still-visible.png",
+      "step": "连线设置结果态",
+      "action": "state-check",
+      "review_result": "pass",
+      "observed": [
+        "看到了已添加通道清单区域",
+        "看到了旧组 SSTW 380V-220V電力 · 三相智能电表",
+        "看到了旧通道 suid 2349 / cuid 199 · kW 和 suid 2349 / cuid 128 · V",
+        "看到了旧温度组 A-1溫度"
+      ],
+      "missing": [
+        "未看到按当前新 EDC 服务器重置后的组清单"
+      ]
+    },
+    {
+      "file": "04-home-before-open-edc-app.png",
+      "step": "重新进入宿主页，准备打开智慧熔炉",
+      "action": "goto",
+      "review_result": "pass",
+      "observed": [
+        "看到了宿主桌面初始态",
+        "看到了 EDC electricity 入口图标和 Dock 图标"
+      ],
+      "missing": []
+    },
+    {
+      "file": "05-after-click-open-edc-app-shell.png",
+      "step": "点击 Dock 中的 EDC electricity",
+      "action": "click",
+      "review_result": "pass",
+      "observed": [
+        "看到了 EDC electricity 容器窗口已打开",
+        "看到了 iframe 外层壳和新窗口打开按钮",
+        "看到了左侧应用导航和总览页框架"
+      ],
+      "missing": []
+    },
+    {
+      "file": "06-edc-dashboard-no-data-visible.png",
+      "step": "智慧熔炉结果态",
+      "action": "state-check",
+      "review_result": "pass",
+      "observed": [
+        "看到了黄色 warning：部分仪表盘数据暂未成功返回",
+        "看到了红色错误提示：未获取到真实实时数据，请检查宿主连接和通道绑定",
+        "看到了实时曲线当前不可用",
+        "看到了统计卡片全部为 0"
+      ],
+      "missing": [
+        "未看到可用的实时曲线",
+        "未看到正常的炉次数据"
+      ]
+    }
+  ]
+}

@@ -144,6 +144,143 @@
   - [x] 炉次详情点击“生成纠偏任务”后按钮进入加载态，但未跳转到任务详情
   - [x] 基线详情点击“来源炉次”链接后未跳转到炉次详情
 - [x] 已把这 2 个失败项同步到 `docs/ui_issues.md`
+### 2026-03-27（EDC 切源重置修复完成 + ASNS 子路径白屏回归修复 + 正式 UAT 通过）
+
+**当前阶段**：fix / deploy / formal UAT 完成
+
+**本轮新增结论**：
+
+- [x] EDC 切源后“旧组未清空 + 智慧熔炉取不到数据”的根因链已经修复并完成正式 UAT 闭环
+  - [x] 宿主切源后不再恢复旧来源通道草稿
+  - [x] 后端切源后会清空宿主通道存储、通道目录缓存、连线状态与活动基线绑定
+  - [x] Dashboard 不再把最近发布基线隐式当作当前有效基线
+- [x] 当前公网运行态已进入正确的“待重新采集”保护状态
+  - [x] `runtime-status.overall_code = host_disconnected`
+  - [x] `host_channel_total = 0`
+  - [x] `active_baseline = null`
+  - [x] `host-channels.total = 0`
+- [x] 在验证期间发现并修复一个独立部署回归：
+  - [x] `https://hopeofthepantheon.me/asns/` 一度白屏
+  - [x] 具体原因不是 React 崩溃，而是 ASNS 构建产物把资源写成 `/assets/...`，导致 `/asns/` 子路径下 JS/CSS 404
+  - [x] 现已重新生成 `/asns/assets/...` 产物，公网资源返回 `200`
+
+**正式 UAT**：
+
+- [x] 测试脚本：
+  - [x] `apps/web/e2e/asns-edc-source-switch-reset-uat.spec.ts`
+- [x] 证据目录：
+  - [x] `docs/test-reports/assets/2026-03-27-edc-source-switch-reset-uat/public`
+- [x] 结构化证据：
+  - [x] `docs/test-reports/assets/2026-03-27-edc-source-switch-reset-uat/evidence.json`
+- [x] 截图回看：
+  - [x] `docs/test-reports/assets/2026-03-27-edc-source-switch-reset-uat/screenshot-review.json`
+- [x] 正式 UAT 报告：
+  - [x] `docs/test-reports/2026-03-27-edc-source-switch-reset-uat.md`
+- [x] 执行结果：
+  - [x] `pnpm --dir apps/web exec playwright test e2e/asns-edc-source-switch-reset-uat.spec.ts --project=chromium --workers=1`
+  - [x] `1 passed`
+
+**本轮额外流程修正**：
+
+- [x] 第 3 张正式截图第一次重跑时仍未真正拍到“空通道”文案
+- [x] 已修正 UAT 脚本：
+  - [x] `scrollIntoViewIfNeeded`
+  - [x] `toBeInViewport`
+- [x] 修后再次重跑并复看，确认截图证据位真实可见
+
+**当前判定**：
+
+- [x] `PASS`
+- [x] 判定范围：
+  - [x] 切源后旧配置、旧组、旧前台态已正确清空
+  - [x] 系统已进入“待重新配置 / 待重新采集”状态
+  - [x] 实时数据恢复仍依赖后续按新来源重新绑定通道
+
+**本轮补充规范与部署文档**：
+
+- [x] 已把 UAT 口径明确升级为“面向商业使用的完整用户接受测试”，不再等同于页面可打开 / 按钮可点击
+  - [x] 文档：`docs/testing.md`
+  - [x] 已补入当前项目最低 UAT 覆盖范围：宿主配置、切源、通道绑定、数据链路、旧配置清空、旧数据清空、新源重采集、智慧熔炉关键流程
+- [x] 已把 `/asns/` 白屏修复点纳入后续构建回归检查
+  - [x] 文档：`docs/DEPLOYMENT.md`
+  - [x] 已明确要求：子路径部署时必须检查 HTML 是否引用 `/asns/assets/...`，且对应资源返回 `200`
+
+---
+
+### 2026-03-27（正式测试与留存规范升级 + EDC 服务器切换后宿主旧组残留调查）
+
+**当前阶段**：规范落盘 + investigate 完成，尚未开始修复
+
+**本轮新增工作**：
+
+- [x] 已将正式测试与留存规范升级写入 `docs/testing.md`
+  - [x] 明确区分 `纯后台测试` 与 `正式 UAT / 用户实际流程用例测试 / 前端交互 / 视觉相关测试`
+  - [x] 正式 UAT 规则已统一为：`所有交互操作都必须截图留存`
+  - [x] 新增 `测试分类判定规则`
+  - [x] 新增 `正式 UAT 截图规范`
+  - [x] 新增 `screenshot-review.json 规范`
+  - [x] 新增 `回归测试证据要求`
+  - [x] 新增 `正式测试资产核对清单`
+
+**当前 issue investigate 结论**：
+
+- [x] 当前公网运行态已经处在“新 EDC 服务器配置 + 旧宿主通道残留”的坏状态
+  - [x] 当前后端 `runtime-status`：
+    - [x] `edc_base_url = http://61.216.55.133`
+    - [x] `host_channel_total = 6`
+  - [x] 当前 `host-channels` 仍是旧服务器通道：
+    - [x] `2349-199`
+    - [x] `2349-128`
+    - [x] `2054-128`
+    - [x] `2066-128`
+    - [x] `769-128`
+    - [x] `769-129`
+  - [x] 当前新 EDC 服务器实际设备只包含：
+    - [x] `2752`
+    - [x] `2755`
+    - [x] `300000000000000000001`
+- [x] 智慧熔炉“数据没有取到”已与同一条根因链收口
+  - [x] 当前 `GET /api/dashboard/realtime?duration=1h` 返回 `503`
+  - [x] detail：
+    - [x] `未获取到真实实时数据，请检查宿主连接和通道绑定`
+
+**代码级根因链**：
+
+- [x] 宿主设置页用旧 `edcChannelSnapshot` 初始化 `channelCatalog / addedChannelIds`
+- [x] `测试连接` 只更新连接状态，不刷新通道目录
+- [x] 宿主 bootstrap 会把旧快照通道重新 `syncSelectionToBackend`
+- [x] 后端 `PUT /settings/edc-connection` 不会清空 `_HOST_CHANNEL_STORE`
+
+**正式调查脚本与留存**：
+
+- [x] 正式调查脚本：
+  - [x] `apps/web/e2e/asns-edc-host-switch-investigation.spec.ts`
+- [x] 正式截图目录：
+  - [x] `docs/test-reports/assets/2026-03-27-edc-server-switch-stale-groups/public`
+- [x] 结构化证据：
+  - [x] `docs/test-reports/assets/2026-03-27-edc-server-switch-stale-groups/evidence.json`
+- [x] 截图回看：
+  - [x] `docs/test-reports/assets/2026-03-27-edc-server-switch-stale-groups/screenshot-review.json`
+- [x] 正式调查报告：
+  - [x] `docs/test-reports/2026-03-27-edc-server-switch-stale-groups-investigation.md`
+
+**本轮验证**：
+
+- [x] 正式调查脚本执行：
+  - [x] `pnpm --dir apps/web exec playwright test e2e/asns-edc-host-switch-investigation.spec.ts --project=chromium --workers=1`
+  - [x] 结果：`1 passed`
+- [x] 但产品状态判定仍为：
+  - [x] `FAIL`
+  - [x] 原因：问题被稳定复现，尚未修复
+
+**视觉闭环补充**：
+
+- [x] 已逐张回看 6 张正式截图
+- [x] 第一次回看时发现 `03-settings-old-groups-still-visible.png` 未真正拍到旧组区域
+- [x] 已先修脚本再重跑，再完成二次回看
+- [x] 这次“回看”不是形式动作，而是实际拦截了不合格证据
+
+---
 
 ### 2026-03-27（EDC/ASNS 曲线不显示：定位为部署环境到上游 EDC 连通性故障，并补齐“截图后必须回看 PNG”闭环）
 

@@ -105,6 +105,7 @@
       "percent": "%"
     },
     "baselineStatusNormal": "正常",
+    "baselineStatusPending": "再設定待ち",
     "trendFromYesterday": "前日比",
     "realtimeSubtitleTimestamp": "データ時刻 {timestamp}",
     "realtimeSubtitleBaseline": "比較基線 {baseline}",

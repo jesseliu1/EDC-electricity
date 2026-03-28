@@ -1,0 +1,249 @@
+{
+  "issue": "2026-03-27-edc-server-switch-stale-groups",
+  "environment": "public",
+  "script_path": "apps/web/e2e/asns-edc-host-switch-investigation.spec.ts",
+  "screenshot_dir": "docs/test-reports/assets/2026-03-27-edc-server-switch-stale-groups/public",
+  "screenshots": [
+    {
+      "file": "01-home-before-open-settings.png",
+      "step": "进入 ASNS 宿主页",
+      "action": "goto",
+      "note": "宿主首页已加载，准备进入连线设置。"
+    },
+    {
+      "file": "02-after-click-open-settings.png",
+      "step": "点击 Dock 中的连线设置",
+      "action": "click",
+      "note": "连线设置窗口已打开，可见旧组信息仍在已添加通道清单中。"
+    },
+    {
+      "file": "03-settings-old-groups-still-visible.png",
+      "step": "连线设置结果态",
+      "action": "state-check",
+      "note": "已添加通道清单仍显示旧服务器的组和通道。"
+    },
+    {
+      "file": "04-home-before-open-edc-app.png",
+      "step": "重新进入宿主页，准备打开智慧熔炉",
+      "action": "goto",
+      "note": "为避免窗口遮挡，使用新页面从宿主首页直接打开智慧熔炉。"
+    },
+    {
+      "file": "05-after-click-open-edc-app-shell.png",
+      "step": "点击 Dock 中的 EDC electricity",
+      "action": "click",
+      "note": "智慧熔炉容器窗口已打开。"
+    },
+    {
+      "file": "06-edc-dashboard-no-data-visible.png",
+      "step": "智慧熔炉结果态",
+      "action": "state-check",
+      "note": "智慧熔炉首页显示未获取到真实实时数据和实时曲线当前不可用。"
+    }
+  ],
+  "runtime_status": {
+    "overall_code": "ready",
+    "host": {
+      "is_connected": true,
+      "machine_name": "EDC Gateway (61.216.55.133)",
+      "last_sync_label": "2026/3/27 21:30:52",
+      "meta": {
+        "source": "http://61.216.55.133",
+        "sensor_count": 3,
+        "channel_count": 788,
+        "enabled_channel_count": 739
+      }
+    },
+    "edc": {
+      "configured": true,
+      "base_url": "http://61.216.55.133",
+      "username_present": true,
+      "host_channel_total": 6,
+      "enabled_channel_count": 739
+    },
+    "active_baseline": {
+      "id": "baseline-3c06ba5d-185b-48b3-a40d-9e4ace627851",
+      "name": "test1",
+      "status": "published"
+    },
+    "runtime": {
+      "showtime_enabled": false,
+      "live_heat_inference_enabled": true,
+      "baseline_length_scope_mode": "definition"
+    },
+    "pipelines": {
+      "dashboard": {
+        "code": "ready",
+        "ready": true
+      },
+      "heats": {
+        "code": "ready",
+        "ready": true
+      },
+      "inbox": {
+        "code": "ready",
+        "ready": true
+      },
+      "tasks": {
+        "code": "ready",
+        "ready": true
+      },
+      "reports": {
+        "code": "ready",
+        "ready": true
+      },
+      "baselines": {
+        "code": "ready",
+        "ready": true
+      },
+      "settings": {
+        "code": "ready",
+        "ready": true
+      }
+    }
+  },
+  "host_channels": {
+    "items": [
+      {
+        "id": "2349-199",
+        "device_name": "SSTW 380V-220V電力 · 三相智能电表",
+        "device_type": "三相智能电表",
+        "area": "SSTW 380V-220V電力",
+        "suid": "2349",
+        "cuid": "199",
+        "channel_name": "总有功功率",
+        "unit": "kW",
+        "last_value": "--",
+        "status": "online"
+      },
+      {
+        "id": "2349-128",
+        "device_name": "SSTW 380V-220V電力 · 三相智能电表",
+        "device_type": "三相智能电表",
+        "area": "SSTW 380V-220V電力",
+        "suid": "2349",
+        "cuid": "128",
+        "channel_name": "A相电压",
+        "unit": "V",
+        "last_value": "--",
+        "status": "online"
+      },
+      {
+        "id": "2054-128",
+        "device_name": "A-1溫度 · 热电偶温度采集器",
+        "device_type": "热电偶温度采集器",
+        "area": "A-1溫度",
+        "suid": "2054",
+        "cuid": "128",
+        "channel_name": "热电偶温度采集通道",
+        "unit": "℃",
+        "last_value": "--",
+        "status": "online"
+      },
+      {
+        "id": "2066-128",
+        "device_name": "A-2溫度 · 热电偶温度采集器",
+        "device_type": "热电偶温度采集器",
+        "area": "A-2溫度",
+        "suid": "2066",
+        "cuid": "128",
+        "channel_name": "热电偶温度采集通道",
+        "unit": "℃",
+        "last_value": "--",
+        "status": "online"
+      },
+      {
+        "id": "769-128",
+        "device_name": "防水型智慧電流信號轉換器  · General 4-20 mA to CAN Converter",
+        "device_type": "General 4-20 mA to CAN Converter",
+        "area": "防水型智慧電流信號轉換器 ",
+        "suid": "769",
+        "cuid": "128",
+        "channel_name": "AD_CH1",
+        "unit": "外部传感器决定",
+        "last_value": "--",
+        "status": "online"
+      },
+      {
+        "id": "769-129",
+        "device_name": "防水型智慧電流信號轉換器  · General 4-20 mA to CAN Converter",
+        "device_type": "General 4-20 mA to CAN Converter",
+        "area": "防水型智慧電流信號轉換器 ",
+        "suid": "769",
+        "cuid": "129",
+        "channel_name": "AD_CH2",
+        "unit": "外部传感器决定",
+        "last_value": "--",
+        "status": "online"
+      }
+    ],
+    "total": 6
+  },
+  "dashboard_realtime": {
+    "status": 503,
+    "body": {
+      "detail": "未获取到真实实时数据，请检查宿主连接和通道绑定"
+    }
+  },
+  "current_edc_summary": {
+    "sensorCount": 3,
+    "sensorIds": [
+      "2752",
+      "2755",
+      "300000000000000000001"
+    ],
+    "sampleSensors": [
+      {
+        "uid": "2752",
+        "name": "三相智能電錶",
+        "nickname": "表後電力"
+      },
+      {
+        "uid": "2755",
+        "name": "三相智能電錶",
+        "nickname": "表前電力"
+      },
+      {
+        "uid": "300000000000000000001",
+        "name": "儲能櫃",
+        "nickname": ""
+      }
+    ]
+  },
+  "stale_host_channel_check": {
+    "host_channel_ids": [
+      "2349-199",
+      "2349-128",
+      "2054-128",
+      "2066-128",
+      "769-128",
+      "769-129"
+    ],
+    "host_suids": [
+      "2349",
+      "2054",
+      "2066",
+      "769"
+    ],
+    "missing_from_current_edc": [
+      "2349",
+      "2054",
+      "2066",
+      "769"
+    ]
+  },
+  "visual_findings": {
+    "settings_visible_old_groups": [
+      "SSTW 380V-220V電力 · 三相智能电表",
+      "A-1溫度 · 热电偶温度采集器",
+      "A-2溫度 · 热电偶温度采集器",
+      "防水型智慧電流信號轉換器 · General 4-20 mA to CAN Converter"
+    ],
+    "edc_dashboard_messages": [
+      "未获取到真实实时数据，请检查宿主连接和通道绑定",
+      "实时曲线当前不可用"
+    ],
+    "edc_frame_contains_no_data_message": true,
+    "edc_frame_contains_realtime_error_title": true
+  }
+}

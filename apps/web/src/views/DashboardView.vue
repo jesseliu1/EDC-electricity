@@ -67,15 +67,15 @@ const stats = computed(() => [
     icon: 'assignment',
     accentColor: 'green' as const,
   },
-  {
-    id: 4,
-    title: t('dashboard.baselineStatus'),
-    value:
-      statsPending.value || statsUnavailable.value
-        ? '--'
-        : dashboardStore.stats.activeBaseline || t('dashboard.baselineStatusNormal'),
-    unit: '',
-    trend: 0,
+      {
+        id: 4,
+        title: t('dashboard.baselineStatus'),
+        value:
+          statsPending.value || statsUnavailable.value
+            ? '--'
+            : dashboardStore.stats.activeBaseline || t('dashboard.baselineStatusPending'),
+        unit: '',
+        trend: 0,
     description:
       statsUnavailable.value
         ? t('dashboard.statsLoadFailedHint')

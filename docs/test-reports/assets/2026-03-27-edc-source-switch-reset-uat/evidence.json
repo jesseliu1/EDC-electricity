@@ -1,0 +1,238 @@
+{
+  "issue": "2026-03-27-edc-source-switch-reset-uat",
+  "environment": "public",
+  "script_path": "apps/web/e2e/asns-edc-source-switch-reset-uat.spec.ts",
+  "screenshot_dir": "docs/test-reports/assets/2026-03-27-edc-source-switch-reset-uat/public",
+  "screenshots": [
+    {
+      "file": "01-home-before-open-settings.png",
+      "step": "进入 ASNS 宿主页",
+      "action": "goto",
+      "note": "宿主首页加载完成，准备进入连线设置验证切源后的清空状态。"
+    },
+    {
+      "file": "02-after-click-open-settings.png",
+      "step": "点击 Dock 中的连线设置",
+      "action": "click",
+      "note": "连线设置窗口已打开，当前 EDC 地址与后端运行态一致。"
+    },
+    {
+      "file": "03-settings-reset-empty-state.png",
+      "step": "连线设置结果态",
+      "action": "state-check",
+      "note": "已添加通道清单为空，旧服务器组信息不再显示。"
+    },
+    {
+      "file": "04-home-before-open-edc-app.png",
+      "step": "重新进入宿主页，准备打开智慧熔炉",
+      "action": "goto",
+      "note": "使用新页面从宿主首页直接打开智慧熔炉。"
+    },
+    {
+      "file": "05-after-click-open-edc-app-shell.png",
+      "step": "点击 Dock 中的 EDC electricity",
+      "action": "click",
+      "note": "智慧熔炉容器窗口已打开。"
+    },
+    {
+      "file": "06-edc-dashboard-reset-state.png",
+      "step": "智慧熔炉结果态",
+      "action": "state-check",
+      "note": "智慧熔炉显示等待宿主同步的运行态提示，旧激活基线已清空为待重新配置。"
+    }
+  ],
+  "runtime_status": {
+    "overall_code": "host_disconnected",
+    "host": {
+      "is_connected": false,
+      "machine_name": "--",
+      "last_sync_label": "--",
+      "meta": {
+        "source": "http://61.216.55.133",
+        "sensor_count": 0,
+        "channel_count": 0,
+        "enabled_channel_count": 0
+      }
+    },
+    "edc": {
+      "configured": true,
+      "base_url": "http://61.216.55.133",
+      "username_present": true,
+      "host_channel_total": 0,
+      "enabled_channel_count": 0
+    },
+    "active_baseline": {
+      "id": null,
+      "name": null,
+      "status": null
+    },
+    "runtime": {
+      "showtime_enabled": false,
+      "live_heat_inference_enabled": true,
+      "baseline_length_scope_mode": "definition"
+    },
+    "pipelines": {
+      "dashboard": {
+        "code": "host_disconnected",
+        "ready": false
+      },
+      "heats": {
+        "code": "host_disconnected",
+        "ready": false
+      },
+      "inbox": {
+        "code": "host_disconnected",
+        "ready": false
+      },
+      "tasks": {
+        "code": "host_disconnected",
+        "ready": false
+      },
+      "reports": {
+        "code": "host_disconnected",
+        "ready": false
+      },
+      "baselines": {
+        "code": "host_disconnected",
+        "ready": false
+      },
+      "settings": {
+        "code": "host_disconnected",
+        "ready": false
+      }
+    }
+  },
+  "host_channels": {
+    "items": [],
+    "total": 0
+  },
+  "active_baseline": null,
+  "baseline_definitions": {
+    "items": [
+      {
+        "id": "def-788f8b8e-2285-47fc-8e15-b47e1e41a493",
+        "definition_name": "范德萨",
+        "description": "范德萨",
+        "expected_duration_minutes": 30,
+        "status": "active",
+        "metrics": [
+          {
+            "id": "metric-845b9923-0dc9-4d71-8ad9-01d7d23dc329",
+            "name": "总有功功率",
+            "unit": "kW",
+            "color": "#409EFF",
+            "sort_order": 1,
+            "edc_channel_id": null
+          },
+          {
+            "id": "metric-3c335197-8412-4b50-adc6-4624fc45552b",
+            "name": "A相电压",
+            "unit": "V",
+            "color": "#409EFF",
+            "sort_order": 2,
+            "edc_channel_id": null
+          }
+        ],
+        "instance_count": 2,
+        "created_at": "2026-03-26T01:24:22.356451",
+        "updated_at": "2026-03-26T01:24:33.240188"
+      },
+      {
+        "id": "def-001",
+        "definition_name": "标准熔炼基线",
+        "description": "中频炉标准熔炼过程，适用于常规铸铁生产",
+        "expected_duration_minutes": 30,
+        "status": "active",
+        "metrics": [
+          {
+            "id": "metric-001",
+            "name": "功率",
+            "unit": "kW",
+            "color": "#409EFF",
+            "sort_order": 1,
+            "edc_channel_id": null
+          },
+          {
+            "id": "metric-002",
+            "name": "电压",
+            "unit": "V",
+            "color": "#67C23A",
+            "sort_order": 2,
+            "edc_channel_id": null
+          },
+          {
+            "id": "metric-003",
+            "name": "炉温",
+            "unit": "°C",
+            "color": "#E6A23C",
+            "sort_order": 3,
+            "edc_channel_id": null
+          }
+        ],
+        "instance_count": 2,
+        "created_at": "2026-03-25T15:47:28.059346",
+        "updated_at": "2026-03-25T15:47:34.914454"
+      },
+      {
+        "id": "def-002",
+        "definition_name": "高功率熔炼基线",
+        "description": "高强度钢生产专用，包含压力监控",
+        "expected_duration_minutes": 45,
+        "status": "active",
+        "metrics": [
+          {
+            "id": "metric-004",
+            "name": "功率",
+            "unit": "kW",
+            "color": "#409EFF",
+            "sort_order": 1,
+            "edc_channel_id": null
+          },
+          {
+            "id": "metric-005",
+            "name": "电压",
+            "unit": "V",
+            "color": "#67C23A",
+            "sort_order": 2,
+            "edc_channel_id": null
+          },
+          {
+            "id": "metric-006",
+            "name": "炉温",
+            "unit": "°C",
+            "color": "#E6A23C",
+            "sort_order": 3,
+            "edc_channel_id": null
+          },
+          {
+            "id": "metric-007",
+            "name": "炉压",
+            "unit": "MPa",
+            "color": "#F56C6C",
+            "sort_order": 4,
+            "edc_channel_id": null
+          }
+        ],
+        "instance_count": 1,
+        "created_at": "2026-03-25T15:47:28.059354",
+        "updated_at": "2026-03-25T15:47:28.059354"
+      }
+    ],
+    "total": 3
+  },
+  "dashboard_realtime": {
+    "status": 503,
+    "body": {
+      "detail": "未获取到真实实时数据，请检查宿主连接和通道绑定"
+    }
+  },
+  "visual_findings": {
+    "asns_reset_empty_text": "目前还没有加入任何硬件通道。",
+    "asns_current_source": "http://61.216.55.133",
+    "asns_old_group_removed": "SSTW 380V-220V電力 · 三相智能电表",
+    "edc_runtime_banner": "宿主尚未同步真实连接状态",
+    "edc_baseline_card": "待重新配置",
+    "edc_frame_contains_runtime_banner": true,
+    "edc_frame_contains_pending_baseline": true
+  }
+}

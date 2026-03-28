@@ -48,6 +48,21 @@ test('restoreHostConnectivityDraft keeps connected session metadata and filters 
         password: 'admin',
       },
       addedChannelIds: ['channel-001', 'channel-001', 'channel-999'],
+      addedChannels: [
+        {
+          id: 'channel-001',
+          deviceName: '电表 A',
+          deviceType: '三相智能电表',
+          area: '主电力',
+          suid: '2349',
+          cuid: '199',
+          channelName: '总有功功率',
+          unit: 'kW',
+          lastValue: '--',
+          status: 'online',
+        },
+      ],
+      channelCatalogSource: 'http://60.251.229.32',
       savedAt: '2026-03-19T08:00:00.000Z',
       connection: {
         isConnected: true,
@@ -76,6 +91,21 @@ test('restoreHostConnectivityDraft keeps connected session metadata and filters 
     password: 'admin',
   });
   assert.deepEqual(restored.addedChannelIds, ['channel-001']);
+  assert.deepEqual(restored.addedChannels, [
+    {
+      id: 'channel-001',
+      deviceName: '电表 A',
+      deviceType: '三相智能电表',
+      area: '主电力',
+      suid: '2349',
+      cuid: '199',
+      channelName: '总有功功率',
+      unit: 'kW',
+      lastValue: '--',
+      status: 'online',
+    },
+  ]);
+  assert.equal(restored.channelCatalogSource, 'http://60.251.229.32');
   assert.equal(restored.savedAt, '2026-03-19T08:00:00.000Z');
   assert.equal(restored.connection?.isConnected, true);
   assert.equal(restored.connection?.machineName, 'EDC Line A');
@@ -121,6 +151,40 @@ test('restoreHostConnectivityDraft falls back safely when connection payload is 
     channelCount: 1024,
     enabledChannelCount: fallbackConnection.meta.enabledChannelCount,
   });
+});
+
+test('restoreHostConnectivityDraft drops legacy channel selections without a matching catalog source', () => {
+  const raw = JSON.stringify({
+    config: {
+      endpoint: 'http://61.216.55.133',
+      username: 'admin',
+      password: 'admin',
+    },
+    addedChannelIds: ['2349-199', '2349-128'],
+    savedAt: '2026-03-27T08:00:00.000Z',
+    connection: {
+      isConnected: true,
+      machineName: 'EDC Gateway',
+      lastSyncLabel: '2026-03-27 16:00',
+      meta: {
+        source: 'http://61.216.55.133',
+        sensorCount: 3,
+        channelCount: 788,
+        enabledChannelCount: 739,
+      },
+    },
+  });
+
+  const restored = restoreHostConnectivityDraft(
+    raw,
+    ['2349-199', '2349-128'],
+    fallbackConnection,
+  );
+
+  assert.ok(restored);
+  assert.deepEqual(restored.addedChannelIds, []);
+  assert.deepEqual(restored.addedChannels, []);
+  assert.equal(restored.channelCatalogSource, null);
 });
 
 test('getDefaultAddedChannelIds prefers realtime power and voltage channels over the snapshot head', () => {
