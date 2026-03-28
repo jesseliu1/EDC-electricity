@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
   ElDatePicker,
@@ -11,7 +11,7 @@ import {
   ElInputNumber,
   ElMessage,
   ElTimeline,
-  ElTimelineItem
+  ElTimelineItem,
 } from 'element-plus'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -35,6 +35,7 @@ type ChartRuntimeSeriesSummary = {
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const baselineStore = useBaselineStore()
 const editVisible = ref(false)
 
@@ -43,7 +44,7 @@ const editForm = reactive({
   description: '',
   tolerancePercent: 15,
   selectedStartTime: null as Date | null,
-  selectedEndTime: null as Date | null
+  selectedEndTime: null as Date | null,
 })
 
 const baselineId = computed(() => String(route.params.id || ''))
@@ -52,7 +53,13 @@ const isDefaultBaseline = computed(() => baselineStore.activeBaselineId === base
 const showtimeMode = computed(() => {
   const raw = route.query.showtime
   const values = Array.isArray(raw) ? raw : [raw]
-  return values.some(value => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase()))
+  return values.some((value) =>
+    ['1', 'true', 'yes', 'on'].includes(
+      String(value || '')
+        .trim()
+        .toLowerCase()
+    )
+  )
 })
 const isDemoCurveSource = computed(() => baseline.value?.curveSource === 'demo_curve')
 
@@ -90,7 +97,7 @@ const curveOption = computed<EChartsOption>(() => {
           smooth: true,
           showSymbol: false,
           lineStyle: { color: item.color, width: 2 },
-          data: item.points.map((point) => point.value)
+          data: item.points.map((point) => point.value),
         }))
       : [
           {
@@ -99,7 +106,7 @@ const curveOption = computed<EChartsOption>(() => {
             smooth: true,
             showSymbol: false,
             lineStyle: { color: '#1152d4', width: 2 },
-            data: current.powerCurve.map((point) => point.value)
+            data: current.powerCurve.map((point) => point.value),
           },
           {
             name: t('dashboard.chart.voltage'),
@@ -107,23 +114,23 @@ const curveOption = computed<EChartsOption>(() => {
             smooth: true,
             showSymbol: false,
             lineStyle: { color: '#f59e0b', width: 2, type: 'dashed' as const },
-            data: current.voltageCurve.map((point) => point.value)
-          }
+            data: current.voltageCurve.map((point) => point.value),
+          },
         ]
   return {
     grid: { left: 45, right: 20, top: 30, bottom: 30 },
     tooltip: { trigger: 'axis' },
     legend: {
       data: series.map((item) => item.name),
-      top: 0
+      top: 0,
     },
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: labels
+      data: labels,
     },
     yAxis: { type: 'value' },
-    series
+    series,
   }
 })
 
@@ -136,7 +143,7 @@ function summarizeChartSeries(option: EChartsOption): ChartRuntimeSeriesSummary[
     return {
       name: String(candidate.name || ''),
       type: String(candidate.type || ''),
-      pointCount: Array.isArray(candidate.data) ? candidate.data.length : 0
+      pointCount: Array.isArray(candidate.data) ? candidate.data.length : 0,
     }
   })
 }
@@ -147,19 +154,19 @@ const curveRuntimeSeriesSummary = computed(() =>
 
 const curveBindingSummary = computed(() => {
   const curves = baseline.value?.curvesData || []
-  const bound = curves.filter(item => Boolean(item.edc_channel_id))
-  const unbound = curves.filter(item => !item.edc_channel_id)
+  const bound = curves.filter((item) => Boolean(item.edc_channel_id))
+  const unbound = curves.filter((item) => !item.edc_channel_id)
   return {
     total: curves.length,
     boundCount: bound.length,
     unboundCount: unbound.length,
-    items: curves.map(item => ({
+    items: curves.map((item) => ({
       metricId: item.metric_id,
       metricName: item.metric_name,
       unit: item.unit,
       bound: Boolean(item.edc_channel_id),
-      sourceLabel: item.source_channel_label || item.source_channel_name || ''
-    }))
+      sourceLabel: item.source_channel_label || item.source_channel_name || '',
+    })),
   }
 })
 
@@ -195,6 +202,17 @@ function handleEdit() {
   editVisible.value = true
 }
 
+async function handleOpenSourceHeat() {
+  const sourceHeatId = baseline.value?.sourceHeatId
+  if (!sourceHeatId) return
+  await router.push({
+    name: 'HeatDetail',
+    params: {
+      id: sourceHeatId,
+    },
+  })
+}
+
 async function handleSaveEdit() {
   if (!baseline.value) return
   if (!editForm.name.trim()) {
@@ -210,7 +228,7 @@ async function handleSaveEdit() {
       : undefined,
     selected_end_time: editForm.selectedEndTime
       ? dayjs(editForm.selectedEndTime).toISOString()
-      : undefined
+      : undefined,
   })
   if (!ok) {
     ElMessage.error(t('common.error'))
@@ -249,23 +267,17 @@ function handleCreateVersion() {
 
 onMounted(async () => {
   if (!baselineId.value) return
-    await Promise.all([
-      baselineStore.fetchDetail(baselineId.value),
-      baselineStore.fetchVersionHistory(),
-      baselineStore.fetchActiveBaseline()
-    ])
+  await Promise.all([
+    baselineStore.fetchDetail(baselineId.value),
+    baselineStore.fetchVersionHistory(),
+    baselineStore.fetchActiveBaseline(),
+  ])
 })
 </script>
 
 <template>
-  <div
-    class="flex flex-col gap-6"
-    data-testid="baseline-detail-page"
-  >
-    <SystemReadinessBanner
-      section="baselines"
-      test-id="baseline-detail-runtime-banner"
-    />
+  <div class="flex flex-col gap-6" data-testid="baseline-detail-page">
+    <SystemReadinessBanner section="baselines" test-id="baseline-detail-runtime-banner" />
 
     <!-- 页面头部 -->
     <PageHeader
@@ -274,17 +286,10 @@ onMounted(async () => {
       :description="baseline?.description || t('common.noDescription')"
     >
       <template #actions>
-        <StatusBadge
-          :type="statusType"
-          class="mr-2"
-        >
+        <StatusBadge :type="statusType" class="mr-2">
           {{ statusLabel }}
         </StatusBadge>
-        <StatusBadge
-          v-if="isDefaultBaseline"
-          type="warning"
-          class="mr-2"
-        >
+        <StatusBadge v-if="isDefaultBaseline" type="warning" class="mr-2">
           {{ t('baseline.defaultBadge') }}
         </StatusBadge>
         <button
@@ -324,10 +329,7 @@ onMounted(async () => {
       </template>
     </PageHeader>
 
-    <div
-      v-if="baseline"
-      class="grid grid-cols-1 gap-6 xl:grid-cols-3"
-    >
+    <div v-if="baseline" class="grid grid-cols-1 gap-6 xl:grid-cols-3">
       <!-- 主内容区：曲线图 -->
       <div class="xl:col-span-2 bg-white rounded-xl border border-border-light shadow-card p-5">
         <div class="flex items-center justify-between mb-4 pb-4 border-b border-border-light">
@@ -375,7 +377,9 @@ onMounted(async () => {
             </div>
             <div class="flex justify-between items-center">
               <span class="text-slate-500">{{ t('baseline.version') }}</span>
-              <span class="font-semibold bg-slate-100 px-2 py-0.5 rounded text-xs">v{{ baseline.version }}</span>
+              <span class="font-semibold bg-slate-100 px-2 py-0.5 rounded text-xs"
+                >v{{ baseline.version }}</span
+              >
             </div>
             <div class="flex justify-between items-center">
               <span class="text-slate-500">{{ t('baseline.tolerance') }}</span>
@@ -383,7 +387,14 @@ onMounted(async () => {
             </div>
             <div class="flex justify-between items-center">
               <span class="text-slate-500">{{ t('baseline.detail.sourceHeat') }}</span>
-              <span class="font-semibold text-primary cursor-pointer hover:underline">{{ baseline.sourceHeatId }}</span>
+              <button
+                type="button"
+                class="font-semibold text-primary transition-colors hover:underline focus:outline-none focus:ring-2 focus:ring-primary/20"
+                data-testid="baseline-detail-source-heat-button"
+                @click="handleOpenSourceHeat"
+              >
+                {{ baseline.sourceHeatId }}
+              </button>
             </div>
             <div class="flex justify-between items-center">
               <span class="text-slate-500">{{ t('baseline.detail.bindingStatus') }}</span>
@@ -408,9 +419,17 @@ onMounted(async () => {
                 {{ t('baseline.wizard.pointRange') }}
               </span>
               <span class="font-mono text-xs text-slate-600 bg-slate-50 p-2 rounded block">
-                {{ baseline.selectedStartTime ? dayjs(baseline.selectedStartTime).format('YYYY-MM-DD HH:mm:ss') : '--' }}
-                <br><span class="text-slate-400">to</span><br>
-                {{ baseline.selectedEndTime ? dayjs(baseline.selectedEndTime).format('YYYY-MM-DD HH:mm:ss') : '--' }}
+                {{
+                  baseline.selectedStartTime
+                    ? dayjs(baseline.selectedStartTime).format('YYYY-MM-DD HH:mm:ss')
+                    : '--'
+                }}
+                <br /><span class="text-slate-400">to</span><br />
+                {{
+                  baseline.selectedEndTime
+                    ? dayjs(baseline.selectedEndTime).format('YYYY-MM-DD HH:mm:ss')
+                    : '--'
+                }}
               </span>
             </div>
           </div>
@@ -438,9 +457,15 @@ onMounted(async () => {
                 </div>
                 <span
                   class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
-                  :class="item.bound ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
+                  :class="
+                    item.bound ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                  "
                 >
-                  {{ item.bound ? t('baseline.wizard.metricBound') : t('baseline.wizard.metricUnboundShort') }}
+                  {{
+                    item.bound
+                      ? t('baseline.wizard.metricBound')
+                      : t('baseline.wizard.metricUnboundShort')
+                  }}
                 </span>
               </div>
               <div class="mt-2 text-xs text-slate-500">
@@ -467,10 +492,7 @@ onMounted(async () => {
               {{ t('common.noData') }}
             </p>
           </div>
-          <el-timeline
-            v-else
-            class="pl-2"
-          >
+          <el-timeline v-else class="pl-2">
             <el-timeline-item
               v-for="version in baselineStore.versionHistory"
               :key="version.id"
@@ -482,10 +504,22 @@ onMounted(async () => {
                 <div class="flex items-center justify-between mb-1">
                   <span class="font-bold text-sm text-slate-800">{{ version.name }}</span>
                   <StatusBadge
-                    :type="version.status === 'published' ? 'success' : version.status === 'draft' ? 'info' : 'danger'"
+                    :type="
+                      version.status === 'published'
+                        ? 'success'
+                        : version.status === 'draft'
+                          ? 'info'
+                          : 'danger'
+                    "
                     size="sm"
                   >
-                    {{ version.status === 'published' ? t('baseline.statusPublished') : version.status === 'draft' ? t('baseline.statusDraft') : t('baseline.statusDisabled') }}
+                    {{
+                      version.status === 'published'
+                        ? t('baseline.statusPublished')
+                        : version.status === 'draft'
+                          ? t('baseline.statusDraft')
+                          : t('baseline.statusDisabled')
+                    }}
                   </StatusBadge>
                 </div>
                 <div class="text-xs text-slate-500 font-medium">
@@ -510,30 +544,16 @@ onMounted(async () => {
     </div>
 
     <!-- 编辑对话框 -->
-    <ElDialog
-      v-model="editVisible"
-      :title="t('common.edit')"
-      width="620px"
-      destroy-on-close
-    >
+    <ElDialog v-model="editVisible" :title="t('common.edit')" width="620px" destroy-on-close>
       <el-form label-position="top">
         <el-form-item :label="t('baseline.name')">
           <el-input v-model="editForm.name" />
         </el-form-item>
         <el-form-item :label="t('baseline.wizard.description')">
-          <el-input
-            v-model="editForm.description"
-            type="textarea"
-            :rows="3"
-          />
+          <el-input v-model="editForm.description" type="textarea" :rows="3" />
         </el-form-item>
         <el-form-item :label="t('baseline.tolerance')">
-          <el-input-number
-            v-model="editForm.tolerancePercent"
-            :min="0"
-            :max="100"
-            :step="0.5"
-          />
+          <el-input-number v-model="editForm.tolerancePercent" :min="0" :max="100" :step="0.5" />
         </el-form-item>
         <el-form-item :label="t('baseline.wizard.rangeStart')">
           <el-date-picker

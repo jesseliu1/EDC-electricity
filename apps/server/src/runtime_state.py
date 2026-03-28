@@ -117,17 +117,20 @@ async def load_runtime_state() -> None:
         settings_api._SETTINGS_STORE.clear()
         settings_api._SETTINGS_STORE.update(payloads["settings_store"])
 
-    if isinstance(payloads.get("host_channels"), list):
+    edc_connection_overridden = settings_api.apply_app_edc_connection_override()
+
+    if isinstance(payloads.get("host_channels"), list) and not edc_connection_overridden:
         settings_api._HOST_CHANNEL_STORE.clear()
         settings_api._HOST_CHANNEL_STORE.extend(payloads["host_channels"])
 
-    if isinstance(payloads.get("host_channel_catalog"), list):
+    if isinstance(payloads.get("host_channel_catalog"), list) and not edc_connection_overridden:
         settings_api._HOST_CHANNEL_CATALOG_CACHE.clear()
         settings_api._HOST_CHANNEL_CATALOG_CACHE.extend(payloads["host_channel_catalog"])
 
-    settings_api._HOST_CHANNEL_LAST_SYNC_AT = payloads.get("host_channel_last_sync_at")
+    if not edc_connection_overridden:
+        settings_api._HOST_CHANNEL_LAST_SYNC_AT = payloads.get("host_channel_last_sync_at")
 
-    if isinstance(payloads.get("host_connectivity_status"), dict):
+    if isinstance(payloads.get("host_connectivity_status"), dict) and not edc_connection_overridden:
         settings_api._HOST_CONNECTIVITY_STATUS.clear()
         settings_api._HOST_CONNECTIVITY_STATUS.update(payloads["host_connectivity_status"])
 
@@ -165,3 +168,12 @@ async def load_runtime_state() -> None:
 
     if isinstance(payloads.get("next_heat_index"), int):
         heats_api._NEXT_MOCK_HEAT_INDEX = payloads["next_heat_index"]
+
+    if edc_connection_overridden:
+        await persist_runtime_state(
+            "settings_store",
+            "host_channels",
+            "host_channel_catalog",
+            "host_channel_last_sync_at",
+            "host_connectivity_status",
+        )

@@ -6,7 +6,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ..config import settings as app_settings
+from ..config import DEFAULT_EDC_BASE_URL, settings as app_settings
 from ..request_mode import is_showtime_mode
 from ..runtime_state import persist_runtime_state
 from ..schemas import (
@@ -33,10 +33,10 @@ _HOST_SYNC_HEADER = "x-asns-host-sync"
 
 _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     "default_tolerance_percent": {"value": "15.0", "description": "默认容许误差百分比"},
-    "edc_base_url": {"value": "http://60.251.229.32", "description": "EDC API 基础URL"},
-    "edc_username": {"value": "volapu", "description": "EDC 登录账号"},
-    "edc_password": {"value": "admin", "description": "EDC 登录密码"},
-    "edc_api_key": {"value": "", "description": "EDC API 密钥"},
+    "edc_base_url": {"value": app_settings.edc_base_url, "description": "EDC API 基础URL"},
+    "edc_username": {"value": app_settings.edc_username or "", "description": "EDC 登录账号"},
+    "edc_password": {"value": app_settings.edc_password or "", "description": "EDC 登录密码"},
+    "edc_api_key": {"value": app_settings.edc_api_key or "", "description": "EDC API 密钥"},
     "report_generation_hour": {"value": "2", "description": "日报生成时间（小时）"},
     "active_baseline_id": {"value": "baseline-001", "description": "当前激活的基线ID"},
     "time_tolerance_percent": {"value": "10.0", "description": "炉次切割时间偏移容忍率(%)"},
@@ -307,6 +307,59 @@ def _host_connectivity_response() -> HostConnectivityStatusResponse:
     return HostConnectivityStatusResponse.model_validate(_HOST_CONNECTIVITY_STATUS)
 
 
+def _has_app_level_edc_connection_override() -> bool:
+    return (
+        app_settings.edc_base_url.strip() != DEFAULT_EDC_BASE_URL
+        or bool((app_settings.edc_username or "").strip())
+        or bool((app_settings.edc_password or "").strip())
+        or bool((app_settings.edc_api_key or "").strip())
+    )
+
+
+def apply_app_edc_connection_override() -> bool:
+    """启动恢复时让显式环境配置覆盖旧 runtime 连接信息。"""
+    global _HOST_CHANNEL_LAST_SYNC_AT
+
+    if not _has_app_level_edc_connection_override():
+        return False
+
+    next_base_url = app_settings.edc_base_url.strip()
+    next_username = (app_settings.edc_username or "").strip()
+    next_password = (app_settings.edc_password or "").strip()
+    next_api_key = (app_settings.edc_api_key or "").strip()
+    changed = (
+        str(_SETTINGS_STORE.get("edc_base_url", {}).get("value") or "").strip() != next_base_url
+        or str(_SETTINGS_STORE.get("edc_username", {}).get("value") or "").strip() != next_username
+        or str(_SETTINGS_STORE.get("edc_password", {}).get("value") or "").strip() != next_password
+        or str(_SETTINGS_STORE.get("edc_api_key", {}).get("value") or "").strip() != next_api_key
+    )
+    if not changed:
+        return False
+
+    _SETTINGS_STORE["edc_base_url"]["value"] = next_base_url
+    _SETTINGS_STORE["edc_username"]["value"] = next_username
+    _SETTINGS_STORE["edc_password"]["value"] = next_password
+    _SETTINGS_STORE["edc_api_key"]["value"] = next_api_key
+    _HOST_CHANNEL_STORE.clear()
+    _HOST_CHANNEL_CATALOG_CACHE.clear()
+    _HOST_CHANNEL_LAST_SYNC_AT = None
+    _HOST_CONNECTIVITY_STATUS.clear()
+    _HOST_CONNECTIVITY_STATUS.update(
+        {
+            "is_connected": False,
+            "machine_name": "--",
+            "last_sync_label": "--",
+            "meta": {
+                "source": next_base_url or "--",
+                "sensor_count": 0,
+                "channel_count": 0,
+                "enabled_channel_count": 0,
+            },
+        }
+    )
+    return True
+
+
 def _build_runtime_status_response() -> RuntimeStatusResponse:
     """构建业务页统一消费的运行态摘要。"""
     from .baselines import _BASELINE_STORE
@@ -523,13 +576,30 @@ async def update_edc_connection(data: EDCConnectionRequest, request: Request) ->
     if data.password is not None:
         _SETTINGS_STORE["edc_password"]["value"] = data.password
     _SETTINGS_STORE["edc_api_key"]["value"] = data.api_key or ""
+    _HOST_CHANNEL_STORE.clear()
     _HOST_CHANNEL_CATALOG_CACHE.clear()
     _HOST_CHANNEL_LAST_SYNC_AT = None
+    _HOST_CONNECTIVITY_STATUS.clear()
+    _HOST_CONNECTIVITY_STATUS.update(
+        {
+            "is_connected": False,
+            "machine_name": "--",
+            "last_sync_label": "--",
+            "meta": {
+                "source": data.base_url,
+                "sensor_count": 0,
+                "channel_count": 0,
+                "enabled_channel_count": 0,
+            },
+        }
+    )
     _invalidate_compare_runtime_caches()
     await persist_runtime_state(
         "settings_store",
+        "host_channels",
         "host_channel_catalog",
         "host_channel_last_sync_at",
+        "host_connectivity_status",
     )
     return MessageResponse(message="EDC 连接配置已更新", success=True)
 

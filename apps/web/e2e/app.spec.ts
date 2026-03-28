@@ -398,6 +398,214 @@ async function mockHeatSmoke(page: Page) {
   })
 }
 
+async function mockBaselineDetailSourceHeatNavigation(page: Page) {
+  const powerCurve = buildCurvePoints('2026-03-20T08:00:00Z', 36, 1, 438, 6)
+  const voltageCurve = buildCurvePoints('2026-03-20T08:00:00Z', 36, 1, 386, 1.5)
+
+  await page.route('**/api/baselines/active', async (route) => {
+    await fulfillJson(route, {
+      id: 'baseline-001',
+      name: '标准基线 v2.1',
+      status: 'published',
+      version: 2,
+    })
+  })
+  await page.route('**/api/baselines/baseline-001', async (route) => {
+    await fulfillJson(route, {
+      id: 'baseline-001',
+      name: '标准基线 v2.1',
+      description: '用于正式回归的标准曲线',
+      definition_id: 'def-001',
+      definition_name: '标准熔炼基线',
+      source_heat_id: 'heat-001',
+      selected_start_time: '2026-03-20T08:00:00Z',
+      selected_end_time: '2026-03-20T08:35:00Z',
+      tolerance_percent: 12,
+      status: 'published',
+      version: 2,
+      curve_source: 'live_edc',
+      created_at: '2026-03-20T08:40:00Z',
+      updated_at: '2026-03-20T08:40:00Z',
+      published_at: '2026-03-20T08:45:00Z',
+      curves_data: [
+        {
+          metric_id: 'metric-power',
+          metric_name: '总有功功率',
+          unit: 'kW',
+          color: '#409EFF',
+          edc_channel_id: '2349-199',
+          source_channel_name: '总有功功率',
+          source_channel_label: 'SSTW / 总有功功率 / kW',
+          points: powerCurve,
+        },
+        {
+          metric_id: 'metric-voltage',
+          metric_name: 'A相电压',
+          unit: 'V',
+          color: '#67C23A',
+          edc_channel_id: '2349-128',
+          source_channel_name: 'A相电压',
+          source_channel_label: 'SSTW / A相电压 / V',
+          points: voltageCurve,
+        },
+      ],
+      power_curve: powerCurve,
+      voltage_curve: voltageCurve,
+      temperature: null,
+    })
+  })
+  await page.route('**/api/baselines?**', async (route) => {
+    await fulfillJson(route, {
+      items: [
+        {
+          id: 'baseline-001',
+          name: '标准基线 v2.1',
+          description: '用于正式回归的标准曲线',
+          definition_id: 'def-001',
+          definition_name: '标准熔炼基线',
+          source_heat_id: 'heat-001',
+          selected_start_time: '2026-03-20T08:00:00Z',
+          selected_end_time: '2026-03-20T08:35:00Z',
+          tolerance_percent: 12,
+          status: 'published',
+          version: 2,
+          curve_source: 'live_edc',
+          created_at: '2026-03-20T08:40:00Z',
+          updated_at: '2026-03-20T08:40:00Z',
+          published_at: '2026-03-20T08:45:00Z',
+        },
+      ],
+      total: 1,
+    })
+  })
+
+  await page.route('**/api/heats/heat-001', async (route) => {
+    await fulfillJson(route, {
+      id: 'heat-001',
+      heat_no: 'H20260320-001',
+      description: null,
+      start_time: '2026-03-20T08:00:00Z',
+      end_time: '2026-03-20T08:35:00Z',
+      baseline_id: 'baseline-001',
+      deviation_percent: 12.4,
+      avg_deviation_percent: 6.8,
+      time_offset_percent: 2.1,
+      mismatch_duration_minutes: 2,
+      schedule_tag: 'work',
+      cut_reason: 'time_offset_exceed',
+      cut_status: 'normal',
+      major_issue: false,
+      blocked_by_issue: false,
+      status: 'abnormal',
+      temperature: 1458,
+      created_at: '2026-03-20T08:00:00Z',
+    })
+  })
+  await page.route('**/api/heats/heat-001/curve', async (route) => {
+    await fulfillJson(route, {
+      id: 'heat-001',
+      heat_no: 'H20260320-001',
+      description: null,
+      start_time: '2026-03-20T08:00:00Z',
+      end_time: '2026-03-20T08:35:00Z',
+      baseline_id: 'baseline-001',
+      deviation_percent: 12.4,
+      avg_deviation_percent: 6.8,
+      time_offset_percent: 2.1,
+      mismatch_duration_minutes: 2,
+      schedule_tag: 'work',
+      cut_reason: 'time_offset_exceed',
+      cut_status: 'normal',
+      major_issue: false,
+      blocked_by_issue: false,
+      status: 'abnormal',
+      temperature: 1458,
+      created_at: '2026-03-20T08:00:00Z',
+      power_curve: powerCurve,
+      voltage_curve: voltageCurve,
+      baseline_power_curve: powerCurve.map((item) => ({ ...item, value: 430 })),
+      baseline_voltage_curve: voltageCurve.map((item) => ({ ...item, value: 384 })),
+    })
+  })
+  await page.route('**/api/heats/heat-001/compare', async (route) => {
+    await fulfillJson(route, {
+      heat: {
+        id: 'heat-001',
+        heat_no: 'H20260320-001',
+        description: null,
+        start_time: '2026-03-20T08:00:00Z',
+        end_time: '2026-03-20T08:35:00Z',
+        baseline_id: 'baseline-001',
+        deviation_percent: 12.4,
+        avg_deviation_percent: 6.8,
+        time_offset_percent: 2.1,
+        mismatch_duration_minutes: 2,
+        schedule_tag: 'work',
+        cut_reason: 'time_offset_exceed',
+        cut_status: 'normal',
+        major_issue: false,
+        blocked_by_issue: false,
+        status: 'abnormal',
+        temperature: 1458,
+        created_at: '2026-03-20T08:00:00Z',
+        power_curve: powerCurve,
+        voltage_curve: voltageCurve,
+      },
+      baselines: [
+        {
+          baseline: {
+            id: 'baseline-001',
+            name: '标准基线 v2.1',
+            status: 'published',
+            version: 2,
+          },
+          deviation_percent: 12.4,
+          avg_deviation_percent: 6.8,
+          deviation_ranges: [],
+          metric_curves: [
+            {
+              metric_key: 'power',
+              metric_name: '功率',
+              unit: 'kW',
+              color: '#409EFF',
+              baseline_curve: powerCurve.map((item) => ({ ...item, value: 430 })),
+              current_curve: powerCurve,
+              source_channel_name: '总有功功率',
+              source_channel_label: 'SSTW / 总有功功率 / kW',
+            },
+            {
+              metric_key: 'voltage',
+              metric_name: '电压',
+              unit: 'V',
+              color: '#67C23A',
+              baseline_curve: voltageCurve.map((item) => ({ ...item, value: 384 })),
+              current_curve: voltageCurve,
+              source_channel_name: 'A相电压',
+              source_channel_label: 'SSTW / A相电压 / V',
+            },
+          ],
+        },
+      ],
+      deviation_ranges: [],
+      max_deviation: 12.4,
+      avg_deviation: 6.8,
+    })
+  })
+  await page.route('**/api/heats/heat-001/cutting-timeline', async (route) => {
+    await fulfillJson(route, {
+      heat_id: 'heat-001',
+      events: [
+        {
+          timestamp: '2026-03-20T08:00:00Z',
+          event_type: 'stream_in',
+          title: '实时流入',
+          detail: '炉次进入切割判定队列',
+        },
+      ],
+    })
+  })
+}
+
 test.describe('EDC web smoke flows', () => {
   test('can create and publish a baseline from the wizard', async ({ page }) => {
     await mockBaselineWizardSmoke(page)
@@ -430,7 +638,9 @@ test.describe('EDC web smoke flows', () => {
     await expect(page.getByText('真实数据基线定义').first()).toBeVisible()
   })
 
-  test('expanded heat row uses a detail CTA that matches the detail navigation target', async ({ page }) => {
+  test('expanded heat row uses a detail CTA that matches the detail navigation target', async ({
+    page,
+  }) => {
     await mockHeatSmoke(page)
     await page.goto('heats')
 
@@ -450,17 +660,23 @@ test.describe('EDC web smoke flows', () => {
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
   })
 
-  test('heat list export button shows explicit placeholder feedback instead of staying silent', async ({ page }) => {
+  test('heat list export button shows explicit placeholder feedback instead of staying silent', async ({
+    page,
+  }) => {
     await mockHeatSmoke(page)
     await page.goto('heats')
 
     await expect(page.getByTestId('heat-export-button')).toBeVisible()
     await page.getByTestId('heat-export-button').click()
-    await expect(page.locator('.el-message__content').filter({ hasText: '导出 Excel 入口开发中' })).toBeVisible()
+    await expect(
+      page.locator('.el-message__content').filter({ hasText: '导出 Excel 入口开发中' })
+    ).toBeVisible()
     await expect(page).toHaveURL(/\/edc\/heats$/)
   })
 
-  test('heat list unsupported device and alloy filters are explicitly disabled', async ({ page }) => {
+  test('heat list unsupported device and alloy filters are explicitly disabled', async ({
+    page,
+  }) => {
     await mockHeatSmoke(page)
     await page.goto('heats')
 
@@ -471,8 +687,59 @@ test.describe('EDC web smoke flows', () => {
 
     await expect(deviceFilter).toBeDisabled()
     await expect(alloyFilter).toBeDisabled()
-    await expect(page.getByTestId('heat-device-filter-hint')).toHaveText('当前数据源暂不支持按设备 ID 筛选。')
-    await expect(page.getByTestId('heat-alloy-filter-hint')).toHaveText('当前数据源暂不支持按合金号筛选。')
+    await expect(page.getByTestId('heat-device-filter-hint')).toHaveText(
+      '当前数据源暂不支持按设备 ID 筛选。'
+    )
+    await expect(page.getByTestId('heat-alloy-filter-hint')).toHaveText(
+      '当前数据源暂不支持按合金号筛选。'
+    )
+  })
+
+  test('baseline detail source heat CTA opens the linked heat detail page', async ({ page }) => {
+    await mockBaselineDetailSourceHeatNavigation(page)
+    await page.route('**/api/settings/runtime-status**', async (route) => {
+      await fulfillJson(route, {
+        overall_code: 'ready',
+        host: {
+          is_connected: true,
+          machine_name: 'EDC Test Gateway',
+          last_sync_label: '2026-03-25 10:00:00',
+        },
+        edc: {
+          configured: true,
+          base_url: 'http://60.251.229.32',
+          username_present: true,
+        },
+        active_baseline: {
+          id: 'baseline-001',
+          name: '标准基线 v2.1',
+          status: 'published',
+        },
+        runtime: {
+          showtime_enabled: false,
+          live_heat_inference_enabled: true,
+          baseline_length_scope_mode: 'definition',
+        },
+        pipelines: {
+          dashboard: { code: 'ready', ready: true },
+          heats: { code: 'ready', ready: true },
+          inbox: { code: 'ready', ready: true },
+          tasks: { code: 'ready', ready: true },
+          reports: { code: 'ready', ready: true },
+          baselines: { code: 'ready', ready: true },
+          settings: { code: 'ready', ready: true },
+        },
+      })
+    })
+
+    await page.goto('baselines/baseline-001')
+
+    await expect(page.getByTestId('baseline-detail-page')).toBeVisible()
+    await page.getByTestId('baseline-detail-source-heat-button').click()
+
+    await expect(page).toHaveURL(/\/edc\/heats\/heat-001$/)
+    await expect(page.getByTestId('heat-detail-page')).toBeVisible()
+    await expect(page.getByTestId('heat-detail-page')).toContainText('H20260320-001')
   })
 
   test('heat detail create task button posts to tasks api and opens the created task detail', async ({
@@ -482,10 +749,18 @@ test.describe('EDC web smoke flows', () => {
     await page.route('**/api/settings/runtime-status**', async (route) => {
       await fulfillJson(route, {
         overall_code: 'ready',
-        host: { is_connected: true, machine_name: 'EDC Test Gateway', last_sync_label: '2026-03-25 10:00:00' },
+        host: {
+          is_connected: true,
+          machine_name: 'EDC Test Gateway',
+          last_sync_label: '2026-03-25 10:00:00',
+        },
         edc: { configured: true, base_url: 'http://60.251.229.32', username_present: true },
         active_baseline: { id: 'baseline-001', name: '标准基线 v2.1', status: 'published' },
-        runtime: { showtime_enabled: false, live_heat_inference_enabled: true, baseline_length_scope_mode: 'definition' },
+        runtime: {
+          showtime_enabled: false,
+          live_heat_inference_enabled: true,
+          baseline_length_scope_mode: 'definition',
+        },
         pipelines: {
           dashboard: { code: 'ready', ready: true },
           heats: { code: 'ready', ready: true },
@@ -551,7 +826,14 @@ test.describe('EDC web smoke flows', () => {
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
     await page.getByTestId('heat-create-task-button').click()
 
-    expect(createPayload).toEqual({ heat_id: 'issue-heat' })
+    expect(createPayload).toEqual({
+      heat_id: 'issue-heat',
+      heat_no: 'H20260313-001',
+      deviation_percent: 18.5,
+      avg_deviation_percent: 9.2,
+      time_offset_percent: 4.8,
+      mismatch_duration_minutes: 4,
+    })
     await expect(page).toHaveURL(/\/edc\/tasks\/task-from-heat-001$/)
     await expect(page.getByTestId('task-detail-page')).toBeVisible()
     await expect(page.getByTestId('task-detail-page')).toContainText('H20260313-001')

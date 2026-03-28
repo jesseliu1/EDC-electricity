@@ -139,7 +139,16 @@ async def create_task(data: TaskCreate) -> TaskResponse:
     from .heats import _build_heat_list_view, _get_or_404 as _get_heat_or_404
 
     now = _now()
-    heat_item = _build_heat_list_view(await _get_heat_or_404(data.heat_id))
+    if data.heat_no:
+        heat_item = {
+            "heat_no": data.heat_no,
+            "deviation_percent": data.deviation_percent,
+            "avg_deviation_percent": data.avg_deviation_percent,
+            "time_offset_percent": data.time_offset_percent,
+            "mismatch_duration_minutes": data.mismatch_duration_minutes,
+        }
+    else:
+        heat_item = _build_heat_list_view(await _get_heat_or_404(data.heat_id))
     task_id = f"task-{uuid4()}"
     item = {
         "id": task_id,

@@ -4,6 +4,147 @@
 
 ---
 
+### 2026-03-28（修复 Baseline Detail 来源炉次跳转断线，并完成本机截图复验）
+
+**当前阶段**：基线详情来源炉次跳转 investigate -> 修复 -> 本机验证
+
+**本轮完成**：
+
+- [x] 已按 investigate 方式定位根因
+  - [x] 确认 UAT 失败项“来源炉次点击后不跳转”在本机可稳定复现
+  - [x] 确认 `apps/web/src/views/BaselineDetailView.vue` 里该入口只是样式像链接的 `span`，没有任何点击行为
+- [x] 已完成代码修复
+  - [x] `apps/web/src/views/BaselineDetailView.vue`
+    - [x] 来源炉次入口改为真实按钮
+    - [x] 绑定跳转到 `HeatDetail` 路由
+    - [x] 补 `baseline-detail-source-heat-button` 测试锚点
+  - [x] `apps/web/e2e/app.spec.ts`
+    - [x] 新增“baseline detail source heat CTA opens the linked heat detail page”回归用例
+- [x] 已完成定向验证
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "baseline detail source heat CTA opens the linked heat detail page|heat detail create task button posts to tasks api and opens the created task detail"`
+  - [x] 结果：`2 passed`
+- [x] 已重新构建本机前端
+  - [x] `pnpm --dir apps/web build`
+- [x] 已对本机 `http://127.0.0.1:3001/edc/` 做截图复验并回看 PNG 内容
+  - [x] `docs/test-reports/assets/2026-03-28-investigate-baseline-source-heat/baseline-source-heat-live-after-fix.png`
+
+**当前结论**：
+
+- [x] 基线详情页点击“来源炉次”现在会进入对应炉次详情页
+- [x] 本机 `3001/edc` 已加载新构建，入口脚本已切到 `index-B8fs_oJ_.js`
+- [ ] 仍待确认 UAT 中“生成纠偏任务后不跳转”是否为已消失的旧包问题，或仍有现场条件相关回归
+
+### 2026-03-28（修复 Heat Detail compare 图时间窗口径回归，并完成本机截图复验）
+
+**当前阶段**：炉次详情 compare 图 investigate -> 修复 -> 本机验证
+
+**本轮完成**：
+
+- [x] 已按 investigate 方式定位 compare 图根因
+  - [x] 确认问题由前端详情 compare 图口径回归引起
+  - [x] 确认 `9c35701 fix(heat): stabilize compare windows and live alignment` 引入 padded compare 窗口
+  - [x] 确认该口径与详情原型 `material/UI/stitch_dashboard/stitch_dashboard/炉次浏览_heat_browser_2/screen.png` 不一致
+- [x] 已完成代码修复
+  - [x] `apps/web/src/views/HeatDetailView.vue`
+    - [x] compare 图改回炉次本身时间窗
+    - [x] compare 图切换炉次 / 基线时按 key 重建图表实例
+  - [x] `apps/web/e2e/issue-acceptance.spec.ts`
+    - [x] 新增“extended current curve 仍应裁到炉次窗口”的回归用例
+- [x] 已完成定向验证
+  - [x] `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail compare chart clips extended current curves to the heat window|heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"`
+  - [x] 结果：`2 passed`
+- [x] 已重新构建本机前端
+  - [x] `pnpm --dir apps/web build`
+- [x] 已对本机 `http://127.0.0.1:3001/edc/` 做截图回看
+  - [x] `docs/test-reports/assets/2026-03-28-investigate-compare/live-after-fix-1434.png`
+  - [x] `docs/test-reports/assets/2026-03-28-investigate-compare/live-after-fix-1505.png`
+
+**当前结论**：
+
+- [x] 炉次详情 compare 图现在按炉次本身时间窗显示，两个炉次的展示口径已一致
+- [x] 本机 `3001/edc` 已加载新构建，入口脚本已切到 `index-Dz5Nn-4o.js`
+- [ ] 仍有其它已知未修项，见 `docs/ui_issues.md` 中“生成纠偏任务未跳转”和“来源炉次链接不跳转”
+
+### 2026-03-28（本地部署完成，并补录 Heat Detail compare 渲染不一致 issue）
+
+**当前阶段**：本地环境恢复 + 现场问题收集
+
+**本轮完成**：
+
+- [x] 已在本机完成本地部署
+  - [x] 宿主 ASNS：`http://127.0.0.1:3001/`
+  - [x] EDC 前端：`http://127.0.0.1:3001/edc/`
+  - [x] 后端健康检查：`http://127.0.0.1:8000/health`
+- [x] 已补本地验收截图
+  - [x] `test-results/manual-screenshots/local-asns-home.png`
+  - [x] `test-results/manual-screenshots/local-edc-dashboard.png`
+- [x] 已根据用户现场截图补录一条新的 UI issue
+  - [x] 位置：`docs/ui_issues.md`
+  - [x] 问题：炉次详情“与基线对比”图在不同炉次之间渲染口径不一致
+  - [x] 现场对比炉次：
+    - [x] `live-heat-0ef1bbda-1774683300000-30`
+    - [x] `live-heat-0ef1bbda-1774680000000-30`
+
+**当前结论**：
+
+- [x] 该问题已正式进入 issue 文档，不再只停留在对话描述
+- [ ] 根因尚未定位，后续需要继续做 compare 图的时间轴、series 对齐与缩放状态排查
+
+### 2026-03-28（UAT 样品：单用例留档 + 脚本 + 截图回看闭环）
+
+**当前阶段**：UAT 样板建立
+
+**本轮完成**：
+
+- [x] 已新增 UAT 样品留档：
+  - [x] `docs/test-reports/2026-03-28-uat-sample.md`
+- [x] 已新增最小 Playwright 样品脚本：
+  - [x] `apps/web/e2e/uat-sample.spec.ts`
+- [x] 已实际执行样品用例：
+  - [x] `pnpm --dir apps/web exec playwright test e2e/uat-sample.spec.ts --project=chromium`
+  - [x] 结果：`1 passed`
+- [x] 已按新规则完成截图回看：
+  - [x] `docs/test-reports/assets/2026-03-28-uat-sample/uat-sample-001-step-01-dashboard-entry.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-sample/uat-sample-001-step-02-click-heat-browser.png`
+
+**当前结论**：
+
+- [x] UAT 样品已满足“步骤、预期、实际、截图证据、步骤结论同文件留档”
+- [x] 样品已满足“只要点击就截图，并在截图后回看 PNG 内容”
+- [ ] 待用户 review 这份样品；通过后再按同一模板全面展开
+
+### 2026-03-28（完整 UAT：9 组用例、21 张步骤截图、2 个真实失败项）
+
+**当前阶段**：本地完整 UAT 执行与留档
+
+**本轮完成**：
+
+- [x] 已新增完整 UAT 主文档：
+  - [x] `docs/test-reports/2026-03-28-uat-full.md`
+- [x] 已新增完整 UAT 脚本与本地执行配置：
+  - [x] `apps/web/e2e/uat-full.spec.ts`
+  - [x] `apps/web/playwright.uat.config.ts`
+- [x] 已执行完整 UAT：
+  - [x] `pnpm --dir apps/web exec playwright test e2e/uat-full.spec.ts --config=playwright.uat.config.ts --project=chromium`
+  - [x] 结果：`9 passed`
+- [x] 已按步骤留存 21 张截图，并逐张回看 PNG 内容
+  - [x] 证据目录：`docs/test-reports/assets/2026-03-28-uat-full/`
+
+**本轮 UAT 结论**：
+
+- [x] 通过项：
+  - [x] Dashboard 总览与时间范围
+  - [x] 炉次浏览列表页
+  - [x] 纠偏任务单列表与详情
+  - [x] 黄金基线库列表页
+  - [x] 偏差收件箱
+  - [x] 日报与审计列表/详情
+  - [x] 系统设置与保存偏差阈值
+- [x] 失败项：
+  - [x] 炉次详情点击“生成纠偏任务”后按钮进入加载态，但未跳转到任务详情
+  - [x] 基线详情点击“来源炉次”链接后未跳转到炉次详情
+- [x] 已把这 2 个失败项同步到 `docs/ui_issues.md`
+
 ### 2026-03-27（EDC/ASNS 曲线不显示：定位为部署环境到上游 EDC 连通性故障，并补齐“截图后必须回看 PNG”闭环）
 
 **当前阶段**：EDC/ASNS 曲线问题 investigate + 最小修复 + 视觉回看闭环

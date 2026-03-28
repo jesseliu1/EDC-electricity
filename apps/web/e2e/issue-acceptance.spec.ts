@@ -22,6 +22,11 @@ function buildCurvePoints(
   }))
 }
 
+async function readChartRuntimeSeriesSummary(page: Page, testId: string) {
+  const raw = (await page.getByTestId(testId).getAttribute('data-runtime-series-summary')) || '[]'
+  return JSON.parse(raw) as Array<{ name: string; type: string; pointCount: number }>
+}
+
 async function clickChartAt(page: Page, testId: string, xRatio: number, yRatio: number) {
   const canvas = page.getByTestId(testId).locator('canvas').first()
   const box = await canvas.boundingBox()
@@ -196,11 +201,7 @@ async function mockBaselineWizardAcceptance(
   })
   await page.route('**/api/baseline-definitions/def-real/preview-curves?*', async (route) => {
     if (options?.previewUnavailable) {
-      await fulfillJson(
-        route,
-        { detail: '未获取到真实预览数据，请检查宿主连接和通道绑定' },
-        503
-      )
+      await fulfillJson(route, { detail: '未获取到真实预览数据，请检查宿主连接和通道绑定' }, 503)
       return
     }
 
@@ -235,11 +236,26 @@ async function mockBaselineWizardAcceptance(
   })
 }
 
-async function mockHeatAcceptance(page: Page, options?: { cutReason?: string }) {
+async function mockHeatAcceptance(
+  page: Page,
+  options?: { cutReason?: string; useExtendedCompareCurrentCurve?: boolean }
+) {
   const powerCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 438, 6)
   const voltageCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 386, 1.5)
   const temperatureCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 1462, 6)
   const pressureCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 0.82, 0.03)
+  const comparePowerCurve = options?.useExtendedCompareCurrentCurve
+    ? buildCurvePoints('2026-03-13T07:36:00Z', 166, 1, 438, 6)
+    : powerCurve
+  const compareVoltageCurve = options?.useExtendedCompareCurrentCurve
+    ? buildCurvePoints('2026-03-13T07:36:00Z', 166, 1, 386, 1.5)
+    : voltageCurve
+  const compareTemperatureCurve = options?.useExtendedCompareCurrentCurve
+    ? buildCurvePoints('2026-03-13T07:36:00Z', 166, 1, 1462, 6)
+    : temperatureCurve
+  const comparePressureCurve = options?.useExtendedCompareCurrentCurve
+    ? buildCurvePoints('2026-03-13T07:36:00Z', 166, 1, 0.82, 0.03)
+    : pressureCurve
   const cutReason = options?.cutReason || 'time_offset_exceed'
 
   await page.route('**/api/heats/issue-heat', async (route) => {
@@ -343,7 +359,7 @@ async function mockHeatAcceptance(page: Page, options?: { cutReason?: string }) 
                 ...item,
                 value: Number((item.value + 8).toFixed(1)),
               })),
-              current_curve: powerCurve,
+              current_curve: comparePowerCurve,
             },
             {
               metric_key: 'voltage',
@@ -357,7 +373,7 @@ async function mockHeatAcceptance(page: Page, options?: { cutReason?: string }) 
                 ...item,
                 value: Number((item.value + 1).toFixed(1)),
               })),
-              current_curve: voltageCurve,
+              current_curve: compareVoltageCurve,
             },
             {
               metric_key: 'temperature',
@@ -371,7 +387,7 @@ async function mockHeatAcceptance(page: Page, options?: { cutReason?: string }) 
                 ...item,
                 value: Number((item.value + 6).toFixed(1)),
               })),
-              current_curve: temperatureCurve,
+              current_curve: compareTemperatureCurve,
             },
           ],
           deviation_ranges: [
@@ -411,7 +427,7 @@ async function mockHeatAcceptance(page: Page, options?: { cutReason?: string }) 
                 ...item,
                 value: Number((item.value + 12).toFixed(1)),
               })),
-              current_curve: powerCurve,
+              current_curve: comparePowerCurve,
             },
             {
               metric_key: 'voltage',
@@ -425,7 +441,7 @@ async function mockHeatAcceptance(page: Page, options?: { cutReason?: string }) 
                 ...item,
                 value: Number((item.value + 2).toFixed(1)),
               })),
-              current_curve: voltageCurve,
+              current_curve: compareVoltageCurve,
             },
             {
               metric_key: 'temperature',
@@ -439,7 +455,7 @@ async function mockHeatAcceptance(page: Page, options?: { cutReason?: string }) 
                 ...item,
                 value: Number((item.value + 10).toFixed(1)),
               })),
-              current_curve: temperatureCurve,
+              current_curve: compareTemperatureCurve,
             },
             {
               metric_key: 'pressure',
@@ -453,7 +469,7 @@ async function mockHeatAcceptance(page: Page, options?: { cutReason?: string }) 
                 ...item,
                 value: Number((item.value + 0.04).toFixed(2)),
               })),
-              current_curve: pressureCurve,
+              current_curve: comparePressureCurve,
             },
           ],
           deviation_ranges: [
@@ -558,9 +574,7 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(page.getByTestId('dashboard-realtime-subtitle')).not.toContainText(
       '当前炉次 #H-20231025-08'
     )
-    await expect(page.getByTestId('dashboard-realtime-subtitle')).not.toContainText(
-      '黄金基线 V3.2'
-    )
+    await expect(page.getByTestId('dashboard-realtime-subtitle')).not.toContainText('黄金基线 V3.2')
 
     await page.getByTestId('dashboard-range-6h').click()
     await expect(page.getByTestId('dashboard-range-6h')).toHaveClass(/bg-white/)
@@ -675,8 +689,14 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(page.getByTestId('baseline-wizard-preview-empty')).toContainText(
       '未获取到真实预览数据'
     )
-    await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute('data-start', '')
-    await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute('data-end', '')
+    await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute(
+      'data-start',
+      ''
+    )
+    await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute(
+      'data-end',
+      ''
+    )
 
     await page.getByTestId('baseline-wizard-next').click()
     await expect(page.getByTestId('baseline-wizard-publish')).toHaveCount(0)
@@ -771,9 +791,25 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(chartRoot).toHaveAttribute('data-series-count', '8')
   })
 
-  test('heat detail localizes abnormal range labels and inferred cut reasons', async ({
+  test('heat detail compare chart clips extended current curves to the heat window', async ({
     page,
   }) => {
+    await mockHeatAcceptance(page, { useExtendedCompareCurrentCurve: true })
+    await page.goto('heats/issue-heat')
+
+    await expect(page.getByTestId('heat-detail-page')).toBeVisible()
+
+    const defaultSeries = await readChartRuntimeSeriesSummary(page, 'heat-compare-chart')
+    expect(defaultSeries[0]?.pointCount).toBe(46)
+    expect(defaultSeries[1]?.pointCount).toBe(46)
+
+    await page.getByRole('tab', { name: '高功率基线' }).click()
+    const alternateSeries = await readChartRuntimeSeriesSummary(page, 'heat-compare-chart')
+    expect(alternateSeries[0]?.pointCount).toBe(46)
+    expect(alternateSeries[1]?.pointCount).toBe(46)
+  })
+
+  test('heat detail localizes abnormal range labels and inferred cut reasons', async ({ page }) => {
     await mockHeatAcceptance(page, { cutReason: 'live_inferred' })
     await page.goto('heats/issue-heat')
 

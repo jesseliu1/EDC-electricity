@@ -40,15 +40,24 @@ export interface TaskCompletePayload {
   prevention: string
 }
 
+export interface TaskCreatePayload {
+  heat_id: string
+  heat_no?: string
+  deviation_percent?: number | null
+  avg_deviation_percent?: number | null
+  time_offset_percent?: number | null
+  mismatch_duration_minutes?: number | null
+}
+
 export const taskApi = {
   list: (params: { status?: TaskStatus; page?: number; page_size?: number }) =>
     client.get<TaskListResponse>('/tasks', { params }),
   get: (id: string) => client.get<TaskDetailResponse>(`/tasks/${id}`),
-  create: (payload: { heat_id: string }) => client.post<TaskItemResponse>('/tasks', payload),
+  create: (payload: TaskCreatePayload) => client.post<TaskItemResponse>('/tasks', payload),
   update: (id: string, payload: TaskUpdatePayload) =>
     client.patch<TaskItemResponse>(`/tasks/${id}`, payload),
   complete: (id: string, payload: TaskCompletePayload) =>
     client.post<TaskItemResponse>(`/tasks/${id}/complete`, payload),
   cancel: (id: string) => client.post<TaskItemResponse>(`/tasks/${id}/cancel`),
-  exportPdfUrl: (id: string) => `${import.meta.env.VITE_API_BASE_URL || '/api'}/tasks/${id}/pdf`
+  exportPdfUrl: (id: string) => `${import.meta.env.VITE_API_BASE_URL || '/api'}/tasks/${id}/pdf`,
 }

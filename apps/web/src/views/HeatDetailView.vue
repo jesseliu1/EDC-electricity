@@ -164,6 +164,10 @@ const compareSeriesCount = computed(() => {
   return metricCurves.length * 2
 })
 
+const compareChartKey = computed(
+  () => `${heatId.value}-${selectedComparison.value?.baseline.id || 'default'}`
+)
+
 function summarizeChartSeries(option: EChartsOption): ChartRuntimeSeriesSummary[] {
   const rawSeries = option.series
   const seriesList = Array.isArray(rawSeries) ? rawSeries : rawSeries ? [rawSeries] : []
@@ -331,15 +335,13 @@ function clipCurveToWindow(
   return curve.filter((point) => point.timestamp >= start && point.timestamp <= end)
 }
 
-const compareContextWindow = computed(() => {
+const compareCoreWindow = computed(() => {
   if (!current.value) return null
   const heatStart = dayjs(current.value.base.startTime)
   const heatEnd = dayjs(current.value.base.endTime)
   return {
-    start: heatStart.subtract(60, 'minute').valueOf(),
-    end: heatEnd.add(60, 'minute').valueOf(),
-    coreStart: heatStart.valueOf(),
-    coreEnd: heatEnd.valueOf(),
+    start: heatStart.valueOf(),
+    end: heatEnd.valueOf(),
   }
 })
 
@@ -355,11 +357,11 @@ const shouldShowSourceBanner = computed(() => {
 const selectedComparisonOverlap = computed(() => {
   if (!selectedComparison.value) return null
   const primaryMetric = primaryComparisonMetric.value
-  const clippedCurrentCurve = compareContextWindow.value
+  const clippedCurrentCurve = compareCoreWindow.value
     ? clipCurveToWindow(
         primaryMetric.current_curve,
-        compareContextWindow.value.coreStart,
-        compareContextWindow.value.coreEnd
+        compareCoreWindow.value.start,
+        compareCoreWindow.value.end
       )
     : primaryMetric.current_curve
   if (!areCurvesFullyOverlapped(primaryMetric.baseline_curve, clippedCurrentCurve)) {
@@ -384,8 +386,26 @@ const compareOption = computed<EChartsOption>(() => {
     comparisonMetricCurves.value.length > 0
       ? comparisonMetricCurves.value
       : [primaryComparisonMetric.value]
-  const units = Array.from(new Set(metricCurves.map((item) => item.unit)))
-  const firstCurrentCurve = metricCurves[0]?.current_curve || current.value.powerCurve
+  const clippedMetricCurves = metricCurves.map((metric) => ({
+    ...metric,
+    current_curve: compareCoreWindow.value
+      ? clipCurveToWindow(
+          metric.current_curve,
+          compareCoreWindow.value.start,
+          compareCoreWindow.value.end
+        )
+      : metric.current_curve,
+  }))
+  const units = Array.from(new Set(clippedMetricCurves.map((item) => item.unit)))
+  const firstCurrentCurve =
+    clippedMetricCurves[0]?.current_curve ||
+    (compareCoreWindow.value
+      ? clipCurveToWindow(
+          current.value.powerCurve,
+          compareCoreWindow.value.start,
+          compareCoreWindow.value.end
+        )
+      : current.value.powerCurve)
   const deviationRanges =
     selectedComparison.value?.deviation_ranges || current.value.deviationRanges
 
@@ -402,8 +422,8 @@ const compareOption = computed<EChartsOption>(() => {
     },
     xAxis: {
       type: 'time',
-      min: compareContextWindow.value?.start,
-      max: compareContextWindow.value?.end,
+      min: compareCoreWindow.value?.start,
+      max: compareCoreWindow.value?.end,
       axisLabel: {
         formatter: (value: number) => dayjs(value).format('HH:mm'),
       },
@@ -415,7 +435,7 @@ const compareOption = computed<EChartsOption>(() => {
       offset: index > 1 ? Math.floor((index - 1) / 2) * 56 : 0,
       splitLine: index === 0 ? { lineStyle: { color: '#e2e8f0' } } : { show: false },
     })),
-    series: metricCurves.flatMap((metric, index) => [
+    series: clippedMetricCurves.flatMap((metric, index) => [
       {
         name: `${metric.metric_name}-${t('dashboard.chart.goldenBaseline')}`,
         type: 'line',
@@ -797,8 +817,24 @@ async function handleCreateTask() {
 
   creatingTask.value = true
   try {
-    const createdTask = await taskApi.create({ heat_id: heatId.value })
-    await router.push(`/tasks/${createdTask.id}`)
+    const heatSnapshot = current.value?.base
+    const createdTask = await taskApi.create({
+      heat_id: heatId.value,
+      heat_no: heatSnapshot?.heatNo,
+      deviation_percent: heatSnapshot?.deviationPercent ?? null,
+      avg_deviation_percent: heatSnapshot?.avgDeviationPercent ?? null,
+      time_offset_percent: heatSnapshot?.timeOffsetPercent ?? null,
+      mismatch_duration_minutes: heatSnapshot?.mismatchDurationMinutes ?? null,
+    })
+    if (!createdTask.id) {
+      throw new Error('Task creation response missing id')
+    }
+    await router.push({
+      name: 'TaskDetail',
+      params: {
+        id: createdTask.id,
+      },
+    })
   } catch (error) {
     console.error('Create correction task from heat detail failed.', error)
     ElMessage.error(t('heat.createTaskFailed'))
@@ -900,20 +936,18 @@ async function loadHeatDetail(requestedId: string) {
   await syncDetailRouteToCanonicalId(requestedId)
 }
 
-watch(heatId, (requestedId) => {
-  void loadHeatDetail(requestedId)
-}, { immediate: true })
+watch(
+  heatId,
+  (requestedId) => {
+    void loadHeatDetail(requestedId)
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
-  <div
-    class="flex flex-col gap-6"
-    data-testid="heat-detail-page"
-  >
-    <SystemReadinessBanner
-      section="heats"
-      test-id="heat-detail-runtime-banner"
-    />
+  <div class="flex flex-col gap-6" data-testid="heat-detail-page">
+    <SystemReadinessBanner section="heats" test-id="heat-detail-runtime-banner" />
 
     <PageHeader
       :title="current?.base.heatNo || '--'"
@@ -921,10 +955,7 @@ watch(heatId, (requestedId) => {
       :description="current?.base.description || 'Furnace-A01'"
     >
       <template #actions>
-        <StatusBadge
-          :type="statusTagType"
-          class="mr-2"
-        >
+        <StatusBadge :type="statusTagType" class="mr-2">
           {{ statusText }}
         </StatusBadge>
         <button
@@ -965,10 +996,7 @@ watch(heatId, (requestedId) => {
       </template>
     </PageHeader>
 
-    <div
-      v-if="current"
-      class="grid grid-cols-1 gap-6 xl:grid-cols-3"
-    >
+    <div v-if="current" class="grid grid-cols-1 gap-6 xl:grid-cols-3">
       <div class="xl:col-span-2 space-y-6">
         <div
           v-if="shouldShowSourceBanner"
@@ -979,9 +1007,18 @@ watch(heatId, (requestedId) => {
             {{ t('heat.detailSourceTitle') }}
           </div>
           <div class="mt-2 flex flex-wrap gap-3 text-amber-700">
-            <span>{{ t('heat.recordSourceLabel') }}: {{ dataSourceText(current.base.recordSource) }}</span>
-            <span>{{ t('heat.currentCurveSourceLabel') }}: {{ dataSourceText(current.base.currentCurveSource) }}</span>
-            <span>{{ t('heat.baselineCurveSourceLabel') }}: {{ dataSourceText(current.base.baselineCurveSource) }}</span>
+            <span
+              >{{ t('heat.recordSourceLabel') }}:
+              {{ dataSourceText(current.base.recordSource) }}</span
+            >
+            <span
+              >{{ t('heat.currentCurveSourceLabel') }}:
+              {{ dataSourceText(current.base.currentCurveSource) }}</span
+            >
+            <span
+              >{{ t('heat.baselineCurveSourceLabel') }}:
+              {{ dataSourceText(current.base.baselineCurveSource) }}</span
+            >
           </div>
         </div>
 
@@ -992,10 +1029,7 @@ watch(heatId, (requestedId) => {
               {{ t('heat.compareWithBaseline') }}
             </h3>
             <div class="flex items-center gap-3">
-              <el-tabs
-                v-model="activeBaselineId"
-                class="-mb-[15px] mr-2"
-              >
+              <el-tabs v-model="activeBaselineId" class="-mb-[15px] mr-2">
                 <el-tab-pane
                   v-for="item in current.baselineComparisons"
                   :key="item.baseline.id"
@@ -1029,6 +1063,7 @@ watch(heatId, (requestedId) => {
             }}
           </div>
           <v-chart
+            :key="compareChartKey"
             :option="compareOption"
             autoresize
             class="h-80"
@@ -1054,7 +1089,7 @@ watch(heatId, (requestedId) => {
           >
             <div
               v-for="(range, idx) in selectedComparison?.deviation_ranges ||
-                current.deviationRanges"
+              current.deviationRanges"
               :key="`${range.start}-${range.end}`"
               class="rounded-lg border border-red-200 bg-red-50 p-4 flex items-center justify-between"
               data-testid="heat-abnormal-range-item"
@@ -1079,14 +1114,9 @@ watch(heatId, (requestedId) => {
               </div>
             </div>
           </div>
-          <div
-            v-else
-            class="py-8 flex flex-col items-center justify-center"
-          >
+          <div v-else class="py-8 flex flex-col items-center justify-center">
             <span class="material-symbols-outlined text-slate-300 text-4xl">check_circle</span>
-            <p class="text-sm text-slate-500 mt-2 font-medium">
-              无明显偏差区间
-            </p>
+            <p class="text-sm text-slate-500 mt-2 font-medium">无明显偏差区间</p>
           </div>
         </div>
       </div>
@@ -1123,7 +1153,7 @@ watch(heatId, (requestedId) => {
                     v-model="descriptionDraft"
                     class="flex-1 bg-slate-50 border border-border-light rounded px-2 py-1 text-sm outline-none focus:border-primary"
                     @keyup.enter="saveDescription"
-                  >
+                  />
                   <button
                     class="bg-primary text-white px-3 rounded text-xs font-bold"
                     @click="saveDescription"
@@ -1141,9 +1171,7 @@ watch(heatId, (requestedId) => {
             </div>
 
             <div class="rounded-lg bg-slate-50 border border-border-light p-3">
-              <div class="text-xs uppercase tracking-wider text-slate-400">
-                时序与切割分析
-              </div>
+              <div class="text-xs uppercase tracking-wider text-slate-400">时序与切割分析</div>
               <div class="mt-3 space-y-2 font-mono text-xs">
                 <div class="flex justify-between">
                   <span class="font-sans text-slate-400">{{ t('heat.startTime') }}</span>
@@ -1172,10 +1200,9 @@ watch(heatId, (requestedId) => {
             </div>
             <div class="flex justify-between items-center py-1">
               <span class="text-slate-500">{{ t('heat.cutReasonLabel') }}</span>
-              <span
-                class="font-semibold"
-                data-testid="heat-detail-cut-reason"
-              >{{ cutReasonText(current.base.cutReason) }}</span>
+              <span class="font-semibold" data-testid="heat-detail-cut-reason">{{
+                cutReasonText(current.base.cutReason)
+              }}</span>
             </div>
             <div class="flex justify-between items-center py-1">
               <span class="text-slate-500">{{ t('heat.mismatchDurationMinutes') }}</span>
@@ -1248,10 +1275,7 @@ watch(heatId, (requestedId) => {
       <p class="text-xs text-slate-400 mt-2">
         {{ t('heat.detailReloadHint') }}
       </p>
-      <p
-        class="mt-2 text-xs text-slate-500"
-        data-testid="heat-detail-manual-adjust-unavailable"
-      >
+      <p class="mt-2 text-xs text-slate-500" data-testid="heat-detail-manual-adjust-unavailable">
         {{ t('heat.manualAdjustUnavailable') }}
       </p>
     </div>
@@ -1344,10 +1368,7 @@ watch(heatId, (requestedId) => {
         </div>
 
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div
-            class="space-y-2"
-            data-testid="manual-adjust-start-field"
-          >
+          <div class="space-y-2" data-testid="manual-adjust-start-field">
             <div class="text-sm font-medium text-slate-600">
               {{ t('heat.startTime') }}
             </div>
@@ -1359,10 +1380,7 @@ watch(heatId, (requestedId) => {
               class="!w-full"
             />
           </div>
-          <div
-            class="space-y-2"
-            data-testid="manual-adjust-end-field"
-          >
+          <div class="space-y-2" data-testid="manual-adjust-end-field">
             <div class="text-sm font-medium text-slate-600">
               {{ t('heat.endTime') }}
             </div>
@@ -1385,11 +1403,7 @@ watch(heatId, (requestedId) => {
             <el-button @click="manualAdjustVisible = false">
               {{ t('common.back') }}
             </el-button>
-            <el-button
-              type="primary"
-              data-testid="manual-adjust-save"
-              @click="saveManualAdjust"
-            >
+            <el-button type="primary" data-testid="manual-adjust-save" @click="saveManualAdjust">
               {{ t('common.save') }}
             </el-button>
           </div>

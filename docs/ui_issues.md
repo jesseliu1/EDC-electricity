@@ -49,6 +49,90 @@
 
 ## 跟踪问题 (Tracked)
 
+### P1 基线详情页“来源炉次”链接点击后未跳转到炉次详情
+- **状态**: 已修复并完成本机复验（2026-03-28）
+- **页面/模块**: 基线详情 / 来源炉次跳转
+- **复现步骤**:
+  1. 打开基线详情页，例如 `/edc/baselines/baseline-8cea438e-f469-49a5-80f8-e9d235df1bbe`
+  2. 在右侧“基线信息”中点击来源炉次链接 `live-heat-0ef1bbda-1774012200000-30`
+  3. 观察当前页面是否跳转到对应炉次详情
+- **实际结果**:
+  - 修复前：点击后页面仍停留在当前基线详情页
+  - 修复前 UAT 留档截图中，点击前后页面布局保持为“基线详情”，没有出现炉次详情标题或路由变化
+- **当前证据（2026-03-28 本地 UAT）**:
+  - 入口截图：`docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-14-baseline-detail-entry.png`
+  - 点击后截图：`docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-15-baseline-detail-click-source-heat.png`
+  - UAT 主文档：`docs/test-reports/2026-03-28-uat-full.md`
+- **根因结论**:
+  - `apps/web/src/views/BaselineDetailView.vue` 右侧“来源炉次”原先只是带链接样式的 `span`
+  - 元素没有绑定任何点击事件，也没有路由跳转逻辑，因此点击必然停留在当前页
+- **修复结果**:
+  - `apps/web/src/views/BaselineDetailView.vue` 已改为真实按钮，并绑定跳转到 `HeatDetail` 路由
+  - 同文件已补 `baseline-detail-source-heat-button` 测试锚点
+  - `apps/web/e2e/app.spec.ts` 已新增定向回归，覆盖“从基线详情点击来源炉次进入炉次详情”
+- **回归结果**:
+  - `pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "baseline detail source heat CTA opens the linked heat detail page|heat detail create task button posts to tasks api and opens the created task detail"` 通过
+  - `pnpm --dir apps/web build` 通过
+  - 本机 `http://127.0.0.1:3001/edc/` 复验截图：`docs/test-reports/assets/2026-03-28-investigate-baseline-source-heat/baseline-source-heat-live-after-fix.png`
+- **期望结果**:
+  - 点击来源炉次后，应进入对应炉次详情页
+  - 至少应看到 URL 切换到 `/edc/heats/{source_heat_id}`，且页面标题切到“炉次详情”
+- **严重程度**: 中
+- **如何测试**:
+  1. 打开任一有来源炉次的基线详情页
+  2. 点击来源炉次链接
+  3. 确认路由跳转到 `/edc/heats/{id}`
+  4. 确认目标炉次详情页正文可见
+
+### P1 炉次详情“与基线对比”曲线在不同炉次之间渲染口径不一致
+- **状态**: 已修复并完成本机复验（2026-03-28）
+- **页面/模块**: 炉次详情 / 与基线对比图 / ECharts 渲染
+- **复现步骤**:
+  1. 打开 `http://127.0.0.1:3001/edc/heats/live-heat-0ef1bbda-1774683300000-30`
+  2. 再打开 `http://127.0.0.1:3001/edc/heats/live-heat-0ef1bbda-1774680000000-30`
+  3. 保持相同页面宽度、相同对比 tab（现场截图中为 `范德萨`）
+  4. 对比“与基线对比”图的横向铺满方式与曲线呈现方式
+- **实际结果**:
+  - 两条炉次页面都显示相同的数据来源口径：`炉次台账: 真实 EDC 推断炉次 / 当前曲线: 真实 EDC / 对比基线曲线: 真实 EDC`
+  - 但两条炉次的“与基线对比”图呈现方式明显不一致：
+    - `live-heat-0ef1bbda-1774683300000-30` 对应页面中，曲线主要集中在图表左侧，右侧留出大段空白区，视觉上像是只画了半张图
+    - `live-heat-0ef1bbda-1774680000000-30` 对应页面中，曲线横向铺满主图区，呈现方式正常
+  - 这种差异会让用户误判为某些炉次的曲线数据缺失、时间轴口径不同，或图表组件本身不稳定
+- **当前证据**:
+  - 用户已提供两张现场截图，分别对应：
+    - `H20260328-1522 / live-heat-0ef1bbda-1774683300000-30`
+    - `H20260328-1426 / live-heat-0ef1bbda-1774680000000-30`
+  - 本地部署验收截图目录：`test-results/manual-screenshots/`
+- **调查结论（2026-03-28）**:
+  - 根因已定位在前端 `HeatDetailView` 的 compare 图口径回归
+  - `9c35701 fix(heat): stabilize compare windows and live alignment` 引入了“前后各加 60 分钟”的 padded compare 窗口
+  - 详情 compare 图因此直接消费了长窗口 `current_curve`，而基线曲线仍按炉次本身窗口绘制，导致同一模块里混用了两种时间口径
+  - 这与 `material/UI/stitch_dashboard/stitch_dashboard/炉次浏览_heat_browser_2/screen.png` 的详情原型不一致；原型中的 compare 主图只围绕炉次本身时段展示
+  - 另外，图表组件在切换炉次/基线时没有显式重建，存在把内部缩放状态带到下一条炉次的风险
+- **修复结果（2026-03-28）**:
+  - 炉次详情 compare 图已改为只显示炉次本身时间窗
+  - compare 图切换炉次 / 基线时会按 `heatId + baselineId` 重建实例，避免 ECharts 内部状态串页
+  - 手动调整弹窗未改口径，仍保留其独立的上下文逻辑
+- **回归验证（2026-03-28）**:
+  - 定向 Playwright：
+    - `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail compare chart clips extended current curves to the heat window|heat detail renders multi-metric comparison, abnormal ranges, and stable manual adjust interactions"`
+    - 结果：`2 passed`
+  - 本机真实页面截图回看：
+    - `docs/test-reports/assets/2026-03-28-investigate-compare/live-after-fix-1434.png`
+    - `docs/test-reports/assets/2026-03-28-investigate-compare/live-after-fix-1505.png`
+  - 截图回看结论：
+    - 两条炉次当前都按各自炉次时间窗显示 compare 图
+    - 图表不再展示炉次前后无关的额外时间段
+- **期望结果**:
+  - 炉次详情“与基线对比”图应在不同炉次之间保持一致的横轴与绘制口径
+  - 不应出现某条炉次只在左半侧绘制、另一条炉次却铺满整张图的非预期视觉差异
+- **严重程度**: 中
+- **如何测试**:
+  1. 在同一浏览器窗口内依次打开上述两个炉次详情页
+  2. 保持相同 compare tab 与相同视口宽度
+  3. 对比图表横向占用区域、曲线断点、tooltip 命中位置是否一致
+  4. 确认不同炉次不会再出现明显不同的绘制口径
+
 ### P1 EDC 后端 pytest 基座未显式触发生命周期，且共享 SQLite runtime state 导致顺序相关
 - **状态**: 验收通过（2026-03-25）
 - **页面/模块**: EDC 后端 / pytest 基座 / `apps/server/tests/conftest.py`
@@ -1776,7 +1860,7 @@
   3. 不再出现“报告”文案指向炉次详情的歧义
 
 ### P1 炉次详情“生成纠偏任务”当前只是开发中提示，真实任务链路无法从异常炉次发起
-- **状态**: 验收通过（2026-03-25）
+- **状态**: 回归失败（2026-03-28，本地 UAT）
 - **页面/模块**: 炉次详情 / 任务链路入口
 - **复现步骤**:
   1. 打开任一异常或正常炉次详情
@@ -1798,6 +1882,14 @@
 - **复验结论（2026-03-25）**:
   - 本轮已复跑 `e2e/app.spec.ts -g "heat detail create task button posts to tasks api and opens the created task detail"`，当前最小真实创建链路仍可用。
   - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”；后端 `pytest` 运行环境缺失仍沿用既有风险说明。
+- **UAT 回归观察（2026-03-28）**:
+  - 本轮本地 UAT 在真实本地部署 `http://127.0.0.1:3001/edc/` 下重新点击“生成纠偏任务”
+  - 点击后按钮进入 `加载中...`，但页面没有跳转到 `/tasks/:id`
+  - 后续 `任务列表` 页已能看到新任务记录，说明后端创建动作很可能已执行，但前端跳转/完成反馈链路存在回归
+  - UAT 证据：
+    - `docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-10-heat-detail-create-task.png`
+    - `docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-11-task-list-page.png`
+    - `docs/test-reports/2026-03-28-uat-full.md`
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过

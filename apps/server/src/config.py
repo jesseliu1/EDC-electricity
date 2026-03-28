@@ -2,6 +2,8 @@
 
 from pydantic_settings import BaseSettings
 
+DEFAULT_EDC_BASE_URL = "http://localhost:8080"
+
 
 class Settings(BaseSettings):
     """应用配置"""
@@ -14,7 +16,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./data/asns.db"
 
     # EDC API
-    edc_base_url: str = "http://localhost:8080"
+    edc_base_url: str = DEFAULT_EDC_BASE_URL
     edc_username: str | None = None
     edc_password: str | None = None
     edc_api_key: str | None = None
