@@ -49,8 +49,59 @@
 
 ## 跟踪问题 (Tracked)
 
+### P1 纠偏任务详情点击“导出PDF”后浏览器未形成下载或预览闭环
+- **状态**: 已登记（2026-03-28）
+- **页面/模块**: 纠偏任务详情 / PDF 导出
+- **复现步骤**:
+  1. 打开任务详情 `T20260328-162124`
+  2. 点击右上角 `导出PDF`
+  3. 观察浏览器是否出现下载成功或 PDF 预览
+- **实际结果**:
+  - 浏览器点击后仅打开空白 popup
+  - popup URL 为 `:`
+  - 导出结果截图仍停留在任务详情页，没有出现 PDF 预览或下载成功反馈
+- **当前证据（2026-03-28 本地 UAT）**:
+  - `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc02-step-01-task-detail.png`
+  - `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc02-step-02-after-click-export.png`
+  - `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc02-step-03-export-result.png`
+  - `docs/test-reports/2026-03-28-uat-followup.md`
+- **当前结论**:
+  - 当前浏览器侧未形成 UAT 要求的“下载成功或预览成功”闭环证据
+  - `S07-TC02` 因此正式判定为 `FAIL`
+- **补充已核实事实**:
+  - 先前已核实后端接口 `GET /api/tasks/task-fb7872d0-c86f-4220-8ddf-fba874fcb56e/pdf` 返回 `200`
+  - 先前已核实响应头包含 `content-type: application/pdf`
+  - 因此当前失败点在浏览器导出闭环，不是“后端没有 PDF 端点”
+- **期望结果**:
+  - 点击后应直接触发 PDF 下载，或打开可见的 PDF 预览页
+- **严重程度**: 中
+
+### P1 日报详情点击“导出PDF”后浏览器未形成下载或预览闭环
+- **状态**: 已登记（2026-03-28）
+- **页面/模块**: 日报详情 / PDF 导出
+- **复现步骤**:
+  1. 打开 `2026-03-28` 日报详情页
+  2. 点击右上角 `导出PDF`
+  3. 观察浏览器是否出现下载成功或 PDF 预览
+- **实际结果**:
+  - 浏览器点击后仅打开空白 popup
+  - popup URL 为 `:`
+  - 导出结果截图仍停留在日报详情页，没有出现 PDF 预览或下载成功反馈
+- **当前证据（2026-03-28 本地 UAT）**:
+  - `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc03-step-01-report-list.png`
+  - `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc03-step-02-report-detail-entry.png`
+  - `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc03-step-03-report-preview.png`
+  - `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc03-step-04-export-result.png`
+  - `docs/test-reports/2026-03-28-uat-followup.md`
+- **当前结论**:
+  - 当前浏览器侧未形成 UAT 要求的“下载成功或预览成功”闭环证据
+  - `S07-TC03` 因此正式判定为 `FAIL`
+- **期望结果**:
+  - 点击后应直接触发 PDF 下载，或打开可见的 PDF 预览页
+- **严重程度**: 中
+
 ### P1 基线详情页“来源炉次”链接点击后未跳转到炉次详情
-- **状态**: 已修复并完成本机复验（2026-03-28）
+- **状态**: 已修复并完成本机正式回归（2026-03-28）
 - **页面/模块**: 基线详情 / 来源炉次跳转
 - **复现步骤**:
   1. 打开基线详情页，例如 `/edc/baselines/baseline-8cea438e-f469-49a5-80f8-e9d235df1bbe`
@@ -60,8 +111,10 @@
   - 修复前：点击后页面仍停留在当前基线详情页
   - 修复前 UAT 留档截图中，点击前后页面布局保持为“基线详情”，没有出现炉次详情标题或路由变化
 - **当前证据（2026-03-28 本地 UAT）**:
-  - 入口截图：`docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-14-baseline-detail-entry.png`
-  - 点击后截图：`docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-15-baseline-detail-click-source-heat.png`
+  - 正式回归入口截图：`docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-14-baseline-detail-entry.png`
+  - 正式回归点击后截图：`docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-15-baseline-detail-click-source-heat.png`
+  - 截图回看：`docs/test-reports/assets/2026-03-28-uat-full/screenshot-review.json`
+  - 结构化证据：`docs/test-reports/assets/2026-03-28-uat-full/evidence.json`
   - UAT 主文档：`docs/test-reports/2026-03-28-uat-full.md`
 - **根因结论**:
   - `apps/web/src/views/BaselineDetailView.vue` 右侧“来源炉次”原先只是带链接样式的 `span`
@@ -72,8 +125,10 @@
   - `apps/web/e2e/app.spec.ts` 已新增定向回归，覆盖“从基线详情点击来源炉次进入炉次详情”
 - **回归结果**:
   - `pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "baseline detail source heat CTA opens the linked heat detail page|heat detail create task button posts to tasks api and opens the created task detail"` 通过
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/uat-full.spec.ts -g "UAT-006 基线详情与来源炉次跳转" --config=playwright.uat.config.ts --project=chromium` 通过
   - `pnpm --dir apps/web build` 通过
   - 本机 `http://127.0.0.1:3001/edc/` 复验截图：`docs/test-reports/assets/2026-03-28-investigate-baseline-source-heat/baseline-source-heat-live-after-fix.png`
+  - 正式 UAT 截图回看与证据已补齐：`docs/test-reports/assets/2026-03-28-uat-full/screenshot-review.json`、`docs/test-reports/assets/2026-03-28-uat-full/evidence.json`
 - **期望结果**:
   - 点击来源炉次后，应进入对应炉次详情页
   - 至少应看到 URL 切换到 `/edc/heats/{source_heat_id}`，且页面标题切到“炉次详情”
@@ -1860,7 +1915,7 @@
   3. 不再出现“报告”文案指向炉次详情的歧义
 
 ### P1 炉次详情“生成纠偏任务”当前只是开发中提示，真实任务链路无法从异常炉次发起
-- **状态**: 回归失败（2026-03-28，本地 UAT）
+- **状态**: 已修复并完成本机正式回归（2026-03-28）
 - **页面/模块**: 炉次详情 / 任务链路入口
 - **复现步骤**:
   1. 打开任一异常或正常炉次详情
@@ -1882,18 +1937,26 @@
 - **复验结论（2026-03-25）**:
   - 本轮已复跑 `e2e/app.spec.ts -g "heat detail create task button posts to tasks api and opens the created task detail"`，当前最小真实创建链路仍可用。
   - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”；后端 `pytest` 运行环境缺失仍沿用既有风险说明。
-- **UAT 回归观察（2026-03-28）**:
-  - 本轮本地 UAT 在真实本地部署 `http://127.0.0.1:3001/edc/` 下重新点击“生成纠偏任务”
-  - 点击后按钮进入 `加载中...`，但页面没有跳转到 `/tasks/:id`
-  - 后续 `任务列表` 页已能看到新任务记录，说明后端创建动作很可能已执行，但前端跳转/完成反馈链路存在回归
-  - UAT 证据：
+- **正式回归结果（2026-03-28）**:
+  - 已基于修正后的 `apps/web/e2e/uat-full.spec.ts` 重新执行正式 UAT 回归：
+    - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/uat-full.spec.ts -g "UAT-003 炉次详情与任务创建|UAT-004 纠偏任务单列表与详情" --config=playwright.uat.config.ts --project=chromium`
+  - 执行结果：`2 passed`
+  - 本轮已人工回看新增截图，并与 `/api/tasks`、`/api/tasks/{id}` 交叉核对：
     - `docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-10-heat-detail-create-task.png`
     - `docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-11-task-list-page.png`
+    - `docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-12-task-list-open-detail.png`
+    - `docs/test-reports/assets/2026-03-28-uat-full/screenshot-review.json`
+    - `docs/test-reports/assets/2026-03-28-uat-full/evidence.json`
     - `docs/test-reports/2026-03-28-uat-full.md`
+  - 当前结论：
+    - 点击“生成纠偏任务”后已进入新建任务详情 `T20260328-162124`
+    - 任务详情显示关联炉次 `H20260328-0216`
+    - 任务列表可见该新任务，状态为 `待处理`
 - **回归结果**:
   - `pnpm --dir apps/web lint` 通过
   - `pnpm --dir apps/web test:i18n` 通过
   - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat detail create task button posts to tasks api and opens the created task detail"` 通过
+  - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/uat-full.spec.ts -g "UAT-003 炉次详情与任务创建|UAT-004 纠偏任务单列表与详情" --config=playwright.uat.config.ts --project=chromium` 通过
   - `pnpm --dir apps/web build` 通过
   - `python3 -m py_compile apps/server/src/api/tasks.py apps/server/src/schemas/task.py` 通过
   - 尝试补后端 pytest：`uv run pytest tests/test_tasks_reports_settings_api.py -k tasks_crud_and_pdf` 未执行，原因是当前 shell 无 `uv`

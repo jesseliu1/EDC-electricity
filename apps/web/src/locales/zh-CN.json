@@ -26,7 +26,8 @@
     "searchHeatId": "搜索炉次 ID...",
     "noDescription": "暂无描述",
     "noData": "暂无数据",
-    "disable": "停用"
+    "disable": "停用",
+    "exportFailed": "导出失败"
   },
   "nav": {
     "groupOverview": "生产概览",

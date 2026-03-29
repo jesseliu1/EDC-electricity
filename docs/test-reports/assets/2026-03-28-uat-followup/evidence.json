@@ -1,0 +1,261 @@
+{
+  "run_id": "2026-03-28-uat-followup-s01-s02-s04-s06-s07",
+  "environment": "local",
+  "executed_at": "2026-03-28T19:06:07Z",
+  "updated_at": "2026-03-29T02:17:39Z",
+  "host_origin": "http://127.0.0.1:3001",
+  "api_base": "http://127.0.0.1:3001/api",
+  "overall_verdict": "FAIL",
+  "tests": [
+    {
+      "id": "S01-TC03",
+      "name": "验证后端已接收配置",
+      "verdict": "PASS",
+      "screenshot_after_sync": "docs/test-reports/assets/2026-03-28-uat-followup/s01-tc03-step-01-sync-after.png",
+      "edc_base_url": "http://60.251.229.32",
+      "host_connectivity_status": {
+        "is_connected": true,
+        "machine_name": "EDC Gateway (60.251.229.32)",
+        "last_sync_label": "2026/3/28 23:21:31",
+        "source": "http://60.251.229.32"
+      },
+      "runtime_status": {
+        "overall_code": "ready",
+        "edc_base_url": "http://60.251.229.32",
+        "host_channel_total": 6
+      },
+      "observation": "宿主同步后，后端配置与当前真实可用链路一致，运行态返回 overall_code=ready。"
+    },
+    {
+      "id": "S02-TC02",
+      "name": "选择并绑定通道",
+      "verdict": "PASS",
+      "selection_action": "add-group",
+      "screenshots": [
+        "docs/test-reports/assets/2026-03-28-uat-followup/s02-tc02-step-01-before-select.png",
+        "docs/test-reports/assets/2026-03-28-uat-followup/s02-tc02-step-02-after-select.png",
+        "docs/test-reports/assets/2026-03-28-uat-followup/s02-tc02-step-03-save-after.png",
+        "docs/test-reports/assets/2026-03-28-uat-followup/s02-tc02-step-04-result-state.png"
+      ],
+      "observation": "宿主设置页完成整组添加并保存，后续 host-channels 已可见新增绑定。"
+    },
+    {
+      "id": "S02-TC03",
+      "name": "验证通道绑定写入后端",
+      "verdict": "PASS",
+      "host_channels_total": 7,
+      "host_channel_ids": [
+        "2349-199",
+        "2349-128",
+        "2054-128",
+        "2066-128",
+        "769-128",
+        "769-129",
+        "901-128"
+      ],
+      "host_connectivity_status": {
+        "is_connected": true,
+        "machine_name": "EDC Gateway (60.251.229.32)",
+        "last_sync_label": "2026/3/28 23:21:41",
+        "source": "http://60.251.229.32"
+      },
+      "observation": "通道绑定已写入后端，host-channels total=7。"
+    },
+    {
+      "id": "S04-TC01",
+      "name": "记录切源前的旧绑定状态",
+      "verdict": "PASS",
+      "screenshot_bound_channels": "docs/test-reports/assets/2026-03-28-uat-followup/s04-tc01-step-01-current-bound-channels.png",
+      "screenshot_dashboard": "docs/test-reports/assets/2026-03-28-uat-followup/s04-tc01-step-02-dashboard-before-switch.png",
+      "host_channels_total": 7,
+      "runtime_status": {
+        "overall_code": "ready",
+        "edc_base_url": "http://60.251.229.32",
+        "host_is_connected": true
+      },
+      "observation": "切源前宿主绑定通道与 Dashboard 状态已完成正式留存。"
+    },
+    {
+      "id": "S04-TC02",
+      "name": "切换到 source B 并验证连接结果",
+      "verdict": "FAIL",
+      "source_b": {
+        "endpoint": "http://61.216.55.133",
+        "username": "admin",
+        "password": "admin"
+      },
+      "screenshots": [
+        "docs/test-reports/assets/2026-03-28-uat-followup/s04-tc02-step-01-open-settings.png",
+        "docs/test-reports/assets/2026-03-28-uat-followup/s04-tc02-step-02-fill-new-endpoint.png",
+        "docs/test-reports/assets/2026-03-28-uat-followup/s04-tc02-step-03-fill-credentials.png",
+        "docs/test-reports/assets/2026-03-28-uat-followup/s04-tc02-step-04-test-connection-result.png",
+        "docs/test-reports/assets/2026-03-28-uat-followup/s04-tc02-step-05-save-after.png"
+      ],
+      "settings_after_save": {
+        "edc_base_url": "http://61.216.55.133",
+        "edc_username": "admin"
+      },
+      "host_connectivity_after_save": {
+        "is_connected": false,
+        "machine_name": "--",
+        "source": "http://61.216.55.133"
+      },
+      "runtime_after_save": {
+        "overall_code": "host_disconnected",
+        "host_is_connected": false,
+        "edc_base_url": "http://61.216.55.133"
+      },
+      "observation": "当前唯一已核实的 source B tuple 已成功写入设置，但宿主未建立连接，浏览器侧也未形成连接成功或在线证据。"
+    },
+    {
+      "id": "S06-TC03",
+      "name": "偏差收件箱展示新链路偏差记录",
+      "verdict": "PASS",
+      "page_badge": "5 异常需要处理",
+      "inbox_rows": 5,
+      "screenshot_list": "docs/test-reports/assets/2026-03-28-uat-followup/s06-tc03-step-01-inbox-list-rerun.png",
+      "screenshot_detail": "docs/test-reports/assets/2026-03-28-uat-followup/s06-tc03-step-02-open-heat-detail-rerun.png",
+      "observation": "偏差收件箱当前已展示 5 条异常炉次，并可从收件箱进入对应炉次详情。"
+    },
+    {
+      "id": "S07-TC02",
+      "name": "纠偏任务导出 PDF",
+      "verdict": "FAIL",
+      "task_id": "task-fb7872d0-c86f-4220-8ddf-fba874fcb56e",
+      "task_no": "T20260328-162124",
+      "popup_url": ":",
+      "popup_title": "",
+      "screenshot_entry": "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc02-step-01-task-detail.png",
+      "screenshot_after_click": "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc02-step-02-after-click-export.png",
+      "screenshot_result": "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc02-step-03-export-result.png",
+      "observation": "浏览器点击导出后仅打开空白 popup，未形成 PDF 下载成功或预览成功证据。"
+    },
+    {
+      "id": "S07-TC03",
+      "name": "日报生成与导出",
+      "verdict": "FAIL",
+      "report_date": "2026-03-28",
+      "popup_url": ":",
+      "popup_title": "",
+      "screenshot_list": "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc03-step-01-report-list.png",
+      "screenshot_detail": "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc03-step-02-report-detail-entry.png",
+      "screenshot_preview": "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc03-step-03-report-preview.png",
+      "screenshot_result": "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc03-step-04-export-result.png",
+      "observation": "浏览器点击导出后仅打开空白 popup，未形成 PDF 下载成功或预览成功证据。"
+    },
+    {
+      "id": "S07-TC05",
+      "name": "EDC 连接异常时的错误态展示",
+      "verdict": "PASS",
+      "original_url": "http://60.251.229.32",
+      "invalid_url": "http://127.0.0.1:65535",
+      "screenshots": [
+        "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc05-step-01-invalid-address.png",
+        "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc05-step-02-dashboard-error-state.png",
+        "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc05-step-03-warning-banner.png",
+        "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc05-step-04-history-still-visible.png"
+      ],
+      "runtime_after_invalid": {
+        "overall_code": "host_disconnected",
+        "host_is_connected": false,
+        "host_channel_total": 0
+      },
+      "warning_matched": [
+        "宿主尚未同步真实连接状态",
+        "部分仪表盘数据暂未成功返回",
+        "实时曲线当前不可用",
+        "当前不是“没有曲线”，而是实时曲线请求失败"
+      ],
+      "runtime_recovered_after_follow_up": {
+        "overall_code": "ready",
+        "host_is_connected": true,
+        "recovered_at": "2026-03-28T23:47:52Z"
+      },
+      "observation": "无效地址已触发异常态展示，历史数据页仍可访问；环境已额外恢复。"
+    },
+    {
+      "id": "S07-TC06",
+      "name": "无基线时 Dashboard 引导展示",
+      "verdict": "PASS",
+      "screenshots": [
+        "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc06-step-01-no-baseline-dashboard.png",
+        "docs/test-reports/assets/2026-03-28-uat-followup/s07-tc06-step-02-guidance-target.png"
+      ],
+      "runtime_status": {
+        "overall_code": "ready",
+        "active_baseline_id": null
+      },
+      "navigation_result_url": "http://127.0.0.1:3001/edc/baselines",
+      "manual_review": {
+        "step_01": "截图可见基线状态卡 `待重新配置`。",
+        "step_02": "截图可见已进入 `黄金基线库` 页面。"
+      },
+      "observation": "无活动基线时，Dashboard 显示待重新配置，并可从快捷入口进入基线页面。"
+    }
+  ],
+  "api_cross_checks": {
+    "abnormal_heats": {
+      "url": "http://127.0.0.1:3001/api/heats?status=abnormal&page=1&page_size=10",
+      "total": 5,
+      "heat_nos": [
+        "H20260328-0216",
+        "H20260328-0108",
+        "H20260327-1247",
+        "H20260326-0108",
+        "H20260326-0000"
+      ]
+    },
+    "browser_cross_checks": {
+      "inbox_request": {
+        "url": "http://127.0.0.1:3001/api/heats?page=1&page_size=10&status=abnormal",
+        "status": 200
+      },
+      "heat_store": {
+        "status_filter": "abnormal",
+        "rows": 5,
+        "total": 5
+      }
+    },
+    "daily_reports": {
+      "url": "http://127.0.0.1:3001/api/reports/daily",
+      "total": 3,
+      "latest_date": "2026-03-28"
+    },
+    "task_pdf_backend_previous_check": {
+      "url": "http://127.0.0.1:3001/api/tasks/task-fb7872d0-c86f-4220-8ddf-fba874fcb56e/pdf",
+      "status": 200,
+      "content_type": "application/pdf",
+      "content_disposition": "attachment; filename=T20260328-162124.pdf"
+    },
+    "settings_after_sync": {
+      "edc_base_url": "http://60.251.229.32"
+    },
+    "runtime_status_after_sync": {
+      "overall_code": "ready",
+      "host_is_connected": true,
+      "edc_base_url": "http://60.251.229.32",
+      "host_channel_total": 6
+    },
+    "host_channels_after_binding": {
+      "total": 7,
+      "ids": [
+        "2349-199",
+        "2349-128",
+        "2054-128",
+        "2066-128",
+        "769-128",
+        "769-129",
+        "901-128"
+      ]
+    },
+    "runtime_status_recovered_after_tc05": {
+      "overall_code": "ready",
+      "host_is_connected": true,
+      "source": "http://60.251.229.32"
+    }
+  },
+  "open_follow_up": [
+    "S04-TC02 基于当前唯一已核实的 source B tuple（61.216.55.133/admin/admin）正式复跑结果为 FAIL；若 source B 口径已变更，则需更新前置后重跑。",
+    "S05-TC01 / S05-TC02 / S05-TC03 仍受 127.0.0.1:8080 外部阻塞影响。"
+  ]
+}

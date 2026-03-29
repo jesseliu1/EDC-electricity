@@ -1,0 +1,27 @@
+## master...origin/master
+ M apps/server/src/api/baselines.py
+ M apps/server/src/api/dashboard.py
+ M apps/server/src/api/settings.py
+ M apps/server/tests/test_tasks_reports_settings_api.py
+ M apps/web/src/locales/en-US.json
+ M apps/web/src/locales/ja-JP.json
+ M apps/web/src/locales/zh-CN.json
+ M apps/web/src/locales/zh-TW.json
+ M apps/web/src/views/DashboardView.vue
+ M docs/DEPLOYMENT.md
+ M "docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/App.tsx"
+ M "docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/SettingsView.tsx"
+ M "docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivityState.test.ts"
+ M "docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivityState.ts"
+ M "docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivitySync.ts"
+ M docs/lessons.md
+ M docs/progress.md
+ M docs/testing.md
+?? .agent/deploy-backups/
+?? apps/web/e2e/asns-edc-host-switch-investigation.spec.ts
+?? apps/web/e2e/asns-edc-source-switch-reset-uat.spec.ts
+?? docs/test-reports/2026-03-27-edc-server-switch-stale-groups-investigation.md
+?? docs/test-reports/2026-03-27-edc-source-switch-reset-uat.md
+?? docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md
+?? docs/test-reports/assets/2026-03-27-edc-server-switch-stale-groups/
+?? docs/test-reports/assets/2026-03-27-edc-source-switch-reset-uat/

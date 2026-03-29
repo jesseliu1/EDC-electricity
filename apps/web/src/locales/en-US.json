@@ -26,7 +26,8 @@
     "searchHeatId": "Search heat ID...",
     "noDescription": "No description",
     "noData": "No data",
-    "disable": "Disable"
+    "disable": "Disable",
+    "exportFailed": "Export failed"
   },
   "nav": {
     "groupOverview": "Overview",

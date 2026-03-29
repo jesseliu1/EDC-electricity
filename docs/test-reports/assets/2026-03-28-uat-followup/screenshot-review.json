@@ -1,0 +1,129 @@
+{
+  "version": "1.0",
+  "issue": "2026-03-28-uat-followup-s04-s06-s07",
+  "environment": "local",
+  "reviewed_at": "2026-03-29T02:17:39Z",
+  "overall_result": "fail",
+  "review_method": "manual-image-review-plus-api-cross-check",
+  "why_correct": "已回看正式复核与导出回归 PNG。S06-TC03 两张复核图可见收件箱非空且可进入详情，因此判定 PASS。S07-TC02 与 S07-TC03 的导出结果截图仍停留在原详情页，同时浏览器现象已核实为空白 popup（URL 为 `:`），未形成 PDF 下载成功或预览成功证据，因此两条均判定 FAIL。S07-TC05 四张截图可见无效地址写入、Dashboard 异常态提示与历史页仍可访问，因此判定 PASS。S07-TC06 两张截图可见 Dashboard 基线状态卡 `待重新配置`，且已进入 `黄金基线库` 页面，因此判定 PASS。",
+  "screenshots": [
+    {
+      "file": "s06-tc03-step-01-inbox-list-rerun.png",
+      "step": "S06-TC03 步骤 1",
+      "review_result": "pass",
+      "observed": [
+        "看到了偏差收件箱页面",
+        "看到了顶部 `5 异常需要处理`",
+        "看到了 5 条异常炉次记录"
+      ],
+      "missing": []
+    },
+    {
+      "file": "s06-tc03-step-02-open-heat-detail-rerun.png",
+      "step": "S06-TC03 步骤 2",
+      "review_result": "pass",
+      "observed": [
+        "看到了从收件箱进入炉次详情后的页面正文",
+        "看到了炉次详情页已正常打开"
+      ],
+      "missing": []
+    },
+    {
+      "file": "s07-tc02-step-03-export-result.png",
+      "step": "S07-TC02 步骤 3",
+      "review_result": "fail",
+      "observed": [
+        "截图仍停留在任务详情页"
+      ],
+      "missing": [
+        "未看到 PDF 预览",
+        "未看到下载成功反馈"
+      ]
+    },
+    {
+      "file": "s07-tc03-step-03-report-preview.png",
+      "step": "S07-TC03 步骤 3",
+      "review_result": "pass",
+      "observed": [
+        "看到了日报详情数据卡",
+        "看到了总炉数、正常率、平均偏差、已完成等日报内容"
+      ],
+      "missing": []
+    },
+    {
+      "file": "s07-tc03-step-04-export-result.png",
+      "step": "S07-TC03 步骤 4",
+      "review_result": "fail",
+      "observed": [
+        "截图仍停留在日报详情页"
+      ],
+      "missing": [
+        "未看到 PDF 预览",
+        "未看到下载成功反馈"
+      ]
+    },
+    {
+      "file": "s07-tc05-step-01-invalid-address.png",
+      "step": "S07-TC05 步骤 1",
+      "review_result": "pass",
+      "observed": [
+        "看到了无效 EDC 地址 `http://127.0.0.1:65535` 已写入输入框",
+        "看到了系统状态为离线或等待验证"
+      ],
+      "missing": []
+    },
+    {
+      "file": "s07-tc05-step-02-dashboard-error-state.png",
+      "step": "S07-TC05 步骤 2",
+      "review_result": "pass",
+      "observed": [
+        "看到了 Dashboard 顶部异常提示横幅",
+        "看到了实时曲线不可用提示",
+        "看到了基线状态卡 `待重新配置`"
+      ],
+      "missing": []
+    },
+    {
+      "file": "s07-tc05-step-03-warning-banner.png",
+      "step": "S07-TC05 步骤 3",
+      "review_result": "pass",
+      "observed": [
+        "看到了 `宿主尚未同步真实连接状态` 提示",
+        "看到了 `部分仪表盘数据暂未成功返回` 提示"
+      ],
+      "missing": []
+    },
+    {
+      "file": "s07-tc05-step-04-history-still-visible.png",
+      "step": "S07-TC05 步骤 4",
+      "review_result": "pass",
+      "observed": [
+        "看到了炉次浏览页面仍可打开",
+        "看到了历史页为空态或列表区域，说明页面未因异常态崩溃"
+      ],
+      "missing": []
+    },
+    {
+      "file": "s07-tc06-step-01-no-baseline-dashboard.png",
+      "step": "S07-TC06 步骤 1",
+      "review_result": "pass",
+      "observed": [
+        "看到了 Dashboard 页面",
+        "看到了基线状态卡 `待重新配置`",
+        "看到了无基线时的引导文案"
+      ],
+      "missing": []
+    },
+    {
+      "file": "s07-tc06-step-02-guidance-target.png",
+      "step": "S07-TC06 步骤 2",
+      "review_result": "pass",
+      "observed": [
+        "看到了 `黄金基线库` 页面标题",
+        "看到了基线列表卡片",
+        "说明快捷入口已跳转到目标页面"
+      ],
+      "missing": []
+    }
+  ]
+}

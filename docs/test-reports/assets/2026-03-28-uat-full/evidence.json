@@ -1,0 +1,72 @@
+{
+  "run_id": "2026-03-28-uat-full-rerun-create-task",
+  "environment": "local",
+  "script_path": "apps/web/e2e/uat-full.spec.ts",
+  "config_path": "apps/web/playwright.uat.config.ts",
+  "command": "env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/uat-full.spec.ts -g \"UAT-003 炉次详情与任务创建|UAT-004 纠偏任务单列表与详情\" --config=playwright.uat.config.ts --project=chromium",
+  "host_origin": "http://127.0.0.1:3001",
+  "api_base": "http://127.0.0.1:3001/api",
+  "executed_at": "2026-03-28T16:21:24Z",
+  "overall_verdict": "PASS",
+  "tests": [
+    {
+      "id": "UAT-003",
+      "name": "炉次详情与任务创建",
+      "verdict": "PASS",
+      "selected_baseline": "legacy source baseline",
+      "task_id": "task-fb7872d0-c86f-4220-8ddf-fba874fcb56e",
+      "task_no": "T20260328-162124",
+      "heat_id": "live-heat-0ef1bbda-1774666200000-70",
+      "heat_no": "H20260328-0216",
+      "screenshot": "docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-10-heat-detail-create-task.png",
+      "observation": "点击“生成纠偏任务”后已进入新建任务详情页，任务详情显示关联炉次 H20260328-0216，偏差百分比为待计算。"
+    },
+    {
+      "id": "UAT-004",
+      "name": "纠偏任务单列表与详情",
+      "verdict": "PASS",
+      "task_list_total": 2,
+      "latest_task_no": "T20260328-162124",
+      "screenshot_list": "docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-11-task-list-page.png",
+      "screenshot_detail": "docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-12-task-list-open-detail.png",
+      "observation": "任务列表显示 2 条待处理任务，最新任务 T20260328-162124 可打开并进入详情页。"
+    },
+    {
+      "id": "UAT-006",
+      "name": "基线详情与来源炉次跳转",
+      "verdict": "PASS",
+      "source_heat_id": "live-heat-0ef1bbda-1774524000000-45",
+      "source_heat_no": "H20260326-1056",
+      "screenshot_entry": "docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-14-baseline-detail-entry.png",
+      "screenshot_after_click": "docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-15-baseline-detail-click-source-heat.png",
+      "observation": "点击基线详情右侧来源炉次链接后，页面已进入对应炉次详情页 H20260326-1056。"
+    }
+  ],
+  "api_cross_checks": {
+    "health_via_host_proxy": {
+      "url": "http://127.0.0.1:3001/api/health",
+      "status": "ok"
+    },
+    "health_via_backend": {
+      "url": "http://127.0.0.1:8001/api/health",
+      "status": "ok"
+    },
+    "tasks_page": {
+      "url": "http://127.0.0.1:3001/api/tasks?page=1&page_size=10",
+      "total": 2,
+      "latest_task_id": "task-fb7872d0-c86f-4220-8ddf-fba874fcb56e",
+      "latest_task_no": "T20260328-162124"
+    },
+    "task_detail": {
+      "url": "http://127.0.0.1:3001/api/tasks/task-fb7872d0-c86f-4220-8ddf-fba874fcb56e",
+      "task_no": "T20260328-162124",
+      "heat_id": "live-heat-0ef1bbda-1774666200000-70",
+      "heat_no": "H20260328-0216",
+      "status": "pending",
+      "deviation_percent": null
+    }
+  },
+  "open_follow_up": [
+    "26 条主清单正式总账仍未完成逐条映射与补齐。"
+  ]
+}

@@ -4,6 +4,207 @@
 
 ---
 
+### 2026-03-28（S01 / S02 / S04 / S07 新增 6 条 PASS，S06-TC03 复核通过，S07-TC02 / S07-TC03 正式判定 FAIL）
+
+**当前阶段**：EDC / ASNS UAT 主线继续推进
+
+**本轮完成**：
+
+- [x] 已正式执行 `S01-TC03`
+  - [x] 宿主设置页同步后截图已补：
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s01-tc03-step-01-sync-after.png`
+  - [x] 已核对后端配置与运行态：
+    - [x] `GET /api/settings` 返回 `edc_base_url=http://60.251.229.32`
+    - [x] `GET /api/settings/host-connectivity-status` 返回 `is_connected=true`
+    - [x] `GET /api/settings/runtime-status` 返回 `overall_code=ready`
+- [x] 已正式执行 `S02-TC02`
+  - [x] 宿主设置页已完成整组添加并保存绑定
+  - [x] 已补正式截图：
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s02-tc02-step-01-before-select.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s02-tc02-step-02-after-select.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s02-tc02-step-03-save-after.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s02-tc02-step-04-result-state.png`
+- [x] 已正式执行 `S02-TC03`
+  - [x] 已核对 `GET /api/settings/host-channels` 返回 `total=7`
+  - [x] 当前后端已写入通道：
+    - [x] `2349-199`
+    - [x] `2349-128`
+    - [x] `2054-128`
+    - [x] `2066-128`
+    - [x] `769-128`
+    - [x] `769-129`
+    - [x] `901-128`
+  - [x] 已核对 `GET /api/settings/host-connectivity-status` 返回 `is_connected=true`
+- [x] 已正式执行 `S04-TC01`
+  - [x] 已补正式截图：
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s04-tc01-step-01-current-bound-channels.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s04-tc01-step-02-dashboard-before-switch.png`
+  - [x] 已核对 `GET /api/settings/host-channels` 返回 `total=7`
+  - [x] 已核对 `GET /api/settings/runtime-status` 返回 `overall_code=ready`
+- [x] 已正式复核 `S06-TC03`
+  - [x] 打开 `http://127.0.0.1:3001/edc/inbox`
+  - [x] 已补正式复核截图：
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s06-tc03-step-01-inbox-list-rerun.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s06-tc03-step-02-open-heat-detail-rerun.png`
+- [x] 已人工回看正式复核截图
+  - [x] 回看结论：页面显示 `5 异常需要处理`，列表中可见 `5` 条异常炉次
+  - [x] 可从收件箱进入对应炉次详情页
+- [x] 已补接口与前端交叉核对
+  - [x] `GET /api/heats?status=abnormal&page=1&page_size=10` 返回 `total=5`
+  - [x] 页面请求 `/api/heats?page=1&page_size=10&status=abnormal` 返回 `200`
+  - [x] 页面 `Pinia heat store` 当前持有 `5` 条 abnormal rows，`total=5`
+- [x] 已回写本轮正式留档
+  - [x] 测试报告：`docs/test-reports/2026-03-28-uat-followup.md`
+  - [x] 结构化证据：`docs/test-reports/assets/2026-03-28-uat-followup/evidence.json`
+  - [x] 截图回看：`docs/test-reports/assets/2026-03-28-uat-followup/screenshot-review.json`
+  - [x] 执行摘要：`docs/test-reports/assets/2026-03-28-uat-followup/uat-summary.md`
+- [x] 已同步 issue 台账
+  - [x] `docs/ui_issues.md` 已移除基于过早截图登记的误报项
+  - [x] `docs/ui_issues.md` 已补录 `S07-TC02 / S07-TC03` 当前浏览器侧导出失败项
+- [x] 已补 S07 导出回归截图
+  - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc02-step-01-task-detail.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc02-step-02-after-click-export.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc02-step-03-export-result.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc03-step-01-report-list.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc03-step-02-report-detail-entry.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc03-step-03-report-preview.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc03-step-04-export-result.png`
+- [x] 已人工回看 S07 导出回归截图
+  - [x] `S07-TC02 step-03` 回看结论：截图仍停留在任务详情页，未看到 PDF 预览或下载成功反馈
+  - [x] `S07-TC03 step-04` 回看结论：截图仍停留在日报详情页，未看到 PDF 预览或下载成功反馈
+- [x] 已回写 follow-up 正式留档
+  - [x] `docs/test-reports/2026-03-28-uat-followup.md`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-followup/evidence.json`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-followup/screenshot-review.json`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-followup/uat-summary.md`
+- [x] 已正式执行 `S07-TC05`
+  - [x] 已补正式截图：
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc05-step-01-invalid-address.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc05-step-02-dashboard-error-state.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc05-step-03-warning-banner.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc05-step-04-history-still-visible.png`
+  - [x] 已人工回看截图：
+    - [x] `s07-tc05-step-01-invalid-address.png` 可见无效地址已写入，系统状态为离线/等待验证
+    - [x] `s07-tc05-step-02-dashboard-error-state.png` 可见 Dashboard 异常态提示与实时曲线不可用提示
+    - [x] `s07-tc05-step-03-warning-banner.png` 可见顶部双横幅告警
+    - [x] `s07-tc05-step-04-history-still-visible.png` 可见炉次浏览页仍可打开
+  - [x] 已核对异常态 API：
+    - [x] `GET /api/settings` 返回 `edc_base_url=http://127.0.0.1:65535`
+    - [x] `GET /api/settings/runtime-status` 返回 `overall_code=host_disconnected`
+  - [x] 已额外执行恢复脚本
+    - [x] 当前 `GET /api/settings/runtime-status` 已恢复 `overall_code=ready`
+    - [x] 当前 `GET /api/settings/host-connectivity-status` 已恢复 `is_connected=true`
+- [x] 已正式执行 `S07-TC06`
+  - [x] 已补正式截图：
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc06-step-01-no-baseline-dashboard.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s07-tc06-step-02-guidance-target.png`
+  - [x] 已核对 `GET /api/settings/runtime-status` 返回 `active_baseline.id=null`
+  - [x] 已核对 Dashboard 显示 `待重新配置`
+  - [x] 已核对跳转结果为 `/edc/baselines`
+  - [x] 已人工回看截图：
+    - [x] `s07-tc06-step-01-no-baseline-dashboard.png` 可见基线状态卡 `待重新配置`
+    - [x] `s07-tc06-step-02-guidance-target.png` 已进入 `黄金基线库` 页面
+- [x] 已正式复跑 `S04-TC02`
+  - [x] 本轮唯一已核实的 source B 口径：
+    - [x] `endpoint=http://61.216.55.133`
+    - [x] `username=admin`
+    - [x] `password=admin`
+  - [x] 已补正式截图：
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s04-tc02-step-01-open-settings.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s04-tc02-step-02-fill-new-endpoint.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s04-tc02-step-03-fill-credentials.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s04-tc02-step-04-test-connection-result.png`
+    - [x] `docs/test-reports/assets/2026-03-28-uat-followup/s04-tc02-step-05-save-after.png`
+  - [x] 已核对保存后运行态：
+    - [x] `GET /api/settings` 返回 `edc_base_url=http://61.216.55.133`
+    - [x] `GET /api/settings/host-connectivity-status` 返回 `is_connected=false`
+    - [x] `GET /api/settings/runtime-status` 返回 `overall_code=host_disconnected`
+  - [x] 当前正式结果：`FAIL`
+  - [x] 失败原因：source B tuple 已成功写入设置，但宿主未建立连接，浏览器侧也未形成“连接测试成功 / 在线 / 连接就绪”证据
+- [x] 已回写 follow-up 留档增量
+  - [x] 已同步 `S04-TC02 FAIL`
+  - [x] 已同步 `S07-TC06` 截图人工回看结论
+
+**当前已核实结论**：
+
+- [x] `S01-TC03` 当前正式结果为 `PASS`
+- [x] `S02-TC02` 当前正式结果为 `PASS`
+- [x] `S02-TC03` 当前正式结果为 `PASS`
+- [x] `S04-TC01` 当前正式结果为 `PASS`
+- [x] `S04-TC02` 当前正式结果为 `FAIL`
+- [x] `S06-TC03` 当前正式结果为 `PASS`
+- [x] 旧 `FAIL` 口径已核实来源于截图过早，不是产品当前真实失败
+- [x] `S07-TC02` 当前正式结果为 `FAIL`
+- [x] `S07-TC03` 当前正式结果为 `FAIL`
+- [x] `S07-TC05` 当前正式结果为 `PASS`
+- [x] `S07-TC06` 当前正式结果为 `PASS`
+- [x] 当前正式总账已更新为：已执行 `23` / 通过 `20` / 失败 `3` / 阻塞 `0` / 剩余 `3`
+
+### 2026-03-29（推进 S07 导出 FAIL 修复方案，先以最小改动打通浏览器下载闭环）
+
+**当前阶段**：EDC / ASNS UAT 主线继续推进
+
+**本轮完成**：
+
+- [x] 已定位 `S07-TC02 / S07-TC03` 共性失败点
+  - [x] `apps/web/src/views/TaskDetailView.vue` 当前旧实现为 `window.open(taskApi.exportPdfUrl(...), '_blank')`
+  - [x] `apps/web/src/views/ReportDetailView.vue` 当前旧实现为 `window.open(reportApi.exportPdfUrl(...), '_blank')`
+  - [x] 该实现与 UAT 现象一致：浏览器侧打开空白 popup，未形成稳定下载闭环
+- [x] 已完成最小代码修复
+  - [x] 新增 `apps/web/src/utils/download.ts`
+  - [x] `TaskDetailView.vue` 改为同页 `fetch blob + a[download]` 触发下载
+  - [x] `ReportDetailView.vue` 改为同页 `fetch blob + a[download]` 触发下载
+  - [x] 已补 `common.exportFailed` 文案到四套 locale
+- [x] 已补定向回归
+  - [x] `apps/web/e2e/coverage.spec.ts` 新增两条下载闭环回归
+  - [x] 执行命令：`pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "task detail export downloads the pdf instead of opening a blank popup|report detail export downloads the pdf instead of opening a blank popup"`
+  - [x] 结果：`2 passed`
+- [x] 已补构建校验
+  - [x] 执行命令：`pnpm --dir apps/web build`
+  - [x] 结果：`built in 14.16s`
+
+**当前已核实结论**：
+
+- [x] `S07-TC02 / S07-TC03` 的当前修复方案已明确为：继续修复重跑，不按已豁免关单
+- [x] 代码层已完成最小修复，且两条浏览器下载闭环定向回归当前通过
+- [ ] `S07-TC02 / S07-TC03` 仍待按 UAT 正式脚本重跑后，才能更新正式总账
+
+### 2026-03-28（生成纠偏任务正式回归通过，并补齐本轮正式留档）
+
+**当前阶段**：EDC / ASNS UAT 主线继续推进
+
+**本轮完成**：
+
+- [x] 已修正正式 UAT 脚本 API 基准
+  - [x] `apps/web/e2e/uat-full.spec.ts` 不再硬编码 `127.0.0.1:8000/api`
+  - [x] 当前正式回归口径已对齐到 `http://127.0.0.1:3001/api/`（宿主代理）/ `http://127.0.0.1:8001/api/`
+- [x] 已正式重跑 `UAT-003 / UAT-004`
+  - [x] 执行命令：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/uat-full.spec.ts -g "UAT-003 炉次详情与任务创建|UAT-004 纠偏任务单列表与详情" --config=playwright.uat.config.ts --project=chromium`
+  - [x] 结果：`2 passed`
+- [x] 已人工回看本轮重跑生成的截图
+  - [x] `docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-06-heat-detail-entry.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-07-heat-detail-click-alt-baseline-tab.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-08-heat-detail-open-manual-adjust.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-09-heat-detail-close-manual-adjust.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-10-heat-detail-create-task.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-11-task-list-page.png`
+  - [x] `docs/test-reports/assets/2026-03-28-uat-full/uat-full-step-12-task-list-open-detail.png`
+- [x] 已补齐本轮正式留档
+  - [x] 测试报告：`docs/test-reports/2026-03-28-uat-full.md`
+  - [x] 结构化证据：`docs/test-reports/assets/2026-03-28-uat-full/evidence.json`
+  - [x] 截图回看：`docs/test-reports/assets/2026-03-28-uat-full/screenshot-review.json`
+  - [x] 执行摘要：`docs/test-reports/assets/2026-03-28-uat-full/uat-summary.md`
+- [x] 已同步 issue 状态
+  - [x] `docs/ui_issues.md` 中“生成纠偏任务”已更新为“已修复并完成本机正式回归（2026-03-28）”
+
+**当前已核实结论**：
+
+- [x] “生成纠偏任务”本轮正式回归结果为 `PASS`
+- [x] 新任务已创建为 `T20260328-162124`
+- [x] 对应关联炉次为 `H20260328-0216`
+- [x] 当前正式总账现为：已执行 `14` / 通过 `14` / 失败 `0` / 阻塞 `0` / 剩余 `12`
+- [ ] `127.0.0.1:8080` 外部阻塞责任方仍暂未核实；当前文档仅确认它是外部真实 EDC 上游依赖，不是仓内服务
+
 ### 2026-03-28（修复 Baseline Detail 来源炉次跳转断线，并完成本机截图复验）
 
 **当前阶段**：基线详情来源炉次跳转 investigate -> 修复 -> 本机验证

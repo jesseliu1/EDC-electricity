@@ -8,6 +8,17 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   })
 }
 
+async function fulfillPdf(route: Route, filename: string) {
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/pdf',
+    headers: {
+      'content-disposition': `attachment; filename="${filename}"`
+    },
+    body: '%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF'
+  })
+}
+
 async function mockRuntimeStatus(page: Page, body?: Record<string, unknown>) {
   await page.route('**/api/settings/runtime-status**', async route => {
     await fulfillJson(route, {
@@ -926,6 +937,23 @@ test.describe('EDC web extended coverage', () => {
     await expect(page).toHaveURL(/\/edc\/tasks$/)
   })
 
+  test('task detail export downloads the pdf instead of opening a blank popup', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await mockTaskWorkflow(page)
+    await page.route('**/api/tasks/mock-task-1/pdf', async route => {
+      await fulfillPdf(route, 'T20260312-001.pdf')
+    })
+
+    await page.goto('tasks/mock-task-1')
+    await expect(page.getByTestId('task-detail-page')).toBeVisible()
+
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: '导出PDF' }).click()
+    const download = await downloadPromise
+
+    expect(download.suggestedFilename()).toBe('T20260312-001.pdf')
+  })
+
   test('task list search input filters the loaded rows by task number and related heat id', async ({ page }) => {
     await mockRuntimeStatus(page)
     await mockTaskWorkflow(page)
@@ -987,6 +1015,24 @@ test.describe('EDC web extended coverage', () => {
     await expect(page.getByTestId('inbox-page')).toBeVisible()
     await page.getByTestId(/^inbox-row-/).first().click()
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
+  })
+
+  test('report detail export downloads the pdf instead of opening a blank popup', async ({ page }) => {
+    await mockRuntimeStatus(page)
+    await mockReportsAndInbox(page)
+    await page.route('**/api/reports/daily/2026-03-19/pdf', async route => {
+      await fulfillPdf(route, '2026-03-19.pdf')
+    })
+
+    await page.goto('reports/2026-03-19')
+    await expect(page.getByTestId('report-detail-page')).toBeVisible()
+    await expect(page.getByTestId('report-detail-success')).toBeVisible()
+
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: '导出PDF' }).click()
+    const download = await downloadPromise
+
+    expect(download.suggestedFilename()).toBe('2026-03-19.pdf')
   })
 
   test('inbox shows a pending-copy fallback instead of misleading empty deviation percent', async ({ page }) => {

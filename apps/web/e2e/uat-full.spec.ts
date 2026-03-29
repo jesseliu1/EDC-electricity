@@ -8,6 +8,9 @@ const evidenceDir = path.resolve(
   __dirname,
   '../../../docs/test-reports/assets/2026-03-28-uat-full'
 )
+const hostOrigin = (process.env.UAT_HOST_ORIGIN ?? 'http://127.0.0.1:3001').replace(/\/$/, '')
+const edcBaseUrl = `${hostOrigin}/edc`
+const apiBaseUrl = (process.env.UAT_API_BASE ?? `${hostOrigin}/api`).replace(/\/$/, '')
 
 type UatState = {
   heatId: string
@@ -48,6 +51,10 @@ async function isVisible(locator: Locator, timeout = 12000) {
   }
 }
 
+function edcUrl(pathname = '/') {
+  return `${edcBaseUrl}${pathname.startsWith('/') ? pathname : `/${pathname}`}`
+}
+
 async function waitForHeatDetailReady(page: Page, heatNo: string) {
   await page.waitForLoadState('domcontentloaded')
   await expect(page.getByRole('heading', { name: '炉次详情' })).toBeVisible()
@@ -68,11 +75,15 @@ async function waitForBaselineDetailReady(page: Page, baselineName: string) {
 
 test.describe('full local uat', () => {
   test.beforeAll(async ({ request }) => {
-    const heats = await request.get('http://127.0.0.1:8000/api/heats?page=1&page_size=5')
+    const heats = await request.get(`${apiBaseUrl}/heats?page=1&page_size=20`)
     const heatsJson = await heats.json()
-    const heatItem = heatsJson.items?.[1] ?? heatsJson.items?.[0]
+    const heatItems = heatsJson.items ?? []
+    const heatItem =
+      heatItems.find((item: { status: string }) => item.status === 'abnormal') ??
+      heatItems[1] ??
+      heatItems[0]
 
-    const baselines = await request.get('http://127.0.0.1:8000/api/baselines?page=1&page_size=10')
+    const baselines = await request.get(`${apiBaseUrl}/baselines?page=1&page_size=10`)
     const baselinesJson = await baselines.json()
     const baselineItems = baselinesJson.items ?? []
     const publishedBaseline =
@@ -85,7 +96,7 @@ test.describe('full local uat', () => {
           item.id !== currentHeatBaseline.id && item.name !== currentHeatBaseline.name
       ) ?? null
 
-    const reports = await request.get('http://127.0.0.1:8000/api/reports/daily')
+    const reports = await request.get(`${apiBaseUrl}/reports/daily`)
     const reportsJson = await reports.json()
     const reportItem = reportsJson.items?.[0]
 
@@ -103,7 +114,7 @@ test.describe('full local uat', () => {
   })
 
   test('UAT-001 Dashboard 总览与时间范围按钮', async ({ page }) => {
-    await page.goto('http://127.0.0.1:3001/edc/')
+    await page.goto(edcUrl('/'))
     await expect(page.getByRole('heading', { name: '总览' })).toBeVisible()
     await page.waitForTimeout(3000)
     await capture(page, 'uat-full-step-01-dashboard-entry.png')
@@ -118,7 +129,7 @@ test.describe('full local uat', () => {
   })
 
   test('UAT-002 炉次浏览列表页', async ({ page }) => {
-    await page.goto('http://127.0.0.1:3001/edc/heats')
+    await page.goto(edcUrl('/heats'))
     await expect(page.getByRole('heading', { name: '炉次浏览', exact: true })).toBeVisible()
     await page.waitForTimeout(6000)
     await capture(page, 'uat-full-step-04-heats-list-page.png')
@@ -132,7 +143,7 @@ test.describe('full local uat', () => {
   })
 
   test('UAT-003 炉次详情与任务创建', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:3001/edc/heats/${state.heatId}`)
+    await page.goto(edcUrl(`/heats/${state.heatId}`))
     await waitForHeatDetailReady(page, state.heatNo)
     await capture(page, 'uat-full-step-06-heat-detail-entry.png')
 
@@ -160,7 +171,7 @@ test.describe('full local uat', () => {
   })
 
   test('UAT-004 纠偏任务单列表与详情', async ({ page }) => {
-    await page.goto('http://127.0.0.1:3001/edc/tasks')
+    await page.goto(edcUrl('/tasks'))
     await expect(page.getByRole('heading', { name: '纠偏任务单', exact: true })).toBeVisible()
     await page.waitForTimeout(2000)
     await capture(page, 'uat-full-step-11-task-list-page.png')
@@ -175,14 +186,14 @@ test.describe('full local uat', () => {
   })
 
   test('UAT-005 黄金基线库列表页', async ({ page }) => {
-    await page.goto('http://127.0.0.1:3001/edc/baselines')
+    await page.goto(edcUrl('/baselines'))
     await expect(page.getByRole('heading', { name: '黄金基线库', exact: true })).toBeVisible()
     await page.waitForTimeout(6000)
     await capture(page, 'uat-full-step-13-baseline-list-page.png')
   })
 
   test('UAT-006 基线详情与来源炉次跳转', async ({ page }) => {
-    await page.goto(`http://127.0.0.1:3001/edc/baselines/${state.baselineId}`)
+    await page.goto(edcUrl(`/baselines/${state.baselineId}`))
     await waitForBaselineDetailReady(page, state.baselineName)
     await capture(page, 'uat-full-step-14-baseline-detail-entry.png')
 
@@ -195,26 +206,26 @@ test.describe('full local uat', () => {
   })
 
   test('UAT-007 偏差收件箱空态', async ({ page }) => {
-    await page.goto('http://127.0.0.1:3001/edc/inbox')
+    await page.goto(edcUrl('/inbox'))
     await expect(page.getByRole('heading', { name: '偏差收件箱' }).last()).toBeVisible()
     await page.waitForTimeout(2000)
     await capture(page, 'uat-full-step-16-inbox-page.png')
   })
 
   test('UAT-008 日报与审计列表页与详情页', async ({ page }) => {
-    await page.goto('http://127.0.0.1:3001/edc/reports')
+    await page.goto(edcUrl('/reports'))
     await expect(page.getByRole('heading', { name: '日报与审计', exact: true })).toBeVisible()
     await page.waitForTimeout(3000)
     await capture(page, 'uat-full-step-17-report-list-page.png')
 
-    await page.goto(`http://127.0.0.1:3001/edc/reports/${state.reportDate}`)
+    await page.goto(edcUrl(`/reports/${state.reportDate}`))
     await expect(page.getByTestId('report-detail-page')).toBeVisible({ timeout: 15000 })
     await page.waitForTimeout(3000)
     await capture(page, 'uat-full-step-18-report-detail-page.png')
   })
 
   test('UAT-009 系统设置与保存偏差阈值', async ({ page }) => {
-    await page.goto('http://127.0.0.1:3001/edc/settings')
+    await page.goto(edcUrl('/settings'))
     await expect(page.getByRole('heading', { name: '系统设置', exact: true })).toBeVisible()
     await page.waitForTimeout(2000)
     await capture(page, 'uat-full-step-19-settings-page.png')

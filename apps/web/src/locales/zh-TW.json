@@ -26,7 +26,8 @@
     "searchHeatId": "搜尋爐次 ID...",
     "noDescription": "暫無描述",
     "noData": "暫無資料",
-    "disable": "停用"
+    "disable": "停用",
+    "exportFailed": "匯出失敗"
   },
   "nav": {
     "groupOverview": "生產總覽",

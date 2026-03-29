@@ -2,8 +2,10 @@
 import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import { useReportStore } from '@/stores/report'
 import { reportApi } from '@/api/report'
+import { downloadFile } from '@/utils/download'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 
@@ -16,9 +18,14 @@ const detail = computed(() => reportStore.current)
 const detailLoading = computed(() => reportStore.detailLoading)
 const detailError = computed(() => reportStore.detailError)
 
-function handleExport() {
+async function handleExport() {
   if (!reportDate.value) return
-  window.open(reportApi.exportPdfUrl(reportDate.value), '_blank')
+  try {
+    await downloadFile(reportApi.exportPdfUrl(reportDate.value), `${reportDate.value}.pdf`)
+  } catch (error) {
+    console.error('Report PDF export failed.', error)
+    ElMessage.error(t('common.exportFailed'))
+  }
 }
 
 async function loadDetail(date: string) {

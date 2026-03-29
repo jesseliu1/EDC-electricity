@@ -26,7 +26,8 @@
     "searchHeatId": "ヒート ID を検索...",
     "noDescription": "説明なし",
     "noData": "データなし",
-    "disable": "無効化"
+    "disable": "無効化",
+    "exportFailed": "エクスポートに失敗しました"
   },
   "nav": {
     "groupOverview": "生産概要",

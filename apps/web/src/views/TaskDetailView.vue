@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { useTaskStore } from '@/stores/task'
 import { taskApi } from '@/api/task'
+import { downloadFile } from '@/utils/download'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 
@@ -58,9 +59,14 @@ async function handleComplete() {
   ElMessage.success(t('task.statusCompleted'))
 }
 
-function handleExportPdf() {
+async function handleExportPdf() {
   if (!taskId.value) return
-  window.open(taskApi.exportPdfUrl(taskId.value), '_blank')
+  try {
+    await downloadFile(taskApi.exportPdfUrl(taskId.value), `${task.value?.taskNo || taskId.value}.pdf`)
+  } catch (error) {
+    console.error('Task PDF export failed.', error)
+    ElMessage.error(t('common.exportFailed'))
+  }
 }
 
 function formatDeviation(value: number | null) {

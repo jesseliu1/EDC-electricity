@@ -1,0 +1,117 @@
+{
+  "version": "1.0",
+  "issue": "2026-03-28-uat-full-create-task-rerun",
+  "environment": "local",
+  "script_path": "apps/web/e2e/uat-full.spec.ts",
+  "screenshot_dir": "docs/test-reports/assets/2026-03-28-uat-full",
+  "reviewed_at": "2026-03-28T16:36:39Z",
+  "overall_result": "pass",
+  "review_method": "manual-image-review-plus-api-cross-check",
+  "why_correct": "本轮正式重跑生成的第 10、11、12 张 PNG 已逐张打开人工回看，并与 /api/tasks 列表、/api/tasks/{id} 详情结果交叉核对。截图与接口都指向同一条新任务 T20260328-162124 / H20260328-0216。",
+  "updated_scope": "本文件同时纳入 2026-03-28 16:21 UTC 正式重跑产生的 UAT-003 步骤 06-12 截图回看。",
+  "screenshots": [
+    {
+      "file": "uat-full-step-06-heat-detail-entry.png",
+      "step": "UAT-003 步骤 6",
+      "review_result": "pass",
+      "observed": [
+        "已看到炉次详情页标题 H20260328-0216",
+        "已看到右上角异常状态标签",
+        "已看到 compare 图与炉次摘要卡"
+      ],
+      "missing": []
+    },
+    {
+      "file": "uat-full-step-07-heat-detail-click-alt-baseline-tab.png",
+      "step": "UAT-003 步骤 7",
+      "review_result": "pass",
+      "observed": [
+        "已看到对比基线 tab 选中为 legacy source baseline",
+        "已看到页面未出现空白或报错",
+        "已看到右侧摘要中的对比基线同步切换"
+      ],
+      "missing": []
+    },
+    {
+      "file": "uat-full-step-08-heat-detail-open-manual-adjust.png",
+      "step": "UAT-003 步骤 8",
+      "review_result": "pass",
+      "observed": [
+        "已看到手动调整弹窗打开",
+        "已看到基线 tab、曲线区和时间轴滑块",
+        "已看到全屏操作按钮"
+      ],
+      "missing": []
+    },
+    {
+      "file": "uat-full-step-09-heat-detail-close-manual-adjust.png",
+      "step": "UAT-003 步骤 9",
+      "review_result": "pass",
+      "observed": [
+        "已看到弹窗关闭后返回炉次详情页",
+        "已看到页面仍停留在 H20260328-0216",
+        "已看到手动调整与生成纠偏任务按钮"
+      ],
+      "missing": []
+    },
+    {
+      "file": "uat-full-step-10-heat-detail-create-task.png",
+      "step": "UAT-003 步骤 10",
+      "review_result": "pass",
+      "observed": [
+        "已看到任务详情页标题“纠偏任务单 - T20260328-162124”",
+        "已看到关联炉次 H20260328-0216",
+        "已看到偏差百分比状态为“待计算”"
+      ],
+      "missing": [
+        "未见页面停留在炉次详情页"
+      ]
+    },
+    {
+      "file": "uat-full-step-11-task-list-page.png",
+      "step": "UAT-004 步骤 11",
+      "review_result": "pass",
+      "observed": [
+        "已看到任务列表页标题“纠偏任务单”",
+        "已看到顶部状态计数“全部(2) / 新建(2)”",
+        "已看到最新任务 T20260328-162124 出现在列表首行"
+      ],
+      "missing": []
+    },
+    {
+      "file": "uat-full-step-12-task-list-open-detail.png",
+      "step": "UAT-004 步骤 12",
+      "review_result": "pass",
+      "observed": [
+        "已看到任务详情页标题“纠偏任务单 - T20260328-162124”",
+        "已看到关联炉次 H20260328-0216",
+        "已看到处理记录输入区"
+      ],
+      "missing": []
+    },
+    {
+      "file": "uat-full-step-14-baseline-detail-entry.png",
+      "step": "UAT-006 步骤 14",
+      "review_result": "pass",
+      "observed": [
+        "已看到基线详情页标题 UAT发布闭环-1774523955793",
+        "已看到右侧基线信息卡中的来源炉次链接",
+        "已看到页面仍停留在基线详情入口态"
+      ],
+      "missing": []
+    },
+    {
+      "file": "uat-full-step-15-baseline-detail-click-source-heat.png",
+      "step": "UAT-006 步骤 15",
+      "review_result": "pass",
+      "observed": [
+        "已看到页面标题切换为炉次详情",
+        "已看到炉次号 H20260326-1056",
+        "已看到页面 URL 对应的热次详情已打开"
+      ],
+      "missing": [
+        "未见页面继续停留在基线详情"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1833 @@
+diff --git a/apps/server/src/api/baselines.py b/apps/server/src/api/baselines.py
+index 4673fa6..d14ea73 100644
+--- a/apps/server/src/api/baselines.py
++++ b/apps/server/src/api/baselines.py
+@@ -215,9 +215,15 @@ def _resolve_active_baseline_item() -> dict[str, Any] | None:
+         active_item = _BASELINE_STORE.get(active_baseline_id)
+         if active_item and active_item["status"] == "published":
+             return active_item
++    return None
+ 
+-    published = _published_baselines()
+-    return published[0] if published else None
++
++def _resolve_next_active_baseline_item(excluded_id: str | None = None) -> dict[str, Any] | None:
++    for item in _published_baselines():
++        if excluded_id and item["id"] == excluded_id:
++            continue
++        return item
++    return None
+ 
+ 
+ def _to_baseline_response(item: dict[str, Any]) -> BaselineResponse:
+@@ -638,7 +644,7 @@ async def disable_baseline(baseline_id: str) -> BaselineResponse:
+     item["status"] = "disabled"
+     item["updated_at"] = _now()
+     if _SETTINGS_STORE.get("active_baseline_id", {}).get("value") == baseline_id:
+-        next_active = _resolve_active_baseline_item()
++        next_active = _resolve_next_active_baseline_item(excluded_id=baseline_id)
+         _SETTINGS_STORE["active_baseline_id"]["value"] = (
+             str(next_active["id"]) if next_active else ""
+         )
+diff --git a/apps/server/src/api/dashboard.py b/apps/server/src/api/dashboard.py
+index a1f1092..2d28432 100644
+--- a/apps/server/src/api/dashboard.py
++++ b/apps/server/src/api/dashboard.py
+@@ -58,12 +58,7 @@ def _resolve_active_baseline() -> dict[str, Any] | None:
+         item = _BASELINE_STORE.get(active_baseline_id)
+         if item:
+             return item
+-
+-    published = [item for item in _BASELINE_STORE.values() if item["status"] == "published"]
+-    if not published:
+-        return None
+-    published.sort(key=lambda item: item["published_at"] or item["updated_at"], reverse=True)
+-    return published[0]
++    return None
+ 
+ 
+ def _resolve_dashboard_sources() -> dict[str, str | None]:
+diff --git a/apps/server/src/api/settings.py b/apps/server/src/api/settings.py
+index 2d46bd0..f89d1af 100644
+--- a/apps/server/src/api/settings.py
++++ b/apps/server/src/api/settings.py
+@@ -434,6 +434,53 @@ def get_edc_connection_config() -> dict[str, str]:
+     }
+ 
+ 
++def _normalize_connection_identity(config: dict[str, str]) -> tuple[str, str, str]:
++    return (
++        config["base_url"].strip().rstrip("/"),
++        config["username"].strip(),
++        config["password"].strip(),
++    )
++
++
++def _build_disconnected_host_connectivity_status(source: str) -> dict[str, object]:
++    return {
++        "is_connected": False,
++        "machine_name": "--",
++        "last_sync_label": "--",
++        "meta": {
++            "source": source or "--",
++            "sensor_count": 0,
++            "channel_count": 0,
++            "enabled_channel_count": 0,
++        },
++    }
++
++
++def _clear_source_bound_definition_channels() -> bool:
++    from . import baseline_definitions as baseline_definitions_api
++
++    cleared = False
++    for definition in baseline_definitions_api._DEFINITION_STORE.values():
++        for metric in list(definition.get("metrics", [])):
++            if metric.get("edc_channel_id") is None:
++                continue
++            metric["edc_channel_id"] = None
++            cleared = True
++    return cleared
++
++
++def _reset_source_dependent_runtime_state(source: str) -> None:
++    global _HOST_CHANNEL_LAST_SYNC_AT
++
++    _HOST_CHANNEL_STORE.clear()
++    _HOST_CHANNEL_CATALOG_CACHE.clear()
++    _HOST_CHANNEL_LAST_SYNC_AT = None
++    _HOST_CONNECTIVITY_STATUS.clear()
++    _HOST_CONNECTIVITY_STATUS.update(_build_disconnected_host_connectivity_status(source))
++    _SETTINGS_STORE["active_baseline_id"]["value"] = ""
++    _clear_source_bound_definition_channels()
++
++
+ def _invalidate_compare_runtime_caches() -> None:
+     from .heats import invalidate_compare_runtime_caches
+ 
+@@ -517,21 +564,48 @@ async def update_edc_connection(data: EDCConnectionRequest, request: Request) ->
+     """更新 EDC 连接配置。"""
+     global _HOST_CHANNEL_LAST_SYNC_AT
+     _assert_host_sync_request(request)
++    previous_config = get_edc_connection_config()
++    next_config = {
++        "base_url": data.base_url.strip(),
++        "username": (
++            data.username.strip() if data.username is not None else previous_config["username"]
++        ),
++        "password": (
++            data.password.strip() if data.password is not None else previous_config["password"]
++        ),
++    }
++    source_changed = _normalize_connection_identity(previous_config) != _normalize_connection_identity(
++        next_config
++    )
+     _SETTINGS_STORE["edc_base_url"]["value"] = data.base_url
+     if data.username is not None:
+         _SETTINGS_STORE["edc_username"]["value"] = data.username
+     if data.password is not None:
+         _SETTINGS_STORE["edc_password"]["value"] = data.password
+     _SETTINGS_STORE["edc_api_key"]["value"] = data.api_key or ""
+-    _HOST_CHANNEL_CATALOG_CACHE.clear()
+-    _HOST_CHANNEL_LAST_SYNC_AT = None
+-    _invalidate_compare_runtime_caches()
+-    await persist_runtime_state(
++    sections_to_persist = {
+         "settings_store",
+         "host_channel_catalog",
+         "host_channel_last_sync_at",
+-    )
+-    return MessageResponse(message="EDC 连接配置已更新", success=True)
++    }
++    if source_changed:
++        _reset_source_dependent_runtime_state(next_config["base_url"])
++        sections_to_persist.update(
++            {
++                "host_channels",
++                "host_connectivity_status",
++                "baseline_definitions",
++            }
++        )
++    else:
++        _HOST_CHANNEL_CATALOG_CACHE.clear()
++        _HOST_CHANNEL_LAST_SYNC_AT = None
++    _invalidate_compare_runtime_caches()
++    await persist_runtime_state(*sections_to_persist)
++    message = "EDC 连接配置已更新"
++    if source_changed:
++        message = "EDC 连接配置已更新，旧来源绑定已清空"
++    return MessageResponse(message=message, success=True)
+ 
+ 
+ @router.post("/edc-connection/test", response_model=MessageResponse)
+diff --git a/apps/server/tests/test_tasks_reports_settings_api.py b/apps/server/tests/test_tasks_reports_settings_api.py
+index e963867..b9dd0c1 100644
+--- a/apps/server/tests/test_tasks_reports_settings_api.py
++++ b/apps/server/tests/test_tasks_reports_settings_api.py
+@@ -4,7 +4,9 @@ import datetime as dt
+ 
+ import pytest
+ 
++from src.api.baseline_definitions import _DEFINITION_STORE
+ from src.api.heats import _COMPARE_BASELINE_CACHE, _COMPARE_CHANNEL_CURVE_CACHE, _HEAT_COMPARE_CACHE
++from src.api.settings import _HOST_CHANNEL_CATALOG_CACHE, _HOST_CHANNEL_STORE, _SETTINGS_STORE
+ from src.services import EDCClient
+ 
+ HOST_SYNC_HEADERS = {"X-ASNS-Host-Sync": "true"}
+@@ -168,15 +170,16 @@ async def test_settings_get_and_update(client, monkeypatch) -> None:
+ 
+     runtime_resp = await client.get("/api/settings/runtime-status")
+     assert runtime_resp.status_code == 200
+-    assert runtime_resp.json()["overall_code"] == "ready"
++    assert runtime_resp.json()["overall_code"] == "no_enabled_channels"
+     assert runtime_resp.json()["runtime"]["showtime_enabled"] is False
+-    assert runtime_resp.json()["pipelines"]["heats"]["code"] == "ready"
+-    assert runtime_resp.json()["pipelines"]["inbox"]["code"] == "ready"
+-    assert runtime_resp.json()["pipelines"]["tasks"]["code"] == "ready"
+-    assert runtime_resp.json()["pipelines"]["reports"]["code"] == "ready"
+-    assert runtime_resp.json()["pipelines"]["baselines"]["code"] == "ready"
++    assert runtime_resp.json()["pipelines"]["dashboard"]["code"] == "no_enabled_channels"
++    assert runtime_resp.json()["pipelines"]["heats"]["code"] == "no_enabled_channels"
++    assert runtime_resp.json()["pipelines"]["inbox"]["code"] == "no_enabled_channels"
++    assert runtime_resp.json()["pipelines"]["tasks"]["code"] == "no_enabled_channels"
++    assert runtime_resp.json()["pipelines"]["reports"]["code"] == "no_enabled_channels"
++    assert runtime_resp.json()["pipelines"]["baselines"]["code"] == "no_enabled_channels"
+     assert runtime_resp.json()["pipelines"]["settings"]["code"] == "ready"
+-    assert runtime_resp.json()["active_baseline"]["id"] == "baseline-001"
++    assert runtime_resp.json()["active_baseline"]["id"] is None
+ 
+     runtime_showtime_resp = await client.get("/api/settings/runtime-status", params={"showtime": "true"})
+     assert runtime_showtime_resp.status_code == 200
+@@ -291,3 +294,96 @@ async def test_settings_connection_and_host_channels_invalidate_compare_caches(c
+     assert _HEAT_COMPARE_CACHE["entries"] == {}
+     assert _COMPARE_BASELINE_CACHE["entries"] == {}
+     assert _COMPARE_CHANNEL_CURVE_CACHE["entries"] == {}
++
++
++@pytest.mark.asyncio
++async def test_switching_edc_source_clears_source_bound_runtime_state(client) -> None:
++    _HOST_CHANNEL_STORE.clear()
++    _HOST_CHANNEL_STORE.extend(
++        [
++            {
++                "id": "sensor-9-128",
++                "device_name": "测试设备 · 三相智能电表",
++                "device_type": "三相智能电表",
++                "area": "测试区域",
++                "suid": "sensor-9",
++                "cuid": "128",
++                "channel_name": "B相电压",
++                "unit": "V",
++                "last_value": "226.8",
++                "status": "online",
++            }
++        ]
++    )
++    _HOST_CHANNEL_CATALOG_CACHE.clear()
++    _HOST_CHANNEL_CATALOG_CACHE.extend([item.copy() for item in _HOST_CHANNEL_STORE])
++    _SETTINGS_STORE["active_baseline_id"]["value"] = "baseline-001"
++    _DEFINITION_STORE["def-001"]["metrics"][0]["edc_channel_id"] = "sensor-9-128"
++
++    response = await client.put(
++        "/api/settings/edc-connection",
++        json={
++            "base_url": "http://61.216.55.133",
++            "username": "admin",
++            "password": "admin",
++        },
++        headers=HOST_SYNC_HEADERS,
++    )
++    assert response.status_code == 200
++    assert response.json()["message"] == "EDC 连接配置已更新，旧来源绑定已清空"
++    assert _HOST_CHANNEL_STORE == []
++    assert _HOST_CHANNEL_CATALOG_CACHE == []
++    assert _SETTINGS_STORE["active_baseline_id"]["value"] == ""
++    assert _DEFINITION_STORE["def-001"]["metrics"][0]["edc_channel_id"] is None
++
++    host_status_resp = await client.get("/api/settings/host-connectivity-status")
++    assert host_status_resp.status_code == 200
++    payload = host_status_resp.json()
++    assert payload["is_connected"] is False
++    assert payload["meta"]["source"] == "http://61.216.55.133"
++    assert payload["meta"]["enabled_channel_count"] == 0
++
++
++@pytest.mark.asyncio
++async def test_updating_same_edc_source_keeps_existing_host_channels(client) -> None:
++    _HOST_CHANNEL_STORE.clear()
++    _HOST_CHANNEL_STORE.extend(
++        [
++            {
++                "id": "sensor-9-128",
++                "device_name": "测试设备 · 三相智能电表",
++                "device_type": "三相智能电表",
++                "area": "测试区域",
++                "suid": "sensor-9",
++                "cuid": "128",
++                "channel_name": "B相电压",
++                "unit": "V",
++                "last_value": "226.8",
++                "status": "online",
++            }
++        ]
++    )
++    _HOST_CHANNEL_CATALOG_CACHE.clear()
++    _HOST_CHANNEL_CATALOG_CACHE.extend([item.copy() for item in _HOST_CHANNEL_STORE])
++    _SETTINGS_STORE["edc_base_url"]["value"] = "http://61.216.55.133"
++    _SETTINGS_STORE["edc_username"]["value"] = "admin"
++    _SETTINGS_STORE["edc_password"]["value"] = "admin"
++    _SETTINGS_STORE["active_baseline_id"]["value"] = "baseline-001"
++    _DEFINITION_STORE["def-001"]["metrics"][0]["edc_channel_id"] = "sensor-9-128"
++
++    response = await client.put(
++        "/api/settings/edc-connection",
++        json={
++            "base_url": "http://61.216.55.133",
++            "username": "admin",
++            "password": "admin",
++        },
++        headers=HOST_SYNC_HEADERS,
++    )
++    assert response.status_code == 200
++    assert response.json()["message"] == "EDC 连接配置已更新"
++    assert len(_HOST_CHANNEL_STORE) == 1
++    assert _HOST_CHANNEL_STORE[0]["id"] == "sensor-9-128"
++    assert _HOST_CHANNEL_CATALOG_CACHE == []
++    assert _SETTINGS_STORE["active_baseline_id"]["value"] == "baseline-001"
++    assert _DEFINITION_STORE["def-001"]["metrics"][0]["edc_channel_id"] == "sensor-9-128"
+diff --git a/apps/web/src/locales/en-US.json b/apps/web/src/locales/en-US.json
+index 1df97b5..a5358c3 100644
+--- a/apps/web/src/locales/en-US.json
++++ b/apps/web/src/locales/en-US.json
+@@ -105,6 +105,7 @@
+       "percent": "%"
+     },
+     "baselineStatusNormal": "Normal",
++    "baselineStatusPending": "Reconfigure Required",
+     "trendFromYesterday": "vs yesterday",
+     "realtimeSubtitleTimestamp": "Data Time {timestamp}",
+     "realtimeSubtitleBaseline": "Baseline {baseline}",
+diff --git a/apps/web/src/locales/ja-JP.json b/apps/web/src/locales/ja-JP.json
+index a5d364b..54411c6 100644
+--- a/apps/web/src/locales/ja-JP.json
++++ b/apps/web/src/locales/ja-JP.json
+@@ -105,6 +105,7 @@
+       "percent": "%"
+     },
+     "baselineStatusNormal": "正常",
++    "baselineStatusPending": "再設定待ち",
+     "trendFromYesterday": "前日比",
+     "realtimeSubtitleTimestamp": "データ時刻 {timestamp}",
+     "realtimeSubtitleBaseline": "比較基線 {baseline}",
+diff --git a/apps/web/src/locales/zh-CN.json b/apps/web/src/locales/zh-CN.json
+index d812606..a5dd0f2 100644
+--- a/apps/web/src/locales/zh-CN.json
++++ b/apps/web/src/locales/zh-CN.json
+@@ -105,6 +105,7 @@
+       "percent": "%"
+     },
+     "baselineStatusNormal": "正常",
++    "baselineStatusPending": "待重新配置",
+     "trendFromYesterday": "较昨日",
+     "realtimeSubtitleTimestamp": "数据时间 {timestamp}",
+     "realtimeSubtitleBaseline": "对比基线 {baseline}",
+diff --git a/apps/web/src/locales/zh-TW.json b/apps/web/src/locales/zh-TW.json
+index 370f0b1..93e37b8 100644
+--- a/apps/web/src/locales/zh-TW.json
++++ b/apps/web/src/locales/zh-TW.json
+@@ -105,6 +105,7 @@
+       "percent": "%"
+     },
+     "baselineStatusNormal": "正常",
++    "baselineStatusPending": "待重新配置",
+     "trendFromYesterday": "較昨日",
+     "realtimeSubtitleTimestamp": "資料時間 {timestamp}",
+     "realtimeSubtitleBaseline": "對比基線 {baseline}",
+diff --git a/apps/web/src/views/DashboardView.vue b/apps/web/src/views/DashboardView.vue
+index 0fb51f7..942e321 100644
+--- a/apps/web/src/views/DashboardView.vue
++++ b/apps/web/src/views/DashboardView.vue
+@@ -67,15 +67,15 @@ const stats = computed(() => [
+     icon: 'assignment',
+     accentColor: 'green' as const,
+   },
+-  {
+-    id: 4,
+-    title: t('dashboard.baselineStatus'),
+-    value:
+-      statsPending.value || statsUnavailable.value
+-        ? '--'
+-        : dashboardStore.stats.activeBaseline || t('dashboard.baselineStatusNormal'),
+-    unit: '',
+-    trend: 0,
++      {
++        id: 4,
++        title: t('dashboard.baselineStatus'),
++        value:
++          statsPending.value || statsUnavailable.value
++            ? '--'
++            : dashboardStore.stats.activeBaseline || t('dashboard.baselineStatusPending'),
++        unit: '',
++        trend: 0,
+     description:
+       statsUnavailable.value
+         ? t('dashboard.statsLoadFailedHint')
+diff --git a/docs/DEPLOYMENT.md b/docs/DEPLOYMENT.md
+index 6929de3..6c57239 100644
+--- a/docs/DEPLOYMENT.md
++++ b/docs/DEPLOYMENT.md
+@@ -139,6 +139,21 @@ VITE_ASNS_EDC_APP_URL=/edc/
+ VITE_ASNS_APP_API_BASE=/api
+ ```
+ 
++- 这不是“建议项”，而是后续构建回归必须检查的硬项。
++  - 如果 ASNS 要挂在 `/asns/` 子路径下，构建产物里的资源路径必须是 `/asns/assets/...`，不能回退成根路径 `/assets/...`
++  - 一旦回退成 `/assets/...`，公网 `https://<host>/asns/` 会出现白屏，因为浏览器会去站点根路径抓 JS/CSS 并收到 `404`
++  - 因此每次 ASNS 构建 / 发布后，至少要补做以下回归检查：
++
++```bash
++curl -s https://<host>/asns/ | rg '/asns/assets/'
++curl -I https://<host>/asns/assets/<entry>.js
++```
++
++  - 判定标准：
++    - `/asns/` 返回的 HTML 中必须引用 `/asns/assets/...`
++    - 对应 JS/CSS 资源必须返回 `200`
++  - 当前仓库这一点的已知回归案例：曾因构建产物引用 `/assets/...`，导致 `/asns/` 白屏；后续发布不得跳过这条检查
++
+ - 若使用 `npm start` / `node server.mjs`，运行时 `ASNS_BASE_PATH` 取决于反向代理是否剥离前缀：
+ 
+ 1. 如果反向代理会把 `/asns/` 剥掉后再转发到 `3001`
+diff --git "a/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/App.tsx" "b/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/App.tsx"
+index c23c21b..0ee42f1 100644
+--- "a/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/App.tsx"
++++ "b/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/App.tsx"
+@@ -21,9 +21,10 @@ import {
+   type PersistedConnectionState,
+ } from './hostConnectivityState';
+ import {
++  appApiBase,
+   buildDisconnectedConnectionState,
+   callHostApi,
+-  reconcileAddedChannelIds,
++  normalizeSourceIdentity,
+   syncSelectionToBackend,
+ } from './hostConnectivitySync';
+ import HostSettingsView from './SettingsView';
+@@ -675,6 +676,38 @@ function resolveEmbeddedEdcUrl(): string {
+     (typeof window !== 'undefined' ? new URL('/edc/', window.location.origin).toString() : '/edc/')
+   );
+ }
++
++async function fetchPersistedEdcConfig(): Promise<Config | null> {
++  try {
++    const response = await fetch(`${appApiBase}/settings`);
++    if (!response.ok) {
++      return null;
++    }
++
++    const payload = (await response.json()) as {
++      items?: Array<{ key?: string; value?: string | null }>
++    };
++    const entries = new Map(
++      (payload.items || [])
++        .filter((item): item is { key: string; value?: string | null } => typeof item.key === 'string')
++        .map((item) => [item.key, typeof item.value === 'string' ? item.value : '']),
++    );
++    const endpoint = (entries.get('edc_base_url') || '').trim();
++    const username = (entries.get('edc_username') || '').trim();
++    const password = entries.get('edc_password') || '';
++    if (!endpoint) {
++      return null;
++    }
++
++    return {
++      endpoint,
++      username,
++      password,
++    };
++  } catch {
++    return null;
++  }
++}
+   
+ export default function App() {  
+   // 核心狀態  
+@@ -690,9 +723,9 @@ export default function App() {
+     
+   // EDC API 配置狀態  
+   const [config, setConfig] = useState<Config>({  
+-    endpoint: 'http://60.251.229.32',
+-    username: 'volapu',
+-    password: 'admin',
++    endpoint: '',
++    username: '',
++    password: '',
+   });  
+   
+   // 感測器清單 (落實 Nickname 優先邏輯)  
+@@ -721,28 +754,35 @@ export default function App() {
+ 
+     const bootstrap = async () => {
+       try {
++        const persistedConfig = await fetchPersistedEdcConfig();
+         const restored = restoreHostConnectivityDraft(
+           window.localStorage.getItem(hostSettingsStorageKey),
+           edcChannelSnapshot.map((item) => item.id),
+           fallbackConnection,
+         );
+-        if (!restored) {
++        if (!restored && !persistedConfig) {
+           return;
+         }
+-        if (restored.config) {
+-          setConfig(restored.config);
++        const effectiveConfig = restored?.config || persistedConfig;
++        if (effectiveConfig) {
++          setConfig(effectiveConfig);
+         }
+-        if (restored.connection) {
++        if (restored?.connection) {
+           setIsConnected(restored.connection.isConnected);
+         }
+-        if (!restored.config) {
++        if (!restored || !restored.config) {
+           return;
+         }
+ 
+-        const restoredChannelIds = reconcileAddedChannelIds(restored.addedChannelIds, edcChannelSnapshot);
+-        const selectedChannels = restoredChannelIds
+-          .map((channelId) => edcChannelSnapshot.find((item) => item.id === channelId))
+-          .filter((item): item is (typeof edcChannelSnapshot)[number] => Boolean(item));
++        const selectedChannels =
++          restored.addedChannels.length > 0
++            ? restored.addedChannels
++            : restored.channelCatalogSource === normalizeSourceIdentity(edcSnapshotMeta.source)
++              ? restored.addedChannelIds
++                  .map((channelId) => edcChannelSnapshot.find((item) => item.id === channelId))
++                  .filter((item): item is (typeof edcChannelSnapshot)[number] => Boolean(item))
++              : [];
++        const restoredChannelIds = selectedChannels.map((item) => item.id);
+ 
+         const { response, data } = await callHostApi('/host-api/edc/test-connection', restored.config);
+         const connectionState =
+@@ -762,6 +802,8 @@ export default function App() {
+             buildHostConnectivityDraft({
+               config: restored.config,
+               addedChannelIds: restoredChannelIds,
++              addedChannels: selectedChannels,
++              channelCatalogSource: restored.channelCatalogSource,
+               savedAt: new Date().toISOString(),
+               connection: connectionState,
+             }),
+diff --git "a/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/SettingsView.tsx" "b/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/SettingsView.tsx"
+index d038ae9..04036f2 100644
+--- "a/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/SettingsView.tsx"
++++ "b/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/SettingsView.tsx"
+@@ -26,7 +26,8 @@ import {
+ import {
+   buildDisconnectedConnectionState,
+   callHostApi,
+-  getDefaultAddedChannelIds,
++  hasSourceIdentityChanged,
++  normalizeSourceIdentity,
+   reconcileAddedChannelIds,
+   syncSelectionToBackend,
+   type HostChannelMappingItem,
+@@ -48,16 +49,17 @@ export interface SettingsViewProps {
+ 
+ type ChannelMappingItem = HostChannelMappingItem;
+ 
+-const initialCatalog: ChannelMappingItem[] = [...edcChannelSnapshot];
+-const defaultAddedChannelIds = getDefaultAddedChannelIds(initialCatalog);
++const snapshotCatalogSource = normalizeSourceIdentity(edcSnapshotMeta.source);
+ 
+ export default function SettingsView({ config, setConfig, t, isConnected, setIsConnected }: SettingsViewProps) {
+   const [loading, setLoading] = useState(false);
+   const [syncing, setSyncing] = useState(false);
+   const [query, setQuery] = useState('');
+   const [expandedDevices, setExpandedDevices] = useState<Record<string, boolean>>({});
+-  const [channelCatalog, setChannelCatalog] = useState<ChannelMappingItem[]>(initialCatalog);
+-  const [addedChannelIds, setAddedChannelIds] = useState<string[]>(defaultAddedChannelIds);
++  const [channelCatalog, setChannelCatalog] = useState<ChannelMappingItem[]>([]);
++  const [addedChannelIds, setAddedChannelIds] = useState<string[]>([]);
++  const [channelCatalogSource, setChannelCatalogSource] = useState<string | null>(null);
++  const [lastAppliedConfig, setLastAppliedConfig] = useState<SettingsViewConfig | null>(config);
+   const [statusMessage, setStatusMessage] = useState('');
+   const [saveFeedback, setSaveFeedback] = useState('');
+   const [machineName, setMachineName] = useState('EDC Test Gateway');
+@@ -71,6 +73,19 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
+     meta,
+   });
+ 
++  const applyConnectionState = (connection: PersistedConnectionState) => {
++    setIsConnected(connection.isConnected);
++    setMachineName(connection.machineName);
++    setLastSyncLabel(connection.lastSyncLabel);
++    setMeta(connection.meta);
++  };
++
++  const clearSourceScopedSelection = () => {
++    setChannelCatalog([]);
++    setAddedChannelIds([]);
++    setChannelCatalogSource(null);
++  };
++
+   const filteredChannels = useMemo(() => {
+     const normalized = query.trim().toLowerCase();
+     if (!normalized) {
+@@ -131,7 +146,7 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
+     try {
+       const restored = restoreHostConnectivityDraft(
+         window.localStorage.getItem(hostSettingsStorageKey),
+-        initialCatalog.map((item) => item.id),
++        edcChannelSnapshot.map((item) => item.id),
+         {
+           isConnected: false,
+           machineName: 'EDC Test Gateway',
+@@ -144,13 +159,19 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
+       }
+       if (restored.config) {
+         setConfig(restored.config);
++        setLastAppliedConfig(restored.config);
+       }
+-      setAddedChannelIds(reconcileAddedChannelIds(restored.addedChannelIds, initialCatalog));
++      const restoredCatalog =
++        restored.addedChannels.length > 0
++          ? restored.addedChannels
++          : restored.channelCatalogSource === snapshotCatalogSource
++            ? edcChannelSnapshot.filter((item) => restored.addedChannelIds.includes(item.id))
++            : [];
++      setChannelCatalog(restoredCatalog);
++      setChannelCatalogSource(restored.channelCatalogSource);
++      setAddedChannelIds(restored.addedChannelIds);
+       if (restored.connection) {
+-        setIsConnected(restored.connection.isConnected);
+-        setMachineName(restored.connection.machineName);
+-        setLastSyncLabel(restored.connection.lastSyncLabel);
+-        setMeta(restored.connection.meta);
++        applyConnectionState(restored.connection);
+       }
+       if (typeof restored.savedAt === 'string') {
+         setStatusMessage(`${t('draftRestored')} ${formatCheckedAt(restored.savedAt)}`);
+@@ -206,7 +227,13 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
+     return nextAddedChannelIds;
+   };
+ 
+-  const writeDraft = (savedAt: string, connection: PersistedConnectionState) => {
++  const writeDraft = (
++    savedAt: string,
++    connection: PersistedConnectionState,
++    channelIds = addedChannelIds,
++    catalog = channelCatalog,
++    catalogSource = channelCatalogSource,
++  ) => {
+     if (typeof window === 'undefined') {
+       return;
+     }
+@@ -215,7 +242,11 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
+       JSON.stringify(
+         buildHostConnectivityDraft({
+           config,
+-          addedChannelIds,
++          addedChannelIds: channelIds,
++          addedChannels: channelIds
++            .map((channelId) => catalog.find((item) => item.id === channelId))
++            .filter((item): item is ChannelMappingItem => Boolean(item)),
++          channelCatalogSource: catalogSource,
+           savedAt,
+           connection,
+         }),
+@@ -223,12 +254,18 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
+     );
+   };
+ 
+-  const persistDraft = (mode: 'draft' | 'apply', connection = currentConnectionState()) => {
++  const persistDraft = (
++    mode: 'draft' | 'apply',
++    connection = currentConnectionState(),
++    channelIds = addedChannelIds,
++    catalog = channelCatalog,
++    catalogSource = channelCatalogSource,
++  ) => {
+     if (typeof window === 'undefined') {
+       return;
+     }
+     const savedAt = new Date().toISOString();
+-    writeDraft(savedAt, connection);
++    writeDraft(savedAt, connection, channelIds, catalog, catalogSource);
+     const message =
+       mode === 'draft'
+         ? `${t('draftSaved')} ${formatCheckedAt(savedAt)}`
+@@ -237,8 +274,13 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
+     setSaveFeedback(message);
+   };
+ 
+-  const persistConnectionState = (connection: PersistedConnectionState) => {
+-    writeDraft(new Date().toISOString(), connection);
++  const persistConnectionState = (
++    connection: PersistedConnectionState,
++    channelIds = addedChannelIds,
++    catalog = channelCatalog,
++    catalogSource = channelCatalogSource,
++  ) => {
++    writeDraft(new Date().toISOString(), connection, channelIds, catalog, catalogSource);
+   };
+ 
+   const syncCurrentSelectionToBackend = async (
+@@ -262,8 +304,25 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
+       return;
+     }
+ 
++    const sourceSwitched = hasSourceIdentityChanged(lastAppliedConfig, config);
++    const nextConnection = sourceSwitched
++      ? buildDisconnectedConnectionState(config.endpoint)
++      : currentConnectionState();
++    const nextCatalog = sourceSwitched ? [] : channelCatalog;
++    const nextChannelIds = sourceSwitched ? [] : addedChannelIds;
++    const nextCatalogSource = sourceSwitched ? null : channelCatalogSource;
++
++    if (sourceSwitched) {
++      applyConnectionState(nextConnection);
++      clearSourceScopedSelection();
++    }
++
+     try {
+-      await syncCurrentSelectionToBackend(addedChannelIds, channelCatalog, currentConnectionState());
++      await syncCurrentSelectionToBackend(nextChannelIds, nextCatalog, nextConnection);
++      persistConnectionState(nextConnection, nextChannelIds, nextCatalog, nextCatalogSource);
++      if (sourceSwitched) {
++        setLastAppliedConfig(config);
++      }
+       const savedAt = new Date().toISOString();
+       const message = `${t('settingsAppliedMessage')} ${formatCheckedAt(savedAt)}`;
+       setStatusMessage(message);
+@@ -277,6 +336,7 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
+ 
+   const handleConnect = async () => {
+     setLoading(true);
++    const sourceSwitched = hasSourceIdentityChanged(lastAppliedConfig, config);
+     try {
+       const { response, data } = await callHostApi('/host-api/edc/test-connection', config);
+       if (!response.ok || !data.ok) {
+@@ -288,26 +348,36 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
+         lastSyncLabel: formatCheckedAt(data.checkedAt),
+         meta: data.meta,
+       };
+-      setIsConnected(true);
+-      setMachineName(connectedState.machineName);
+-      setMeta(connectedState.meta);
+-      setLastSyncLabel(connectedState.lastSyncLabel);
+-      await syncCurrentSelectionToBackend(addedChannelIds, channelCatalog, connectedState);
++      applyConnectionState(connectedState);
++      const nextCatalog = sourceSwitched ? [] : channelCatalog;
++      const nextChannelIds = sourceSwitched ? [] : addedChannelIds;
++      const nextCatalogSource = sourceSwitched ? null : channelCatalogSource;
++      if (sourceSwitched) {
++        clearSourceScopedSelection();
++      }
++      await syncCurrentSelectionToBackend(nextChannelIds, nextCatalog, connectedState);
+       setStatusMessage(data.message || t('testSuccess'));
+-      persistConnectionState(connectedState);
++      persistConnectionState(connectedState, nextChannelIds, nextCatalog, nextCatalogSource);
++      setLastAppliedConfig(config);
+     } catch (error) {
+       const disconnectedState = buildDisconnectedConnectionState(config.endpoint);
+-      setIsConnected(false);
+-      setMachineName(disconnectedState.machineName);
+-      setMeta(disconnectedState.meta);
+-      setLastSyncLabel(disconnectedState.lastSyncLabel);
++      applyConnectionState(disconnectedState);
++      const nextCatalog = sourceSwitched ? [] : channelCatalog;
++      const nextChannelIds = sourceSwitched ? [] : addedChannelIds;
++      const nextCatalogSource = sourceSwitched ? null : channelCatalogSource;
++      if (sourceSwitched) {
++        clearSourceScopedSelection();
++      }
+       setStatusMessage(error instanceof Error ? error.message : t('testFailed'));
+       try {
+-        await syncCurrentSelectionToBackend(addedChannelIds, channelCatalog, disconnectedState);
++        await syncCurrentSelectionToBackend(nextChannelIds, nextCatalog, disconnectedState);
+       } catch {
+         // 连接校验失败时，后端断线摘要尽量同步；失败则保留原始提示。
+       }
+-      persistConnectionState(disconnectedState);
++      persistConnectionState(disconnectedState, nextChannelIds, nextCatalog, nextCatalogSource);
++      if (sourceSwitched) {
++        setLastAppliedConfig(config);
++      }
+     } finally {
+       setLoading(false);
+     }
+@@ -315,6 +385,7 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
+ 
+   const handleSyncChannels = async () => {
+     setSyncing(true);
++    const sourceSwitched = hasSourceIdentityChanged(lastAppliedConfig, config);
+     try {
+       const { response, data } = await callHostApi('/host-api/edc/sync-channels', config);
+       if (!response.ok || !data.ok || !data.channels) {
+@@ -326,15 +397,18 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
+         lastSyncLabel: formatCheckedAt(data.checkedAt),
+         meta: data.meta,
+       };
+-      setIsConnected(true);
+-      setMachineName(connectedState.machineName);
+-      setMeta(connectedState.meta);
+-      setLastSyncLabel(connectedState.lastSyncLabel);
++      applyConnectionState(connectedState);
++      const nextCatalogSource = normalizeSourceIdentity(connectedState.meta.source || config.endpoint);
+       setChannelCatalog(data.channels);
+-      const nextAddedChannelIds = syncAddedChannelsWithCatalog(data.channels);
++      setChannelCatalogSource(nextCatalogSource);
++      const nextAddedChannelIds = sourceSwitched ? [] : syncAddedChannelsWithCatalog(data.channels);
++      if (sourceSwitched) {
++        setAddedChannelIds([]);
++      }
+       await syncCurrentSelectionToBackend(nextAddedChannelIds, data.channels, connectedState);
+       setStatusMessage(data.message || t('syncSuccess'));
+-      persistConnectionState(connectedState);
++      persistConnectionState(connectedState, nextAddedChannelIds, data.channels, nextCatalogSource);
++      setLastAppliedConfig(config);
+     } catch (error) {
+       setStatusMessage(error instanceof Error ? error.message : t('syncFailed'));
+     } finally {
+diff --git "a/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivityState.test.ts" "b/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivityState.test.ts"
+index 481faa8..85620cc 100644
+--- "a/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivityState.test.ts"
++++ "b/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivityState.test.ts"
+@@ -48,6 +48,21 @@ test('restoreHostConnectivityDraft keeps connected session metadata and filters
+         password: 'admin',
+       },
+       addedChannelIds: ['channel-001', 'channel-001', 'channel-999'],
++      addedChannels: [
++        {
++          id: 'channel-001',
++          deviceName: '电表 A',
++          deviceType: '三相智能电表',
++          area: '主电力',
++          suid: '2349',
++          cuid: '199',
++          channelName: '总有功功率',
++          unit: 'kW',
++          lastValue: '--',
++          status: 'online',
++        },
++      ],
++      channelCatalogSource: 'http://60.251.229.32',
+       savedAt: '2026-03-19T08:00:00.000Z',
+       connection: {
+         isConnected: true,
+@@ -76,6 +91,21 @@ test('restoreHostConnectivityDraft keeps connected session metadata and filters
+     password: 'admin',
+   });
+   assert.deepEqual(restored.addedChannelIds, ['channel-001']);
++  assert.deepEqual(restored.addedChannels, [
++    {
++      id: 'channel-001',
++      deviceName: '电表 A',
++      deviceType: '三相智能电表',
++      area: '主电力',
++      suid: '2349',
++      cuid: '199',
++      channelName: '总有功功率',
++      unit: 'kW',
++      lastValue: '--',
++      status: 'online',
++    },
++  ]);
++  assert.equal(restored.channelCatalogSource, 'http://60.251.229.32');
+   assert.equal(restored.savedAt, '2026-03-19T08:00:00.000Z');
+   assert.equal(restored.connection?.isConnected, true);
+   assert.equal(restored.connection?.machineName, 'EDC Line A');
+@@ -123,6 +153,40 @@ test('restoreHostConnectivityDraft falls back safely when connection payload is
+   });
+ });
+ 
++test('restoreHostConnectivityDraft drops legacy channel selections without a matching catalog source', () => {
++  const raw = JSON.stringify({
++    config: {
++      endpoint: 'http://61.216.55.133',
++      username: 'admin',
++      password: 'admin',
++    },
++    addedChannelIds: ['2349-199', '2349-128'],
++    savedAt: '2026-03-27T08:00:00.000Z',
++    connection: {
++      isConnected: true,
++      machineName: 'EDC Gateway',
++      lastSyncLabel: '2026-03-27 16:00',
++      meta: {
++        source: 'http://61.216.55.133',
++        sensorCount: 3,
++        channelCount: 788,
++        enabledChannelCount: 739,
++      },
++    },
++  });
++
++  const restored = restoreHostConnectivityDraft(
++    raw,
++    ['2349-199', '2349-128'],
++    fallbackConnection,
++  );
++
++  assert.ok(restored);
++  assert.deepEqual(restored.addedChannelIds, []);
++  assert.deepEqual(restored.addedChannels, []);
++  assert.equal(restored.channelCatalogSource, null);
++});
++
+ test('getDefaultAddedChannelIds prefers realtime power and voltage channels over the snapshot head', () => {
+   const channelIds = getDefaultAddedChannelIds([
+     {
+diff --git "a/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivityState.ts" "b/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivityState.ts"
+index 0033d38..6394e90 100644
+--- "a/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivityState.ts"
++++ "b/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivityState.ts"
+@@ -18,9 +18,24 @@ export interface PersistedConnectionState {
+   meta: HostEdcMeta;
+ }
+ 
++export interface PersistedHostChannelDraftItem {
++  id: string;
++  deviceName: string;
++  deviceType: string;
++  area: string;
++  suid: string;
++  cuid: string;
++  channelName: string;
++  unit: string;
++  lastValue: string;
++  status: 'online' | 'idle';
++}
++
+ export interface HostConnectivityDraft {
+   config: HostConnectivityConfig;
+   addedChannelIds: string[];
++  addedChannels?: PersistedHostChannelDraftItem[];
++  channelCatalogSource?: string | null;
+   savedAt: string;
+   connection?: PersistedConnectionState | null;
+ }
+@@ -28,6 +43,8 @@ export interface HostConnectivityDraft {
+ export interface RestoredHostConnectivityDraft {
+   config: HostConnectivityConfig | null;
+   addedChannelIds: string[];
++  addedChannels: PersistedHostChannelDraftItem[];
++  channelCatalogSource: string | null;
+   savedAt: string | null;
+   connection: PersistedConnectionState | null;
+ }
+@@ -43,6 +60,58 @@ function isNonEmptyString(value: unknown): value is string {
+   return typeof value === 'string' && value.trim().length > 0;
+ }
+ 
++function normalizeSourceValue(value: string): string {
++  return value.trim().replace(/\/+$/, '');
++}
++
++function normalizeDraftChannel(value: unknown): PersistedHostChannelDraftItem | null {
++  if (!value || typeof value !== 'object') {
++    return null;
++  }
++
++  const candidate = value as Partial<PersistedHostChannelDraftItem>;
++  if (
++    !isNonEmptyString(candidate.id) ||
++    !isNonEmptyString(candidate.deviceName) ||
++    !isNonEmptyString(candidate.deviceType) ||
++    !isNonEmptyString(candidate.area) ||
++    !isNonEmptyString(candidate.suid) ||
++    !isNonEmptyString(candidate.cuid) ||
++    !isNonEmptyString(candidate.channelName) ||
++    !isNonEmptyString(candidate.unit) ||
++    !isNonEmptyString(candidate.lastValue) ||
++    (candidate.status !== 'online' && candidate.status !== 'idle')
++  ) {
++    return null;
++  }
++
++  return {
++    id: candidate.id,
++    deviceName: candidate.deviceName,
++    deviceType: candidate.deviceType,
++    area: candidate.area,
++    suid: candidate.suid,
++    cuid: candidate.cuid,
++    channelName: candidate.channelName,
++    unit: candidate.unit,
++    lastValue: candidate.lastValue,
++    status: candidate.status,
++  };
++}
++
++function dedupeDraftChannels(
++  items: PersistedHostChannelDraftItem[],
++): PersistedHostChannelDraftItem[] {
++  const seen = new Set<string>();
++  return items.filter((item) => {
++    if (seen.has(item.id)) {
++      return false;
++    }
++    seen.add(item.id);
++    return true;
++  });
++}
++
+ function normalizeConnectionState(
+   value: unknown,
+   fallback: PersistedConnectionState,
+@@ -95,24 +164,43 @@ export function restoreHostConnectivityDraft(
+ 
+   const parsed = JSON.parse(raw) as Partial<HostConnectivityDraft>;
+   const channelIds = new Set(availableChannelIds);
+-
+-  return {
+-    config:
+-      isNonEmptyString(parsed.config?.endpoint) &&
+-      isNonEmptyString(parsed.config?.username) &&
+-      typeof parsed.config?.password === 'string'
+-        ? {
+-            endpoint: parsed.config.endpoint,
+-            username: parsed.config.username,
+-            password: parsed.config.password,
+-          }
+-        : null,
+-    addedChannelIds: Array.isArray(parsed.addedChannelIds)
++  const config =
++    isNonEmptyString(parsed.config?.endpoint) &&
++    isNonEmptyString(parsed.config?.username) &&
++    typeof parsed.config?.password === 'string'
++      ? {
++          endpoint: parsed.config.endpoint,
++          username: parsed.config.username,
++          password: parsed.config.password,
++        }
++      : null;
++  const channelCatalogSource = isNonEmptyString(parsed.channelCatalogSource)
++    ? normalizeSourceValue(parsed.channelCatalogSource)
++    : null;
++  const configSource = config ? normalizeSourceValue(config.endpoint) : null;
++  const canRestoreCatalog =
++    channelCatalogSource !== null &&
++    configSource !== null &&
++    channelCatalogSource === configSource;
++  const restoredChannels = canRestoreCatalog && Array.isArray(parsed.addedChannels)
++    ? dedupeDraftChannels(parsed.addedChannels.map(normalizeDraftChannel).filter(
++        (item): item is PersistedHostChannelDraftItem => item !== null,
++      ))
++    : [];
++  const restoredChannelIds = restoredChannels.length > 0
++    ? restoredChannels.map((item) => item.id)
++    : canRestoreCatalog && Array.isArray(parsed.addedChannelIds)
+       ? parsed.addedChannelIds.filter(
+           (channelId): channelId is string =>
+             typeof channelId === 'string' && channelIds.has(channelId),
+         )
+-      : [],
++      : [];
++
++  return {
++    config,
++    addedChannelIds: restoredChannelIds,
++    addedChannels: restoredChannels,
++    channelCatalogSource: canRestoreCatalog ? channelCatalogSource : null,
+     savedAt: isNonEmptyString(parsed.savedAt) ? parsed.savedAt : null,
+     connection: normalizeConnectionState(parsed.connection, fallbackConnection),
+   };
+@@ -121,6 +209,12 @@ export function restoreHostConnectivityDraft(
+ export function buildHostConnectivityDraft(
+   draft: HostConnectivityDraft,
+ ): HostConnectivityDraft {
++  const normalizedAddedChannels = Array.isArray(draft.addedChannels)
++    ? dedupeDraftChannels(draft.addedChannels.map(normalizeDraftChannel).filter(
++        (item): item is PersistedHostChannelDraftItem => item !== null,
++      ))
++    : [];
++
+   return {
+     config: {
+       endpoint: draft.config.endpoint,
+@@ -128,6 +222,10 @@ export function buildHostConnectivityDraft(
+       password: draft.config.password,
+     },
+     addedChannelIds: Array.from(new Set(draft.addedChannelIds)),
++    addedChannels: normalizedAddedChannels,
++    channelCatalogSource: isNonEmptyString(draft.channelCatalogSource)
++      ? normalizeSourceValue(draft.channelCatalogSource)
++      : null,
+     savedAt: draft.savedAt,
+     connection: draft.connection
+       ? {
+diff --git "a/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivitySync.ts" "b/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivitySync.ts"
+index 22e20e9..4c71d8e 100644
+--- "a/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivitySync.ts"
++++ "b/docs/Ref/asns\357\274\210ai-sensory-nervous-system\357\274\211ai\346\204\237\347\237\245\347\245\236\347\266\223\347\263\273\347\265\261/src/hostConnectivitySync.ts"
+@@ -41,6 +41,10 @@ function trimTrailingSlash(value: string): string {
+   return value.replace(/\/+$/, '');
+ }
+ 
++function normalizeConfigValue(value: string): string {
++  return trimTrailingSlash(value.trim());
++}
++
+ function getBrowserOrigin(): string {
+   if (typeof window === 'undefined') {
+     return '';
+@@ -130,6 +134,25 @@ export function getDefaultAddedChannelIds(catalog: readonly HostChannelMappingIt
+   return Array.from(selectedIds).slice(0, 6);
+ }
+ 
++export function normalizeSourceIdentity(value: string): string {
++  return normalizeConfigValue(value);
++}
++
++export function hasSourceIdentityChanged(
++  previous: HostConnectivityConfig | null,
++  next: HostConnectivityConfig,
++): boolean {
++  if (!previous) {
++    return false;
++  }
++
++  return (
++    normalizeConfigValue(previous.endpoint) !== normalizeConfigValue(next.endpoint) ||
++    previous.username.trim() !== next.username.trim() ||
++    previous.password.trim() !== next.password.trim()
++  );
++}
++
+ export function reconcileAddedChannelIds(
+   addedChannelIds: string[],
+   catalog: readonly HostChannelMappingItem[],
+@@ -202,7 +225,7 @@ export async function syncSelectionToBackend(
+     },
+   };
+ 
+-  const saveConnection = fetch(`${appApiBase}/settings/edc-connection`, {
++  const connectionResponse = await fetch(`${appApiBase}/settings/edc-connection`, {
+     method: 'PUT',
+     headers: hostSyncHeaders,
+     body: JSON.stringify({
+@@ -211,6 +234,9 @@ export async function syncSelectionToBackend(
+       password: config.password,
+     }),
+   });
++  if (!connectionResponse.ok) {
++    throw new Error('Settings sync failed');
++  }
+ 
+   const saveChannels = fetch(`${appApiBase}/settings/host-channels`, {
+     method: 'PUT',
+@@ -224,12 +250,11 @@ export async function syncSelectionToBackend(
+     body: JSON.stringify(connectionStatusPayload),
+   });
+ 
+-  const [connectionResponse, channelsResponse, connectivityStatusResponse] = await Promise.all([
+-    saveConnection,
++  const [channelsResponse, connectivityStatusResponse] = await Promise.all([
+     saveChannels,
+     saveConnectivityStatus,
+   ]);
+-  if (!connectionResponse.ok || !channelsResponse.ok || !connectivityStatusResponse.ok) {
++  if (!channelsResponse.ok || !connectivityStatusResponse.ok) {
+     throw new Error('Settings sync failed');
+   }
+ }
+diff --git a/docs/lessons.md b/docs/lessons.md
+index 8fa7f92..24083a7 100644
+--- a/docs/lessons.md
++++ b/docs/lessons.md
+@@ -21,6 +21,27 @@
+ 
+ ## 记录
+ 
++### 2026-03-27 正式 UAT 证据位：`visible` 断言不等于截图里真的看得见
++
++- **错误模式**: 自动化里已经断言某个元素 `visible`，就直接截图并认为证据齐了；但元素可能仍在内部滚动容器的视口外，或页面下半区根本没有拍进 PNG，最终“断言通过”与“截图证据合格”分离。
++- **正确做法**: 对正式 UAT 的关键证据位，在截图前不仅要断言 `visible`，还要显式 `scrollIntoViewIfNeeded`，并用 `toBeInViewport` 或等价检查保证目标确实进入截图视口，再执行截图。
++- **适用场景**: 宿主设置页、长表单、滚动面板、抽屉、iframe 容器内页面、任何“用户流程每一步都要截图留存”的正式验收场景。
++- **相关文档**: `docs/testing.md`, `apps/web/e2e/asns-edc-source-switch-reset-uat.spec.ts`
++
++### 2026-03-27 上游 EDC 切换：切换服务器时必须同时清空或重建宿主通道绑定
++
++- **错误模式**: 只更新 EDC 连接配置或只做“测试连接”，却继续沿用旧服务器的宿主通道清单、通道快照或本地草稿；结果运行态里出现“新服务器地址 + 旧服务器 suid/cuid”的混搭状态，业务页取数失败。
++- **正确做法**: 只要发生上游 EDC 服务器切换，就必须把宿主通道目录、已添加通道清单、默认选择和本地草稿一起按“新服务器”口径重建；至少要保证旧服务器的通道 ID 不会在切换后继续写回后端运行态。
++- **适用场景**: 宿主连线设置、EDC 服务器切换、通道同步、宿主 bootstrap 恢复草稿、任何“上游数据源身份变化但下游绑定仍复用旧 ID”的场景。
++- **相关文档**: `docs/test-reports/2026-03-27-edc-server-switch-stale-groups-investigation.md`
++
++### 2026-03-27 正式 UAT 留证：截图如果没拍到目标证据，必须重跑，不能硬算已留图
++
++- **错误模式**: 虽然已经生成了截图文件，但截图并没有真正把目标证据拍进可见区域；如果不做图片回看，就会误把“拍到了页面”当成“拍到了问题证据”。
++- **正确做法**: 正式 UAT 截图必须在回看阶段逐张核对“目标证据是否真的出现在图里”；如果截图没有拍到关键证据，就不是合格留存，必须修脚本或重跑，再重新回看。
++- **适用场景**: 可滚动容器、图表窗口、宿主设置页、iframe 嵌套页面、任何“截图成功但证据可能仍在视口外”的用户可见流程测试。
++- **相关文档**: `docs/testing.md`, `docs/test-reports/assets/2026-03-27-edc-server-switch-stale-groups/screenshot-review.json`
++
+ ### 2026-03-27 部署命令：`systemctl --user` 不能默认假设当前 shell 已带 user bus 环境
+ 
+ - **错误模式**: 在 agent、脚本或非交互 shell 里直接执行 `systemctl --user stop/restart ...`，默认认为当前进程一定已经带上 `XDG_RUNTIME_DIR` 和 `DBUS_SESSION_BUS_ADDRESS`。结果命令本身不是服务故障，却先失败在“Failed to connect to user scope bus”。
+diff --git a/docs/progress.md b/docs/progress.md
+index 10c8ce2..a062eca 100644
+--- a/docs/progress.md
++++ b/docs/progress.md
+@@ -4,6 +4,144 @@
+ 
+ ---
+ 
++### 2026-03-27（EDC 切源重置修复完成 + ASNS 子路径白屏回归修复 + 正式 UAT 通过）
++
++**当前阶段**：fix / deploy / formal UAT 完成
++
++**本轮新增结论**：
++
++- [x] EDC 切源后“旧组未清空 + 智慧熔炉取不到数据”的根因链已经修复并完成正式 UAT 闭环
++  - [x] 宿主切源后不再恢复旧来源通道草稿
++  - [x] 后端切源后会清空宿主通道存储、通道目录缓存、连线状态与活动基线绑定
++  - [x] Dashboard 不再把最近发布基线隐式当作当前有效基线
++- [x] 当前公网运行态已进入正确的“待重新采集”保护状态
++  - [x] `runtime-status.overall_code = host_disconnected`
++  - [x] `host_channel_total = 0`
++  - [x] `active_baseline = null`
++  - [x] `host-channels.total = 0`
++- [x] 在验证期间发现并修复一个独立部署回归：
++  - [x] `https://hopeofthepantheon.me/asns/` 一度白屏
++  - [x] 具体原因不是 React 崩溃，而是 ASNS 构建产物把资源写成 `/assets/...`，导致 `/asns/` 子路径下 JS/CSS 404
++  - [x] 现已重新生成 `/asns/assets/...` 产物，公网资源返回 `200`
++
++**正式 UAT**：
++
++- [x] 测试脚本：
++  - [x] `apps/web/e2e/asns-edc-source-switch-reset-uat.spec.ts`
++- [x] 证据目录：
++  - [x] `docs/test-reports/assets/2026-03-27-edc-source-switch-reset-uat/public`
++- [x] 结构化证据：
++  - [x] `docs/test-reports/assets/2026-03-27-edc-source-switch-reset-uat/evidence.json`
++- [x] 截图回看：
++  - [x] `docs/test-reports/assets/2026-03-27-edc-source-switch-reset-uat/screenshot-review.json`
++- [x] 正式 UAT 报告：
++  - [x] `docs/test-reports/2026-03-27-edc-source-switch-reset-uat.md`
++- [x] 执行结果：
++  - [x] `pnpm --dir apps/web exec playwright test e2e/asns-edc-source-switch-reset-uat.spec.ts --project=chromium --workers=1`
++  - [x] `1 passed`
++
++**本轮额外流程修正**：
++
++- [x] 第 3 张正式截图第一次重跑时仍未真正拍到“空通道”文案
++- [x] 已修正 UAT 脚本：
++  - [x] `scrollIntoViewIfNeeded`
++  - [x] `toBeInViewport`
++- [x] 修后再次重跑并复看，确认截图证据位真实可见
++
++**当前判定**：
++
++- [x] `PASS`
++- [x] 判定范围：
++  - [x] 切源后旧配置、旧组、旧前台态已正确清空
++  - [x] 系统已进入“待重新配置 / 待重新采集”状态
++  - [x] 实时数据恢复仍依赖后续按新来源重新绑定通道
++
++**本轮补充规范与部署文档**：
++
++- [x] 已把 UAT 口径明确升级为“面向商业使用的完整用户接受测试”，不再等同于页面可打开 / 按钮可点击
++  - [x] 文档：`docs/testing.md`
++  - [x] 已补入当前项目最低 UAT 覆盖范围：宿主配置、切源、通道绑定、数据链路、旧配置清空、旧数据清空、新源重采集、智慧熔炉关键流程
++- [x] 已把 `/asns/` 白屏修复点纳入后续构建回归检查
++  - [x] 文档：`docs/DEPLOYMENT.md`
++  - [x] 已明确要求：子路径部署时必须检查 HTML 是否引用 `/asns/assets/...`，且对应资源返回 `200`
++
++---
++
++### 2026-03-27（正式测试与留存规范升级 + EDC 服务器切换后宿主旧组残留调查）
++
++**当前阶段**：规范落盘 + investigate 完成，尚未开始修复
++
++**本轮新增工作**：
++
++- [x] 已将正式测试与留存规范升级写入 `docs/testing.md`
++  - [x] 明确区分 `纯后台测试` 与 `正式 UAT / 用户实际流程用例测试 / 前端交互 / 视觉相关测试`
++  - [x] 正式 UAT 规则已统一为：`所有交互操作都必须截图留存`
++  - [x] 新增 `测试分类判定规则`
++  - [x] 新增 `正式 UAT 截图规范`
++  - [x] 新增 `screenshot-review.json 规范`
++  - [x] 新增 `回归测试证据要求`
++  - [x] 新增 `正式测试资产核对清单`
++
++**当前 issue investigate 结论**：
++
++- [x] 当前公网运行态已经处在“新 EDC 服务器配置 + 旧宿主通道残留”的坏状态
++  - [x] 当前后端 `runtime-status`：
++    - [x] `edc_base_url = http://61.216.55.133`
++    - [x] `host_channel_total = 6`
++  - [x] 当前 `host-channels` 仍是旧服务器通道：
++    - [x] `2349-199`
++    - [x] `2349-128`
++    - [x] `2054-128`
++    - [x] `2066-128`
++    - [x] `769-128`
++    - [x] `769-129`
++  - [x] 当前新 EDC 服务器实际设备只包含：
++    - [x] `2752`
++    - [x] `2755`
++    - [x] `300000000000000000001`
++- [x] 智慧熔炉“数据没有取到”已与同一条根因链收口
++  - [x] 当前 `GET /api/dashboard/realtime?duration=1h` 返回 `503`
++  - [x] detail：
++    - [x] `未获取到真实实时数据，请检查宿主连接和通道绑定`
++
++**代码级根因链**：
++
++- [x] 宿主设置页用旧 `edcChannelSnapshot` 初始化 `channelCatalog / addedChannelIds`
++- [x] `测试连接` 只更新连接状态，不刷新通道目录
++- [x] 宿主 bootstrap 会把旧快照通道重新 `syncSelectionToBackend`
++- [x] 后端 `PUT /settings/edc-connection` 不会清空 `_HOST_CHANNEL_STORE`
++
++**正式调查脚本与留存**：
++
++- [x] 正式调查脚本：
++  - [x] `apps/web/e2e/asns-edc-host-switch-investigation.spec.ts`
++- [x] 正式截图目录：
++  - [x] `docs/test-reports/assets/2026-03-27-edc-server-switch-stale-groups/public`
++- [x] 结构化证据：
++  - [x] `docs/test-reports/assets/2026-03-27-edc-server-switch-stale-groups/evidence.json`
++- [x] 截图回看：
++  - [x] `docs/test-reports/assets/2026-03-27-edc-server-switch-stale-groups/screenshot-review.json`
++- [x] 正式调查报告：
++  - [x] `docs/test-reports/2026-03-27-edc-server-switch-stale-groups-investigation.md`
++
++**本轮验证**：
++
++- [x] 正式调查脚本执行：
++  - [x] `pnpm --dir apps/web exec playwright test e2e/asns-edc-host-switch-investigation.spec.ts --project=chromium --workers=1`
++  - [x] 结果：`1 passed`
++- [x] 但产品状态判定仍为：
++  - [x] `FAIL`
++  - [x] 原因：问题被稳定复现，尚未修复
++
++**视觉闭环补充**：
++
++- [x] 已逐张回看 6 张正式截图
++- [x] 第一次回看时发现 `03-settings-old-groups-still-visible.png` 未真正拍到旧组区域
++- [x] 已先修脚本再重跑，再完成二次回看
++- [x] 这次“回看”不是形式动作，而是实际拦截了不合格证据
++
++---
++
+ ### 2026-03-27（EDC/ASNS 曲线不显示：定位为部署环境到上游 EDC 连通性故障，并补齐“截图后必须回看 PNG”闭环）
+ 
+ **当前阶段**：EDC/ASNS 曲线问题 investigate + 最小修复 + 视觉回看闭环
+diff --git a/docs/testing.md b/docs/testing.md
+index b96ca0f..cf78c75 100644
+--- a/docs/testing.md
++++ b/docs/testing.md
+@@ -1,5 +1,428 @@
+ # 测试说明
+ 
++## 目标
++
++- 统一前后端测试口径
++- 明确正式测试留存与临时调试证据的边界
++- 为 EDC / ASNS 这类用户可见流程建立可追溯、可复盘、可回看的正式测试闭环
++
++## UAT 定义
++
++UAT = 用户接受测试。
++
++本项目中的 UAT 不是只验证“页面能不能打开、按钮能不能点”，而是验证：
++
++- 所有关键功能是否达到商业使用要求
++- 关键用户流程是否能在真实业务链路下成立
++- 系统在切源、重配、空态、错误态、重新采集等关键状态切换时是否仍符合预期
++
++## 当前项目的最低 UAT 覆盖范围
++
++凡声称“本轮已完成 UAT / 可商用验收 / 用户流程通过”，至少要覆盖以下范围：
++
++1. 宿主系统相关配置与切源行为
++2. 神经系统宿主通道绑定
++3. 数据链路是否打通（宿主 -> 通道 -> 数据 -> EDC -> 智慧熔炉）
++4. 切换 EDC 后台源后，旧配置是否清空
++5. 切换 EDC 后台源后，前台旧数据是否清空
++6. 是否基于新源重新收集、重新采集数据
++7. 智慧熔炉相关功能是否基于新链路正常工作
++8. 所有面向商业使用的关键用户流程是否符合预期
++
++限制：
++
++- 如果只覆盖了“页面可打开 / 可点击 / 某个 API 返回 200”，不能称为完整 UAT
++- 如果只覆盖局部链路或中间态，应明确标注为“定向验证 / 子链路验证 / 非完整 UAT”
++
++## 测试分类判定规则
++
++### 1. 纯后台测试
++
++适用范围：
++
++- API
++- service
++- 数据处理
++- 后端单测 / 集成测试
++- 非用户可见界面问题
++
++要求：
++
++- 不强制要求每一步留图
++- 以测试脚本、断言、日志、结果摘要为主
++- 如果结论不依赖视觉展示，不需要按 UAT 方式做截图回看
++
++PASS 判定：
++
++- 脚本执行通过
++- 断言通过
++- 日志与结果符合预期
++
++### 2. 正式 UAT / 用户实际流程用例测试 / 前端交互 / 视觉相关测试
++
++适用范围：
++
++- 用户真实操作路径
++- UAT
++- 面向商业使用的关键流程验收
++- 前端交互测试
++- 页面跳转与流程联动
++- 图表
++- 状态展示
++- 页面展示正确性
++- 报错提示
++- 用户可见主路径验收
++- 宿主 -> 通道 -> 数据 -> EDC -> 智慧熔炉这类跨系统链路验收
++- 涉及点击、提交、导航切换、弹窗开合、Tab 切换、筛选切换的用户操作链路
++
++要求：
++
++- 强制要求留图
++- 强制要求截图后回看
++- 强制要求所有交互操作都截图留存
++- 不允许只截关键步骤或关键点击
++- 截图序列必须能完整还原用户操作路径
++- 强制要求测试脚本 + 截图目录 + 回看结论 + 留存文档
++- 脚本通过与截图回看通过缺一不可
++
++PASS 判定：
++
++- 脚本执行通过 / 页面行为符合预期
++- 截图回看通过
++- 两层同时成立才可判定 PASS
++
++### 3. 哪些场景必须判入正式 UAT
++
++以下任一条件成立，必须归入正式 UAT，不能降级成普通前端回归：
++
++- 用户报告的问题属于“页面看起来不对”“图没有出来”“提示不对”“跳转后页面不对”
++- 结论依赖用户实际看到的界面，而不只是接口返回值
++- 需要证明图表、状态色、错误态、空态、按钮反馈、布局或文案是否正确
++- 复现路径包含多个用户交互步骤，且用户会按这个路径实际操作
++- PM、QA、用户明确要求“留图”“回看”“逐步验证”“形成正式留存”
++- 发布前 / 回归时要对视觉类 bug、UAT 类 bug 给出可审计证据
++
++以下情况通常不强制归入正式 UAT：
++
++- 纯 API
++- 纯 service / 数据处理
++- 后端单测 / 集成测试
++- 结论完全由断言、日志、返回值决定且不依赖用户可见界面
++
++### 4. 临时调试证据
++
++适用范围：
++
++- 临时排查
++- 一次性日志抓取
++- 临时脚本输出
++- `/tmp` 下的中间文件
++- 尚未整理成正式测试资产的探索性证据
++
++要求：
++
++- 可以用于分析
++- 不能直接替代正式测试留存
++
++限制：
++
++- 不能把临时调试证据当作正式 PASS 依据
++- 如需用于对外汇报，必须转存到正式测试目录并补齐脚本、截图、回看与摘要
++
++## 正式 UAT 截图规范
++
++适用范围：
++
++- 当前与后续同类 EDC / ASNS 用户测试问题
++- 尤其是“切换 EDC 服务器后组信息未清空”“智慧熔炉提示数据没有取到”“图表不显示”“页面提示是否正确”这类问题
++
++### 1. 每个测试用例都必须留图
++
++- 不允许只跑脚本不留图
++- 不允许只留最终一张图
++- 关键路径必须有过程图
++
++### 2. 用户实际流程 / UAT / 前端交互 / 视觉相关测试中，所有交互操作都必须截图留存
++
++“所有交互操作”包括但不限于：
++
++- 点击
++- 提交
++- 导航切换
++- Tab 切换
++- 筛选切换
++- 弹窗打开
++- 弹窗确认 / 关闭
++- 列表项展开 / 收起
++- 用户显式触发的刷新或重试
++
++要求：
++
++- 不允许只截关键步骤
++- 不允许只截关键点击
++- 截图序列必须能完整还原用户操作路径
++- 每次交互前后的页面状态都要可追溯
++- 至少应覆盖进入前、每次交互后、页面跳转后、结果态、报错态
++- 截图文件名必须反映步骤顺序与动作含义
++
++### 3. 截图完成后必须回看
++
++- “回看”是正式步骤，不是默认假设
++- 不允许把“截图文件存在”视为“已回看”
++
++必须记录：
++
++- 回看结论：通过 / 不通过 / 异常
++- 回看依据：图中看到了什么、没看到什么
++
++### 4. 测试通过必须同时满足两层
++
++- 脚本执行通过 / 页面行为符合预期
++- 截图回看通过
++
++任何一层不成立，都不能算 PASS。
++
++### 5. 所有正式用户测试用例都要有正式测试脚本覆盖
++
++- 不接受只靠临时手工操作作为最终留存
++- 脚本必须对应用户真实操作路径
++
++### 6. 正式测试文件必须同时包含
++
++- 测试脚本
++- 截图目录
++- 必要的 evidence / 结果摘要
++- 回看结论
++- 用例说明：测什么、预期什么、实际结果什么
++
++### 7. 测试产物命名与目录必须稳定可追溯
++
++必须能从目录直接看出：
++
++- 日期
++- issue
++- 环境
++- 步骤
++
++限制：
++
++- 不允许只放 `/tmp` 作为正式留存
++
++### 8. 视觉正确性问题必须把截图回看作为强制门槛
++
++适用问题：
++
++- 图表
++- 状态展示
++- 页面展示
++- 报错提示
++
++限制：
++
++- 不能只用 API 200 替代视觉结论
++- 不能只用 DOM 存在替代视觉结论
++- 不能只用 `data-attr` 替代视觉结论
++- 不能只用 runtime series count 替代视觉结论
++
++### 9. 测试汇报必须同时给出
++
++- 对应测试脚本路径
++- 对应截图目录
++- 回看结论
++- 为什么确认回看是正确的
++- 最终 PASS / FAIL 判断依据
++
++### 10. 必须区分“临时调试证据”和“正式测试留存”
++
++- 临时调试证据可以帮助定位问题
++- 正式测试留存必须可长期回看、可用于追责与复盘
++
++## screenshot-review.json 规范
++
++### 1. 目的
++
++- 把“截图回看”从口头描述变成可审计步骤
++- 让每一张截图都能对应到具体交互、具体观察结果和最终判定
++
++### 2. 最小 schema
++
++正式 UAT 必须产出 `screenshot-review.json`，至少包含以下字段：
++
++```json
++{
++  "version": "1.0",
++  "issue": "edc-server-switch-stale-groups",
++  "environment": "public",
++  "script_path": "apps/web/e2e/asns-edc-server-switch-investigation.spec.ts",
++  "screenshot_dir": "docs/test-reports/assets/2026-03-27-edc-server-switch-stale-groups/public",
++  "reviewed_at": "2026-03-27T14:20:00Z",
++  "overall_result": "fail",
++  "review_method": "manual-image-review-plus-dom-cross-check",
++  "screenshots": [
++    {
++      "file": "01-home-before-open-settings.png",
++      "step": "进入宿主页",
++      "action": "goto",
++      "review_result": "pass",
++      "observed": ["看到了宿主页入口和导航"],
++      "missing": []
++    },
++    {
++      "file": "02-after-click-settings.png",
++      "step": "点击连线设置后",
++      "action": "click",
++      "review_result": "fail",
++      "observed": ["当前 EDC 来源为新服务器", "已添加通道仍显示旧组信息"],
++      "missing": ["未看到按新服务器重置后的通道组"]
++    }
++  ]
++}
++```
++
++### 3. MUST 字段
++
++- `version`
++- `issue`
++- `environment`
++- `script_path`
++- `screenshot_dir`
++- `reviewed_at`
++- `overall_result`
++- `review_method`
++- `screenshots`
++
++每个 `screenshots[]` 项必须包含：
++
++- `file`
++- `step`
++- `action`
++- `review_result`
++- `observed`
++- `missing`
++
++### 4. 字段约束
++
++- `overall_result` 只能为 `pass` / `fail` / `exception`
++- `review_result` 只能为 `pass` / `fail` / `exception`
++- `action` 应使用可审计动作词，例如 `goto` / `click` / `submit` / `nav-switch` / `tab-switch` / `modal-open`
++- `observed` 必须写明图中确实看到了什么
++- `missing` 必须写明图中应看到但没有看到什么；若无缺失，允许为空数组
++- 路径必须使用仓库内稳定路径，不得指向 `/tmp`
++
++### 5. SHOULD 字段
++
++可按需要补充：
++
++- `expected`
++- `actual`
++- `why_correct`
++- `dom_assertions`
++- `api_context`
++- `reviewer`
++
++## 回归测试证据要求
++
++### 1. 视觉 / UAT 相关 bug 的回归不能只靠接口通过
++
++以下任一类 bug 的回归，不能只用 `curl`、API 200、日志正常或脚本断言通过代替 UAT 通过：
++
++- 图表不显示
++- 状态展示错误
++- 页面提示错误
++- 跳转后页面不对
++- 用户明确以截图或页面观感报出的 bug
++
++### 2. 视觉 / UAT 相关 bug 的回归必须同时提供
++
++- 回归测试脚本
++- 回归截图目录
++- `screenshot-review.json`
++- 留存文档 / 结果摘要
++- PASS / FAIL 判定依据
++
++### 3. 回归判定规则
++
++- 如果 bug 定义本身是用户可见行为，则回归通过必须包含 UAT 证据
++- `curl` / API / 日志 / DOM 断言可以作为辅助证据
++- 这些辅助证据不能替代截图回看通过
++
++## 正式测试资产核对清单
++
++### MUST
++
++- 有正式测试脚本
++- 有正式测试报告或正式留存文档
++- 有稳定截图目录
++- 有 `screenshot-review.json`
++- 所有交互操作均已截图留存
++- 截图序列能完整还原用户路径
++- 已执行截图回看
++- 回看结论写明“看到了什么 / 没看到什么”
++- 汇报时包含脚本路径、截图目录、回看结论、回看正确性依据、PASS / FAIL 依据
++- 正式资产不存放在 `/tmp`
++
++### SHOULD
++
++- 结构化 evidence 单独存为 `evidence.json`
++- 留存文档写明环境、预期、实际、根因或怀疑点
++- 关键截图文件名能直接看出步骤和动作
++- DOM / API / 日志辅助证据与截图回看交叉校验
++- 回归测试沿用同一条正式测试脚本或其稳定变体
++
++## 正式测试资产目录规范
++
++正式测试留存统一放在：
++
++- `docs/test-reports/`
++- `docs/test-reports/assets/`
++
++推荐结构：
++
++```text
++docs/test-reports/
++  2026-03-27-edc-server-switch-stale-groups-investigation.md
++  assets/
++    2026-03-27-edc-server-switch-stale-groups/
++      public/
++        01-before-open-settings.png
++        02-after-open-settings.png
++        03-after-change-endpoint.png
++        04-after-test-connection.png
++        05-after-open-edc-app.png
++      evidence.json
++      screenshot-review.json
++```
++
++命名约定：
++
++- 报告文件：`YYYY-MM-DD-issue-environment-purpose.md`
++- 资产目录：`YYYY-MM-DD-issue-keywords/`
++- 截图文件：`NN-action-result.png`
++- 结构化证据：`evidence.json`
++- 截图回看结果：`screenshot-review.json`
++
++## 正式测试文件清单
++
++一个正式测试问题至少应包含：
++
++1. 测试脚本
++2. 测试报告
++3. 截图目录
++4. 结构化 evidence
++5. 截图回看结论
++
++建议在测试报告中明确写出：
++
++- 用例编号 / 用例名称
++- 测试环境
++- 复现路径
++- 预期行为
++- 实际行为
++- 根因结论或当前怀疑点
++- 关联脚本路径
++- 关联截图目录
++- 关联 evidence 路径
++
+ ## 当前覆盖
+ 
+ ### 前端
+@@ -8,21 +431,20 @@
+   - Vitest 组件/设计令牌单测
+ - `pnpm --dir apps/web test:i18n`
+   - 多语言 key 结构一致性检查
+-  - 多语言占位符（如 `{count}`）一致性检查
++  - 多语言占位符一致性检查
+ - `pnpm --dir apps/web test:e2e`
+   - Playwright 浏览器回归
+   - 覆盖 Dashboard、基线定义、基线向导、炉次列表、炉次详情手动调整、任务、报表、收件箱、系统设置
+ - `pnpm --dir apps/web build`
+   - 类型检查与生产构建验证
+ - `pnpm --dir apps/web lint`
+-  - 目前无 error，仍有历史 Vue warning
++  - 前端静态检查
+ 
+ ### 后端
+ 
+-- `apps/server/.venv/Scripts/pytest.exe`
+-  - 当前 21 条测试
+-  - 覆盖 Dashboard、基线定义、基线实例、炉次、任务、报表、设置、偏差服务
+-- `apps/server/.venv/Scripts/ruff.exe check tests`
++- `uv --directory apps/server run pytest`
++  - 后端单测 / 集成测试
++- `uv --directory apps/server run ruff check tests`
+   - 测试目录静态检查
+ 
+ ## 一键执行
+@@ -51,13 +473,15 @@ Linux / macOS / Codex cloud 可运行：
+ 
+ ## 云端 CI
+ 
+-仓库已新增 GitHub Actions 工作流：
++仓库已配置 GitHub Actions 工作流：
+ 
+ - `.github/workflows/ci.yml`
+-- 触发时机：
+-  - 推送到 `master`
+-  - 推送到 `codex/**` 分支
+-  - 任意 Pull Request
++
++触发时机：
++
++- 推送到 `master`
++- 推送到 `codex/**` 分支
++- 任意 Pull Request
+ 
+ 云端会自动执行以下检查：
+ 
+@@ -80,24 +504,6 @@ Linux / macOS / Codex cloud 可运行：
+ - `uv run ruff check tests`
+ - `uv run pytest`
+ 
+-## 接入步骤
+-
+-如果仓库还没有放到 GitHub，需要先完成以下操作：
+-
+-1. 在 GitHub 创建远程仓库
+-2. 把本地仓库关联到远程
+-3. 推送当前分支
+-4. 打开仓库的 `Actions` 页面确认 `CI` 工作流开始运行
+-
+-常用命令示例：
+-
+-```powershell
+-git remote add origin <你的仓库地址>
+-git push -u origin master
+-```
+-
+-如果后续使用功能分支，可直接推送对应分支并发起 PR，CI 会自动运行。
+-
+ ## Codex Cloud
+ 
+ 如果要把测试任务交给 Codex cloud，建议为仓库环境配置以下 setup script：
+@@ -134,6 +540,7 @@ uv sync --all-extras
+ 
+ - 新增页面主流程时，优先补 Playwright 用例
+ - 新增或修改国际化文案 key、占位符时，必须保证 `pnpm --dir apps/web test:i18n` 通过
+-- 新增 API 时，至少补成功路径和一组 400/404/422 边界路径
++- 新增 API 时，至少补成功路径和一组边界路径
+ - 使用全局 in-memory store 的后端模块，测试必须保证状态隔离
+ - 云端 CI 与本地 `.\scripts\check-all.ps1` / `./scripts/check-all.sh` 保持同一套检查口径，新增测试时两边都要同步
++- 对用户可见主路径的正式 UAT，不得只交付日志或命令输出，必须交付可回看的正式测试资产
