@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -26,6 +26,7 @@ import {
 import {
   buildDisconnectedConnectionState,
   callHostApi,
+  applySourceSwitchToBackend,
   hasSourceIdentityChanged,
   normalizeSourceIdentity,
   reconcileAddedChannelIds,
@@ -48,6 +49,12 @@ export interface SettingsViewProps {
 }
 
 type ChannelMappingItem = HostChannelMappingItem;
+type SourceAwareAction = 'connect' | 'sync' | 'apply';
+
+interface SourceSwitchDialogState {
+  action: SourceAwareAction;
+  nextSource: string;
+}
 
 const snapshotCatalogSource = normalizeSourceIdentity(edcSnapshotMeta.source);
 
@@ -65,6 +72,8 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
   const [machineName, setMachineName] = useState('EDC Test Gateway');
   const [lastSyncLabel, setLastSyncLabel] = useState('2026-03-16 11:12');
   const [meta, setMeta] = useState<HostEdcMeta>(edcSnapshotMeta);
+  const [sourceSwitchDialog, setSourceSwitchDialog] = useState<SourceSwitchDialogState | null>(null);
+  const sourceSwitchConfirmRef = useRef<((confirmed: boolean) => void) | null>(null);
 
   const currentConnectionState = (): PersistedConnectionState => ({
     isConnected,
@@ -84,6 +93,38 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
     setChannelCatalog([]);
     setAddedChannelIds([]);
     setChannelCatalogSource(null);
+  };
+
+  const hasSourceScopedState = () =>
+    channelCatalog.length > 0 ||
+    addedChannelIds.length > 0 ||
+    Boolean(channelCatalogSource) ||
+    isConnected ||
+    meta.enabledChannelCount > 0;
+
+  const resolveActionLabel = (action: SourceAwareAction) => {
+    if (action === 'connect') {
+      return t('testConnection');
+    }
+    if (action === 'sync') {
+      return t('syncChannels');
+    }
+    return t('apply');
+  };
+
+  const requestSourceSwitchConfirmation = (action: SourceAwareAction) =>
+    new Promise<boolean>((resolve) => {
+      sourceSwitchConfirmRef.current = resolve;
+      setSourceSwitchDialog({
+        action,
+        nextSource: config.endpoint.trim() || '--',
+      });
+    });
+
+  const closeSourceSwitchDialog = (confirmed: boolean) => {
+    setSourceSwitchDialog(null);
+    sourceSwitchConfirmRef.current?.(confirmed);
+    sourceSwitchConfirmRef.current = null;
   };
 
   const filteredChannels = useMemo(() => {
@@ -292,10 +333,46 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
       .map((channelId) => catalog.find((item) => item.id === channelId))
       .filter((item): item is ChannelMappingItem => Boolean(item));
     try {
-      await syncSelectionToBackend(config, selectedChannels, connection);
+      await syncSelectionToBackend(selectedChannels, connection);
     } catch {
       throw new Error(t('settingsSyncFailed'));
     }
+  };
+
+  const prepareSourceAwareAction = async (action: SourceAwareAction) => {
+    const sourceSwitched = hasSourceIdentityChanged(lastAppliedConfig, config);
+    if (!sourceSwitched) {
+      return {
+        sourceSwitched: false,
+        channelIds: addedChannelIds,
+        catalog: channelCatalog,
+        catalogSource: channelCatalogSource,
+        connection: currentConnectionState(),
+      };
+    }
+
+    if (hasSourceScopedState()) {
+      const confirmed = await requestSourceSwitchConfirmation(action);
+      if (!confirmed) {
+        throw new Error(t('sourceSwitchCancelled'));
+      }
+    }
+
+    const result = await applySourceSwitchToBackend(config);
+    const disconnectedState = buildDisconnectedConnectionState(config.endpoint);
+    applyConnectionState(disconnectedState);
+    clearSourceScopedSelection();
+    persistConnectionState(disconnectedState, [], [], null);
+    setLastAppliedConfig(config);
+    setStatusMessage(result.message);
+
+    return {
+      sourceSwitched: true,
+      channelIds: [] as string[],
+      catalog: [] as ChannelMappingItem[],
+      catalogSource: null as string | null,
+      connection: disconnectedState,
+    };
   };
 
   const handlePersist = async (mode: 'draft' | 'apply') => {
@@ -304,25 +381,14 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
       return;
     }
 
-    const sourceSwitched = hasSourceIdentityChanged(lastAppliedConfig, config);
-    const nextConnection = sourceSwitched
-      ? buildDisconnectedConnectionState(config.endpoint)
-      : currentConnectionState();
-    const nextCatalog = sourceSwitched ? [] : channelCatalog;
-    const nextChannelIds = sourceSwitched ? [] : addedChannelIds;
-    const nextCatalogSource = sourceSwitched ? null : channelCatalogSource;
-
-    if (sourceSwitched) {
-      applyConnectionState(nextConnection);
-      clearSourceScopedSelection();
-    }
-
     try {
+      const prepared = await prepareSourceAwareAction('apply');
+      const nextConnection = prepared.connection;
+      const nextCatalog = prepared.catalog;
+      const nextChannelIds = prepared.channelIds;
+      const nextCatalogSource = prepared.catalogSource;
       await syncCurrentSelectionToBackend(nextChannelIds, nextCatalog, nextConnection);
       persistConnectionState(nextConnection, nextChannelIds, nextCatalog, nextCatalogSource);
-      if (sourceSwitched) {
-        setLastAppliedConfig(config);
-      }
       const savedAt = new Date().toISOString();
       const message = `${t('settingsAppliedMessage')} ${formatCheckedAt(savedAt)}`;
       setStatusMessage(message);
@@ -336,8 +402,17 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
 
   const handleConnect = async () => {
     setLoading(true);
-    const sourceSwitched = hasSourceIdentityChanged(lastAppliedConfig, config);
+    let prepared:
+      | {
+          sourceSwitched: boolean;
+          channelIds: string[];
+          catalog: ChannelMappingItem[];
+          catalogSource: string | null;
+          connection: PersistedConnectionState;
+        }
+      | null = null;
     try {
+      prepared = await prepareSourceAwareAction('connect');
       const { response, data } = await callHostApi('/host-api/edc/test-connection', config);
       if (!response.ok || !data.ok) {
         throw new Error(data.message || t('testFailed'));
@@ -349,25 +424,23 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
         meta: data.meta,
       };
       applyConnectionState(connectedState);
-      const nextCatalog = sourceSwitched ? [] : channelCatalog;
-      const nextChannelIds = sourceSwitched ? [] : addedChannelIds;
-      const nextCatalogSource = sourceSwitched ? null : channelCatalogSource;
-      if (sourceSwitched) {
-        clearSourceScopedSelection();
-      }
+      const nextCatalog = prepared.catalog;
+      const nextChannelIds = prepared.channelIds;
+      const nextCatalogSource = prepared.catalogSource;
       await syncCurrentSelectionToBackend(nextChannelIds, nextCatalog, connectedState);
       setStatusMessage(data.message || t('testSuccess'));
       persistConnectionState(connectedState, nextChannelIds, nextCatalog, nextCatalogSource);
       setLastAppliedConfig(config);
     } catch (error) {
+      if (!prepared) {
+        setStatusMessage(error instanceof Error ? error.message : t('testFailed'));
+        return;
+      }
       const disconnectedState = buildDisconnectedConnectionState(config.endpoint);
       applyConnectionState(disconnectedState);
-      const nextCatalog = sourceSwitched ? [] : channelCatalog;
-      const nextChannelIds = sourceSwitched ? [] : addedChannelIds;
-      const nextCatalogSource = sourceSwitched ? null : channelCatalogSource;
-      if (sourceSwitched) {
-        clearSourceScopedSelection();
-      }
+      const nextCatalog = prepared.catalog;
+      const nextChannelIds = prepared.channelIds;
+      const nextCatalogSource = prepared.catalogSource;
       setStatusMessage(error instanceof Error ? error.message : t('testFailed'));
       try {
         await syncCurrentSelectionToBackend(nextChannelIds, nextCatalog, disconnectedState);
@@ -375,9 +448,6 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
         // 连接校验失败时，后端断线摘要尽量同步；失败则保留原始提示。
       }
       persistConnectionState(disconnectedState, nextChannelIds, nextCatalog, nextCatalogSource);
-      if (sourceSwitched) {
-        setLastAppliedConfig(config);
-      }
     } finally {
       setLoading(false);
     }
@@ -385,8 +455,8 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
 
   const handleSyncChannels = async () => {
     setSyncing(true);
-    const sourceSwitched = hasSourceIdentityChanged(lastAppliedConfig, config);
     try {
+      const prepared = await prepareSourceAwareAction('sync');
       const { response, data } = await callHostApi('/host-api/edc/sync-channels', config);
       if (!response.ok || !data.ok || !data.channels) {
         throw new Error(data.message || t('syncFailed'));
@@ -401,8 +471,10 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
       const nextCatalogSource = normalizeSourceIdentity(connectedState.meta.source || config.endpoint);
       setChannelCatalog(data.channels);
       setChannelCatalogSource(nextCatalogSource);
-      const nextAddedChannelIds = sourceSwitched ? [] : syncAddedChannelsWithCatalog(data.channels);
-      if (sourceSwitched) {
+      const nextAddedChannelIds = prepared.sourceSwitched
+        ? []
+        : syncAddedChannelsWithCatalog(data.channels);
+      if (prepared.sourceSwitched) {
         setAddedChannelIds([]);
       }
       await syncCurrentSelectionToBackend(nextAddedChannelIds, data.channels, connectedState);
@@ -426,6 +498,48 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
 
   return (
     <div className="p-6 md:p-10 flex flex-col gap-6 md:gap-8 h-full bg-gradient-to-br from-transparent to-black/5 dark:to-white/5 overflow-y-auto custom-scrollbar">
+      {sourceSwitchDialog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-6 backdrop-blur-sm">
+          <div className="w-full max-w-xl rounded-[28px] border border-white/20 bg-white/90 p-6 shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/90">
+            <div className="flex items-start gap-4">
+              <div className="rounded-2xl bg-amber-500/15 p-3 text-amber-600 dark:text-amber-300">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] font-black uppercase tracking-[0.24em] opacity-45">{t('sourceSwitchTitle')}</p>
+                <h3 className="mt-2 text-xl font-black tracking-tight">{t('sourceSwitchHeading')}</h3>
+                <p className="mt-3 text-sm leading-6 opacity-75">
+                  {t('sourceSwitchPromptPrefix')} {resolveActionLabel(sourceSwitchDialog.action)}
+                  {t('sourceSwitchPromptSuffix')}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-[22px] border border-amber-500/15 bg-amber-500/10 px-4 py-4 text-sm leading-6 text-slate-700 dark:text-slate-200">
+              <p className="font-bold">{t('sourceSwitchTargetLabel')}: {sourceSwitchDialog.nextSource}</p>
+              <p className="mt-3">{t('sourceSwitchResetSummary')}</p>
+              <p className="mt-2 opacity-75">{t('sourceSwitchResetList')}</p>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => closeSourceSwitchDialog(false)}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-black uppercase tracking-widest text-slate-700 transition-colors hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:text-slate-200 dark:hover:bg-white/15"
+              >
+                {t('cancelSourceSwitch')}
+              </button>
+              <button
+                type="button"
+                onClick={() => closeSourceSwitchDialog(true)}
+                className="rounded-2xl bg-amber-500 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-amber-500/25 transition-colors hover:bg-amber-400"
+              >
+                {t('confirmSourceSwitch')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="flex items-center gap-4 md:gap-6 animate-in slide-in-from-left duration-500">
         <div className="p-4 md:p-5 bg-blue-500 rounded-[20px] md:rounded-[24px] text-white shadow-lg shadow-blue-500/30 ring-4 ring-blue-500/10">
           <Settings className="w-8 h-8 md:w-10 md:h-10" />

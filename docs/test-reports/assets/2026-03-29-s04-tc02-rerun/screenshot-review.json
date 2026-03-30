@@ -1,0 +1,34 @@
+{
+  "issue": "2026-03-29-s04-tc02-rerun",
+  "reviewed_at": "2026-03-29",
+  "reviewer": "Codex",
+  "result": "pass",
+  "screenshots": [
+    {
+      "file": "local/s04-tc02-step-01-open-settings-rerun.png",
+      "status": "pass",
+      "evidence": "宿主设置页已打开，可见初始 source A 地址与设置页面主体。"
+    },
+    {
+      "file": "local/s04-tc02-step-02-fill-new-endpoint-rerun.png",
+      "status": "pass",
+      "evidence": "EDC URL 输入框已切换为 source B 地址 http://61.216.55.133。"
+    },
+    {
+      "file": "local/s04-tc02-step-03-fill-credentials-rerun.png",
+      "status": "pass",
+      "evidence": "账号已切换为 admin，密码框已填充，形成完整新源配置。"
+    },
+    {
+      "file": "local/s04-tc02-step-04-test-connection-result-rerun.png",
+      "status": "pass",
+      "evidence": "页面可见在线状态、source B 地址，以及“连接成功，已读取 3 台设备 / 788 通道。”提示。"
+    },
+    {
+      "file": "local/s04-tc02-step-05-save-after-rerun.png",
+      "status": "pass",
+      "evidence": "页面可见“设置已保存，时间：...”成功提示，证明保存动作已完成。"
+    }
+  ],
+  "summary": "5 张截图均已人工回看，关键证据位清晰可见，可支撑 S04-TC02 本次正式重跑 PASS 结论。"
+}

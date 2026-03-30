@@ -64,6 +64,7 @@ from .setting import (
     SettingsUpdateRequest,
     ToleranceSettingRequest,
 )
+from .source_switch import SourceSwitchRequest, SourceSwitchResponse
 from .task import (
     TaskCompleteRequest,
     TaskCreate,
@@ -130,6 +131,8 @@ __all__ = [
     "RuntimeStatusResponse",
     "SettingsUpdateRequest",
     "ToleranceSettingRequest",
+    "SourceSwitchRequest",
+    "SourceSwitchResponse",
     "BaselineLengthScopeSettingRequest",
     "CuttingSettingRequest",
     "EDCConnectionRequest",

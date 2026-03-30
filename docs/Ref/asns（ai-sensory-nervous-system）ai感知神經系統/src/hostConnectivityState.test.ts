@@ -10,6 +10,7 @@ import {
 import {
   buildDisconnectedConnectionState,
   getDefaultAddedChannelIds,
+  hasSourceIdentityChanged,
   reconcileAddedChannelIds,
 } from './hostConnectivitySync';
 
@@ -304,4 +305,38 @@ test('buildDisconnectedConnectionState clears stale machine and sync summary', (
       enabledChannelCount: 0,
     },
   });
+});
+
+test('hasSourceIdentityChanged ignores password-only edits but treats account changes as source changes', () => {
+  assert.equal(
+    hasSourceIdentityChanged(
+      {
+        endpoint: 'http://61.216.55.133',
+        username: 'admin',
+        password: 'old-secret',
+      },
+      {
+        endpoint: 'http://61.216.55.133',
+        username: 'admin',
+        password: 'new-secret',
+      },
+    ),
+    false,
+  );
+
+  assert.equal(
+    hasSourceIdentityChanged(
+      {
+        endpoint: 'http://61.216.55.133',
+        username: 'admin',
+        password: 'secret',
+      },
+      {
+        endpoint: 'http://61.216.55.133',
+        username: 'operator',
+        password: 'secret',
+      },
+    ),
+    true,
+  );
 });

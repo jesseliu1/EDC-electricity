@@ -26,6 +26,18 @@ export interface HostEdcResponse {
   message?: string;
 }
 
+export interface SourceSwitchResponse {
+  success: boolean;
+  message: string;
+  source_identity_changed: boolean;
+  connection_material_changed: boolean;
+  cleared_host_channel_count: number;
+  cleared_host_channel_catalog_count: number;
+  cleared_definition_binding_count: number;
+  cleared_active_baseline_id: string;
+  next_source: string;
+}
+
 type HostRuntimeGlobals = typeof globalThis & {
   __ASNS_APP_API_BASE__?: string;
   __ASNS_HOST_API_BASE__?: string;
@@ -148,8 +160,7 @@ export function hasSourceIdentityChanged(
 
   return (
     normalizeConfigValue(previous.endpoint) !== normalizeConfigValue(next.endpoint) ||
-    previous.username.trim() !== next.username.trim() ||
-    previous.password.trim() !== next.password.trim()
+    previous.username.trim() !== next.username.trim()
   );
 }
 
@@ -196,7 +207,6 @@ export async function callHostApi(path: string, config: HostConnectivityConfig) 
 }
 
 export async function syncSelectionToBackend(
-  config: HostConnectivityConfig,
   selectedChannels: HostChannelMappingItem[],
   connection: PersistedConnectionState,
 ) {
@@ -225,19 +235,6 @@ export async function syncSelectionToBackend(
     },
   };
 
-  const connectionResponse = await fetch(`${appApiBase}/settings/edc-connection`, {
-    method: 'PUT',
-    headers: hostSyncHeaders,
-    body: JSON.stringify({
-      base_url: config.endpoint,
-      username: config.username,
-      password: config.password,
-    }),
-  });
-  if (!connectionResponse.ok) {
-    throw new Error('Settings sync failed');
-  }
-
   const saveChannels = fetch(`${appApiBase}/settings/host-channels`, {
     method: 'PUT',
     headers: hostSyncHeaders,
@@ -257,4 +254,25 @@ export async function syncSelectionToBackend(
   if (!channelsResponse.ok || !connectivityStatusResponse.ok) {
     throw new Error('Settings sync failed');
   }
+}
+
+export async function applySourceSwitchToBackend(
+  config: HostConnectivityConfig,
+): Promise<SourceSwitchResponse> {
+  const response = await fetch(`${appApiBase}/settings/source-switch`, {
+    method: 'POST',
+    headers: hostSyncHeaders,
+    body: JSON.stringify({
+      base_url: config.endpoint,
+      username: config.username,
+      password: config.password,
+      api_key: '',
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Settings sync failed');
+  }
+
+  return (await response.json()) as SourceSwitchResponse;
 }

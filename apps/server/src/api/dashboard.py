@@ -61,51 +61,56 @@ def _resolve_active_baseline() -> dict[str, Any] | None:
     return None
 
 
-def _resolve_dashboard_sources() -> dict[str, str | None]:
+def _metric_channel_score(channel: dict[str, str], metric_key: Literal["power", "voltage"]) -> int:
+    channel_name = str(channel.get("channel_name") or "")
+    unit = str(channel.get("unit") or "")
+    text = f"{channel_name} {unit} {channel.get('device_type') or ''}".lower()
+    score = 0
+    if metric_key == "power":
+        if unit.lower() == "kw":
+            score += 120
+        if "功率" in channel_name or "power" in text:
+            score += 100
+        if "总" in channel_name:
+            score += 12
+    else:
+        if unit == "V":
+            score += 120
+        if "电压" in channel_name or "電壓" in channel_name or "voltage" in text:
+            score += 100
+        if "a相" in channel_name.lower():
+            score += 12
+    return score
+
+
+def _pick_dashboard_fallback_channel(
+    metric_key: Literal["power", "voltage"],
+) -> dict[str, str] | None:
+    candidates = [
+        item
+        for item in _HOST_CHANNEL_STORE
+        if item.get("status") in {None, "", "online"}
+    ]
+    scored = [
+        (_metric_channel_score(item, metric_key), item)
+        for item in candidates
+    ]
+    scored = [entry for entry in scored if entry[0] > 0]
+    if not scored:
+        return None
+    scored.sort(
+        key=lambda entry: (
+            -entry[0],
+            str(entry[1].get("device_name") or ""),
+            str(entry[1].get("channel_name") or ""),
+        )
+    )
+    return scored[0][1]
+
+
+def _resolve_dashboard_realtime_context() -> dict[str, Any]:
     baseline = _resolve_active_baseline()
-    if not baseline:
-        return {
-            "baseline_id": None,
-            "baseline_name": None,
-            "power_source_label": None,
-            "voltage_source_label": None,
-        }
-
-    definition = _DEFINITION_STORE.get(str(baseline.get("definition_id")))
-    metrics = list(definition.get("metrics", [])) if definition else []
-    power_metric = next(
-        (item for index, item in enumerate(metrics) if _infer_metric_key(item, index) == "power"),
-        None,
-    )
-    voltage_metric = next(
-        (item for index, item in enumerate(metrics) if _infer_metric_key(item, index) == "voltage"),
-        None,
-    )
-    return {
-        "baseline_id": str(baseline.get("id")) if baseline.get("id") else None,
-        "baseline_name": str(baseline.get("name")) if baseline.get("name") else None,
-        "power_source_label": _format_host_channel_label(
-            _resolve_host_channel(power_metric.get("edc_channel_id")) if power_metric else None
-        ),
-        "voltage_source_label": _format_host_channel_label(
-            _resolve_host_channel(voltage_metric.get("edc_channel_id")) if voltage_metric else None
-        ),
-    }
-
-
-async def _load_realtime_curves_from_edc(
-    *,
-    duration: Literal["5m", "1h", "6h", "24h"],
-    start_time: datetime,
-    end_time: datetime,
-) -> dict[str, list[CurvePoint]] | None:
-    """尝试从真实 EDC 读取实时功率/电压曲线。"""
-    baseline = _resolve_active_baseline()
-    definition = (
-        _DEFINITION_STORE.get(str(baseline.get("definition_id")))
-        if baseline and baseline.get("definition_id")
-        else None
-    )
+    definition = _DEFINITION_STORE.get(str(baseline.get("definition_id"))) if baseline else None
     metrics = list(definition.get("metrics", [])) if definition else []
     power_metric = next(
         (item for index, item in enumerate(metrics) if _infer_metric_key(item, index) == "power"),
@@ -116,9 +121,31 @@ async def _load_realtime_curves_from_edc(
         None,
     )
     power_channel = _resolve_host_channel(power_metric.get("edc_channel_id")) if power_metric else None
-    voltage_channel = (
-        _resolve_host_channel(voltage_metric.get("edc_channel_id")) if voltage_metric else None
-    )
+    voltage_channel = _resolve_host_channel(voltage_metric.get("edc_channel_id")) if voltage_metric else None
+    if not power_channel:
+        power_channel = _pick_dashboard_fallback_channel("power")
+    if not voltage_channel:
+        voltage_channel = _pick_dashboard_fallback_channel("voltage")
+    return {
+        "baseline_id": str(baseline.get("id")) if baseline and baseline.get("id") else None,
+        "baseline_name": str(baseline.get("name")) if baseline and baseline.get("name") else None,
+        "power_channel": power_channel,
+        "voltage_channel": voltage_channel,
+        "power_source_label": _format_host_channel_label(power_channel),
+        "voltage_source_label": _format_host_channel_label(voltage_channel),
+    }
+
+
+async def _load_realtime_curves_from_edc(
+    *,
+    duration: Literal["5m", "1h", "6h", "24h"],
+    start_time: datetime,
+    end_time: datetime,
+) -> dict[str, list[CurvePoint]] | None:
+    """尝试从真实 EDC 读取实时功率/电压曲线。"""
+    context = _resolve_dashboard_realtime_context()
+    power_channel = context["power_channel"]
+    voltage_channel = context["voltage_channel"]
     if not power_channel or not voltage_channel:
         return None
 
@@ -175,7 +202,7 @@ async def get_dashboard_stats() -> DashboardStats:
     """
     from .tasks import _list_task_store
 
-    sources = _resolve_dashboard_sources()
+    sources = _resolve_dashboard_realtime_context()
     heats = await _sorted_dashboard_heats()
     today = datetime.now().date()
     today_heats = [item for item in heats if item["start_time"].date() == today]
@@ -225,7 +252,7 @@ async def get_realtime_data(
     end_time = datetime.now()
     start_time = end_time - delta
 
-    sources = _resolve_dashboard_sources()
+    sources = _resolve_dashboard_realtime_context()
     try:
         realtime_curves = await _load_realtime_curves_from_edc(
             duration=duration,

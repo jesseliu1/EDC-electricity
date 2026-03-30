@@ -1,0 +1,39 @@
+{
+  "run_id": "2026-03-29-uat-export-followup-s07",
+  "environment": "local",
+  "executed_at": "2026-03-29T00:00:00Z",
+  "host_origin": "http://127.0.0.1:3000/edc/",
+  "api_base": "http://127.0.0.1:8000/api",
+  "overall_verdict": "PASS",
+  "command": "pnpm exec playwright test e2e/uat-export-followup.spec.ts --project=chromium",
+  "tests": [
+    {
+      "id": "S07-TC02",
+      "name": "纠偏任务导出 PDF",
+      "verdict": "PASS",
+      "request_path": "/api/tasks/{task_id}/pdf",
+      "download_event": true,
+      "status_code": 200,
+      "filename_pattern": "{task_no}.pdf",
+      "screenshots": [
+        "docs/test-reports/assets/2026-03-29-uat-export-followup/s07-tc02-task-detail-before-export.png",
+        "docs/test-reports/assets/2026-03-29-uat-export-followup/s07-tc02-task-detail-after-export.png"
+      ],
+      "observation": "真实本地后端已返回 PDF，浏览器侧捕获到真实下载事件。"
+    },
+    {
+      "id": "S07-TC03",
+      "name": "日报生成与导出",
+      "verdict": "PASS",
+      "request_path": "/api/reports/daily/{report_date}/pdf",
+      "download_event": true,
+      "status_code": 200,
+      "filename_pattern": "daily-{report_date}.pdf",
+      "screenshots": [
+        "docs/test-reports/assets/2026-03-29-uat-export-followup/s07-tc03-report-detail-before-export.png",
+        "docs/test-reports/assets/2026-03-29-uat-export-followup/s07-tc03-report-detail-after-export.png"
+      ],
+      "observation": "真实本地后端已返回 PDF，浏览器侧捕获到真实下载事件。"
+    }
+  ]
+}

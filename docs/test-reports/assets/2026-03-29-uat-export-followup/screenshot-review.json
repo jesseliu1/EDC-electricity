@@ -1,0 +1,51 @@
+{
+  "version": "1.0",
+  "issue": "2026-03-29-uat-export-followup-s07",
+  "environment": "local",
+  "reviewed_at": "2026-03-29T00:00:00Z",
+  "overall_result": "pass",
+  "review_method": "manual-image-review-plus-playwright-download-event",
+  "why_correct": "已回看 4 张截图，并结合 Playwright download event 与 200 响应确认结论。截图证明进入了正确详情页，最终 PASS 判定依赖真实下载事件和文件名校验，而不是依赖空白页或 popup 现象。",
+  "screenshots": [
+    {
+      "file": "s07-tc02-task-detail-before-export.png",
+      "step": "S07-TC02 步骤 1",
+      "review_result": "pass",
+      "observed": [
+        "看到了任务详情页",
+        "看到了导出按钮"
+      ],
+      "missing": []
+    },
+    {
+      "file": "s07-tc02-task-detail-after-export.png",
+      "step": "S07-TC02 步骤 2",
+      "review_result": "pass",
+      "observed": [
+        "截图仍位于任务详情页上下文",
+        "结合 download event 可确认浏览器已执行真实下载"
+      ],
+      "missing": []
+    },
+    {
+      "file": "s07-tc03-report-detail-before-export.png",
+      "step": "S07-TC03 步骤 1",
+      "review_result": "pass",
+      "observed": [
+        "看到了日报详情页",
+        "看到了导出按钮"
+      ],
+      "missing": []
+    },
+    {
+      "file": "s07-tc03-report-detail-after-export.png",
+      "step": "S07-TC03 步骤 2",
+      "review_result": "pass",
+      "observed": [
+        "截图仍位于日报详情页上下文",
+        "结合 download event 可确认浏览器已执行真实下载"
+      ],
+      "missing": []
+    }
+  ]
+}

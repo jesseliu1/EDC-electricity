@@ -24,9 +24,15 @@ from ..schemas import (
     SettingItem,
     SettingsResponse,
     SettingsUpdateRequest,
+    SourceSwitchRequest,
+    SourceSwitchResponse,
     ToleranceSettingRequest,
 )
 from ..services import EDCClient, EDCClientError
+from ..services.source_switch_service import (
+    SourceConnectionPayload,
+    apply_source_connection_change,
+)
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
 _HOST_SYNC_HEADER = "x-asns-host-sync"
@@ -318,45 +324,24 @@ def _has_app_level_edc_connection_override() -> bool:
 
 def apply_app_edc_connection_override() -> bool:
     """启动恢复时让显式环境配置覆盖旧 runtime 连接信息。"""
-    global _HOST_CHANNEL_LAST_SYNC_AT
-
     if not _has_app_level_edc_connection_override():
         return False
 
-    next_base_url = app_settings.edc_base_url.strip()
-    next_username = (app_settings.edc_username or "").strip()
-    next_password = (app_settings.edc_password or "").strip()
-    next_api_key = (app_settings.edc_api_key or "").strip()
-    changed = (
-        str(_SETTINGS_STORE.get("edc_base_url", {}).get("value") or "").strip() != next_base_url
-        or str(_SETTINGS_STORE.get("edc_username", {}).get("value") or "").strip() != next_username
-        or str(_SETTINGS_STORE.get("edc_password", {}).get("value") or "").strip() != next_password
-        or str(_SETTINGS_STORE.get("edc_api_key", {}).get("value") or "").strip() != next_api_key
+    previous_payload = _build_source_connection_payload(
+        base_url=str(_SETTINGS_STORE.get("edc_base_url", {}).get("value") or ""),
+        username=str(_SETTINGS_STORE.get("edc_username", {}).get("value") or ""),
+        password=str(_SETTINGS_STORE.get("edc_password", {}).get("value") or ""),
+        api_key=str(_SETTINGS_STORE.get("edc_api_key", {}).get("value") or ""),
     )
-    if not changed:
+    next_payload = _build_source_connection_payload(
+        base_url=app_settings.edc_base_url,
+        username=app_settings.edc_username or "",
+        password=app_settings.edc_password or "",
+        api_key=app_settings.edc_api_key or "",
+    )
+    result = apply_source_connection_change(previous_payload, next_payload)
+    if not result.connection_material_changed:
         return False
-
-    _SETTINGS_STORE["edc_base_url"]["value"] = next_base_url
-    _SETTINGS_STORE["edc_username"]["value"] = next_username
-    _SETTINGS_STORE["edc_password"]["value"] = next_password
-    _SETTINGS_STORE["edc_api_key"]["value"] = next_api_key
-    _HOST_CHANNEL_STORE.clear()
-    _HOST_CHANNEL_CATALOG_CACHE.clear()
-    _HOST_CHANNEL_LAST_SYNC_AT = None
-    _HOST_CONNECTIVITY_STATUS.clear()
-    _HOST_CONNECTIVITY_STATUS.update(
-        {
-            "is_connected": False,
-            "machine_name": "--",
-            "last_sync_label": "--",
-            "meta": {
-                "source": next_base_url or "--",
-                "sensor_count": 0,
-                "channel_count": 0,
-                "enabled_channel_count": 0,
-            },
-        }
-    )
     return True
 
 
@@ -487,14 +472,6 @@ def get_edc_connection_config() -> dict[str, str]:
     }
 
 
-def _normalize_connection_identity(config: dict[str, str]) -> tuple[str, str, str]:
-    return (
-        config["base_url"].strip().rstrip("/"),
-        config["username"].strip(),
-        config["password"].strip(),
-    )
-
-
 def _build_disconnected_host_connectivity_status(source: str) -> dict[str, object]:
     return {
         "is_connected": False,
@@ -509,35 +486,84 @@ def _build_disconnected_host_connectivity_status(source: str) -> dict[str, objec
     }
 
 
-def _clear_source_bound_definition_channels() -> bool:
-    from . import baseline_definitions as baseline_definitions_api
-
-    cleared = False
-    for definition in baseline_definitions_api._DEFINITION_STORE.values():
-        for metric in list(definition.get("metrics", [])):
-            if metric.get("edc_channel_id") is None:
-                continue
-            metric["edc_channel_id"] = None
-            cleared = True
-    return cleared
-
-
-def _reset_source_dependent_runtime_state(source: str) -> None:
-    global _HOST_CHANNEL_LAST_SYNC_AT
-
-    _HOST_CHANNEL_STORE.clear()
-    _HOST_CHANNEL_CATALOG_CACHE.clear()
-    _HOST_CHANNEL_LAST_SYNC_AT = None
-    _HOST_CONNECTIVITY_STATUS.clear()
-    _HOST_CONNECTIVITY_STATUS.update(_build_disconnected_host_connectivity_status(source))
-    _SETTINGS_STORE["active_baseline_id"]["value"] = ""
-    _clear_source_bound_definition_channels()
-
-
 def _invalidate_compare_runtime_caches() -> None:
     from .heats import invalidate_compare_runtime_caches
 
     invalidate_compare_runtime_caches(include_shared=True)
+
+
+def _build_source_connection_payload(
+    *,
+    base_url: str,
+    username: str,
+    password: str,
+    api_key: str,
+) -> SourceConnectionPayload:
+    return SourceConnectionPayload(
+        base_url=base_url.strip(),
+        username=username.strip(),
+        password=password.strip(),
+        api_key=api_key.strip(),
+    )
+
+
+def _resolve_source_switch_payload(
+    data: SourceSwitchRequest | EDCConnectionRequest,
+) -> SourceConnectionPayload:
+    previous_config = get_edc_connection_config()
+    previous_api_key = str(_SETTINGS_STORE.get("edc_api_key", {}).get("value") or "").strip()
+    return _build_source_connection_payload(
+        base_url=data.base_url,
+        username=data.username if data.username is not None else previous_config["username"],
+        password=data.password if data.password is not None else previous_config["password"],
+        api_key=data.api_key or previous_api_key,
+    )
+
+
+async def _apply_source_switch_request(
+    data: SourceSwitchRequest | EDCConnectionRequest,
+) -> SourceSwitchResponse:
+    previous_config = get_edc_connection_config()
+    previous_payload = _build_source_connection_payload(
+        base_url=previous_config["base_url"],
+        username=previous_config["username"],
+        password=previous_config["password"],
+        api_key=str(_SETTINGS_STORE.get("edc_api_key", {}).get("value") or ""),
+    )
+    next_payload = _resolve_source_switch_payload(data)
+    result = apply_source_connection_change(previous_payload, next_payload)
+
+    sections_to_persist = {"settings_store"}
+    if result.connection_material_changed:
+        sections_to_persist.update(
+            {
+                "host_channel_catalog",
+                "host_channel_last_sync_at",
+                "host_connectivity_status",
+            }
+        )
+    if result.source_identity_changed:
+        sections_to_persist.update({"host_channels", "baseline_definitions"})
+    await persist_runtime_state(*sections_to_persist)
+
+    if result.source_identity_changed:
+        message = "EDC 来源已切换，旧来源相关配置已统一清空"
+    elif result.connection_material_changed:
+        message = "EDC 连接材料已更新，连线状态已重置，等待重新验证"
+    else:
+        message = "EDC 连接配置未发生变化"
+
+    return SourceSwitchResponse(
+        success=True,
+        message=message,
+        source_identity_changed=result.source_identity_changed,
+        connection_material_changed=result.connection_material_changed,
+        cleared_host_channel_count=result.cleared_host_channel_count,
+        cleared_host_channel_catalog_count=result.cleared_host_channel_catalog_count,
+        cleared_definition_binding_count=result.cleared_definition_binding_count,
+        cleared_active_baseline_id=result.cleared_active_baseline_id,
+        next_source=result.next_source,
+    )
 
 
 @router.get("", response_model=SettingsResponse)
@@ -615,50 +641,16 @@ async def update_tolerance(data: ToleranceSettingRequest) -> MessageResponse:
 @router.put("/edc-connection", response_model=MessageResponse)
 async def update_edc_connection(data: EDCConnectionRequest, request: Request) -> MessageResponse:
     """更新 EDC 连接配置。"""
-    global _HOST_CHANNEL_LAST_SYNC_AT
     _assert_host_sync_request(request)
-    previous_config = get_edc_connection_config()
-    next_config = {
-        "base_url": data.base_url.strip(),
-        "username": (
-            data.username.strip() if data.username is not None else previous_config["username"]
-        ),
-        "password": (
-            data.password.strip() if data.password is not None else previous_config["password"]
-        ),
-    }
-    source_changed = _normalize_connection_identity(previous_config) != _normalize_connection_identity(
-        next_config
-    )
-    _SETTINGS_STORE["edc_base_url"]["value"] = data.base_url
-    if data.username is not None:
-        _SETTINGS_STORE["edc_username"]["value"] = data.username
-    if data.password is not None:
-        _SETTINGS_STORE["edc_password"]["value"] = data.password
-    _SETTINGS_STORE["edc_api_key"]["value"] = data.api_key or ""
-    sections_to_persist = {
-        "settings_store",
-        "host_channel_catalog",
-        "host_channel_last_sync_at",
-    }
-    if source_changed:
-        _reset_source_dependent_runtime_state(next_config["base_url"])
-        sections_to_persist.update(
-            {
-                "host_channels",
-                "host_connectivity_status",
-                "baseline_definitions",
-            }
-        )
-    else:
-        _HOST_CHANNEL_CATALOG_CACHE.clear()
-        _HOST_CHANNEL_LAST_SYNC_AT = None
-    _invalidate_compare_runtime_caches()
-    await persist_runtime_state(*sections_to_persist)
-    message = "EDC 连接配置已更新"
-    if source_changed:
-        message = "EDC 连接配置已更新，旧来源绑定已清空"
-    return MessageResponse(message=message, success=True)
+    result = await _apply_source_switch_request(data)
+    return MessageResponse(message=result.message, success=result.success)
+
+
+@router.post("/source-switch", response_model=SourceSwitchResponse)
+async def source_switch(data: SourceSwitchRequest, request: Request) -> SourceSwitchResponse:
+    """统一换源入口：更新来源并按边界重置来源相关配置。"""
+    _assert_host_sync_request(request)
+    return await _apply_source_switch_request(data)
 
 
 @router.post("/edc-connection/test", response_model=MessageResponse)

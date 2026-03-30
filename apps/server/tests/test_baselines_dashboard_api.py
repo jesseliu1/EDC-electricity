@@ -4,9 +4,10 @@ from datetime import datetime
 
 import pytest
 
+from src.api.baseline_definitions import _DEFINITION_STORE
 from src.api.baselines import _BASELINE_STORE
 from src.api.heats import _COMPARE_BASELINE_CACHE, _COMPARE_CHANNEL_CURVE_CACHE, _HEAT_COMPARE_CACHE
-from src.api.settings import _HOST_CHANNEL_STORE
+from src.api.settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE
 from src.config import settings
 from src.schemas.common import CurvePoint
 from src.services import EDCClientError
@@ -61,7 +62,36 @@ class _FakeSharedEDCClient:
 
 
 @pytest.mark.asyncio
-async def test_dashboard_endpoints(client) -> None:
+async def test_dashboard_endpoints(client, monkeypatch) -> None:
+    _SETTINGS_STORE["edc_base_url"]["value"] = "http://61.216.55.133"
+    _SETTINGS_STORE["edc_username"]["value"] = "admin"
+    _SETTINGS_STORE["edc_password"]["value"] = "admin"
+
+    fake_client = _FakeSharedEDCClient(
+        point_map={
+            ("2349", "199"): [
+                CurvePoint(timestamp=1000, value=101.0),
+                CurvePoint(timestamp=2000, value=102.0),
+            ],
+            ("2349", "128"): [
+                CurvePoint(timestamp=1000, value=221.0),
+                CurvePoint(timestamp=2000, value=222.0),
+            ],
+        }
+    )
+
+    class _FakeDashboardEDCClient:
+        def __init__(self, **_kwargs) -> None:
+            self._delegate = fake_client
+
+        async def __aenter__(self):
+            return self._delegate
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr("src.api.dashboard.EDCClient", _FakeDashboardEDCClient)
+
     stats_resp = await client.get("/api/dashboard/stats")
     assert stats_resp.status_code == 200
     stats_data = stats_resp.json()
@@ -169,6 +199,59 @@ async def test_dashboard_realtime_surfaces_edc_transport_failure(client, monkeyp
     assert response.status_code == 503
     assert "实时曲线拉取失败" in response.json()["detail"]
     assert "ConnectTimeout" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_realtime_falls_back_to_bound_host_channels_after_source_switch_reset(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["edc_base_url"]["value"] = "http://61.216.55.133"
+    _SETTINGS_STORE["edc_username"]["value"] = "admin"
+    _SETTINGS_STORE["edc_password"]["value"] = "admin"
+    _SETTINGS_STORE["active_baseline_id"]["value"] = ""
+    for definition in _DEFINITION_STORE.values():
+        for metric in definition["metrics"]:
+            metric["edc_channel_id"] = None
+
+    fake_client = _FakeSharedEDCClient(
+        point_map={
+            ("2349", "199"): [
+                CurvePoint(timestamp=1000, value=88.0),
+                CurvePoint(timestamp=2000, value=92.0),
+            ],
+            ("2349", "128"): [
+                CurvePoint(timestamp=1000, value=221.5),
+                CurvePoint(timestamp=2000, value=222.0),
+            ],
+        }
+    )
+
+    class _FakeDashboardEDCClient:
+        def __init__(self, **_kwargs) -> None:
+            self._delegate = fake_client
+
+        async def __aenter__(self):
+            return self._delegate
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr("src.api.dashboard.EDCClient", _FakeDashboardEDCClient)
+
+    response = await client.get("/api/dashboard/realtime", params={"duration": "1h"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["baseline_id"] is None
+    assert payload["baseline_name"] is None
+    assert "总有功功率" in payload["power_source_label"]
+    assert "A相电压" in payload["voltage_source_label"]
+    assert payload["power"][0]["value"] == 88.0
+    assert payload["voltage"][1]["value"] == 222.0
+    assert fake_client.login_calls == 1
+    assert [(item["suid"], item["cuid"]) for item in fake_client.requests] == [
+        ("2349", "199"),
+        ("2349", "128"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -286,6 +369,9 @@ async def test_definition_preview_curves_prefers_preview_builder(client, monkeyp
 async def test_baseline_detail_fetches_curves_via_shared_client_and_source_heat_window(
     client, monkeypatch
 ) -> None:
+    _SETTINGS_STORE["edc_base_url"]["value"] = "http://61.216.55.133"
+    _SETTINGS_STORE["edc_username"]["value"] = "admin"
+    _SETTINGS_STORE["edc_password"]["value"] = "admin"
     baseline_item = _BASELINE_STORE["baseline-001"]
     baseline_item["source_heat_id"] = "heat-001"
     baseline_item["selected_start_time"] = None
@@ -341,6 +427,9 @@ async def test_baseline_detail_fetches_curves_via_shared_client_and_source_heat_
 async def test_definition_preview_curves_fetches_points_via_shared_client(
     client, monkeypatch
 ) -> None:
+    _SETTINGS_STORE["edc_base_url"]["value"] = "http://61.216.55.133"
+    _SETTINGS_STORE["edc_username"]["value"] = "admin"
+    _SETTINGS_STORE["edc_password"]["value"] = "admin"
     fake_client = _FakeSharedEDCClient(
         point_map={
             ("2349", "199"): [

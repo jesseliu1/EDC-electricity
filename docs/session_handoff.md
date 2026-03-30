@@ -4,6 +4,205 @@
 
 ---
 
+## 2026-03-30 换源收口进展（优先于下面旧“散落处理”认知）
+
+- 已完成整体调查，并补统一方案文档：
+  - `docs/SOURCE_SWITCH_UNIFICATION_PLAN.md`
+- 当前关键结论：
+  - `换源` 不是普通保存动作，而是“破坏性重建来源上下文”
+  - 不能继续把换源副作用散落在宿主 `测试连接 / 同步通道 / 保存设置` 与后端各局部逻辑里
+- 当前统一语义：
+  - `source identity = base_url + username`
+  - `connection material = base_url + username + password + api_key`
+  - 仅密码/API Key 变化：不是换源，只重置连线验证态
+  - 地址或账号变化：才是真正换源，必须清 source-bound state
+- 当前后端已落地统一入口：
+  - 服务：`apps/server/src/services/source_switch_service.py`
+  - 路由：`POST /api/settings/source-switch`
+  - schema：`apps/server/src/schemas/source_switch.py`
+- 旧入口当前仍保留，但已委托到同一套逻辑：
+  - `PUT /api/settings/edc-connection`
+- 启动恢复路径也已走同一套换源逻辑：
+  - `apps/server/src/runtime_state.py`
+- 当前真正换源会统一清掉：
+  - 宿主已添加通道
+  - 宿主通道目录缓存
+  - 宿主最近同步时间
+  - 宿主连接状态
+  - 当前活动基线
+  - 基线定义通道绑定 `edc_channel_id`
+  - 比对/实时相关缓存
+- 当前不会被换源顺手清掉：
+  - 基线主体
+  - 炉次/任务/报表历史
+  - 容差/切割/报表时间等通用设置
+- 已补回归：
+  - `apps/server/tests/test_tasks_reports_settings_api.py`
+  - `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivityState.test.ts`
+  - `apps/server` 定向 pytest：`13 passed`
+  - 宿主 `npm test`：`11 passed`
+- 下一步不要再改后端边界；应继续做：
+  - 宿主确认弹窗
+  - 宿主单编排方法，避免 `SettingsView.tsx` 继续分散处理 `sourceSwitched`
+
+## 2026-03-30 宿主换源交互收口进展（优先于上面“待做前端收口”口径）
+
+- 宿主侧已开始与后端统一入口对齐：
+  - `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`
+  - `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/SettingsView.tsx`
+- 当前调整点：
+  - `applySourceSwitchToBackend(...)` 专门负责调用后端 `POST /api/settings/source-switch`
+  - `syncSelectionToBackend(...)` 现在只负责保存宿主通道与宿主连接摘要，不再顺手承担换源
+  - `SettingsView.tsx` 新增 `prepareSourceAwareAction(...)`
+  - `测试连接 / 同步通道 / 保存设置` 已统一先走这层预处理
+- 当前宿主行为：
+  - 如果 `source identity` 变化且本地存在 source-bound state，会先弹确认框
+  - 用户确认后，宿主先调后端统一换源入口，再继续原动作
+  - 用户取消后，本次动作终止，不再继续执行
+- 当前已补文案：
+  - `App.tsx` 中新增 `sourceSwitch*` 多语言文案（当前至少覆盖 `zh-CN / zh-TW / en-US`）
+- 当前已验证：
+  - 宿主 `npm test`：`11 passed`
+  - 宿主 `npm run build`：通过，当前新 bundle 为 `index-BYiChWWV.js`
+- 当前已新增浏览器回归：
+  - `apps/web/e2e/host-source-switch-confirmation.spec.ts`
+  - 当前已覆盖：
+    - 取消换源后保持 source A / ready
+    - 确认换源后继续测试连接并切到 source B
+    - 确认换源后继续同步通道
+    - 确认换源后继续保存设置
+  - 当前 spec 已改为串行，避免多个用例并发踩宿主/后端共享运行态
+  - 已执行：`pnpm exec playwright test e2e/host-source-switch-confirmation.spec.ts --project=chromium`
+  - 结果：`3 passed`
+- 当前环境收尾：
+  - 已拉起本地 `3001` 与 `8001` 供宿主回归使用
+  - 回归完成后 `http://127.0.0.1:8001/api/settings/runtime-status` 已恢复 `overall_code=ready`
+  - 当前 `8001` 设置口径为 `source A (http://60.251.229.32 / volapu / admin)`
+- 当前真正剩余工作：
+  - 把“是否存在 source-bound state”的判断继续抽成可复用规则
+  - 补前端更细粒度单测，避免后续只靠 Playwright 兜底
+
+## 2026-03-29 S05 后续调查结果（优先于旧“8080 阻塞”口径）
+
+- 已补调查报告：`docs/test-reports/2026-03-29-s05-realtime-followup-investigation.md`
+- 已完成代码修复：
+  - `apps/server/src/api/dashboard.py`
+  - Dashboard 实时曲线现已支持在“无活动基线但宿主已绑定功率/电压通道”时回退取数
+- 已完成后端回归：
+  - `pytest tests/test_baselines_dashboard_api.py -q` → `19 passed`
+  - `pytest tests/test_tasks_reports_settings_api.py -q` → `11 passed`
+- 当前关键现场结论：
+  - source B `61.216.55.133` 的真实设备 `suid` 是 `2752 / 2755 / 300000000000000000001`
+  - `8000` 某些持久化状态里残留的仍是旧源绑定：`2349-* / 2054-* / 769-*`
+  - 直接用 `EDCClient` 对 source B 查询旧绑定通道 `2349-199 / 2349-128`，在 `5m / 1h / 24h` 内均返回 `0` points
+- 因此当前 `S05` 的更真实阻塞不是 `8080`，而是：
+  - 旧源 `suid/cuid` 绑定残留
+  - 用旧绑定去读 source B，自然拿不到实时点
+- 若继续正式推进 `S05`，优先走：
+  - `3001 -> 8001`
+  - 重新执行 `S05-TC01 / S05-TC02 / S05-TC03`
+  - 不要继续沿用 `8000` 的历史持久化状态作为正式依据
+
+## 2026-03-29 `127.0.0.1:8080` 调查结果（优先于旧“外部阻塞”口径）
+
+- 已补调查报告：`docs/test-reports/2026-03-29-8080-blocking-investigation.md`
+- 当前已确认：
+  - 本机 `127.0.0.1:8080` 无监听进程，`curl` 为 `connection refused`
+  - 当前仓库内没有需要由本项目启动的 `8080` 本地服务定义
+  - `apps/server/src/config.py` 的 `http://localhost:8080` 只是历史默认占位值
+  - 前端 `3000` 当前代理到 `8000`，宿主 `3001` 当前默认代理到 `8001`
+- 当前真实运行态：
+  - `8000` 已直连 `http://61.216.55.133`
+  - `8001` 已直连 `http://60.251.229.32`
+  - 因此 `S05` 不应再继续按“被 `127.0.0.1:8080` 阻塞”统一记账
+- 当前更真实的后续阻塞：
+  - `GET http://127.0.0.1:8000/api/dashboard/realtime?duration=5m` 返回“未获取到真实实时数据，请检查宿主连接和通道绑定”
+  - 若继续推进 `S05`，应转查实时数据链路，而不是再查 `8080`
+
+## 2026-03-29 S04-TC02 正式重跑结果（优先于下面旧 FAIL 口径）
+
+- 已新增正式重跑脚本：`apps/web/e2e/s04-tc02-source-switch-rerun.spec.ts`
+- 已确认本机 `3001` 当前加载的是新构建入口 `index-DtLUiBmF.js`
+- 已执行：
+  - 宿主：`http://127.0.0.1:3001/`
+  - 后端：`http://127.0.0.1:8001/api`
+  - 命令：`pnpm exec playwright test e2e/s04-tc02-source-switch-rerun.spec.ts --project=chromium`
+  - 结果：`1 passed`
+- 本轮留档已补齐：
+  - `docs/test-reports/2026-03-29-s04-tc02-rerun.md`
+  - `docs/test-reports/assets/2026-03-29-s04-tc02-rerun/evidence.json`
+  - `docs/test-reports/assets/2026-03-29-s04-tc02-rerun/screenshot-review.json`
+- 当前正式结论：
+  - `S04-TC02`：正式重跑通过
+  - `source B (http://61.216.55.133 / admin / admin)` 可成功测试连接并保存
+  - 保存后宿主维持在线，不再落入 `host_disconnected`
+  - 当前保存后运行态是 `no_enabled_channels`，原因是本用例未继续执行“同步通道 + 绑定宿主通道”闭环
+- 环境收尾：
+  - 脚本 `finally` 已恢复 source A 与原始宿主通道
+  - `http://127.0.0.1:8001/api/settings/runtime-status` 已恢复 `overall_code=ready`
+
+## 2026-03-29 无人值守补记（优先于下面同日旧状态）
+
+- `S07-TC02 / S07-TC03` 已不再处于“正式 UAT 未重跑”状态
+- 已新增正式导出回归脚本：`apps/web/e2e/uat-export-followup.spec.ts`
+- 已在真实本地链路完成重跑：
+  - 前端：`http://127.0.0.1:3000/edc/`
+  - 后端：`http://127.0.0.1:8000/api`
+  - 命令：`pnpm exec playwright test e2e/uat-export-followup.spec.ts --project=chromium`
+  - 结果：`2 passed`
+- 本轮留档已补齐：
+  - `docs/test-reports/2026-03-29-uat-export-followup.md`
+  - `docs/test-reports/assets/2026-03-29-uat-export-followup/evidence.json`
+  - `docs/test-reports/assets/2026-03-29-uat-export-followup/screenshot-review.json`
+- 当前结论：
+  - `S07-TC02`：正式重跑通过
+  - `S07-TC03`：正式重跑通过
+  - `S04-TC02`：已完成正式重跑并通过
+  - `S05-TC01 / S05-TC02 / S05-TC03`：继续按 `127.0.0.1:8080` 外部阻塞处理
+- 本轮新增证据：
+  - `docs/test-reports/assets/2026-03-29-uat-export-followup/s07-tc02-task-detail-before-export.png`
+  - `docs/test-reports/assets/2026-03-29-uat-export-followup/s07-tc02-task-detail-after-export.png`
+  - `docs/test-reports/assets/2026-03-29-uat-export-followup/s07-tc03-report-detail-before-export.png`
+  - `docs/test-reports/assets/2026-03-29-uat-export-followup/s07-tc03-report-detail-after-export.png`
+- 注意：总账 `26 / 19 / 17 / 2 / 7` 仍未在本文件直接重算，原因是历史 testcase 粒度口径存在不一致；下次收口时应按正式 UAT 台账统一回写
+
+## 2026-03-29 S04-TC02 调查补充（优先于旧“源码仍失败”猜测）
+
+- 已补调查报告：`docs/test-reports/2026-03-29-s04-tc02-host-runtime-investigation.md`
+- 当前已确认：
+  - `source B (http://61.216.55.133 / admin / admin)` 在当前环境可成功通过宿主 `host-api test-connection`
+  - 本机 `3001` 宿主之前确实存在旧 dist 运行面；旧 bundle 会把设置写请求打到 `http://127.0.0.1:8000/api/*`
+  - 重建宿主 dist 后，请求已恢复为同域 `3001/api/*`
+- 当前源码下的切源行为要点：
+  - 切源后直接 `保存设置`：运行态会进入 `host_disconnected`
+  - 切源后先 `测试连接`：运行态会进入 `no_enabled_channels`
+- 因此 `S04-TC02` 当前不应再简单理解为“source B 不通”或“当前源码仍有宿主连接缺陷”
+- 更合理的解释是：
+  - 当时 `3001` 跑的是旧宿主构建 / 旧环境口径
+  - 或者执行步骤没有形成“测试连接成功后再保存”的闭环
+- 下次若要正式重跑 `S04-TC02`，先确认两件事：
+  - `3001` 已加载新构建
+  - 宿主页面写请求走的是同域 `3001/api/*`
+
+## 2026-03-29 当前执行口径补充（优先于下面旧总账）
+
+- 当前 UAT 执行层基线先按最新人工确认记忆，不直接沿用 `progress.md` 里尚未完全收敛的旧总账数字
+- 当前最关键状态：
+  - `S07-TC02 / S07-TC03`：代码已修复，定向回归 `2 passed`，但正式 UAT 脚本尚未重跑，因此正式总账里仍暂按 `FAIL`
+  - `S04-TC02`：当前仍按正式 `FAIL` 处理；已知口径仍是“新源保存后 `host_disconnected`”，但是否有新证据待复核
+  - `S05-TC01 / S05-TC02 / S05-TC03`：继续按 `127.0.0.1:8080` 外部依赖阻塞处理
+- 当前未执行用例数：`7`
+- 当前总账先按以下口径记忆，待正式重跑/复核后再统一：
+  - 总计 `26`
+  - 已执行 `19`
+  - 已通过 `17`
+  - 已失败 `2`
+  - 剩余 `7`
+- 当前 bug 台账先按以下口径记忆，待与正式留档统一：
+  - 已登记 `58`
+  - 已修复 `55`
+  - 待回归 `0`
+
 ## 2026-03-25 最新交接（优先于下面历史内容）
 
 - 当前开发/收口阶段已完成：`docs/ui_issues.md` 中 tracked issues 已统一收口到标准状态，最近两次收口提交已推到 `origin/master`

@@ -1,0 +1,239 @@
+{
+  "issue": "2026-03-29-s04-tc02-rerun",
+  "environment": "local",
+  "script_path": "apps/web/e2e/s04-tc02-source-switch-rerun.spec.ts",
+  "host_origin": "http://127.0.0.1:3001",
+  "api_base": "http://127.0.0.1:8001/api",
+  "screenshots": [
+    {
+      "file": "s04-tc02-step-01-open-settings-rerun.png",
+      "step": "步骤 01：进入设置页",
+      "action": "open-settings",
+      "note": "宿主设置页已打开，准备切换到 source B。"
+    },
+    {
+      "file": "s04-tc02-step-02-fill-new-endpoint-rerun.png",
+      "step": "步骤 02：填入新地址后",
+      "action": "fill-endpoint",
+      "note": "新源 B 地址已填入。"
+    },
+    {
+      "file": "s04-tc02-step-03-fill-credentials-rerun.png",
+      "step": "步骤 03：填写完整",
+      "action": "fill-credentials",
+      "note": "新源 B 账号与密码已填写。"
+    },
+    {
+      "file": "s04-tc02-step-04-test-connection-result-rerun.png",
+      "step": "步骤 04：测试连接结果",
+      "action": "test-connection",
+      "note": "页面已显示在线与连接就绪，新源连接成功证据可见。"
+    },
+    {
+      "file": "s04-tc02-step-05-save-after-rerun.png",
+      "step": "步骤 05：保存后",
+      "action": "save-settings",
+      "note": "保存反馈可见，页面仍保持新源在线状态。"
+    }
+  ],
+  "initial_runtime": {
+    "overall_code": "ready",
+    "host": {
+      "is_connected": true,
+      "machine_name": "EDC Test Gateway",
+      "last_sync_label": "2026-03-29 18:55:00",
+      "meta": {
+        "source": "http://60.251.229.32",
+        "sensor_count": 26,
+        "channel_count": 2286,
+        "enabled_channel_count": 3
+      }
+    },
+    "edc": {
+      "configured": true,
+      "base_url": "http://60.251.229.32",
+      "username_present": true,
+      "host_channel_total": 3,
+      "enabled_channel_count": 3
+    },
+    "active_baseline": {
+      "id": "baseline-001",
+      "name": "标准基线 v2.1",
+      "status": "published"
+    },
+    "runtime": {
+      "showtime_enabled": false,
+      "live_heat_inference_enabled": true,
+      "baseline_length_scope_mode": "definition"
+    },
+    "pipelines": {
+      "dashboard": {
+        "code": "ready",
+        "ready": true
+      },
+      "heats": {
+        "code": "ready",
+        "ready": true
+      },
+      "inbox": {
+        "code": "ready",
+        "ready": true
+      },
+      "tasks": {
+        "code": "ready",
+        "ready": true
+      },
+      "reports": {
+        "code": "ready",
+        "ready": true
+      },
+      "baselines": {
+        "code": "ready",
+        "ready": true
+      },
+      "settings": {
+        "code": "ready",
+        "ready": true
+      }
+    }
+  },
+  "runtime_after_test_connection": {
+    "overall_code": "no_enabled_channels",
+    "host": {
+      "is_connected": true,
+      "machine_name": "EDC Gateway (61.216.55.133)",
+      "last_sync_label": "2026/3/29 19:57:13",
+      "meta": {
+        "source": "http://61.216.55.133",
+        "sensor_count": 3,
+        "channel_count": 788,
+        "enabled_channel_count": 739
+      }
+    },
+    "edc": {
+      "configured": true,
+      "base_url": "http://61.216.55.133",
+      "username_present": true,
+      "host_channel_total": 0,
+      "enabled_channel_count": 739
+    },
+    "active_baseline": {
+      "id": null,
+      "name": null,
+      "status": null
+    },
+    "runtime": {
+      "showtime_enabled": false,
+      "live_heat_inference_enabled": true,
+      "baseline_length_scope_mode": "definition"
+    },
+    "pipelines": {
+      "dashboard": {
+        "code": "no_enabled_channels",
+        "ready": false
+      },
+      "heats": {
+        "code": "no_enabled_channels",
+        "ready": false
+      },
+      "inbox": {
+        "code": "no_enabled_channels",
+        "ready": false
+      },
+      "tasks": {
+        "code": "no_enabled_channels",
+        "ready": false
+      },
+      "reports": {
+        "code": "no_enabled_channels",
+        "ready": false
+      },
+      "baselines": {
+        "code": "no_enabled_channels",
+        "ready": false
+      },
+      "settings": {
+        "code": "ready",
+        "ready": true
+      }
+    }
+  },
+  "settings_after_save": {
+    "edc_base_url": "http://61.216.55.133",
+    "edc_username": "admin"
+  },
+  "host_connectivity_after_save": {
+    "is_connected": true,
+    "machine_name": "EDC Gateway (61.216.55.133)",
+    "last_sync_label": "2026/3/29 19:57:13",
+    "meta": {
+      "source": "http://61.216.55.133",
+      "sensor_count": 3,
+      "channel_count": 788,
+      "enabled_channel_count": 739
+    }
+  },
+  "runtime_after_save": {
+    "overall_code": "no_enabled_channels",
+    "host": {
+      "is_connected": true,
+      "machine_name": "EDC Gateway (61.216.55.133)",
+      "last_sync_label": "2026/3/29 19:57:13",
+      "meta": {
+        "source": "http://61.216.55.133",
+        "sensor_count": 3,
+        "channel_count": 788,
+        "enabled_channel_count": 739
+      }
+    },
+    "edc": {
+      "configured": true,
+      "base_url": "http://61.216.55.133",
+      "username_present": true,
+      "host_channel_total": 0,
+      "enabled_channel_count": 739
+    },
+    "active_baseline": {
+      "id": null,
+      "name": null,
+      "status": null
+    },
+    "runtime": {
+      "showtime_enabled": false,
+      "live_heat_inference_enabled": true,
+      "baseline_length_scope_mode": "definition"
+    },
+    "pipelines": {
+      "dashboard": {
+        "code": "no_enabled_channels",
+        "ready": false
+      },
+      "heats": {
+        "code": "no_enabled_channels",
+        "ready": false
+      },
+      "inbox": {
+        "code": "no_enabled_channels",
+        "ready": false
+      },
+      "tasks": {
+        "code": "no_enabled_channels",
+        "ready": false
+      },
+      "reports": {
+        "code": "no_enabled_channels",
+        "ready": false
+      },
+      "baselines": {
+        "code": "no_enabled_channels",
+        "ready": false
+      },
+      "settings": {
+        "code": "ready",
+        "ready": true
+      }
+    }
+  },
+  "verdict": "PASS",
+  "observation": "当前新构建宿主下，source B 测试连接成功，保存后仍维持在线；运行态为 no_enabled_channels，而非 host_disconnected。"
+}

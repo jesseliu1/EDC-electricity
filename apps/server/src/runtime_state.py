@@ -176,4 +176,5 @@ async def load_runtime_state() -> None:
             "host_channel_catalog",
             "host_channel_last_sync_at",
             "host_connectivity_status",
+            "baseline_definitions",
         )
