@@ -1924,19 +1924,25 @@
 - **实际结果**:
   - 修复前点击后仅出现提示：`任务创建入口开发中`
   - 修复前页面不会跳转到任务创建/任务详情，也不会真正生成任务记录
-  - 修复前后端创建接口虽然存在，但新任务会写入占位 `heat_no / deviation_percent`
+  - 后续 investigate 发现：即使前端已接入任务创建接口，live inferred 炉次在只传 `heat_id` 时仍可能因后端重新回查 live heat 而卡在按钮 loading，不表现为稳定跳转
 - **调查结论（2026-03-25）**:
   - 直接根因是 `apps/web/src/views/HeatDetailView.vue` 的 `handleCreateTask()` 仍停留在 `ElMessage.info(t('heat.createTaskHint'))`，前端没有调用现有任务创建接口
   - 现有 `POST /api/tasks`、`/tasks/:id` 路由和任务详情页已经足够支撑最小真实闭环，不需要额外新建任务创建页
   - 后端 `apps/server/src/api/tasks.py` 创建接口原本写死占位 `heat_no / deviation_percent`，如果直接接前端会把演示值带进真实链路，因此需要一并复用已有 heat 查询能力
 - **修复结果**:
-  - `apps/web/src/views/HeatDetailView.vue` 已改为调用现有 `taskApi.create({ heat_id })`，成功后直接跳转 `/tasks/:id`，并补 `heat-create-task-button` 测试锚点与重复点击保护
-  - `apps/server/src/api/tasks.py` 已复用现有 heat 查询能力，创建任务时带入真实 `heat_no` 与已有偏差摘要，不再写死演示编号
-  - `apps/server/src/schemas/task.py` 与前端任务类型已收口为允许 `deviation_percent=null`；若来源炉次本身尚未算出偏差，任务列表/任务详情/Dashboard 任务预览统一展示“待计算”，不再伪造百分比
+  - `apps/web/src/views/HeatDetailView.vue` 已改为调用现有 `taskApi.create()`，成功后直接跳转 `/tasks/:id`，并补 `heat-create-task-button` 测试锚点与重复点击保护
+  - 前端创建请求现在会同时提交当前页面已有的炉次快照：`heat_no`、`deviation_percent`、`avg_deviation_percent`、`time_offset_percent`、`mismatch_duration_minutes`
+  - `apps/web/src/api/task.ts` 已补创建任务 payload 类型，允许前端显式传入上述快照
+  - `apps/server/src/api/tasks.py` 已优先使用前端快照创建任务，不再强制重新回查 live heat；因此不会再把 `live_inferred` 炉次带回实时推断链路
+  - `apps/server/src/schemas/task.py` 已补对应快照 schema；若来源炉次本身尚未算出偏差，任务列表/任务详情/Dashboard 任务预览统一展示“待计算”，不再伪造百分比
   - 本轮未扩到新的任务表单、确认弹窗、重复创建去重或后端任务工作流改造
 - **复验结论（2026-03-25）**:
   - 本轮已复跑 `e2e/app.spec.ts -g "heat detail create task button posts to tasks api and opens the created task detail"`，当前最小真实创建链路仍可用。
   - 本轮未改业务代码，仅将该条 issue 的标准状态文案统一为“验收通过”；后端 `pytest` 运行环境缺失仍沿用既有风险说明。
+- **根因补充（2026-03-28 investigate）**:
+  - 卡住不跳转的真实根因不是前端路由丢失，而是创建任务时后端仍会在只收到 `heat_id` 的情况下重新回查 live heat。
+  - 对 `live_inferred` 炉次，这一步会重新进入实时推断 / 取数链路，导致按钮长时间维持 loading，表现成“点击后没反应”。
+  - 本轮修复的核心不是新增页面，而是把当前炉次快照随创建请求一起提交，并让后端优先消费这份快照。
 - **正式回归结果（2026-03-28）**:
   - 已基于修正后的 `apps/web/e2e/uat-full.spec.ts` 重新执行正式 UAT 回归：
     - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/uat-full.spec.ts -g "UAT-003 炉次详情与任务创建|UAT-004 纠偏任务单列表与详情" --config=playwright.uat.config.ts --project=chromium`
@@ -1958,16 +1964,17 @@
   - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "heat detail create task button posts to tasks api and opens the created task detail"` 通过
   - `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY pnpm --dir apps/web exec playwright test e2e/uat-full.spec.ts -g "UAT-003 炉次详情与任务创建|UAT-004 纠偏任务单列表与详情" --config=playwright.uat.config.ts --project=chromium` 通过
   - `pnpm --dir apps/web build` 通过
-  - `python3 -m py_compile apps/server/src/api/tasks.py apps/server/src/schemas/task.py` 通过
-  - 尝试补后端 pytest：`uv run pytest tests/test_tasks_reports_settings_api.py -k tasks_crud_and_pdf` 未执行，原因是当前 shell 无 `uv`
-  - 尝试补后端 pytest：`python3 -m pytest tests/test_tasks_reports_settings_api.py -k tasks_crud_and_pdf` 未执行，原因是系统 Python 未安装 `pytest` 且缺 FastAPI/Pydantic 依赖
+  - `python -m py_compile apps/server/src/api/tasks.py apps/server/src/schemas/task.py apps/server/src/api/settings.py apps/server/src/runtime_state.py` 通过
+  - `npx.cmd playwright test e2e/coverage.spec.ts e2e/app.spec.ts e2e/issue-acceptance.spec.ts` 通过，结果 `36 passed`
+  - `apps/server/tests/test_tasks_reports_settings_api.py` 已补“任务创建优先消费前端快照、避免再次回查 live heat”的回归断言
+  - Windows 本机 `.venv` 入口仍受既有 Python 路径问题影响，本轮未直接用该入口重跑 pytest
 - **期望结果**:
   - 炉次详情应能基于当前炉次真实生成纠偏任务，或至少进入明确的创建确认流程
   - 不应在主链路页面保留只有提示、不产生任何业务结果的任务入口
 - **严重程度**: 中
 - **如何测试**:
   1. 在炉次详情点击“生成纠偏任务”
-  2. 确认浏览器发起 `POST /api/tasks`，且请求体包含当前 `heat_id`
+  2. 确认浏览器发起 `POST /api/tasks`，且请求体包含当前 `heat_id` 与页面已有的炉次快照字段
   3. 确认页面跳转到 `/tasks/:id`
   4. 再到任务详情核对该任务可见、关联炉次编号正确；若偏差值为空，应显示“待计算”而不是伪造百分比
 
