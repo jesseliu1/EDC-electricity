@@ -7,7 +7,7 @@ import pytest
 
 from src.api.baseline_definitions import _resolve_preview_window
 from src.api.baselines import _BASELINE_STORE, _resolve_baseline_time_window
-from src.api.settings import _SETTINGS_STORE
+from src.api.settings import _CHANNEL_ROLE_BINDING_STORE, _SETTINGS_STORE
 from src.runtime_state import load_runtime_state, persist_runtime_state
 from src.schemas.common import CurvePoint
 
@@ -193,9 +193,9 @@ async def test_heat_list_and_compare_follow_active_default_baseline(client) -> N
     activate_resp = await client.post(f"/api/baselines/{baseline_id}/activate")
     assert activate_resp.status_code == 200
 
-    list_resp = await client.get("/api/heats", params={"page_size": 5})
+    list_resp = await client.get("/api/heats", params={"status": "normal", "page_size": 20})
     assert list_resp.status_code == 200
-    heat_item = next(item for item in list_resp.json()["items"] if item["status"] != "pending")
+    heat_item = list_resp.json()["items"][0]
     assert heat_item["baseline_id"] == baseline_id
     assert heat_item["deviation_percent"] is not None
 
@@ -426,6 +426,9 @@ async def test_heat_compare_prefers_hydrated_baseline_metric_curves(client, monk
 async def test_heat_compare_fetches_baseline_metric_curves_via_shared_edc_client(
     client, monkeypatch
 ) -> None:
+    _SETTINGS_STORE["edc_base_url"]["value"] = "http://61.216.55.133"
+    _SETTINGS_STORE["edc_username"]["value"] = "admin"
+    _SETTINGS_STORE["edc_password"]["value"] = "admin"
     heat_id = await _pick_heat_id(client)
     baseline_item = _BASELINE_STORE["baseline-001"]
     baseline_item["selected_start_time"] = datetime(2026, 3, 22, 8, 0)
@@ -696,6 +699,22 @@ async def test_live_heat_inference_deduplicates_concurrent_cold_requests(monkeyp
 
     assert load_calls == 1
     assert list(first_result.keys()) == list(second_result.keys())
+
+
+def test_build_live_heat_lookup_context_uses_explicit_role_binding_instead_of_definition_guessing() -> None:
+    import src.api.heats as heats_module
+
+    _CHANNEL_ROLE_BINDING_STORE["live_heat_inference"] = "2349-199"
+    for definition in heats_module._DEFINITION_STORE.values():
+        for metric in definition.get("metrics", []):
+            if isinstance(metric, dict) and metric.get("unit") == "kW":
+                metric["edc_channel_id"] = None
+
+    context = heats_module.build_live_heat_lookup_context(definition_id="def-001", baseline_id="baseline-001")
+
+    assert context is not None
+    assert context["channel"]["id"] == "2349-199"
+    assert context["baseline_id"] == "baseline-001"
 
 
 @pytest.mark.asyncio
@@ -1440,6 +1459,9 @@ async def test_startup_restore_compare_flow_keeps_restored_baseline_window(
     client,
     monkeypatch,
 ) -> None:
+    _SETTINGS_STORE["edc_base_url"]["value"] = "http://61.216.55.133"
+    _SETTINGS_STORE["edc_username"]["value"] = "admin"
+    _SETTINGS_STORE["edc_password"]["value"] = "admin"
     restored_start = datetime(2026, 3, 23, 8, 0)
     restored_end = datetime(2026, 3, 23, 8, 30)
     baseline_item = _BASELINE_STORE["baseline-001"]

@@ -22,11 +22,14 @@ from src.api.heats import (
     _seed_heats,
 )
 from src.api.settings import (
+    _CHANNEL_ROLE_BINDING_STORE,
     _HOST_CHANNEL_CATALOG_CACHE,
     _HOST_CHANNEL_LAST_SYNC_AT,
+    _HOST_SOURCE_REVISION,
     _HOST_CHANNEL_STORE,
     _HOST_CONNECTIVITY_STATUS,
     _SETTINGS_STORE,
+    _reconcile_channel_role_binding_store,
 )
 from src.api.tasks import _SHOWTIME_TASK_STORE, _TASK_STORE
 from src.config import settings
@@ -45,6 +48,124 @@ def _build_test_reference_heats() -> dict[str, dict]:
         item["current_curve_source"] = "live_edc"
         item["baseline_curve_source"] = "none"
     return seeded
+
+
+def _build_test_host_channels() -> list[dict[str, str]]:
+    return [
+        {
+            "id": "2349-199",
+            "device_name": "测试电表 · 三相智能电表",
+            "device_type": "三相智能电表",
+            "area": "测试电力",
+            "suid": "2349",
+            "cuid": "199",
+            "channel_name": "总有功功率",
+            "unit": "kW",
+            "last_value": "--",
+            "status": "online",
+        },
+        {
+            "id": "2349-142",
+            "device_name": "测试电表 · 三相智能电表",
+            "device_type": "三相智能电表",
+            "area": "测试电力",
+            "suid": "2349",
+            "cuid": "142",
+            "channel_name": "A相有功功率",
+            "unit": "kW",
+            "last_value": "--",
+            "status": "online",
+        },
+        {
+            "id": "2349-128",
+            "device_name": "测试电表 · 三相智能电表",
+            "device_type": "三相智能电表",
+            "area": "测试电力",
+            "suid": "2349",
+            "cuid": "128",
+            "channel_name": "A相电压",
+            "unit": "V",
+            "last_value": "--",
+            "status": "online",
+        },
+        {
+            "id": "2349-130",
+            "device_name": "测试电表 · 三相智能电表",
+            "device_type": "三相智能电表",
+            "area": "测试电力",
+            "suid": "2349",
+            "cuid": "130",
+            "channel_name": "B相电压",
+            "unit": "V",
+            "last_value": "--",
+            "status": "online",
+        },
+        {
+            "id": "2054-128",
+            "device_name": "测试温度 A · 热电偶温度采集器",
+            "device_type": "热电偶温度采集器",
+            "area": "测试温度 A",
+            "suid": "2054",
+            "cuid": "128",
+            "channel_name": "热电偶温度采集通道",
+            "unit": "℃",
+            "last_value": "--",
+            "status": "online",
+        },
+        {
+            "id": "2066-128",
+            "device_name": "测试温度 B · 热电偶温度采集器",
+            "device_type": "热电偶温度采集器",
+            "area": "测试温度 B",
+            "suid": "2066",
+            "cuid": "128",
+            "channel_name": "热电偶温度采集通道",
+            "unit": "℃",
+            "last_value": "--",
+            "status": "online",
+        },
+        {
+            "id": "769-128",
+            "device_name": "测试压力 · 电流信号转换器",
+            "device_type": "General 4-20 mA to CAN Converter",
+            "area": "测试压力",
+            "suid": "769",
+            "cuid": "128",
+            "channel_name": "AD_CH1",
+            "unit": "MPa",
+            "last_value": "--",
+            "status": "online",
+        },
+        {
+            "id": "769-129",
+            "device_name": "测试压力 · 电流信号转换器",
+            "device_type": "General 4-20 mA to CAN Converter",
+            "area": "测试压力",
+            "suid": "769",
+            "cuid": "129",
+            "channel_name": "AD_CH2",
+            "unit": "MPa",
+            "last_value": "--",
+            "status": "online",
+        },
+    ]
+
+
+def _bind_test_definition_channels() -> None:
+    bindings = {
+        "def-001": ["2349-199", "2349-128", "2054-128"],
+        "def-002": ["2349-142", "2349-130", "2066-128", "769-128"],
+    }
+    for definition_id, channel_ids in bindings.items():
+        definition = _DEFINITION_STORE.get(definition_id)
+        if not definition:
+            continue
+        metrics = definition.get("metrics", [])
+        if not isinstance(metrics, list):
+            continue
+        for metric, channel_id in zip(metrics, channel_ids, strict=False):
+            if isinstance(metric, dict):
+                metric["edc_channel_id"] = channel_id
 
 
 @pytest.fixture
@@ -77,11 +198,19 @@ def reset_in_memory_stores():
     settings_snapshot = copy.deepcopy(_SETTINGS_STORE)
     host_channel_snapshot = copy.deepcopy(_HOST_CHANNEL_STORE)
     host_channel_catalog_snapshot = copy.deepcopy(_HOST_CHANNEL_CATALOG_CACHE)
+    channel_role_binding_snapshot = copy.deepcopy(_CHANNEL_ROLE_BINDING_STORE)
     host_channel_last_sync_snapshot = _HOST_CHANNEL_LAST_SYNC_AT
+    host_source_revision_snapshot = _HOST_SOURCE_REVISION
     host_connectivity_status_snapshot = copy.deepcopy(_HOST_CONNECTIVITY_STATUS)
     next_heat_index_snapshot = _NEXT_MOCK_HEAT_INDEX
     enable_mock_dataset_snapshot = settings.enable_mock_dataset
     _HEAT_STORE.clear()
+    _HOST_CHANNEL_STORE.clear()
+    _HOST_CHANNEL_STORE.extend(copy.deepcopy(_build_test_host_channels()))
+    _HOST_CHANNEL_CATALOG_CACHE.clear()
+    _HOST_CHANNEL_CATALOG_CACHE.extend(copy.deepcopy(_HOST_CHANNEL_STORE))
+    _bind_test_definition_channels()
+    _reconcile_channel_role_binding_store()
     _LIVE_HEAT_CACHE.clear()
     _LIVE_HEAT_CACHE["contexts"] = {}
     default_context = _resolve_live_heat_inference_context()
@@ -135,12 +264,16 @@ def reset_in_memory_stores():
     _HOST_CHANNEL_CATALOG_CACHE.clear()
     _HOST_CHANNEL_CATALOG_CACHE.extend(copy.deepcopy(host_channel_catalog_snapshot))
 
+    _CHANNEL_ROLE_BINDING_STORE.clear()
+    _CHANNEL_ROLE_BINDING_STORE.update(copy.deepcopy(channel_role_binding_snapshot))
+
     _HOST_CONNECTIVITY_STATUS.clear()
     _HOST_CONNECTIVITY_STATUS.update(copy.deepcopy(host_connectivity_status_snapshot))
 
     import src.api.settings as settings_module
 
     settings_module._HOST_CHANNEL_LAST_SYNC_AT = host_channel_last_sync_snapshot
+    settings_module._HOST_SOURCE_REVISION = host_source_revision_snapshot
 
     import src.api.heats as heats_module
 

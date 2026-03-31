@@ -4,6 +4,360 @@
 
 ---
 
+### 2026-03-31（硬编码审计分支已合入当前主线并完成针对性整改验证）
+
+**当前阶段**：`origin/codex/hardcode-remediation` 的调查结论已按当前代码状态复核并落库；本轮把仍真实存在的硬编码/前后台边界问题补到了可验收状态
+
+**本轮完成**：
+
+- [x] 已确认 `origin/codex/hardcode-remediation` 是 docs-only 审计分支：
+  - [x] 远端分支提交：`0b0e047`
+  - [x] 该分支只新增两份调查文档，没有代码修复
+- [x] 已把审计文档按当前状态复核后落到当前分支：
+  - [x] `docs/HARDCODED_INVENTORY.md`
+  - [x] `docs/FRONTEND_BACKEND_SEPARATION_AUDIT.md`
+- [x] 已补仍真实存在的边界问题：
+  - [x] `apps/server/src/api/tasks.py`
+  - [x] `apps/server/src/runtime_state.py`
+  - [x] 非 `showtime` 任务已接入 `runtime_tasks` 持久化
+  - [x] 空白 bootstrap 时会清空旧任务运行态
+- [x] 已补环境可配置化收口：
+  - [x] `apps/server/src/config.py`
+  - [x] `apps/server/src/main.py`
+  - [x] `apps/web/vite.config.ts`
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/server.mjs`
+- [x] 已移除 EDC 业务前端残留的系统连接写面：
+  - [x] `apps/web/src/api/setting.ts`
+  - [x] `apps/web/src/stores/setting.ts`
+  - [x] `apps/web/src/views/SettingsView.vue`
+- [x] 已补测试口径对齐：
+  - [x] `apps/server/tests/test_tasks_reports_settings_api.py`
+  - [x] `apps/server/tests/test_baselines_dashboard_api.py`
+  - [x] `apps/server/tests/test_heats_api.py`
+
+**本轮验证**：
+
+- [x] 后端：`pytest tests/test_tasks_reports_settings_api.py tests/test_baselines_dashboard_api.py tests/test_heats_api.py tests/test_runtime_state_admin.py -q` -> `75 passed`
+- [x] EDC 前端：`pnpm build` -> 通过
+- [x] 宿主：`node --import tsx --test src/hostConnectivityState.test.ts src/hostApiServer.test.ts` -> `13 passed`
+- [x] 宿主：`npm run build` -> 通过
+
+**当前结论**：
+
+- [x] 审计分支中真正阻塞 UAT 的硬编码/边界项已收口
+- [x] 当前剩余的多数“硬编码”属于默认参数或 demo/seed 数据，不再是旧来源污染问题
+- [ ] 下一步可以进入完整 UAT，总验重点应回到业务链路与视觉证据，而不是继续做来源收口
+
+### 2026-03-31（宿主运行态真源收口第一阶段已上线验证）
+
+**当前阶段**：宿主 source truth 第一阶段已完成真实部署与线上核验，生产路径旧快照已移除，后端 revision 护栏、runtime 发布模型与浏览器侧草稿护栏都已实证生效
+
+**本轮完成**：
+
+- [x] 后端已补宿主真源读写协议：
+  - [x] `GET /api/settings/host-bootstrap`
+  - [x] `PUT /api/settings/host-runtime-sync`
+  - [x] 所有正式写操作统一要求 `source_revision`
+  - [x] 旧写接口冲突时返回 `409`，不再静默覆盖
+- [x] 宿主设置页已改为“先读后端真源，再判本地草稿是否有效”：
+  - [x] `SettingsView.tsx` 启动先读 `host-bootstrap`
+  - [x] 本地草稿现在绑定 `sourceIdentity + baseSourceRevision`
+  - [x] 草稿仅在“同源且 revision 一致”时恢复
+  - [x] 冲突时会清草稿并回拉后端当前真源
+- [x] 宿主正式写回已统一走 revision 护栏：
+  - [x] `测试连接 / 同步通道 / 保存设置` 全部接到新写模型
+  - [x] source 切换后不再把旧草稿自动顶回后端
+  - [x] source/password 变更后会先收口后端配置，再继续后续动作
+- [x] 生产宿主快照路径已清理：
+  - [x] `App.tsx` 启动恢复旧逻辑已删除
+  - [x] 废弃内联 `SettingsView` 已删除
+  - [x] `src/edcChannelSnapshot.ts` 已删除
+- [x] 宿主 API 测试已修成跨平台：
+  - [x] `hostApiServer.test.ts` 不再写死 Windows 路径
+  - [x] 子进程错误/退出已纳入清理，测试不再挂死
+- [x] 宿主与后端运行时发布模型已统一：
+  - [x] `scripts/publish-edc-web-and-asns.sh` 现在发布到 `/home/openclaw/asns-host-runtime`
+  - [x] ASNS runtime 每次部署都会清旧 `node_modules` 并 `npm ci --omit=dev`
+  - [x] `deploy/systemd/asns-host.service.example` 已改指向 runtime
+  - [x] 当前机器 `~/.config/systemd/user/asns-host.service` 已改指向 runtime
+- [x] 文档已同步：
+  - [x] `docs/HOST_BACKEND_RUNTIME_UNIFICATION_PLAN.md`
+  - [x] `docs/DEPLOYMENT.md`
+  - [x] `docs/SERVER_LAYOUT_AND_SYNC.md`
+- [x] 已完成真实线上重部署：
+  - [x] `./scripts/sync-edc-server.sh`
+  - [x] `./scripts/publish-edc-web-and-asns.sh`
+  - [x] `8001` 当前 runtime 已切到新协议，`GET /api/settings/runtime-status` 返回 `overall_code=ready`
+  - [x] `GET /api/settings/host-bootstrap` 当前真源已是 `http://61.216.55.133`
+  - [x] 当前宿主连接摘要已变为 `EDC Gateway (61.216.55.133) / 739 channels / 6 enabled`
+  - [x] 公网 `/edc/` 当前资源目录已更新到 `assets-github-20260331T052340Z`
+  - [x] 公网 `/asns/` 当前由 `/home/openclaw/asns-host-runtime` 提供
+- [x] 已完成浏览器级实证核验：
+  - [x] Playwright 截图确认 `/edc/` 首页显示“宿主已连入 · 真实链路就绪”
+  - [x] Headless Chromium 渲染 DOM 中已不存在“未获取到真实实时数据，请检查宿主连接和通道绑定”
+  - [x] Playwright 注入旧草稿后，进入宿主“连线设置”会先读取后端真源并清掉旧草稿
+  - [x] 旧草稿实证结果：`draftAfterBootstrap = null`，页面显示 `http://61.216.55.133`，未再出现旧源 `60.251.229.32`
+- [x] 已补发布脚本稳健性：
+  - [x] `scripts/publish-edc-web-and-asns.sh` 新增 `wait_for_url`
+  - [x] ASNS 重启后先检查本机 `3001`，再检查公网 `/asns/`
+  - [x] 已用真实二次发布验证，不再因刚重启时的瞬时 `502` 误判失败
+
+**本轮验证**：
+
+- [x] 后端：`pytest tests/test_tasks_reports_settings_api.py -q` 通过，`16 passed`
+- [x] 宿主：`node --import tsx --test src/hostConnectivityState.test.ts src/hostApiServer.test.ts` 通过，`13 passed`
+- [x] 宿主：`npm run lint` 通过
+- [x] 宿主：`npm run build` 通过
+- [x] 脚本：`bash -n scripts/publish-edc-web-and-asns.sh scripts/sync-edc-server.sh` 通过
+- [x] 线上：`GET /api/settings/runtime-status` -> `ready`
+- [x] 线上：`GET /api/settings/host-bootstrap` -> `source_revision=1 / endpoint=http://61.216.55.133`
+- [x] 线上：`https://hopeofthepantheon.me/edc/` -> 新资源目录 `assets-github-20260331T052340Z`
+- [x] 线上：`https://hopeofthepantheon.me/asns/` -> 正常返回
+- [x] 浏览器：`/tmp/edc-verify/edc.png`
+- [x] 浏览器：`/tmp/edc-verify/asns.png`
+- [x] 浏览器：`/tmp/edc-verify/asns-settings-stale-draft-check.png`
+
+**当前剩余事项**：
+
+- [ ] 如需正式业务放行，下一步是按最新线上状态补一轮完整 UAT 总验，而不是继续做部署类修补
+
+### 2026-03-31（补记：ASNS 宿主旧快照 / 本地草稿 / 旧后端副本三条根因链已查清，待进入定向修复）
+
+**当前阶段**：正式进入“宿主运行态真源收口”准备，重点不再是猜旧源残留，而是先拆清哪几条路径仍会把旧状态重新带回来
+
+**本轮完成**：
+
+- [x] 已确认线上 `/asns/` 当前不是“漏部署旧包”，而是正在跑仓库当前宿主构建：
+  - [x] 运行进程：`/home/openclaw/projects/EDC-electricity/docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/server.mjs`
+  - [x] 当前公网入口脚本：`/asns/assets/index-NuMMjshf.js`
+  - [x] 公网脚本 `sha256` 与仓库 `dist/assets/index-NuMMjshf.js` 一致
+- [x] 已确认宿主前端 bundle 本身仍把旧测试源快照打进生产运行路径：
+  - [x] 来源文件：`docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/edcChannelSnapshot.ts`
+  - [x] 旧测试源：`http://60.251.229.32`
+  - [x] 旧快照摘要：`26 devices / 2286 channels / 2127 enabled`
+  - [x] 当前 `App.tsx / SettingsView.tsx` 会直接消费这份快照，而不是仅在测试或 showtime 中使用
+- [x] 已确认宿主“启动恢复（bootstrap restore）”的真实动作链：
+  - [x] 页面加载时先读后端 `GET /api/settings`
+  - [x] 同时读浏览器 `localStorage['asns-host-connectivity-draft']`
+  - [x] 当前优先级是 `restored?.config || persistedConfig`
+  - [x] 若本地草稿存在且可恢复，会继续调用 `/host-api/edc/test-connection`
+  - [x] 然后调用 `syncSelectionToBackend(...)` 把恢复出的连接摘要和宿主通道重新写回后端
+  - [x] 最后再次回写 `localStorage`
+- [x] 已确认当前设计下“后端当前源被其它入口改掉”时，旧浏览器草稿仍可能反向覆盖系统真源：
+  - [x] 宿主启动恢复当前不会先比较“后端当前 source”和“本地草稿 source”
+  - [x] 只要本地草稿自洽，就可能在下次打开宿主时把旧源状态重新回写后端
+- [x] 已确认除了“换源后未清理旧草稿”之外，当前还有 4 个遗漏会继续泄露旧状态：
+  - [x] `App.tsx` 仍用 `edcChannelSnapshot` 生成 `realChannelCatalog`
+  - [x] `SettingsView.tsx` 初始 `meta` 默认值仍是 `edcSnapshotMeta`
+  - [x] 宿主页卡片仍硬编码 `EDC Test Gateway / 2026-03-16 11:12 / 26 devices / 2286 channels`
+  - [x] 宿主恢复逻辑会自动把恢复结果写回后端，而不是仅做本地只读恢复
+- [x] 已确认当前仓库只有一套正式 `showtime` 口径，且位于后端请求级模式：
+  - [x] `apps/server/src/request_mode.py`
+  - [x] `apps/server/src/mock_dataset.py`
+  - [x] 只有显式 `showtime=true` 或 `X-Showtime` 才开放 mock 数据集
+  - [x] 因此 ASNS 宿主当前这份旧 EDC 快照不属于正式 showtime 机制
+- [x] 已确认 `8001` 后端当前仍跑独立 runtime 副本，而不是直接跑仓库：
+  - [x] systemd：`~/.config/systemd/user/edc-backend.service`
+  - [x] 运行目录：`/home/openclaw/edc-electricity-server`
+  - [x] 当前 runtime 文件时间停在 `2026-03-30 13:51~13:57 UTC`
+  - [x] 仓库对应后端文件时间已到 `2026-03-30 14:21~14:25 UTC`
+  - [x] 当前可判定：后端后续改动进入了仓库，但没有再同步进 `edc-electricity-server`
+
+**本轮已与用户对齐的后续修改方向**：
+
+- [x] 宿主生产路径不再保留 bundle 内置 EDC 快照
+- [x] 系统只保留一套正式 `showtime` 语义
+- [x] `showtime` 也必须从后端 API 返回演示/假数据，不再依赖前端快照
+- [x] 若发生换源，本地宿主草稿直接清空，不再额外询问
+- [x] 宿主启动恢复后不得再无条件把本地恢复结果自动回写后端
+- [x] 已单独固化第一阶段方案文档：
+  - [x] `docs/HOST_SOURCE_TRUTH_FIRST_STAGE_PLAN.md`
+  - [x] 当前明确第一阶段不做“后台草稿”，先收口 `backend truth + source_revision + no bootstrap write-back`
+
+**进入代码修改前的待办清单**：
+
+- [ ] 清理宿主前端对 `edcChannelSnapshot / edcSnapshotMeta` 的生产运行时依赖
+- [ ] 统一“后端当前 source”为宿主唯一真源，本地草稿仅作为同源未提交编辑态
+- [ ] 本地草稿与后端当前 source 不一致时，直接判失效并清空
+- [ ] 去掉宿主页硬编码旧测试节点 / 时间 / 通道数量展示
+- [ ] 重新部署 `8001` runtime 副本，确保与仓库当前后端版本一致
+
+### 2026-03-30（补记：UAT 文档已对齐业务角色绑定架构）
+
+**当前阶段**：运行态架构与正式验收口径开始同步收口，避免继续拿“宿主通道非空”误判业务就绪
+
+**本轮完成**：
+
+- [x] 已更新正式 UAT 主文档：
+  - [x] `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`
+  - [x] 已补 `host-channels` 与 `channel-role-bindings` 的证据边界
+  - [x] 已把 `S02 / S03 / S04 / S05` 的通过标准补到角色层
+  - [x] 已把 `dashboard_primary / live_heat_inference` 写入正式总账口径
+- [x] 已更新历史 follow-up 说明：
+  - [x] `docs/test-reports/2026-03-28-uat-followup.md`
+  - [x] 已明确 `2026-03-28` 旧记录主要证明宿主通道层，不再单独作为当前“业务链路 ready”依据
+- [x] 已补文档侧结论：
+  - [x] 以后正式宣称 `S03 / S05 / S06` 通过时，必须附 `GET /api/settings/channel-role-bindings`
+  - [x] 以后正式宣称业务链路 ready 时，必须附 `runtime-status.channel_roles.missing_required_role_keys`
+
+### 2026-03-30（补记：宿主通道与业务角色绑定已正式拆层）
+
+**当前阶段**：EDC / ASNS 运行态继续收口，开始把“通道目录”和“业务用途”拆成独立层
+
+**本轮完成**：
+
+- [x] 已新增显式业务通道角色层：
+  - [x] `apps/server/src/channel_roles.py`
+  - [x] 已定义 `dashboard_primary / dashboard_secondary / live_heat_inference`
+  - [x] 已把“宿主通道清单”和“业务角色绑定”分离持久化
+- [x] 已把角色绑定纳入后端运行态：
+  - [x] `apps/server/src/api/settings.py`
+  - [x] `apps/server/src/runtime_state.py`
+  - [x] 已新增 `runtime_channel_role_bindings`
+  - [x] 已新增 `GET/PUT /api/settings/channel-role-bindings`
+  - [x] `runtime-status` 已返回角色配置摘要与缺失必需角色
+- [x] 已把核心业务链路改为优先读角色绑定：
+  - [x] `apps/server/src/api/dashboard.py`
+  - [x] Dashboard 实时主曲线只读 `dashboard_primary`
+  - [x] Dashboard 辅曲线改为可选，不再因缺少电压类通道整条链路失败
+  - [x] `apps/server/src/api/heats.py`
+  - [x] 真实炉次推断主信号已改读 `live_heat_inference`
+  - [x] live heat lookup 不再从基线定义里反推“功率通道”
+- [x] 已把换源 / 部署自愈一并接到角色层：
+  - [x] `apps/server/src/services/source_switch_service.py`
+  - [x] 真正换源时会同时清空角色绑定
+  - [x] `apps/server/src/runtime_state_admin.py`
+  - [x] `deploy-refresh` 现在会同时修复宿主通道、角色绑定、基线定义绑定
+  - [x] 对“仍合法但近 5 分钟读空”的旧角色绑定，会用 live probe 结果替换成当前可读通道
+- [x] 已补回归：
+  - [x] `apps/server/tests/conftest.py`
+  - [x] `apps/server/tests/test_tasks_reports_settings_api.py`
+  - [x] `apps/server/tests/test_baselines_dashboard_api.py`
+  - [x] `apps/server/tests/test_heats_api.py`
+  - [x] `apps/server/tests/test_runtime_state_admin.py`
+  - [x] 已覆盖：
+    - [x] 角色绑定显式读写
+    - [x] 换源清空角色绑定
+    - [x] Dashboard 缺少辅曲线时仍可返回主曲线
+    - [x] live heat lookup 只认角色绑定
+    - [x] deploy-refresh 会把读空基波角色替换成 live 通道
+- [x] 已完成本轮验证：
+  - [x] `python3 -m py_compile apps/server/src/channel_roles.py apps/server/src/api/settings.py apps/server/src/runtime_state.py apps/server/src/api/dashboard.py apps/server/src/api/heats.py apps/server/src/runtime_state_admin.py apps/server/src/services/source_switch_service.py apps/server/src/schemas/setting.py apps/server/src/schemas/source_switch.py apps/server/tests/conftest.py apps/server/tests/test_baselines_dashboard_api.py apps/server/tests/test_heats_api.py apps/server/tests/test_tasks_reports_settings_api.py apps/server/tests/test_runtime_state_admin.py`
+  - [x] `apps/server: pytest tests/test_tasks_reports_settings_api.py tests/test_baselines_dashboard_api.py tests/test_heats_api.py tests/test_runtime_state_admin.py -q` → `72 passed`
+- [x] 已补文档收口：
+  - [x] `docs/progress.md`
+  - [x] `docs/lessons.md`
+  - [x] `docs/DEPLOYMENT.md`
+  - [x] `apps/server/README.md`
+
+### 2026-03-30（补记：线上部署脚本与实时通道自动修复已完成闭环）
+
+**当前阶段**：EDC / ASNS 线上部署与实时数据链路完成闭环修复
+
+**本轮完成**：
+
+- [x] 已补部署脚本的 user bus 护栏：
+  - [x] `scripts/sync-edc-server.sh`
+  - [x] `scripts/publish-edc-web-and-asns.sh`
+  - [x] 非交互 shell 下会自动补 `XDG_RUNTIME_DIR=/run/user/$(id -u)`
+  - [x] 非交互 shell 下会自动补 `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus`
+- [x] 已完成真实根因诊断：
+  - [x] 线上 `502 Bad Gateway` 的直接原因是 `edc-backend.service` 已停，旧脚本在无 user bus 环境下无法正常拉起 user service
+  - [x] `dashboard/realtime` 继续报“未获取到真实实时数据”的更深层原因，不是旧源 ID 残留，而是自动推荐到了当前 5 分钟窗口读空的 `基波` 功率/电压通道
+- [x] 已补后端“活通道优先”修复：
+  - [x] `apps/server/src/runtime_state_admin.py`
+  - [x] 部署刷新时会优先探测当前源下近 5 分钟有真实点的功率/电压通道
+  - [x] 对“仍在 catalog 中、但确认读空”的旧功率/电压绑定，会自动替换成可读通道
+- [x] 已补后端/宿主默认推荐规则：
+  - [x] `apps/server/src/api/settings.py`
+  - [x] `apps/server/src/api/dashboard.py`
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`
+  - [x] 已识别繁简体 `总/總`、`电压/電壓`
+  - [x] `基波` 通道已降权，总功率/非基波电压已升权
+- [x] 已补回归：
+  - [x] `apps/server/tests/test_runtime_state_admin.py`
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivityState.test.ts`
+  - [x] 已新增“有效但读空的基波通道会被 live 通道替换”的测试
+  - [x] 已新增“总功率 / 非基波电压优先”的宿主测试
+- [x] 已完成本轮验证：
+  - [x] `python3 -m py_compile apps/server/src/runtime_state_admin.py apps/server/src/api/settings.py apps/server/src/api/dashboard.py apps/server/tests/test_runtime_state_admin.py`
+  - [x] `pytest tests/test_runtime_state_admin.py -q` → `3 passed`
+  - [x] `env ASNS_DATABASE_URL=sqlite+aiosqlite:///./data/test_baselines_dashboard_api.db pytest tests/test_baselines_dashboard_api.py -q` → `19 passed`
+  - [x] `node --import tsx --test src/hostConnectivityState.test.ts` → `11 passed`
+- [x] 已完成真实部署：
+  - [x] `./scripts/sync-edc-server.sh`
+  - [x] `./scripts/publish-edc-web-and-asns.sh`
+  - [x] 后端备份：`/home/openclaw/edc-electricity-server/backups/20260330T140103Z/runtime-pre-sync.tgz`
+  - [x] 前端新资产目录：`/var/www/edc-electricity/assets-github-20260330T135826Z`
+  - [x] ASNS 当前入口脚本：`/asns/assets/index-NuMMjshf.js`
+- [x] 已完成公网复验：
+  - [x] `https://hopeofthepantheon.me/api/settings/runtime-status` → `200`, `overall_code=ready`
+  - [x] `https://hopeofthepantheon.me/api/dashboard/realtime?duration=5m` → `200`
+  - [x] 当前实时通道：
+    - [x] 功率：`2752-205 / 總有功功率`
+    - [x] 电压：`2752-128 / A相電壓 (或VAB)`
+  - [x] 当前实时点数：
+    - [x] `power_points=60`
+    - [x] `voltage_points=60`
+  - [x] `https://hopeofthepantheon.me/edc/` 已引用新目录 `assets-github-20260330T135826Z`
+  - [x] `https://hopeofthepantheon.me/asns/` 已引用 `/asns/assets/index-NuMMjshf.js`
+  - [x] `https://hopeofthepantheon.me/asns/assets/index-NuMMjshf.js` → `200`
+
+### 2026-03-30（补记：部署侧 source-bound 运行态诊断与修复已收口）
+
+**当前阶段**：EDC / ASNS UAT 主线继续推进，部署脚本与运行态边界开始收口
+
+**本轮完成**：
+
+- [x] 已完成正式诊断：
+  - [x] 线上 `Dashboard realtime 503 / 未获取到真实实时数据` 的根因不是前端取数，而是旧源 `runtime_host_channels / runtime_baseline_definitions` 残留
+  - [x] 已确认旧部署脚本只保留 `data/` 与 `venv/`，但不会在部署后修复 `data/asns.db` 里的 source-bound 脏状态
+- [x] 已新增后端运行态运维入口：
+  - [x] `apps/server/src/runtime_state_admin.py`
+  - [x] 已支持 `deploy-refresh / clear-source-bound / factory-reset`
+- [x] 已把后端部署脚本接到统一运维入口：
+  - [x] `scripts/sync-edc-server.sh`
+  - [x] 部署后会按当前 EDC 配置刷新 source-bound 运行态
+  - [x] 已补环境开关：
+    - [x] `EDC_SERVER_SKIP_SOURCE_REFRESH`
+    - [x] `EDC_SERVER_REBIND_DEFINITIONS`
+- [x] 已补 blank bootstrap 能力：
+  - [x] `apps/server/src/config.py`
+  - [x] `apps/server/src/runtime_state.py`
+  - [x] `ASNS_BOOTSTRAP_MODE=blank` 时，首次启动不再写入 demo 基线/炉次/宿主绑定
+- [x] 已清除后端与宿主里的硬编码旧源默认绑定：
+  - [x] `apps/server/src/api/settings.py`
+  - [x] `apps/server/src/api/baseline_definitions.py`
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`
+- [x] 已进一步收紧部署刷新策略：
+  - [x] 只修复当前 catalog 中已失效的宿主通道与定义绑定
+  - [x] 不再在每次部署时粗暴覆盖仍然有效的用户选择
+  - [x] 宿主已保存通道会先做 catalog reconcile，再补默认功率/电压/温度/压力覆盖
+  - [x] 基线定义绑定若仍指向当前 catalog 中有效通道，则保持不动；仅缺失/失效时才重绑
+- [x] 已补后端定向测试：
+  - [x] `apps/server/tests/test_runtime_state_admin.py`
+  - [x] 已覆盖：
+    - [x] 有效绑定保留
+    - [x] 宿主通道 reconcile
+    - [x] `deploy-refresh` 修复失效 source-bound 记录
+- [x] 已收测试基座：
+  - [x] `apps/server/tests/conftest.py`
+  - [x] 不再依赖旧硬编码默认通道，改为测试显式 seed
+  - [x] `apps/server/tests/test_heats_api.py` 已补当前真实 EDC 配置前置
+- [x] 已完成验证：
+  - [x] `python3 -m py_compile apps/server/src/runtime_state_admin.py apps/server/tests/test_runtime_state_admin.py apps/server/tests/test_tasks_reports_settings_api.py apps/server/tests/test_baselines_dashboard_api.py`
+  - [x] `env ASNS_DATABASE_URL=sqlite+aiosqlite:///./data/test_tasks_reports.db pytest tests/test_tasks_reports_settings_api.py -q` → `13 passed`
+  - [x] `env ASNS_DATABASE_URL=sqlite+aiosqlite:///./data/test_baselines_dashboard.db pytest tests/test_baselines_dashboard_api.py -q` → `19 passed`
+  - [x] `env ASNS_DATABASE_URL=sqlite+aiosqlite:///./data/test_heats_api.db pytest tests/test_heats_api.py -q` → `34 passed`
+  - [x] `pytest tests/test_runtime_state_admin.py -q` → `3 passed`
+  - [x] `node --import tsx --test src/hostConnectivityState.test.ts` → `10 passed`
+
+**当前结论**：
+
+- [x] 以后再跑 `scripts/sync-edc-server.sh`，部署侧会自动修复“当前源地址 + 旧源绑定”的混搭状态
+- [x] 这条修复链现在不会再把当前仍有效的宿主通道选择和基线通道绑定全部冲掉
+- [x] 新服务器若需要真正空白安装，应显式使用 `ASNS_BOOTSTRAP_MODE=blank`，不要继续依赖 demo runtime 落库
+
 ### 2026-03-30（补记：EDC 换源已收口为后端统一入口）
 
 **当前阶段**：EDC / ASNS UAT 主线继续推进，开始收口“换源”架构

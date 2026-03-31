@@ -4,10 +4,11 @@ from datetime import datetime
 
 import pytest
 
+from src.api import settings as settings_api
 from src.api.baseline_definitions import _DEFINITION_STORE
 from src.api.baselines import _BASELINE_STORE
 from src.api.heats import _COMPARE_BASELINE_CACHE, _COMPARE_CHANNEL_CURVE_CACHE, _HEAT_COMPARE_CACHE
-from src.api.settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE
+from src.api.settings import _CHANNEL_ROLE_BINDING_STORE, _HOST_CHANNEL_STORE, _SETTINGS_STORE
 from src.config import settings
 from src.schemas.common import CurvePoint
 from src.services import EDCClientError
@@ -255,6 +256,49 @@ async def test_dashboard_realtime_falls_back_to_bound_host_channels_after_source
 
 
 @pytest.mark.asyncio
+async def test_dashboard_realtime_allows_missing_secondary_role_when_primary_role_has_data(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["edc_base_url"]["value"] = "http://61.216.55.133"
+    _SETTINGS_STORE["edc_username"]["value"] = "admin"
+    _SETTINGS_STORE["edc_password"]["value"] = "admin"
+    _CHANNEL_ROLE_BINDING_STORE["dashboard_primary"] = "2349-199"
+    _CHANNEL_ROLE_BINDING_STORE["dashboard_secondary"] = None
+
+    fake_client = _FakeSharedEDCClient(
+        point_map={
+            ("2349", "199"): [
+                CurvePoint(timestamp=1000, value=88.0),
+                CurvePoint(timestamp=2000, value=92.0),
+            ],
+        }
+    )
+
+    class _FakeDashboardEDCClient:
+        def __init__(self, **_kwargs) -> None:
+            self._delegate = fake_client
+
+        async def __aenter__(self):
+            return self._delegate
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr("src.api.dashboard.EDCClient", _FakeDashboardEDCClient)
+
+    response = await client.get("/api/dashboard/realtime", params={"duration": "1h"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["power"]) == 2
+    assert payload["voltage"] == []
+    assert payload["baseline_voltage"] == []
+    assert payload["voltage_source_label"] is None
+    assert [(item["suid"], item["cuid"]) for item in fake_client.requests] == [
+        ("2349", "199"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_settings_host_channels_endpoint(client, monkeypatch) -> None:
     _HOST_CHANNEL_STORE.clear()
     _HOST_CHANNEL_STORE.extend(
@@ -297,13 +341,17 @@ async def test_settings_host_channels_endpoint(client, monkeypatch) -> None:
 async def test_settings_host_channels_can_be_saved(client) -> None:
     forbidden_response = await client.put(
         "/api/settings/host-channels",
-        json={"items": []},
+        json={
+            "source_revision": settings_api._current_source_revision(),
+            "items": [],
+        },
     )
     assert forbidden_response.status_code == 403
 
     response = await client.put(
         "/api/settings/host-channels",
         json={
+            "source_revision": settings_api._current_source_revision(),
             "items": [
                 {
                     "id": "sensor-9-128",

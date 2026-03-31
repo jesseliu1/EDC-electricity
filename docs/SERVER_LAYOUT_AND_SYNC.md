@@ -17,7 +17,7 @@
 - EDC 后端运行副本：`/home/openclaw/edc-electricity-server`
 - EDC 后端运行数据库：`/home/openclaw/edc-electricity-server/data/asns.db`
 - EDC 前端发布目录：`/var/www/edc-electricity`
-- ASNS 当前运行目录：直接使用主仓中的 ASNS 源码目录，不再单独复制一份
+- ASNS 宿主运行副本：`/home/openclaw/asns-host-runtime`
 
 ### systemd service
 
@@ -37,8 +37,8 @@
   - `WorkingDirectory=/home/openclaw/edc-electricity-server`
   - 从运行副本启动 uvicorn
 - `asns-host.service`
-  - `WorkingDirectory=/home/openclaw/projects/EDC-electricity/docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統`
-  - 直接从主仓源码目录启动 `node server.mjs`
+  - `WorkingDirectory=/home/openclaw/asns-host-runtime`
+  - 从运行副本启动 `node server.mjs`
 
 ## 2. 现在谁是“真源”
 
@@ -69,9 +69,15 @@
 以后同步 EDC 后端代码时，必须保留：
 
 - `data/`
-- `venv/`
 - `.logs/`
 - `backups/`
+
+说明：
+
+- `venv/` 不再视为“要保留的运行态”
+- 当前部署脚本会在同步后用系统 `python3` 重新创建 `/home/openclaw/edc-electricity-server/venv`
+- 当前部署脚本还会在同步后按数据库里的当前 EDC 配置执行一次 source-bound 运行态修复
+- 这一步的目标不是“每次重建默认绑定”，而是“修掉失效旧源绑定，同时保留当前仍有效的现场选择”
 
 ### EDC 前端发布目录里有 legacy `assets/`
 
@@ -140,7 +146,9 @@ cd /home/openclaw/projects/EDC-electricity
 
 - 源：`/home/openclaw/projects/EDC-electricity/apps/server`
 - 目标：`/home/openclaw/edc-electricity-server`
-- 保留运行态目录：`data/`、`venv/`、`.logs/`、`backups/`
+- 保留运行态目录：`data/`、`.logs/`、`backups/`
+- `venv/` 每次同步后重新创建，不再沿用旧运行库
+- 同步后会自动执行 `src.runtime_state_admin --mode deploy-refresh`，修复 source-bound 脏状态
 
 推荐流程：
 
@@ -158,7 +166,6 @@ systemctl --user stop edc-backend.service
 
 find "$rt" -maxdepth 1 -mindepth 1 \
   ! -name data \
-  ! -name venv \
   ! -name .logs \
   ! -name backups \
   -exec rm -rf {} +
@@ -171,12 +178,28 @@ cp -a "$src/alembic" "$rt/"
 cp -a "$src/src" "$rt/"
 cp -a "$src/tests" "$rt/"
 
-/home/openclaw/edc-electricity-server/venv/bin/python -m py_compile \
-  /home/openclaw/edc-electricity-server/src/api/heats.py
+python3 -m venv "$rt/venv"
+"$rt/venv/bin/pip" install --upgrade pip setuptools wheel
+"$rt/venv/bin/pip" install "$rt"
+
+"$rt/venv/bin/python" -m src.runtime_state_admin \
+  --db "$rt/data/asns.db" \
+  --mode deploy-refresh
+
+"$rt/venv/bin/python" -m py_compile \
+  "$rt/src/api/heats.py"
 
 systemctl --user start edc-backend.service
 curl -sS http://127.0.0.1:8001/health
 ```
+
+补充说明：
+
+- `deploy-refresh` 会先拉当前源的最新 catalog
+- 如果宿主已添加通道或 `baseline_definitions.metrics[*].edc_channel_id` 仍存在于当前 catalog，则保持不动
+- 只有失效的旧源 ID 才会被剔除 / 重绑
+- 如需跳过这一步，可临时设置 `EDC_SERVER_SKIP_SOURCE_REFRESH=1`
+- 如需只修宿主 catalog 与连接状态、不重绑定义，可设置 `EDC_SERVER_REBIND_DEFINITIONS=0`
 
 ### C. 同步 EDC 前端
 
@@ -241,10 +264,14 @@ curl -I --max-time 10 https://hopeofthepantheon.me/edc/
 
 - 构建 EDC 前端并按版本化 assets 发布
 - 用 `/asns/` base 构建 ASNS
+- 备份 `/home/openclaw/asns-host-runtime`
+- 清空旧 ASNS runtime 与旧 `node_modules`
+- 从源码复制 `package.json / package-lock.json / server.mjs / dist`
+- 在 runtime 目录执行 `npm ci --omit=dev`
 - 重启 `asns-host.service`
 - 校验 `https://hopeofthepantheon.me/edc/` 与 `https://hopeofthepantheon.me/asns/`
 
-ASNS 不再使用独立运行副本，直接从主仓运行。
+ASNS 现在和后端一样使用独立运行副本，不再直接从主仓运行。
 
 先构建：
 
@@ -256,6 +283,12 @@ VITE_ASNS_BASE_PATH=/asns/ \
 VITE_ASNS_EDC_APP_URL=/edc/ \
 VITE_ASNS_APP_API_BASE=/api \
 npm run build
+```
+
+运行时发布后的 service 目录为：
+
+```bash
+/home/openclaw/asns-host-runtime
 ```
 
 再重启服务：
@@ -304,5 +337,5 @@ curl -sS -H 'content-type: application/json' -d '{}' \
 - 改代码：只改主仓
 - 同步后端：主仓 `apps/server` -> `edc-electricity-server`
 - 同步前端：主仓 `apps/web/dist` -> `/var/www/edc-electricity`
-- 同步 ASNS：主仓 ASNS 目录构建后，直接重启 `asns-host.service`
+- 同步 ASNS：主仓 ASNS 目录构建后，发布到 `asns-host-runtime` 再重启 `asns-host.service`
 - 永远不要把运行库反向当成代码真源

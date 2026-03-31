@@ -6,6 +6,15 @@ ASNS AI老师傅智慧熔炼系统后端服务
 
 - `../../docs/DEPLOYMENT.md`
 
+当前运行态里与 EDC 相关的两层状态已经拆开：
+
+- `host channels`
+  宿主同步到后端的可选通道清单
+- `channel role bindings`
+  业务链路显式使用的角色绑定，当前包含 `dashboard_primary / dashboard_secondary / live_heat_inference`
+
+部署后的 `deploy-refresh` 会同时 reconcile 这两层状态，以及基线定义上的历史通道绑定。
+
 ## 开发
 
 ```bash

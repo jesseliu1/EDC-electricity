@@ -91,6 +91,28 @@ docs/test-reports/assets/UAT-EDC-ASNS-<YYYY-MM-DD>/<suite-id>/
 - 如果切源前存在旧来源状态，但本次未出现换源确认弹窗，则本条必须判 `FAIL`。
 - `S05` 的 PASS 也默认建立在 `S04-TC02` 已按上述确认口径通过的前提上。
 
+### 0.8 宿主通道目录 vs 业务角色绑定口径
+
+自 `2026-03-30` 起，正式 UAT 必须把“宿主通道目录”和“业务角色绑定”当成两层不同证据，不允许再混写：
+
+- `GET /api/settings/host-channels`
+  只证明宿主当前已同步/已保存了一组可选通道。
+- `GET /api/settings/channel-role-bindings`
+  才证明这些通道已被赋予具体业务用途。
+- `GET /api/settings/runtime-status`
+  里的 `channel_roles` 摘要，才是正式判断当前业务链路是否 ready 的口径。
+
+当前必需角色如下：
+
+- `dashboard_primary`：Dashboard 实时主曲线
+- `live_heat_inference`：真实炉次推断主信号
+- `dashboard_secondary`：可选，不再作为整条链路必须项
+
+因此：
+
+- `host-channels total > 0` 不再等于“业务链路 ready”
+- 只要 `runtime-status.channel_roles.missing_required_role_keys` 仍包含必需角色，`S03 / S05 / S06` 就不得判定为正式 `PASS`
+
 ---
 
 ## 1. 测试范围总览
@@ -98,8 +120,8 @@ docs/test-reports/assets/UAT-EDC-ASNS-<YYYY-MM-DD>/<suite-id>/
 | Suite ID | 测试套件 | 优先级 | 覆盖要求 |
 |----------|----------|--------|----------|
 | S01 | 宿主系统配置与 EDC 后台源行为 | P0 | 连接配置、测试连通、状态展示 |
-| S02 | 神经系统宿主通道绑定 | P0 | 通道同步、绑定、标准点位 |
-| S03 | 数据链路端到端 | P0 | 宿主→通道→数据→EDC→智慧熔炉 |
+| S02 | 神经系统宿主通道绑定 | P0 | 通道同步、宿主绑定、业务角色绑定 |
+| S03 | 数据链路端到端 | P0 | 宿主→角色→数据→EDC→智慧熔炉 |
 | S04 | 切换 EDC 源后旧配置/旧数据清空 | P0 | 切源清空、保护态展示 |
 | S05 | 新源重新采集 | P0 | 重新绑定、数据恢复 |
 | S06 | 智慧熔炉基于新链路正常工作 | P0 | Dashboard / 基线 / 炉次 / 偏差 |
@@ -171,7 +193,7 @@ docs/test-reports/assets/UAT-EDC-ASNS-<YYYY-MM-DD>/<suite-id>/
 
 ## 4. Suite S02：神经系统宿主通道绑定
 
-**目标**：验证宿主层可以同步 EDC 通道目录，用户可以完成通道绑定（标准点位或通道选择），绑定结果写入后端。
+**目标**：验证宿主层可以同步 EDC 通道目录，用户可以完成宿主通道绑定，并把关键业务用途明确绑定到后端角色层。
 
 ### S02-TC01：同步通道目录
 
@@ -180,14 +202,13 @@ docs/test-reports/assets/UAT-EDC-ASNS-<YYYY-MM-DD>/<suite-id>/
 | 用例 ID | S02-TC01 |
 | 优先级 | P0 |
 | 前置 | S01-TC02 PASS |
-| 操作步骤 | 1. 在宿主设置页，点击「同步通道」或「刷新设备」按钮<br>2. 截图（步骤 01：点击同步后）<br>3. 等待通道目录加载完成<br>4. 截图（步骤 02：通道目录展示）<br>5.            确认通道列表不为空，展示设备/通道名称、suid、cuid 等信息
-6. 截图（步骤 03：通道列表确认）
+| 操作步骤 | 1. 在宿主设置页，点击「同步通道」或「刷新设备」按钮<br>2. 截图（步骤 01：点击同步后）<br>3. 等待通道目录加载完成<br>4. 截图（步骤 02：通道目录展示）<br>5. 确认通道列表不为空，展示设备/通道名称、suid、cuid 等信息<br>6. 截图（步骤 03：通道列表确认） |
 | 预期结果 | 通道目录同步成功，列表展示至少 1 个设备和通道，最近同步时间更新 |
 | 证据要求 | 3 张截图序列，步骤 02 必须可见通道列表内容 |
 | 回看要点 | 图中可见通道名称、suid/cuid；最近同步时间已更新 |
 | 通过标准 | 通道目录可见且不为空 + 后端 `/api/settings/host-channels` total > 0 |
 
-### S02-TC02：选择并绑定通道
+### S02-TC02：选择并绑定宿主通道
 
 | 项目 | 内容 |
 |------|------|
@@ -195,23 +216,23 @@ docs/test-reports/assets/UAT-EDC-ASNS-<YYYY-MM-DD>/<suite-id>/
 | 优先级 | P0 |
 | 前置 | S02-TC01 PASS |
 | 操作步骤 | 1. 在通道目录中，选择对应功率/电压/炉温/炉压的通道（至少 1 个）<br>2. 截图（步骤 01：选择前）<br>3. 点击选择/勾选操作<br>4. 截图（步骤 02：选择后）<br>5. 点击「保存绑定」或「添加到通道」<br>6. 截图（步骤 03：保存后）<br>7. 确认绑定结果反馈（成功提示或已绑定标记）<br>8. 截图（步骤 04：结果态） |
-| 预期结果 | 通道绑定成功，界面有明确反馈，后端 host-channels 记录已更新 |
+| 预期结果 | 宿主通道绑定成功，界面有明确反馈，后端 host-channels 记录已更新 |
 | 证据要求 | 4 张截图序列，步骤 04 必须可见绑定成功状态 |
 | 回看要点 | 图中可见绑定成功提示或已绑定状态标记 |
-| 通过标准 | 绑定操作有成功反馈 + 后端 total 增加 + 截图回看通过 |
+| 通过标准 | 宿主通道绑定有成功反馈 + 后端 total 增加 + 截图回看通过 |
 
-### S02-TC03：验证通道绑定写入后端
+### S02-TC03：验证宿主通道与业务角色绑定写入后端
 
 | 项目 | 内容 |
 |------|------|
 | 用例 ID | S02-TC03 |
 | 优先级 | P0 |
 | 前置 | S02-TC02 PASS |
-| 操作步骤 | 1. 调用 `GET /api/settings/host-channels` 确认 total > 0<br>2. 调用 `GET /api/settings/host-connectivity-status` 确认通道已同步<br>3. 截图或记录 API 响应 |
-| 预期结果 | 后端 host-channels total 与界面选择数量一致 |
-| 证据要求 | API 响应截图或 curl 输出 |
-| 回看要点 | total 字段 > 0；通道 id 列表与界面选择一致 |
-| 通过标准 | 后端数据与前端操作一致 |
+| 操作步骤 | 1. 调用 `GET /api/settings/host-channels` 确认 total > 0<br>2. 调用 `GET /api/settings/channel-role-bindings` 记录当前角色绑定结果<br>3. 调用 `GET /api/settings/runtime-status` 查看 `channel_roles` 摘要与 `missing_required_role_keys`<br>4. 调用 `GET /api/settings/host-connectivity-status` 确认通道已同步<br>5. 截图或记录 API 响应 |
+| 预期结果 | 后端 `host-channels` 与界面选择一致；业务角色绑定结果可回看；若本轮要继续执行 `S03 / S05`，则 `dashboard_primary` 与 `live_heat_inference` 都必须已经绑定 |
+| 证据要求 | API 响应截图或 curl 输出，必须同时包含 `host-channels`、`channel-role-bindings`、`runtime-status.channel_roles` |
+| 回看要点 | `host-channels total > 0`；角色绑定结果可见；若要进入业务链路验收，`missing_required_role_keys` 不应继续包含本轮必需角色 |
+| 通过标准 | 宿主通道与角色绑定都已写入后端；若仅有 `host-channels total > 0` 而缺少角色绑定证据，本条不得被引用为“业务链路 ready” |
 
 ---
 
@@ -239,11 +260,11 @@ docs/test-reports/assets/UAT-EDC-ASNS-<YYYY-MM-DD>/<suite-id>/
 | 用例 ID | S03-TC02 |
 | 优先级 | P0 |
 | 前置 | S03-TC01 PASS，且通道已绑定且有真实 EDC 来源 |
-| 操作步骤 | 1. 在 EDC Dashboard 页面，查看实时曲线对比图区域<br>2. 截图（步骤 01：初始态）<br>3. 切换时间范围（如「1小时」）<br>4. 截图（步骤 02：切换后）<br>5. 等待曲线数据加载<br>6. 截图（步骤 03：数据加载完成） |
-| 预期结果 | 实时曲线可见，有数据点显示，加载时间 < 2 秒（网络正常情况下） |
-| 证据要求 | 3 张截图序列，步骤 03 必须可见曲线/数据点，不接受空图 |
-| 回看要点 | 图中曲线区域有数据渲染；无「连接异常」横幅；无空态提示 |
-| 通过标准 | 曲线有数据 + 无连接报错 + 截图回看通过 |
+| 操作步骤 | 1. 在 EDC Dashboard 页面，查看实时曲线对比图区域<br>2. 截图（步骤 01：初始态）<br>3. 切换时间范围（如「1小时」）<br>4. 截图（步骤 02：切换后）<br>5. 等待曲线数据加载<br>6. 截图（步骤 03：数据加载完成）<br>7. 调用 `GET /api/settings/runtime-status`，确认 `channel_roles.missing_required_role_keys` 不包含 `dashboard_primary`<br>8. 记录 `GET /api/settings/channel-role-bindings` 中 `dashboard_primary` 当前绑定值；若 `dashboard_secondary` 为空，可记录为“辅曲线可选未配置” |
+| 预期结果 | 实时曲线可见，有数据点显示，加载时间 < 2 秒（网络正常情况下）；Dashboard 主曲线角色已完成绑定 |
+| 证据要求 | 3 张截图序列，步骤 03 必须可见曲线/数据点，不接受空图；另需补充 `runtime-status` 与 `channel-role-bindings` 证据 |
+| 回看要点 | 图中曲线区域有数据渲染；无「连接异常」横幅；`dashboard_primary` 已绑定；若缺少 `dashboard_secondary`，不应导致整条曲线链路判失败 |
+| 通过标准 | 曲线有数据 + 无连接报错 + `dashboard_primary` 已配置 + 截图回看通过 |
 
 ### S03-TC03：智慧熔炉接收到数据并展示偏差分析
 
@@ -252,11 +273,11 @@ docs/test-reports/assets/UAT-EDC-ASNS-<YYYY-MM-DD>/<suite-id>/
 | 用例 ID | S03-TC03 |
 | 优先级 | P0 |
 | 前置 | S03-TC02 PASS，且已有发布状态的黄金基线 |
-| 操作步骤 | 1. 在 Dashboard 确认「当日总炉数」或「平均偏差」显示有数值<br>2. 截图（步骤 01：Dashboard 数据卡）<br>3. 点击「炉次浏览」导航<br>4. 截图（步骤 02：炉次列表）<br>5. 确认炉次列表有记录（非空态）<br>6. 截图（步骤 03：炉次列表有数据）<br>7. 点击任意一条炉次<br>8. 截图（步骤 04：炉次详情页）<br>9. 确认炉次详情显示曲线对比图和偏差分析 |
-| 预期结果 | 炉次列表有数据，详情页可见曲线对比和偏差信息 |
-| 证据要求 | 4 张截图序列，步骤 04 必须可见曲线对比图 |
-| 回看要点 | 图中炉次列表非空；详情页有曲线对比区域 |
-| 通过标准 | 炉次有数据 + 偏差分析可见 + 截图回看通过 |
+| 操作步骤 | 1. 在 Dashboard 确认「当日总炉数」或「平均偏差」显示有数值<br>2. 截图（步骤 01：Dashboard 数据卡）<br>3. 点击「炉次浏览」导航<br>4. 截图（步骤 02：炉次列表）<br>5. 确认炉次列表有记录（非空态）<br>6. 截图（步骤 03：炉次列表有数据）<br>7. 点击任意一条炉次<br>8. 截图（步骤 04：炉次详情页）<br>9. 确认炉次详情显示曲线对比图和偏差分析<br>10. 调用 `GET /api/settings/runtime-status`，确认 `channel_roles.missing_required_role_keys` 不包含 `live_heat_inference` |
+| 预期结果 | 炉次列表有数据，详情页可见曲线对比和偏差信息；真实炉次推断主信号角色已完成绑定 |
+| 证据要求 | 4 张截图序列，步骤 04 必须可见曲线对比图；另需补充 `runtime-status.channel_roles` 证据 |
+| 回看要点 | 图中炉次列表非空；详情页有曲线对比区域；`live_heat_inference` 不处于缺失状态 |
+| 通过标准 | 炉次有数据 + 偏差分析可见 + `live_heat_inference` 已配置 + 截图回看通过 |
 
 
 ---
@@ -302,11 +323,11 @@ docs/test-reports/assets/UAT-EDC-ASNS-<YYYY-MM-DD>/<suite-id>/
 | 用例 ID | S04-TC03 |
 | 优先级 | P0 |
 | 前置 | S04-TC02 PASS |
-| 操作步骤 | 1. 切换后立即截图宿主通道绑定区域<br>2. 截图（步骤 01：切换后通道区域）<br>3. 确认旧源 A 的通道不再出现在已绑定列表<br>4. 截图（步骤 02：已绑定列表）<br>5. 调用 `GET /api/settings/host-channels` 确认 total = 0<br>6. 调用 `GET /api/settings/host-connectivity-status` 确认状态 |
-| 预期结果 | 旧源通道绑定已清空，`host-channels total = 0`，通道列表为空态 |
-| 证据要求 | 2 张截图，步骤 01/02 必须可见空态提示文案，API 响应截图 |
-| 回看要点 | 图中不可见旧源通道名称；可见空态提示；API total = 0 |
-| 通过标准 | 旧绑定清空 + 界面空态正确显示 + 截图回看通过 |
+| 操作步骤 | 1. 切换后立即截图宿主通道绑定区域<br>2. 截图（步骤 01：切换后通道区域）<br>3. 确认旧源 A 的通道不再出现在已绑定列表<br>4. 截图（步骤 02：已绑定列表）<br>5. 调用 `GET /api/settings/host-channels` 确认 total = 0<br>6. 调用 `GET /api/settings/channel-role-bindings` 确认角色绑定已被清空或回到 `null`<br>7. 调用 `GET /api/settings/runtime-status` 确认 `channel_roles.missing_required_role_keys` 已重新出现必需角色<br>8. 调用 `GET /api/settings/host-connectivity-status` 确认状态 |
+| 预期结果 | 旧源宿主通道和旧业务角色绑定都已清空，`host-channels total = 0`，通道列表为空态 |
+| 证据要求 | 2 张截图，步骤 01/02 必须可见空态提示文案；API 响应必须包含 `host-channels`、`channel-role-bindings`、`runtime-status.channel_roles` |
+| 回看要点 | 图中不可见旧源通道名称；可见空态提示；API `total = 0`；角色绑定为空；`missing_required_role_keys` 已反映当前未就绪 |
+| 通过标准 | 旧宿主绑定与旧角色绑定都已清空 + 界面空态正确显示 + 截图回看通过 |
 
 ### S04-TC04：验证 EDC 应用层旧展示已清空，进入保护态
 
@@ -356,24 +377,24 @@ docs/test-reports/assets/UAT-EDC-ASNS-<YYYY-MM-DD>/<suite-id>/
 | 用例 ID | S05-TC01 |
 | 优先级 | P0 |
 | 前置 | S04-TC02 PASS（已按换源确认口径完成切源；若出现确认弹窗，已留存弹窗截图并点击 `确认`） |
-| 操作步骤 | 1. 在宿主设置页，点击「同步通道」<br>2. 截图（步骤 01：点击同步后）<br>3. 等待新源通道目录加载<br>4. 截图（步骤 02：新源通道目录）<br>5. 确认展示的是新源设备/通道，不是旧源通道 |
-| 预期结果 | 通道目录来自新 EDC 源，包含新源的设备和通道名称 |
+| 操作步骤 | 1. 在宿主设置页，点击「同步通道」<br>2. 截图（步骤 01：点击同步后）<br>3. 等待新源通道目录加载<br>4. 截图（步骤 02：新源通道目录）<br>5. 确认展示的是新源设备/通道，不是旧源通道<br>6. 调用 `GET /api/settings/host-channels` 或对应宿主接口，确认本步只是恢复新源可选目录，不把“目录非空”直接当成业务 ready |
+| 预期结果 | 通道目录来自新 EDC 源，包含新源的设备和通道名称；本步仅证明目录恢复，不直接证明业务角色已齐备 |
 | 证据要求 | 2 张截图，步骤 02 必须可见新源通道内容 |
 | 回看要点 | 图中通道名称/设备名与新源一致；无旧源通道名称残留；若当前源为 `http://61.216.55.133`，目录中应能对应 source B 的真实设备而非旧源 `2349-* / 2054-* / 769-*` 风格残留 |
-| 通过标准 | 新源通道目录正确加载 + 无旧源目录残留 + 截图回看通过 |
+| 通过标准 | 新源通道目录正确加载 + 无旧源目录残留 + 截图回看通过；但不得仅凭本条结果直接判定 `S05` 整体恢复完成 |
 
-### S05-TC02：在新源上重新绑定通道
+### S05-TC02：在新源上重新绑定通道并确认业务角色
 
 | 项目 | 内容 |
 |------|------|
 | 用例 ID | S05-TC02 |
 | 优先级 | P0 |
 | 前置 | S05-TC01 PASS（与 TC01 使用同一条正式链路，不切换到其他历史运行态） |
-| 操作步骤 | 1. 从新源通道目录中，选择功率/电压/炉温对应通道（至少 1 个）<br>2. 截图（步骤 01：选择通道）<br>3. 完成绑定操作<br>4. 截图（步骤 02：绑定后）<br>5. 确认后端 `GET /api/settings/host-channels` total > 0<br>6. 复核绑定结果中的 `suid/cuid` 属于当前新源目录，不是旧源残留<br>7. 截图（步骤 03：绑定结果） |
-| 预期结果 | 新源通道绑定成功，后端 total > 0，界面有成功反馈 |
-| 证据要求 | 3 张截图序列 + API 响应；API 中应可回看当前绑定使用的新源 `suid/cuid` |
-| 回看要点 | 图中可见绑定成功状态；API total > 0；绑定结果不包含旧源 `2349-* / 2054-* / 769-*` 风格 ID |
-| 通过标准 | 新源通道绑定成功 + 后端确认 + 绑定结果不包含旧源 `suid/cuid` + 截图回看通过 |
+| 操作步骤 | 1. 从新源通道目录中，选择功率/电压/炉温对应通道（至少 1 个）<br>2. 截图（步骤 01：选择通道）<br>3. 完成绑定操作<br>4. 截图（步骤 02：绑定后）<br>5. 确认后端 `GET /api/settings/host-channels` total > 0<br>6. 调用 `GET /api/settings/channel-role-bindings`，确认 `dashboard_primary` 与 `live_heat_inference` 已指向当前新源通道；若配置了 `dashboard_secondary` 也一并记录<br>7. 调用 `GET /api/settings/runtime-status`，确认 `channel_roles.missing_required_role_keys == []`<br>8. 复核绑定结果中的 `suid/cuid` 属于当前新源目录，不是旧源残留<br>9. 截图（步骤 03：绑定结果） |
+| 预期结果 | 新源宿主通道与业务角色绑定成功，后端 total > 0，必需角色齐备，界面有成功反馈 |
+| 证据要求 | 3 张截图序列 + API 响应；API 中应可回看当前绑定使用的新源 `suid/cuid`、角色绑定结果和 `runtime-status.channel_roles` |
+| 回看要点 | 图中可见绑定成功状态；API `total > 0`；`dashboard_primary / live_heat_inference` 已绑定；绑定结果不包含旧源 `2349-* / 2054-* / 769-*` 风格 ID |
+| 通过标准 | 新源宿主通道与必需角色都已绑定成功 + 后端确认 + 绑定结果不包含旧源 `suid/cuid` + 截图回看通过 |
 
 ### S05-TC03：验证新源数据开始采集
 
@@ -382,11 +403,11 @@ docs/test-reports/assets/UAT-EDC-ASNS-<YYYY-MM-DD>/<suite-id>/
 | 用例 ID | S05-TC03 |
 | 优先级 | P0 |
 | 前置 | S05-TC02 PASS（新源绑定结果已确认无旧源 `suid/cuid` 残留） |
-| 操作步骤 | 1. 切换到 EDC 应用 Dashboard<br>2. 截图（步骤 01：Dashboard 初始）<br>3. 等待实时数据刷新（最多 30 秒）<br>4. 截图（步骤 02：数据出现后）<br>5. 确认实时曲线或状态卡片有来自新源的数据<br>6. 复核相关 API/运行态，确认不是旧绑定导致的保护态或空数据 |
-| 预期结果 | Dashboard 不再显示保护态，实时数据有来自新 EDC 源的数据点 |
-| 证据要求 | 2 张截图，步骤 02 必须可见数据（非空态）；并补充 1 份 API/运行态回看证据 |
-| 回看要点 | 图中曲线区域有数据点；保护态提示已消失；回看证据能够证明当前展示的数据来自新源链路而非历史缓存 |
-| 通过标准 | 新源数据可见 + 保护态解除 + API/运行态可回看 + 截图回看通过 |
+| 操作步骤 | 1. 切换到 EDC 应用 Dashboard<br>2. 截图（步骤 01：Dashboard 初始）<br>3. 等待实时数据刷新（最多 30 秒）<br>4. 截图（步骤 02：数据出现后）<br>5. 确认实时曲线或状态卡片有来自新源的数据<br>6. 复核 `GET /api/settings/runtime-status`，确认 `channel_roles.missing_required_role_keys == []`，且 `channel_roles` 摘要显示当前业务角色已就绪<br>7. 复核 `GET /api/settings/channel-role-bindings`，确认 `dashboard_primary / live_heat_inference` 仍指向当前新源通道<br>8. 复核相关 API/运行态，确认不是旧绑定导致的保护态或空数据 |
+| 预期结果 | Dashboard 不再显示保护态，实时数据有来自新 EDC 源的数据点，当前业务角色全部就绪 |
+| 证据要求 | 2 张截图，步骤 02 必须可见数据（非空态）；并补充 `channel-role-bindings` 与 `runtime-status.channel_roles` 证据 |
+| 回看要点 | 图中曲线区域有数据点；保护态提示已消失；回看证据能够证明当前展示的数据来自新源链路而非历史缓存，且不是“目录已恢复但角色未就绪”的假通过 |
+| 通过标准 | 新源数据可见 + 保护态解除 + 必需角色全部 ready + API/运行态可回看 + 截图回看通过 |
 
 ---
 
@@ -641,6 +662,10 @@ docs/test-reports/assets/UAT-EDC-ASNS-<YYYY-MM-DD>/
   - 是否出现换源确认弹窗
   - 用户是点击 `确认` 还是 `取消`
   - 确认后继续的是 `测试连接` / `同步通道` / `保存设置` 哪条路径
+- 涉及 `S02 / S03 / S05 / S06` 的总账备注必须单独写明：
+  - `GET /api/settings/channel-role-bindings` 当前记录
+  - `GET /api/settings/runtime-status` 中 `channel_roles.missing_required_role_keys` 是否为空
+  - `dashboard_primary / live_heat_inference` 是否已经绑定到当前源
 - 不允许把“切源成功”简化成一句泛化结论，而不说明确认弹窗证据是否成立
 ```
 
@@ -703,6 +728,7 @@ bug OPEN
 | 截图回看 | 所有 Suite 的 screenshot-review.json 必须存在且 verdict 为 PASS |
 | Open Bugs | evidence.json 中 open_bugs 必须为空 |
 | 数据链路 | S03-TC02（实时数据）和 S03-TC03（偏差分析）必须 PASS |
+| 角色就绪 | 任何宣称“业务链路 ready / 新源恢复完成”的 Suite，必须补 `channel-role-bindings` 与 `runtime-status.channel_roles` 证据；其中 `dashboard_primary`、`live_heat_inference` 不得缺失 |
 | 切源清空 | S04 全部用例必须 PASS |
 | 新源恢复 | S05 全部用例必须 PASS |
 | 换源确认 | 若切源前存在旧来源状态，S04-TC02 必须有确认弹窗证据，且确认后动作成功 |
@@ -737,6 +763,7 @@ bug OPEN
 6. **S04/S05 切源场景**：是否需要补充「切源中途网络中断」等边界用例。
 7. **优先级分配**：P0/P1 分配是否与商业交付风险匹配。
 8. **与现有 E2E spec 的重叠**：`apps/web/e2e/asns-edc-source-switch-reset-uat.spec.ts` 已覆盖部分切源场景，建议 Codex 确认 UAT 手工用例与自动化 spec 的分工边界，避免重复执行。
+9. **角色边界口径**：是否已把 `host-channels` 与 `channel-role-bindings` 的证据边界写清，避免把“目录非空”误判成“业务 ready”。
 
 ---
 

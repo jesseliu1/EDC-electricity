@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   buildHostConnectivityDraft,
+  isHostConnectivityDraftCurrent,
   restoreHostConnectivityDraft,
   toggleWindowState,
   type PersistedConnectionState,
@@ -48,6 +49,8 @@ test('restoreHostConnectivityDraft keeps connected session metadata and filters 
         username: 'volapu',
         password: 'admin',
       },
+      sourceIdentity: 'http://60.251.229.32::volapu',
+      baseSourceRevision: 3,
       addedChannelIds: ['channel-001', 'channel-001', 'channel-999'],
       addedChannels: [
         {
@@ -63,7 +66,7 @@ test('restoreHostConnectivityDraft keeps connected session metadata and filters 
           status: 'online',
         },
       ],
-      channelCatalogSource: 'http://60.251.229.32',
+      channelCatalogSource: 'http://60.251.229.32::volapu',
       savedAt: '2026-03-19T08:00:00.000Z',
       connection: {
         isConnected: true,
@@ -91,6 +94,8 @@ test('restoreHostConnectivityDraft keeps connected session metadata and filters 
     username: 'volapu',
     password: 'admin',
   });
+  assert.equal(restored.sourceIdentity, 'http://60.251.229.32::volapu');
+  assert.equal(restored.baseSourceRevision, 3);
   assert.deepEqual(restored.addedChannelIds, ['channel-001']);
   assert.deepEqual(restored.addedChannels, [
     {
@@ -106,7 +111,7 @@ test('restoreHostConnectivityDraft keeps connected session metadata and filters 
       status: 'online',
     },
   ]);
-  assert.equal(restored.channelCatalogSource, 'http://60.251.229.32');
+  assert.equal(restored.channelCatalogSource, 'http://60.251.229.32::volapu');
   assert.equal(restored.savedAt, '2026-03-19T08:00:00.000Z');
   assert.equal(restored.connection?.isConnected, true);
   assert.equal(restored.connection?.machineName, 'EDC Line A');
@@ -117,6 +122,10 @@ test('restoreHostConnectivityDraft keeps connected session metadata and filters 
     channelCount: 512,
     enabledChannelCount: 4,
   });
+  assert.equal(
+    isHostConnectivityDraftCurrent(restored, 'http://60.251.229.32::volapu', 3),
+    true,
+  );
 });
 
 test('restoreHostConnectivityDraft falls back safely when connection payload is incomplete', () => {
@@ -188,6 +197,35 @@ test('restoreHostConnectivityDraft drops legacy channel selections without a mat
   assert.equal(restored.channelCatalogSource, null);
 });
 
+test('isHostConnectivityDraftCurrent rejects stale source identity and revision', () => {
+  const restored = restoreHostConnectivityDraft(
+    JSON.stringify({
+      config: {
+        endpoint: 'http://61.216.55.133',
+        username: 'admin',
+        password: 'admin',
+      },
+      sourceIdentity: 'http://61.216.55.133::admin',
+      baseSourceRevision: 7,
+      addedChannelIds: ['2349-199'],
+      channelCatalogSource: 'http://61.216.55.133::admin',
+      savedAt: '2026-03-27T08:00:00.000Z',
+    }),
+    ['2349-199'],
+    fallbackConnection,
+  );
+
+  assert.ok(restored);
+  assert.equal(
+    isHostConnectivityDraftCurrent(restored, 'http://61.216.55.133::admin', 8),
+    false,
+  );
+  assert.equal(
+    isHostConnectivityDraftCurrent(restored, 'http://new-edc-host::admin', 7),
+    false,
+  );
+});
+
 test('getDefaultAddedChannelIds prefers realtime power and voltage channels over the snapshot head', () => {
   const channelIds = getDefaultAddedChannelIds([
     {
@@ -229,6 +267,61 @@ test('getDefaultAddedChannelIds prefers realtime power and voltage channels over
   ]);
 
   assert.deepEqual(channelIds.slice(0, 3), ['2349-199', '2349-128', '2054-128']);
+});
+
+test('getDefaultAddedChannelIds prefers total and non-fundamental electrical channels', () => {
+  const channelIds = getDefaultAddedChannelIds([
+    {
+      id: '2755-151',
+      deviceName: '电表 A',
+      deviceType: '三相智能电表',
+      area: '主电力',
+      suid: '2755',
+      cuid: '151',
+      channelName: 'A相基波實功功率',
+      unit: 'kW',
+      lastValue: '--',
+      status: 'online',
+    },
+    {
+      id: '2755-205',
+      deviceName: '电表 A',
+      deviceType: '三相智能电表',
+      area: '主电力',
+      suid: '2755',
+      cuid: '205',
+      channelName: '總有功功率',
+      unit: 'kW',
+      lastValue: '--',
+      status: 'online',
+    },
+    {
+      id: '2752-129',
+      deviceName: '电表 B',
+      deviceType: '三相智能电表',
+      area: '主电力',
+      suid: '2752',
+      cuid: '129',
+      channelName: 'A相基波電壓 (或VAB)',
+      unit: 'V',
+      lastValue: '--',
+      status: 'online',
+    },
+    {
+      id: '2752-128',
+      deviceName: '电表 B',
+      deviceType: '三相智能电表',
+      area: '主电力',
+      suid: '2752',
+      cuid: '128',
+      channelName: 'A相電壓 (或VAB)',
+      unit: 'V',
+      lastValue: '--',
+      status: 'online',
+    },
+  ]);
+
+  assert.deepEqual(channelIds.slice(0, 2), ['2755-205', '2752-128']);
 });
 
 test('reconcileAddedChannelIds falls back to recommended defaults when persisted ids are no longer valid', () => {

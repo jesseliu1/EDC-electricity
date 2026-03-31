@@ -21,6 +21,76 @@
 
 ## 记录
 
+### 2026-03-31 审计分支合入：调查文档不能脱离当前主线状态原样照搬
+
+- **错误模式**: 看到一个“硬编码盘点 / 架构调查”分支后，直接把文档原样复制回当前主线，默认它写的仍然都是现状。这样很容易把已经修掉的问题继续记成“当前仍存在”，反而污染 handoff 和下一轮判断。
+- **正确做法**: 先确认审计分支到底是 docs-only 还是带代码修复；如果只是调查文档，就必须逐项对照当前主线代码，把结论重新标成“已收口 / 仍存在 / 结构债”，再入库。
+- **适用场景**: docs-only 审计分支、事故复盘文档、硬编码盘点、前后台边界调查、任何跨时点合并的调查类文档。
+- **相关文档**: `docs/HARDCODED_INVENTORY.md`, `docs/FRONTEND_BACKEND_SEPARATION_AUDIT.md`, `docs/session_handoff.md`
+
+### 2026-03-31 宿主草稿版本护栏：本地未提交编辑态必须绑定后端 `source_revision`
+
+- **错误模式**: 只按“草稿里自带的 endpoint / username / channelCatalogSource 是否自洽”来恢复本地设置，却不绑定后端当前 `source_revision`。这样即使后端当前 source 已被其它入口改掉，旧浏览器标签页下次打开仍可能把旧草稿重新带回来。
+- **正确做法**: 浏览器草稿必须显式存 `sourceIdentity + baseSourceRevision`，启动时先拉后端当前真源，再判断草稿是否与后端当前 revision 完全一致；不一致就直接清草稿，不做恢复，更不能自动反写后端。
+- **适用场景**: 宿主设置页、localStorage draft、多个浏览器标签/多个入口都可能修改同一连接配置的系统。
+- **相关文档**: `docs/HOST_SOURCE_TRUTH_FIRST_STAGE_PLAN.md`, `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivityState.ts`, `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/SettingsView.tsx`
+
+### 2026-03-31 部署边界：宿主和后端不能一边跑主仓、一边跑 runtime 副本
+
+- **错误模式**: 后端使用独立 runtime 副本，宿主却直接从主仓目录运行。这样一次“部署”没有统一发布对象，很容易出现宿主是新代码、后端还是旧 runtime 的分叉状态。
+- **正确做法**: 代码真源、运行时、数据目录必须分层。宿主和后端都应只从 runtime 副本启动，部署脚本负责从主仓构建、清理旧运行库、重建依赖、复制最小运行文件并重启 service；运行中的 runtime 不能再充当开发目录。
+- **适用场景**: 同机部署的前后端/宿主混合系统、systemd user service、需要保留 SQLite / logs / backups 但不保留旧运行库的项目。
+- **相关文档**: `docs/HOST_BACKEND_RUNTIME_UNIFICATION_PLAN.md`, `scripts/sync-edc-server.sh`, `scripts/publish-edc-web-and-asns.sh`, `docs/SERVER_LAYOUT_AND_SYNC.md`
+
+### 2026-03-31 发布脚本健康检查：user service 重启后不能立刻拿一次公网结果就判失败
+
+- **错误模式**: `asns-host.service` 刚重启就立即请求公网 `/asns/`，把反代层短暂返回的 `502` 直接当成部署失败。实际服务几秒后已经恢复，但脚本会提前退出，让人误判成“发布没成功”。
+- **正确做法**: 发布脚本必须给重启后的健康检查留出等待窗口，先轮询本机 runtime 入口，再轮询公网入口；只有重试耗尽后仍失败，才判部署失败。不要把“服务启动窗口期”混成“真实故障”。
+- **适用场景**: systemd user service、Node/ASNS 宿主重启、Nginx 反代到本机端口、任何“服务刚拉起但公网探针先到一步”的发布脚本。
+- **相关文档**: `scripts/publish-edc-web-and-asns.sh`, `docs/progress.md`
+
+### 2026-03-31 宿主生产运行态：不要把真实测试源快照编进前端 bundle 参与默认启动
+
+- **错误模式**: 为了让宿主页在“连线里程碑”阶段先有可看目录和摘要，把真实测试源的设备/通道快照直接做成 `edcChannelSnapshot` 编进前端 bundle，并在 `App.tsx / SettingsView.tsx` 的默认启动、默认展示、默认目录恢复里直接消费。结果一旦进入生产路径，这份旧快照就会以“默认摘要”“默认目录”“恢复兜底”的形式长期污染运行态。
+- **正确做法**: 生产宿主的默认启动只能读取后端当前运行态或显式请求级 `showtime` API，不能依赖 bundle 内置快照。若确实需要 demo/showtime，也必须由后端按显式模式返回演示数据，前端 bundle 不得再内置可被生产启动路径直接消费的真实源快照。
+- **适用场景**: 宿主 + 子应用架构、工业采集系统、需要区分真实模式与 showtime/mock 模式的前端宿主页、任何存在“构建期快照”和“运行期真源”两套数据的系统。
+- **相关文档**: `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/edcChannelSnapshot.ts`, `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/App.tsx`, `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/SettingsView.tsx`, `apps/server/src/request_mode.py`
+
+### 2026-03-31 宿主本地草稿：浏览器缓存不能压过后端当前 source，更不能在启动时自动反写后端
+
+- **错误模式**: 宿主页启动时同时读取后端当前设置和浏览器 `localStorage` 草稿，却使用 `restored?.config || persistedConfig` 让本地草稿优先；随后又在启动恢复里自动执行 `test-connection + syncSelectionToBackend`。这样一来，只要旧浏览器里还留着自洽草稿，即使后端 source 已被其它入口切换，宿主下次打开也可能把旧 source 和旧通道重新推回后端。
+- **正确做法**: 后端当前 source 必须是唯一真源。本地草稿只能作为“同源未提交编辑态”恢复，且在恢复前必须先比较后端当前 source；一旦 source 不一致，应直接判草稿失效并清空。宿主启动恢复默认应为只读恢复，不得在未完成 source 一致性校验前自动反写后端。
+- **适用场景**: 多浏览器/多入口都可能修改系统连接的宿主系统、工业采集换源、浏览器 localStorage rehydrate、任何“本地缓存”和“服务端当前配置”都可能变化的前端设置页。
+- **相关文档**: `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/App.tsx`, `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivityState.ts`, `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`
+
+### 2026-03-30 验收口径：架构边界变了，UAT 文档也必须同轮升级
+
+- **错误模式**: 后端已经把 `host channels` 和 `channel role bindings` 拆成两层，正式 UAT 却还沿用“`host-channels total > 0` 就算链路 ready”的旧口径，导致原始通道目录恢复和业务链路就绪被混成同一件事。
+- **正确做法**: 只要运行态边界或 ready 判定变了，UAT 主文档、follow-up 总账、最终放行标准必须同轮同步升级。正式验收里要把 `GET /api/settings/channel-role-bindings` 和 `GET /api/settings/runtime-status.channel_roles` 作为独立证据；没有角色绑定证据时，只能说“宿主通道已恢复”，不能说“业务链路 ready”。
+- **适用场景**: EDC 换源、部署后 runtime 自愈、工业采集通道重绑、任何把“原始通道清单”和“业务用途”拆层的系统，以及所有依赖 ready 判定的 UAT/商业交付总账。
+- **相关文档**: `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`, `docs/test-reports/2026-03-28-uat-followup.md`, `apps/server/src/channel_roles.py`, `apps/server/src/api/settings.py`
+
+### 2026-03-30 运行态边界：不要再把“宿主通道清单”和“业务角色用途”混成同一层状态
+
+- **错误模式**: 让 Dashboard、炉次推断等业务链路直接从宿主已添加通道或基线定义名字里反推“功率/电压主通道”，结果一旦上游源缺少对应名字、只剩一条主信号、或旧绑定虽然还在 catalog 里但当前窗口读空，业务层就会继续误读、误判 ready，甚至整条链路一起 503。
+- **正确做法**: 必须拆成三层：`raw host channels` 只表示宿主当前同步到的可选通道，`channel role bindings` 单独表达业务用途，业务 API 只读角色绑定，不再偷看定义名。换源时清角色绑定，部署自愈时同时 reconcile 宿主通道、角色绑定和定义绑定；对当前窗口确认读空的旧角色，要允许被 live probe 结果替换。
+- **适用场景**: 单源工业采集系统、未来上游指标命名不稳定或不保证有“功率/电压”字样的 EDC 场景、部署后 runtime 自愈、炉次推断主信号选择、Dashboard 实时主/辅曲线绑定。
+- **相关文档**: `apps/server/src/channel_roles.py`, `apps/server/src/api/settings.py`, `apps/server/src/api/dashboard.py`, `apps/server/src/api/heats.py`, `apps/server/src/runtime_state_admin.py`
+
+### 2026-03-30 实时通道推荐：不要把“目录里看起来像功率/电压”的基波通道直接当成默认生产通道
+
+- **错误模式**: 在自动推荐宿主功率/电压通道时，只按名称和单位做静态匹配，结果把 `A相基波實功功率 / A相基波電壓` 这类当前 5 分钟窗口读空的通道排到了 `總有功功率 / A相電壓` 前面；表面看是“新源已对齐”，实际 Dashboard 实时仍然 503。
+- **正确做法**: 默认推荐不能只看 catalog 名字，还要结合真实可读性。至少要做到三点：识别繁简体（`总/總`、`电压/電壓`、`压/壓`、`温/溫`），对 `基波` 通道降权，对 `總有功功率` 这类总功率通道升权；部署自愈时还要用当前源近 5 分钟真实点去校验功率/电压绑定，发现“有效但读空”的旧绑定时自动替换成有点的通道。
+- **适用场景**: EDC 切源后自动重建宿主通道、部署后 runtime 自愈、Dashboard 实时取数、默认定义绑定、任何“目录里存在多个名字相近但采样状态不同的功率/电压通道”的工业采集场景。
+- **相关文档**: `apps/server/src/runtime_state_admin.py`, `apps/server/src/api/dashboard.py`, `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`
+
+### 2026-03-30 部署修复：不要为了清旧源残留，把当前仍有效的运行绑定也一并重建掉
+
+- **错误模式**: 为了修复旧源 `suid/cuid` 残留，在部署脚本或运维修复脚本里每次都把宿主通道清单、基线定义绑定粗暴重建成一套“默认推荐值”，结果同源下用户已经手工确认过的有效绑定也被覆盖。
+- **正确做法**: 部署侧修复只能修“坏的 source-bound 状态”，不能重写“好的 source-bound 状态”。应先用当前 catalog 校验已有宿主通道和 `edc_channel_id` 是否仍有效：有效的保留，无效的剔除或重绑，再按默认规则补齐最小功率/电压/温度/压力覆盖。
+- **适用场景**: GitHub 覆盖部署、运行态自愈脚本、数据库修复、迁移旧环境到新环境、任何“要清旧源脏状态但不想毁掉现场已确认配置”的场景。
+- **相关文档**: `apps/server/src/runtime_state_admin.py`, `scripts/sync-edc-server.sh`
+
 ### 2026-03-30 换源语义：不要把“密码变更”误判成“真正换源”
 
 - **错误模式**: 只要 EDC 连接配置有任一字段变化，就把它统一当成“换源”，顺手清掉宿主通道、活动基线和基线通道绑定。
@@ -728,3 +798,24 @@
 - **相关文档**: BACKEND_STRUCTURE.md, FRONTEND_GUIDELINES.md
 
 <!-- 后续错误记录将添加在此处 -->
+
+### 2026-03-30 UAT 监督：心跳纠偏策略不能和 agent 执行串行冲突
+
+- **错误模式**: 心跳每轮检查发现不合规（API替代视觉确认、隐式验证、截图引用错误）就立刻要求 Gemini 返回修正。Gemini 执行速度慢，心跳每 20 分钟一轮，Gemini 还没改完上一轮的问题，下一轮心跳又来新纠偏指令，形成串行阻塞。结果 7 小时只跑完了 S01-S02（6 条用例），S05-S07 完全未启动。
+- **正确做法**: 监督心跳应分两个阶段。第一阶段：全量推进，只记录不合规，不打断 agent 执行。第二阶段：全量完成后，统一汇报不合规清单，再开启修正轮，让 agent 集中修正。
+- **适用场景**: 用心跳 cron job 监督 AI agent 执行长时任务（UAT、重构、批量操作），agent 执行速度慢于心跳频率的场景。
+- **相关文档**: docs/test-reports/2026-03-30-UAT-S01-S06.md
+
+### 2026-03-30 UAT 监督：视觉确认要求必须在任务开始前明确给 agent，不能靠心跳事后纠偏
+
+- **错误模式**: UAT 规则要求「截图必须描述视觉内容，不能只靠 API 200 判定」，但这个要求没有在任务 prompt 里写清楚，只靠心跳发现后纠偏。Gemini 的默认习惯是 API 验证 + 文件存在 = PASS，心跳纠偏只能事后补救，已经写错的结论需要返工。
+- **正确做法**: 视觉确认口径、截图命名规范、判定标准（PASS/FAIL/BLOCKED 条件）必须在任务 prompt 里完整写明，作为 agent 执行的前置约束，而不是靠监督层事后发现再纠正。
+- **适用场景**: 让 AI agent 执行需要视觉证据的 UAT 测试、UI 验收、截图类验证任务。
+- **相关文档**: docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md
+
+### 2026-03-30 UAT 监督：tmux session/window 目标必须在心跳配置前核实，不能假设
+
+- **错误模式**: 心跳 job 最初配置监控 `codex:1`，实际执行 agent 在 `codex:2`，导致心跳抓错 pane，push 指令发到空 session，监督完全失效数轮。
+- **正确做法**: 配置心跳前先用 `tmux ls` + `tmux capture-pane` 核实目标 session/window 名称，确认 agent 在跑后再写入心跳 payload。session 切换时必须同步更新心跳配置。
+- **适用场景**: 用心跳 cron job 监督 tmux 内运行的 AI agent（Gemini CLI、Codex、Claude Code 等）。
+- **相关文档**: checkpoints/edc-asns-heartbeat-board.md

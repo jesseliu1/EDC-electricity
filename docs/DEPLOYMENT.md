@@ -10,6 +10,13 @@
 - `scripts/publish-edc-web-and-asns.sh`
 - 服务器路径与同步原则见 `docs/SERVER_LAYOUT_AND_SYNC.md`
 
+补充说明：
+
+- 当前两个发布脚本已内建 `systemctl --user` 的 user bus 环境补齐逻辑
+- 在非交互 shell / agent / CI 中执行时，会自动补 `XDG_RUNTIME_DIR=/run/user/$(id -u)` 与 `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus`
+- 当前后端部署刷新不只会修 `runtime_host_channels`，还会同步 reconcile `runtime_channel_role_bindings` 与 `runtime_baseline_definitions`
+- 如果旧环境里还残留“目录里仍合法、但当前 5 分钟读空”的基波类角色绑定，`deploy-refresh` 会优先替换成当前源下真实可读的 live 通道
+
 ## 1. 部署范围
 
 本项目当前包含 3 个需要区分的运行单元：
@@ -20,6 +27,12 @@
    Vue 业务前端，构建后以 `/edc/` 作为访问前缀
 3. `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統`
    ASNS 宿主“神经系统”参考工程，默认监听 `3001`
+
+当前生产运行目录：
+
+- EDC 后端 runtime：`/home/openclaw/edc-electricity-server`
+- ASNS 宿主 runtime：`/home/openclaw/asns-host-runtime`
+- EDC 前端发布目录：`/var/www/edc-electricity`
 
 推荐的同机部署访问关系：
 
@@ -38,8 +51,7 @@
 
 - Node.js 20 LTS
 - `pnpm` 8+
-- Python 3.11.x
-- `uv`
+- Python 3.11 - 3.13
 
 ## 3. 后端部署
 
@@ -47,16 +59,18 @@
 
 - `apps/server`
 
-首次部署：
+首次部署 / 手工重建环境：
 
 ```bash
-uv sync --all-extras
+python3 -m venv .venv
+.venv/bin/pip install --upgrade pip setuptools wheel
+.venv/bin/pip install .
 ```
 
 生产启动：
 
 ```bash
-uv run uvicorn src.main:app --host 0.0.0.0 --port 8000
+.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8000
 ```
 
 常用环境变量：
@@ -66,6 +80,7 @@ ASNS_DATABASE_URL=sqlite+aiosqlite:///./data/asns.db
 ASNS_EDC_BASE_URL=http://<your-edc-host>:8080
 ASNS_EDC_USERNAME=<username>
 ASNS_EDC_PASSWORD=<password>
+ASNS_BOOTSTRAP_MODE=demo
 ASNS_DEBUG=false
 ```
 
@@ -73,6 +88,9 @@ ASNS_DEBUG=false
 
 - 默认数据库路径是 `apps/server/data/asns.db`
 - 如需持久化，部署时请保证 `data/` 目录可写
+- `ASNS_BOOTSTRAP_MODE=demo` 是当前默认值
+- 如果是新服务器首次部署，且希望启动后就是空白系统，不要写入 demo 基线/炉次/宿主绑定，应显式设置 `ASNS_BOOTSTRAP_MODE=blank`
+- 当前仓库部署口径已不再要求保留旧 `venv/`，而是每次同步后从源码重建运行环境
 - 当前项目没有额外的 Redis、MQ、对象存储前置要求
 
 ## 4. EDC 前端部署
@@ -112,19 +130,29 @@ npm install
 npm run build
 ```
 
-推荐运行方式：
+源码目录构建：
 
 ```bash
-npm run preview -- --host 0.0.0.0 --port 3001
+npm ci
+VITE_ASNS_BASE_PATH=/asns/ \
+VITE_ASNS_EDC_APP_URL=/edc/ \
+VITE_ASNS_APP_API_BASE=/api \
+npm run build
 ```
+
+运行时发布：
+
+- 部署脚本会把源码目录构建产物发布到 `/home/openclaw/asns-host-runtime`
+- 每次发布前会备份 runtime，并清空除 `.logs/` / `backups/` 外的内容
+- `node_modules/` 不再保留，统一通过 `npm ci --omit=dev` 重新安装
+- systemd 只从 runtime 目录启动 `node server.mjs`
 
 说明：
 
 - 该宿主工程不是纯静态页面
 - 当前 `vite.config.ts` 通过 `configureServer` 和 `configurePreviewServer` 提供 `/host-api/edc/test-connection` 与 `/host-api/edc/sync-channels`
 - 因此若只拿 `dist/` 丢到纯静态文件服务器，宿主里的 EDC 测试连接与同步通道能力不会工作
-- 如果要保留当前行为，部署时需要保留一个 Node 进程来跑 `vite preview`
-- 当前仓库也已补独立生产入口，可直接用 `npm start` 跑 `server.mjs`，负责：
+- 当前生产入口统一为 `npm start` / `node server.mjs`，负责：
   - 提供宿主静态文件
   - 提供宿主 `host-api`
   - 支持 `/asns/` 这类子路径部署
@@ -180,7 +208,7 @@ PORT=3001
 
 1. 启动后端 `apps/server`
 2. 发布 `apps/web/dist` 到 `/edc/`
-3. 启动宿主“神经系统” `3001`
+3. 发布并启动宿主 runtime `3001`
 4. 配置反向代理
 5. 打开宿主首页，执行一次 EDC 连线测试与通道同步
 6. 从宿主进入 EDC 页面，确认 Dashboard、Heats、Baselines 正常
@@ -191,6 +219,39 @@ PORT=3001
 ./scripts/sync-edc-server.sh
 ./scripts/publish-edc-web-and-asns.sh
 ```
+
+其中 `scripts/sync-edc-server.sh` 当前还会在同步完成后自动执行：
+
+```bash
+./venv/bin/python -m src.runtime_state_admin --db "$runtime_dir/data/asns.db" --mode deploy-refresh
+```
+
+当前语义：
+
+- 按 `runtime_settings_store` 里的当前 EDC 配置重新拉取 channel catalog
+- 修复已经失效的 source-bound 宿主通道和基线定义绑定
+- 保留当前 catalog 中仍然有效的宿主通道选择和 `edc_channel_id`
+
+可选环境开关：
+
+```bash
+EDC_SERVER_SKIP_SOURCE_REFRESH=1
+EDC_SERVER_REBIND_DEFINITIONS=0
+```
+
+- `EDC_SERVER_SKIP_SOURCE_REFRESH=1`
+  完全跳过部署后的 source-bound 运行态修复
+- `EDC_SERVER_REBIND_DEFINITIONS=0`
+  只刷新宿主 catalog / 已添加通道 / 连接状态，不自动修定义绑定
+
+`scripts/publish-edc-web-and-asns.sh` 当前还会自动执行：
+
+- 构建 EDC 前端并发布到版本化 assets 目录
+- 构建 ASNS
+- 备份 `/home/openclaw/asns-host-runtime`
+- 清空 ASNS runtime 旧运行库
+- 从源码复制最小运行文件并执行 `npm ci --omit=dev`
+- 重启 `asns-host.service`
 
 ## 7. 最小验收清单
 

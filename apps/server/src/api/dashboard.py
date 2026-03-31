@@ -9,13 +9,18 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 
+from ..channel_roles import format_host_channel_label, resolve_channel_role
 from ..observability import log_event
 from ..schemas import DashboardStats, RecentHeat, RecentHeatsResponse
 from ..schemas.common import CurvePoint
 from ..services import EDCClient, EDCClientError
-from .baseline_definitions import _DEFINITION_STORE
 from .baselines import _BASELINE_STORE
-from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE, get_edc_connection_config
+from .settings import (
+    _CHANNEL_ROLE_BINDING_STORE,
+    _HOST_CHANNEL_STORE,
+    _SETTINGS_STORE,
+    get_edc_connection_config,
+)
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -30,28 +35,6 @@ async def _sorted_dashboard_heats() -> list[dict[str, Any]]:
     return items
 
 
-def _resolve_host_channel(channel_id: str | None) -> dict[str, str] | None:
-    if not channel_id:
-        return None
-    return next((item for item in _HOST_CHANNEL_STORE if item["id"] == channel_id), None)
-
-
-def _format_host_channel_label(channel: dict[str, str] | None) -> str | None:
-    if not channel:
-        return None
-    return f'{channel["device_name"]} / {channel["channel_name"]} / {channel["unit"] or "--"}'
-
-
-def _infer_metric_key(metric: dict[str, Any], index: int) -> str:
-    name = str(metric.get("name") or "").lower()
-    unit = str(metric.get("unit") or "")
-    if "功率" in name or "power" in name or unit == "kW":
-        return "power"
-    if "电压" in name or "電壓" in name or "voltage" in name or unit == "V":
-        return "voltage"
-    return f"metric_{index + 1}"
-
-
 def _resolve_active_baseline() -> dict[str, Any] | None:
     active_baseline_id = _SETTINGS_STORE.get("active_baseline_id", {}).get("value")
     if isinstance(active_baseline_id, str) and active_baseline_id:
@@ -60,79 +43,29 @@ def _resolve_active_baseline() -> dict[str, Any] | None:
             return item
     return None
 
-
-def _metric_channel_score(channel: dict[str, str], metric_key: Literal["power", "voltage"]) -> int:
-    channel_name = str(channel.get("channel_name") or "")
-    unit = str(channel.get("unit") or "")
-    text = f"{channel_name} {unit} {channel.get('device_type') or ''}".lower()
-    score = 0
-    if metric_key == "power":
-        if unit.lower() == "kw":
-            score += 120
-        if "功率" in channel_name or "power" in text:
-            score += 100
-        if "总" in channel_name:
-            score += 12
-    else:
-        if unit == "V":
-            score += 120
-        if "电压" in channel_name or "電壓" in channel_name or "voltage" in text:
-            score += 100
-        if "a相" in channel_name.lower():
-            score += 12
-    return score
-
-
-def _pick_dashboard_fallback_channel(
-    metric_key: Literal["power", "voltage"],
-) -> dict[str, str] | None:
-    candidates = [
-        item
-        for item in _HOST_CHANNEL_STORE
-        if item.get("status") in {None, "", "online"}
-    ]
-    scored = [
-        (_metric_channel_score(item, metric_key), item)
-        for item in candidates
-    ]
-    scored = [entry for entry in scored if entry[0] > 0]
-    if not scored:
-        return None
-    scored.sort(
-        key=lambda entry: (
-            -entry[0],
-            str(entry[1].get("device_name") or ""),
-            str(entry[1].get("channel_name") or ""),
-        )
-    )
-    return scored[0][1]
-
-
 def _resolve_dashboard_realtime_context() -> dict[str, Any]:
     baseline = _resolve_active_baseline()
-    definition = _DEFINITION_STORE.get(str(baseline.get("definition_id"))) if baseline else None
-    metrics = list(definition.get("metrics", [])) if definition else []
-    power_metric = next(
-        (item for index, item in enumerate(metrics) if _infer_metric_key(item, index) == "power"),
-        None,
+    power_channel = resolve_channel_role(
+        "dashboard_primary",
+        _CHANNEL_ROLE_BINDING_STORE,
+        _HOST_CHANNEL_STORE,
     )
-    voltage_metric = next(
-        (item for index, item in enumerate(metrics) if _infer_metric_key(item, index) == "voltage"),
-        None,
+    voltage_channel = resolve_channel_role(
+        "dashboard_secondary",
+        _CHANNEL_ROLE_BINDING_STORE,
+        _HOST_CHANNEL_STORE,
     )
-    power_channel = _resolve_host_channel(power_metric.get("edc_channel_id")) if power_metric else None
-    voltage_channel = _resolve_host_channel(voltage_metric.get("edc_channel_id")) if voltage_metric else None
+    missing_required_roles: list[str] = []
     if not power_channel:
-        power_channel = _pick_dashboard_fallback_channel("power")
-    if not voltage_channel:
-        voltage_channel = _pick_dashboard_fallback_channel("voltage")
+        missing_required_roles.append("dashboard_primary")
     return {
         "baseline_id": str(baseline.get("id")) if baseline and baseline.get("id") else None,
         "baseline_name": str(baseline.get("name")) if baseline and baseline.get("name") else None,
         "power_channel": power_channel,
         "voltage_channel": voltage_channel,
-        "power_source_label": _format_host_channel_label(power_channel),
-        "voltage_source_label": _format_host_channel_label(voltage_channel),
+        "power_source_label": format_host_channel_label(power_channel),
+        "voltage_source_label": format_host_channel_label(voltage_channel),
+        "missing_required_roles": missing_required_roles,
     }
 
 
@@ -146,7 +79,7 @@ async def _load_realtime_curves_from_edc(
     context = _resolve_dashboard_realtime_context()
     power_channel = context["power_channel"]
     voltage_channel = context["voltage_channel"]
-    if not power_channel or not voltage_channel:
+    if not power_channel:
         return None
 
     config = get_edc_connection_config()
@@ -159,28 +92,43 @@ async def _load_realtime_curves_from_edc(
             timeout=DASHBOARD_REALTIME_EDC_TIMEOUT_SECONDS,
         ) as client:
             await client.login()
-            power_points, voltage_points = await asyncio.gather(
-                client.get_local_datas(
-                    suid=power_channel["suid"],
-                    cuid=power_channel["cuid"],
-                    start_time=start_time,
-                    end_time=end_time,
-                ),
-                client.get_local_datas(
-                    suid=voltage_channel["suid"],
-                    cuid=voltage_channel["cuid"],
-                    start_time=start_time,
-                    end_time=end_time,
-                ),
-            )
+            tasks: dict[str, asyncio.Task[list[CurvePoint]]] = {
+                "power": asyncio.create_task(
+                    client.get_local_datas(
+                        suid=power_channel["suid"],
+                        cuid=power_channel["cuid"],
+                        start_time=start_time,
+                        end_time=end_time,
+                    )
+                )
+            }
+            if voltage_channel:
+                tasks["voltage"] = asyncio.create_task(
+                    client.get_local_datas(
+                        suid=voltage_channel["suid"],
+                        cuid=voltage_channel["cuid"],
+                        start_time=start_time,
+                        end_time=end_time,
+                    )
+                )
+            results = await asyncio.gather(*tasks.values())
     except EDCClientError as exc:
         raise EDCClientError(f"实时曲线拉取失败：{exc}") from exc
 
-    if not power_points or not voltage_points:
+    curves_by_key = {
+        metric_key: result
+        for metric_key, result in zip(tasks.keys(), results, strict=False)
+    }
+    power_points = curves_by_key.get("power") or []
+    voltage_points = curves_by_key.get("voltage") or []
+
+    if not power_points:
         return None
 
     baseline_power = _build_flat_baseline_curve(power_points, 460.0)
-    baseline_voltage = _build_flat_baseline_curve(voltage_points, 385.0)
+    baseline_voltage = (
+        _build_flat_baseline_curve(voltage_points, 385.0) if voltage_points else []
+    )
     return {
         "power": power_points,
         "voltage": voltage_points,
@@ -271,16 +219,23 @@ async def get_realtime_data(
         raise HTTPException(status_code=503, detail=detail) from exc
 
     if realtime_curves is None:
+        missing_required_roles = sources.get("missing_required_roles", [])
+        detail = "未获取到真实实时数据，请检查宿主连接和通道绑定"
+        if missing_required_roles:
+            detail = (
+                "Dashboard 实时主曲线角色未配置，请先绑定 dashboard_primary 对应通道"
+            )
         log_event(
             "api_dashboard_realtime",
             duration=duration,
             duration_ms=round((perf_counter() - started_at) * 1000, 1),
             available=False,
             error="no_realtime_data",
+            missing_required_roles=missing_required_roles,
         )
         raise HTTPException(
             status_code=503,
-            detail="未获取到真实实时数据，请检查宿主连接和通道绑定",
+            detail=detail,
         )
 
     power_curve = [item.model_dump() for item in realtime_curves["power"]]

@@ -4,6 +4,141 @@
 
 ---
 
+## 2026-03-31 硬编码审计分支合流结果（优先于下面旧调查口径）
+
+- 用户要求检查并合回 `codex/hardcode-remediation`
+- 已确认远端 `origin/codex/hardcode-remediation` 在 `0b0e047` 只是 docs-only 审计分支：
+  - 只新增 `docs/HARDCODED_INVENTORY.md`
+  - 只新增 `docs/FRONTEND_BACKEND_SEPARATION_AUDIT.md`
+  - 不包含任何代码修复
+- 本轮没有把审计文档原样照搬，而是按当前代码状态重写后落库：
+  - 已修复项写成“已收口”
+  - 仍存在但不阻塞 UAT 的项写成“结构债”
+- 本轮补掉的真实代码问题：
+  - `apps/server/src/api/tasks.py` + `apps/server/src/runtime_state.py`
+  - 非 `showtime` 任务已持久化到 `runtime_tasks`
+  - `apps/web/src/api/setting.ts` 已移除残留系统连接写面
+  - `apps/web/src/stores/setting.ts` 已移除 `edcBaseUrl / edcApiKey`
+  - `apps/web/src/views/SettingsView.vue` 已移除本地旧连接兜底
+  - `apps/server/src/config.py` / `apps/server/src/main.py` / `apps/web/vite.config.ts` / `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/server.mjs` 已补环境化配置
+- 本轮验证已经通过：
+  - 后端：`pytest tests/test_tasks_reports_settings_api.py tests/test_baselines_dashboard_api.py tests/test_heats_api.py tests/test_runtime_state_admin.py -q` -> `75 passed`
+  - EDC 前端：`pnpm build` -> 通过
+  - 宿主：`node --import tsx --test src/hostConnectivityState.test.ts src/hostApiServer.test.ts` -> `13 passed`
+  - 宿主：`npm run build` -> 通过
+- 当前建议下一步：
+  - 可以开始完整 UAT
+  - 不要再把“调查分支里的盘点清单”直接当成当前现状，优先看：
+    - `docs/HARDCODED_INVENTORY.md`
+    - `docs/FRONTEND_BACKEND_SEPARATION_AUDIT.md`
+    - `docs/progress.md`
+
+## 2026-03-31 宿主运行态真源收口第一阶段已完成（优先于下面“待进入定向修复”口径）
+
+- 本轮已完成真实部署与线上核验：
+  - 已执行 `./scripts/sync-edc-server.sh`
+  - 已执行 `./scripts/publish-edc-web-and-asns.sh`
+  - `8001` 当前 `runtime-status` = `ready`
+  - `host-bootstrap` 当前真源 = `http://61.216.55.133`
+  - 当前宿主连接摘要 = `EDC Gateway (61.216.55.133) / 739 channels / 6 enabled`
+  - 公网 `/edc/` 当前资源目录 = `assets-github-20260331T052340Z`
+  - 公网 `/asns/` 正常返回，由 `/home/openclaw/asns-host-runtime` 提供
+- 已完成浏览器级实证：
+  - `/edc/` 截图显示“宿主已连入 · 真实链路就绪”
+  - 渲染后 DOM 中不再出现“未获取到真实实时数据，请检查宿主连接和通道绑定”
+  - 注入旧草稿后再打开宿主“连线设置”，浏览器本地草稿会被清掉，页面回到后端当前真源 `http://61.216.55.133`
+- 本轮顺手补掉的部署脚本问题：
+  - `scripts/publish-edc-web-and-asns.sh` 原本会在 `asns-host` 刚重启时立刻请求公网 `/asns/`
+  - 真实部署中曾短暂遇到一次瞬时 `502`
+  - 现已新增 `wait_for_url`，并调整为：
+    - 先等本机 `http://127.0.0.1:3001/`
+    - 再等公网 `https://hopeofthepantheon.me/asns/`
+  - 已用真实二次发布验证通过，不再误判失败
+- 已落地的核心结果：
+  - 后端新增 `GET /api/settings/host-bootstrap`
+  - 后端新增 `PUT /api/settings/host-runtime-sync`
+  - 宿主正式写入统一要求 `source_revision`
+  - revision 冲突时返回 `409`，宿主会清草稿并重新读取后端真源
+- 宿主前端当前行为：
+  - `SettingsView.tsx` 启动先拉 `host-bootstrap`
+  - 本地草稿现在必须同时满足：
+    - `sourceIdentity` 与后端当前 source 一致
+    - `baseSourceRevision` 与后端当前 revision 一致
+  - 不满足时直接清草稿，不再恢复
+  - `测试连接 / 同步通道 / 保存设置` 都已接到新 revision 护栏
+- 宿主生产快照路径已清理：
+  - `App.tsx` 旧 bootstrap restore 已删除
+  - 废弃内联 `SettingsView` 已删除
+  - `src/edcChannelSnapshot.ts` 已删除
+- 宿主测试面已更新：
+  - `hostConnectivityState.test.ts` 已覆盖 `sourceIdentity + baseSourceRevision`
+  - `hostApiServer.test.ts` 已去掉 Windows 硬路径并修复挂死问题
+- 后端测试面已更新：
+  - `tests/test_tasks_reports_settings_api.py` 已补 `host-bootstrap / host-runtime-sync / stale revision 409`
+  - `tests/conftest.py` 已隔离 `_HOST_SOURCE_REVISION`
+- 宿主与后端运行时发布模型已统一到 runtime：
+  - ASNS runtime：`/home/openclaw/asns-host-runtime`
+  - `publish-edc-web-and-asns.sh` 现在会备份 runtime、清旧 `node_modules`、复制最小运行文件、执行 `npm ci --omit=dev`
+  - `deploy/systemd/asns-host.service.example` 与当前机器 `~/.config/systemd/user/asns-host.service` 都已指向 runtime
+- 本轮已完成验证：
+  - 后端：`pytest tests/test_tasks_reports_settings_api.py -q` -> `16 passed`
+  - 宿主：`node --import tsx --test src/hostConnectivityState.test.ts src/hostApiServer.test.ts` -> `13 passed`
+  - 宿主：`npm run lint` -> 通过
+  - 宿主：`npm run build` -> 通过
+  - 脚本：`bash -n scripts/publish-edc-web-and-asns.sh scripts/sync-edc-server.sh` -> 通过
+- 当前下一步：
+  - 若要继续推进，不是再修部署，而是基于当前线上状态做完整 UAT 总验
+  - 浏览器侧留证文件在：
+    - `/tmp/edc-verify/edc.png`
+    - `/tmp/edc-verify/asns.png`
+    - `/tmp/edc-verify/asns-settings-stale-draft-check.png`
+
+## 2026-03-31 宿主运行态真源收口准备（优先于下面旧“只要换源清库就够了”的认知）
+
+- 当前已查清 3 条独立根因链：
+  - `ASNS` 宿主前端 bundle 本身仍内置旧测试源快照 `60.251.229.32`
+  - 浏览器 `localStorage['asns-host-connectivity-draft']` 当前优先于后端当前设置恢复
+  - `8001` 后端跑的是 `/home/openclaw/edc-electricity-server` runtime 副本，且未同步到仓库最新版本
+- 当前必须先认定：
+  - 不是“单纯数据库没清”
+  - 不是“单纯漏部署 ASNS”
+  - 也不是“只要换源后清旧数据就自然没事”
+- 当前宿主页面加载时的真实动作链：
+  - `App.tsx` 启动 effect 会先读后端 `GET /api/settings`
+  - 同时读本地 `asns-host-connectivity-draft`
+  - 当前优先级：`restored?.config || persistedConfig`
+  - 若本地草稿可恢复，会继续调用 `/host-api/edc/test-connection`
+  - 然后调用 `syncSelectionToBackend(...)` 把宿主通道与连接摘要重新写回后端
+- 当前线上 bundle 中的旧快照并不属于正式 `showtime`：
+  - 正式 showtime 只在后端请求级模式里生效
+  - 入口：`apps/server/src/request_mode.py`, `apps/server/src/mock_dataset.py`
+  - 只有显式 `showtime=true` 或 `X-Showtime` 才开放 mock 数据
+- 当前还未改代码，但已与用户对齐后续目标：
+  - 生产宿主不再使用 bundle 内置 EDC 快照
+  - 系统只保留一套正式 `showtime`
+  - `showtime` 假数据也必须由后端 API 提供，不再依赖前端快照
+  - 若发生换源，本地草稿直接清空，不再额外确认
+  - 宿主启动恢复不得再无条件把本地恢复结果自动回写后端
+- 第一阶段解决方案已单独成文：
+  - `docs/HOST_SOURCE_TRUTH_FIRST_STAGE_PLAN.md`
+  - 核心原则：
+    - 后端当前 source 是唯一真源
+    - 本地草稿只表示当前浏览器未提交编辑态
+    - 启动先读后端，再判草稿是否失效
+    - 所有正式写操作带 `source_revision`
+    - 第一阶段不做后台草稿
+- 进入修改前应优先检查的文件：
+  - `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/App.tsx`
+  - `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/SettingsView.tsx`
+  - `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivityState.ts`
+  - `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`
+  - `scripts/sync-edc-server.sh`
+- 当前额外遗漏，不要只盯“换源清理”：
+  - 宿主页卡片仍硬编码 `EDC Test Gateway / 2026-03-16 11:12 / 26 devices / 2286 channels`
+  - `realChannelCatalog` 仍直接来自 `edcChannelSnapshot`
+  - `SettingsView` 初始 `meta` 默认值仍是旧快照
+  - 若后端 source 被别的入口改掉，旧浏览器草稿下次开宿主仍可能把旧源重新推回后端
+
 ## 2026-03-30 换源收口进展（优先于下面旧“散落处理”认知）
 
 - 已完成整体调查，并补统一方案文档：

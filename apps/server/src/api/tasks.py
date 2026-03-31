@@ -100,6 +100,14 @@ def _get_or_404(task_id: str) -> dict[str, Any]:
     return item
 
 
+async def _persist_tasks_if_needed() -> None:
+    if is_showtime_mode():
+        return
+    from ..runtime_state import persist_runtime_state
+
+    await persist_runtime_state("tasks")
+
+
 @router.get("", response_model=TaskListResponse)
 async def list_tasks(
     status: Literal["pending", "in_progress", "completed", "cancelled"] | None = Query(
@@ -172,6 +180,7 @@ async def create_task(data: TaskCreate) -> TaskResponse:
         "completed_at": None,
     }
     _list_task_store()[task_id] = item
+    await _persist_tasks_if_needed()
     return _to_task_response(item)
 
 
@@ -195,6 +204,7 @@ async def update_task(task_id: str, data: TaskUpdate) -> TaskResponse:
         item["status"] = "in_progress"
 
     item["updated_at"] = _now()
+    await _persist_tasks_if_needed()
     return _to_task_response(item)
 
 
@@ -212,6 +222,7 @@ async def complete_task(task_id: str, data: TaskCompleteRequest) -> TaskResponse
     item["status"] = "completed"
     item["updated_at"] = now
     item["completed_at"] = now
+    await _persist_tasks_if_needed()
     return _to_task_response(item)
 
 
@@ -224,6 +235,7 @@ async def cancel_task(task_id: str) -> TaskResponse:
 
     item["status"] = "cancelled"
     item["updated_at"] = _now()
+    await _persist_tasks_if_needed()
     return _to_task_response(item)
 
 

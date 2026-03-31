@@ -12,6 +12,11 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ..channel_roles import (
+    format_host_channel_label,
+    infer_metric_kind,
+    resolve_channel_role,
+)
 from ..mock_dataset import ensure_mock_dataset_enabled, is_mock_dataset_enabled
 from ..observability import log_event
 from ..runtime_state import persist_runtime_state
@@ -35,7 +40,12 @@ from ..schemas.heat import BaselineWithCurveSimple
 from ..services import DeviationService, EDCClient, EDCClientError
 from .baseline_definitions import _DEFINITION_STORE
 from .baselines import _BASELINE_STORE, _resolve_active_baseline_item
-from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE, get_edc_connection_config
+from .settings import (
+    _CHANNEL_ROLE_BINDING_STORE,
+    _HOST_CHANNEL_STORE,
+    _SETTINGS_STORE,
+    get_edc_connection_config,
+)
 
 router = APIRouter(prefix="/heats", tags=["Heats"])
 deviation_service = DeviationService()
@@ -419,12 +429,6 @@ def _resolve_host_channel(channel_id: str | None) -> dict[str, str] | None:
     return next((item for item in _HOST_CHANNEL_STORE if item["id"] == channel_id), None)
 
 
-def _format_host_channel_label(channel: dict[str, str] | None) -> str | None:
-    if not channel:
-        return None
-    return f'{channel["device_name"]} / {channel["channel_name"]} / {channel["unit"] or "--"}'
-
-
 def _live_heat_bucket_ms() -> int:
     return _LIVE_HEAT_ID_BUCKET_MINUTES * 60_000
 
@@ -513,17 +517,10 @@ def _clone_live_heat_context(context: dict[str, Any]) -> dict[str, Any]:
 
 
 def _infer_metric_key(metric: dict[str, Any], index: int) -> str:
-    name = str(metric.get("name") or "").lower()
-    unit = str(metric.get("unit") or "")
-    if "功率" in name or "power" in name or unit == "kW":
-        return "power"
-    if "电压" in name or "電壓" in name or "voltage" in name or unit == "V":
-        return "voltage"
-    if "温" in name or "溫" in name or "temperature" in name or unit in {"°C", "℃"}:
-        return "temperature"
-    if "压" in name or "壓" in name or "pressure" in name or unit == "MPa":
-        return "pressure"
-    return f"metric_{index + 1}"
+    metric_kind = infer_metric_kind(str(metric.get("name") or ""), str(metric.get("unit") or ""))
+    if metric_kind == "generic":
+        return f"metric_{index + 1}"
+    return metric_kind
 
 
 def _build_generated_curve(
@@ -807,6 +804,14 @@ def _iter_live_heat_inference_contexts() -> list[dict[str, Any]]:
     contexts: list[dict[str, Any]] = []
     seen_cache_keys: set[str] = set()
     candidates: list[tuple[str | None, dict[str, Any]]] = []
+    inference_channel = resolve_channel_role(
+        "live_heat_inference",
+        _CHANNEL_ROLE_BINDING_STORE,
+        _HOST_CHANNEL_STORE,
+    )
+    if not inference_channel:
+        return contexts
+
     active_baseline = _resolve_active_baseline_item()
     if active_baseline:
         candidates.append((str(active_baseline["id"]), active_baseline))
@@ -821,21 +826,9 @@ def _iter_live_heat_inference_contexts() -> list[dict[str, Any]]:
         definition = _DEFINITION_STORE.get(str(baseline_item.get("definition_id")))
         if not definition:
             continue
-        metrics = list(definition.get("metrics", []))
-        power_metric = next(
-            (
-                metric
-                for index, metric in enumerate(metrics)
-                if _infer_metric_key(metric, index) == "power"
-            ),
-            None,
-        )
-        channel = _resolve_host_channel(power_metric.get("edc_channel_id")) if power_metric else None
-        if not channel:
-            continue
         expected_duration = int(definition.get("expected_duration_minutes") or 45)
         context = _build_live_heat_context(
-            channel=channel,
+            channel=inference_channel,
             baseline_id=baseline_id,
             expected_duration_minutes=expected_duration,
         )
@@ -844,15 +837,13 @@ def _iter_live_heat_inference_contexts() -> list[dict[str, Any]]:
         seen_cache_keys.add(context["cache_key"])
         contexts.append(context)
 
-    fallback_channel = next((item for item in _HOST_CHANNEL_STORE if item.get("unit") == "kW"), None)
-    if fallback_channel:
-        fallback_context = _build_live_heat_context(
-            channel=fallback_channel,
-            baseline_id=None,
-            expected_duration_minutes=45,
-        )
-        if fallback_context["cache_key"] not in seen_cache_keys:
-            contexts.append(fallback_context)
+    fallback_context = _build_live_heat_context(
+        channel=inference_channel,
+        baseline_id=None,
+        expected_duration_minutes=45,
+    )
+    if fallback_context["cache_key"] not in seen_cache_keys:
+        contexts.append(fallback_context)
     return contexts
 
 
@@ -875,21 +866,16 @@ def build_live_heat_lookup_context(
     if not definition:
         return None
 
-    metrics = list(definition.get("metrics", []))
-    power_metric = next(
-        (
-            metric
-            for index, metric in enumerate(metrics)
-            if _infer_metric_key(metric, index) == "power"
-        ),
-        None,
+    inference_channel = resolve_channel_role(
+        "live_heat_inference",
+        _CHANNEL_ROLE_BINDING_STORE,
+        _HOST_CHANNEL_STORE,
     )
-    channel = _resolve_host_channel(power_metric.get("edc_channel_id")) if power_metric else None
-    if not channel:
+    if not inference_channel:
         return None
 
     return _build_live_heat_context(
-        channel=channel,
+        channel=inference_channel,
         baseline_id=baseline_id,
         expected_duration_minutes=int(definition.get("expected_duration_minutes") or 45),
     )
@@ -1798,7 +1784,7 @@ async def _build_metric_curve_series(
                 color=str(metric.get("color") or "#94a3b8"),
                 edc_channel_id=metric.get("edc_channel_id"),
                 source_channel_name=host_channel["channel_name"] if host_channel else None,
-                source_channel_label=_format_host_channel_label(host_channel),
+                source_channel_label=format_host_channel_label(host_channel),
                 baseline_curve=baseline_curve,
                 current_curve=current_metric_curve,
             )

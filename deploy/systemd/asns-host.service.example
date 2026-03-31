@@ -9,7 +9,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/openclaw/projects/EDC-electricity/docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統
+WorkingDirectory=/home/openclaw/asns-host-runtime
 Environment=HOME=/home/openclaw
 Environment=NODE_ENV=production
 Environment=ASNS_BASE_PATH=/

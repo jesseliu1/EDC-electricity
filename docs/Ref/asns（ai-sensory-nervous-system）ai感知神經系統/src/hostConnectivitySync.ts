@@ -29,6 +29,7 @@ export interface HostEdcResponse {
 export interface SourceSwitchResponse {
   success: boolean;
   message: string;
+  source_revision: number;
   source_identity_changed: boolean;
   connection_material_changed: boolean;
   cleared_host_channel_count: number;
@@ -36,6 +37,51 @@ export interface SourceSwitchResponse {
   cleared_definition_binding_count: number;
   cleared_active_baseline_id: string;
   next_source: string;
+}
+
+export interface HostSourceConfig {
+  endpoint: string;
+  username: string;
+  password: string;
+}
+
+export interface HostChannelCollectionResponse {
+  items: HostChannelMappingItem[];
+  total: number;
+}
+
+export interface HostBootstrapResponse {
+  source_revision: number;
+  config: HostSourceConfig;
+  host_channels: HostChannelCollectionResponse;
+  host_channel_catalog: HostChannelCollectionResponse;
+  connectivity_status: PersistedConnectionState;
+}
+
+export interface HostRuntimeSyncResponse {
+  success: boolean;
+  message: string;
+  source_revision: number;
+  host_channels: HostChannelCollectionResponse;
+  host_channel_catalog: HostChannelCollectionResponse;
+  connectivity_status: PersistedConnectionState;
+}
+
+interface SourceRevisionConflictPayload {
+  detail?: {
+    message?: string;
+    current_source_revision?: number;
+  };
+}
+
+export class SourceRevisionConflictError extends Error {
+  currentSourceRevision: number | null;
+
+  constructor(message: string, currentSourceRevision: number | null = null) {
+    super(message);
+    this.name = 'SourceRevisionConflictError';
+    this.currentSourceRevision = currentSourceRevision;
+  }
 }
 
 type HostRuntimeGlobals = typeof globalThis & {
@@ -55,6 +101,13 @@ function trimTrailingSlash(value: string): string {
 
 function normalizeConfigValue(value: string): string {
   return trimTrailingSlash(value.trim());
+}
+
+export function buildSourceIdentity(
+  endpoint: string,
+  username: string,
+): string {
+  return `${normalizeConfigValue(endpoint)}::${username.trim()}`;
 }
 
 function getBrowserOrigin(): string {
@@ -101,21 +154,92 @@ const hostSyncHeaders = {
   'X-ASNS-Host-Sync': 'true',
 } as const;
 
-const preferredChannelIds = [
-  '2349-199',
-  '2349-128',
-  '2054-128',
-  '2066-128',
-  '769-128',
-  '769-129',
-];
+const preferredChannelIds: string[] = [];
 
-function pickChannelByKeyword(
+function containsPhase(text: string): boolean {
+  const lowered = text.toLowerCase();
+  return lowered.includes('a相') || lowered.includes('b相') || lowered.includes('c相');
+}
+
+function containsTotal(channelName: string): boolean {
+  return channelName.includes('总') || channelName.includes('總');
+}
+
+function containsFundamental(text: string): boolean {
+  return text.toLowerCase().includes('基波') || text.toLowerCase().includes('fundamental');
+}
+
+function looksLikePressure(item: HostChannelMappingItem): boolean {
+  const text = `${item.channelName} ${item.unit} ${item.deviceType}`.toLowerCase();
+  return (
+    item.unit.toLowerCase() === 'mpa' ||
+    item.channelName.includes('压力') ||
+    item.channelName.includes('壓力') ||
+    text.includes('pressure')
+  );
+}
+
+function metricChannelScore(
+  item: HostChannelMappingItem,
+  metricKey: 'power' | 'voltage',
+): number {
+  const channelName = item.channelName;
+  const unit = item.unit;
+  const text = `${channelName} ${unit} ${item.deviceType}`.toLowerCase();
+  let score = 0;
+
+  if (metricKey === 'power') {
+    if (unit.toLowerCase() === 'kw') {
+      score += 120;
+    }
+    if (
+      channelName.includes('功率') ||
+      channelName.includes('有功') ||
+      channelName.includes('實功') ||
+      channelName.includes('实功') ||
+      text.includes('power')
+    ) {
+      score += 100;
+    }
+    if (containsTotal(channelName)) {
+      score += 24;
+    }
+  } else {
+    if (unit === 'V') {
+      score += 120;
+    }
+    if (channelName.includes('电压') || channelName.includes('電壓') || text.includes('voltage')) {
+      score += 100;
+    }
+    if (channelName.toLowerCase().includes('a相')) {
+      score += 12;
+    }
+  }
+
+  if (containsPhase(text)) {
+    score += 8;
+  }
+  if (containsFundamental(text)) {
+    score -= 16;
+  }
+  return score;
+}
+
+function pickBestMetricChannel(
   catalog: readonly HostChannelMappingItem[],
   selectedIds: Set<string>,
-  predicate: (item: HostChannelMappingItem) => boolean,
+  metricKey: 'power' | 'voltage',
 ): void {
-  const match = catalog.find((item) => !selectedIds.has(item.id) && predicate(item));
+  const match = catalog
+    .filter((item) => !selectedIds.has(item.id))
+    .map((item) => ({ item, score: metricChannelScore(item, metricKey) }))
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      return left.item.channelName.localeCompare(right.item.channelName);
+    })[0]?.item;
   if (match) {
     selectedIds.add(match.id);
   }
@@ -131,10 +255,20 @@ export function getDefaultAddedChannelIds(catalog: readonly HostChannelMappingIt
     }
   });
 
-  pickChannelByKeyword(catalog, selectedIds, (item) => item.unit === 'kW' || item.channelName.includes('功率'));
-  pickChannelByKeyword(catalog, selectedIds, (item) => item.unit === 'V' || item.channelName.includes('电压'));
-  pickChannelByKeyword(catalog, selectedIds, (item) => item.unit === '℃' || item.channelName.includes('温'));
-  pickChannelByKeyword(catalog, selectedIds, (item) => item.channelName.includes('压'));
+  pickBestMetricChannel(catalog, selectedIds, 'power');
+  pickBestMetricChannel(catalog, selectedIds, 'voltage');
+  const temperatureMatch = catalog.find(
+    (item) => !selectedIds.has(item.id) && (item.unit === '℃' || item.channelName.includes('温') || item.channelName.includes('溫')),
+  );
+  if (temperatureMatch) {
+    selectedIds.add(temperatureMatch.id);
+  }
+  const pressureMatch = catalog.find(
+    (item) => !selectedIds.has(item.id) && looksLikePressure(item),
+  );
+  if (pressureMatch) {
+    selectedIds.add(pressureMatch.id);
+  }
 
   catalog.forEach((item) => {
     if (selectedIds.size >= 6) {
@@ -206,10 +340,38 @@ export async function callHostApi(path: string, config: HostConnectivityConfig) 
   return { response, data: (await response.json()) as HostEdcResponse };
 }
 
+async function parseJsonResponse<T>(response: Response): Promise<T> {
+  return (await response.json()) as T;
+}
+
+async function assertNoSourceRevisionConflict(response: Response): Promise<void> {
+  if (response.status !== 409) {
+    return;
+  }
+  const payload = await parseJsonResponse<SourceRevisionConflictPayload>(response);
+  throw new SourceRevisionConflictError(
+    payload.detail?.message || '当前来源配置已在其它入口变更，请刷新后重试',
+    typeof payload.detail?.current_source_revision === 'number'
+      ? payload.detail.current_source_revision
+      : null,
+  );
+}
+
+export async function fetchHostBootstrap(): Promise<HostBootstrapResponse> {
+  const response = await fetch(`${appApiBase}/settings/host-bootstrap`);
+  await assertNoSourceRevisionConflict(response);
+  if (!response.ok) {
+    throw new Error('Failed to load host bootstrap');
+  }
+  return parseJsonResponse<HostBootstrapResponse>(response);
+}
+
 export async function syncSelectionToBackend(
+  sourceRevision: number,
   selectedChannels: HostChannelMappingItem[],
+  catalogChannels: HostChannelMappingItem[],
   connection: PersistedConnectionState,
-) {
+) : Promise<HostRuntimeSyncResponse> {
   const payload = selectedChannels.map((channel) => ({
     id: channel.id,
     device_name: channel.deviceName,
@@ -222,47 +384,57 @@ export async function syncSelectionToBackend(
     last_value: channel.lastValue,
     status: channel.status,
   }));
+  const catalogPayload = catalogChannels.map((channel) => ({
+    id: channel.id,
+    device_name: channel.deviceName,
+    device_type: channel.deviceType,
+    area: channel.area,
+    suid: channel.suid,
+    cuid: channel.cuid,
+    channel_name: channel.channelName,
+    unit: channel.unit,
+    last_value: channel.lastValue,
+    status: channel.status,
+  }));
 
-  const connectionStatusPayload = {
-    is_connected: connection.isConnected,
-    machine_name: connection.machineName,
-    last_sync_label: connection.lastSyncLabel,
-    meta: {
-      source: connection.meta.source,
-      sensor_count: connection.meta.sensorCount,
-      channel_count: connection.meta.channelCount,
-      enabled_channel_count: connection.meta.enabledChannelCount,
+  const runtimeSyncPayload = {
+    source_revision: sourceRevision,
+    items: payload,
+    catalog_items: catalogPayload,
+    connection: {
+      is_connected: connection.isConnected,
+      machine_name: connection.machineName,
+      last_sync_label: connection.lastSyncLabel,
+      meta: {
+        source: connection.meta.source,
+        sensor_count: connection.meta.sensorCount,
+        channel_count: connection.meta.channelCount,
+        enabled_channel_count: connection.meta.enabledChannelCount,
+      },
     },
   };
 
-  const saveChannels = fetch(`${appApiBase}/settings/host-channels`, {
+  const response = await fetch(`${appApiBase}/settings/host-runtime-sync`, {
     method: 'PUT',
     headers: hostSyncHeaders,
-    body: JSON.stringify({ items: payload }),
+    body: JSON.stringify(runtimeSyncPayload),
   });
-
-  const saveConnectivityStatus = fetch(`${appApiBase}/settings/host-connectivity-status`, {
-    method: 'PUT',
-    headers: hostSyncHeaders,
-    body: JSON.stringify(connectionStatusPayload),
-  });
-
-  const [channelsResponse, connectivityStatusResponse] = await Promise.all([
-    saveChannels,
-    saveConnectivityStatus,
-  ]);
-  if (!channelsResponse.ok || !connectivityStatusResponse.ok) {
+  await assertNoSourceRevisionConflict(response);
+  if (!response.ok) {
     throw new Error('Settings sync failed');
   }
+  return parseJsonResponse<HostRuntimeSyncResponse>(response);
 }
 
 export async function applySourceSwitchToBackend(
   config: HostConnectivityConfig,
+  sourceRevision: number,
 ): Promise<SourceSwitchResponse> {
   const response = await fetch(`${appApiBase}/settings/source-switch`, {
     method: 'POST',
     headers: hostSyncHeaders,
     body: JSON.stringify({
+      source_revision: sourceRevision,
       base_url: config.endpoint,
       username: config.username,
       password: config.password,
@@ -270,6 +442,7 @@ export async function applySourceSwitchToBackend(
     }),
   });
 
+  await assertNoSourceRevisionConflict(response);
   if (!response.ok) {
     throw new Error('Settings sync failed');
   }

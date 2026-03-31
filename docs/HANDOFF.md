@@ -2,6 +2,23 @@
 
 > 本文档由 PM agent 在 Codex session context 耗尽时生成，供新 session 接续使用。
 
+## 2026-03-31 更新
+
+- 下面的大段内容已经不是最新状态，优先看：
+  - `docs/session_handoff.md`
+  - `docs/progress.md`
+  - `docs/HARDCODED_INVENTORY.md`
+  - `docs/FRONTEND_BACKEND_SEPARATION_AUDIT.md`
+- 当前最新判断：
+  - `origin/codex/hardcode-remediation` 是 docs-only 审计分支，不是代码修复分支
+  - 当前真正阻塞 UAT 的硬编码/边界问题已经补到可验证状态
+  - 当前下一步应进入完整 UAT，而不是继续围绕旧来源快照做调查
+- 当前已验证通过：
+  - `apps/server` 定向 pytest：`75 passed`
+  - `apps/web`：`pnpm build` 通过
+  - 宿主：`node --import tsx --test src/hostConnectivityState.test.ts src/hostApiServer.test.ts` -> `13 passed`
+  - 宿主：`npm run build` 通过
+
 ## 当前系统状态
 
 | 服务 | 端口 | PID | 状态 |

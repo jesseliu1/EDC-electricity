@@ -6,23 +6,28 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy import select
 
 from .database import async_session_maker
 from .models import Setting
+from .config import settings as app_settings
 
 _SECTION_TO_KEY = {
     "settings_store": "runtime_settings_store",
+    "source_revision": "runtime_source_revision",
     "host_channels": "runtime_host_channels",
     "host_channel_catalog": "runtime_host_channel_catalog",
+    "channel_role_bindings": "runtime_channel_role_bindings",
     "host_channel_last_sync_at": "runtime_host_channel_last_sync_at",
     "host_connectivity_status": "runtime_host_connectivity_status",
     "baseline_definitions": "runtime_baseline_definitions",
     "baselines": "runtime_baselines",
     "heats": "runtime_heats",
+    "tasks": "runtime_tasks",
     "mock_heats": "runtime_mock_heats",
     "next_heat_index": "runtime_next_heat_index",
 }
@@ -65,17 +70,21 @@ async def persist_runtime_state(*sections: str) -> None:
     from .api import baselines as baselines_api
     from .api import heats as heats_api
     from .api import settings as settings_api
+    from .api import tasks as tasks_api
 
     selected_sections = sections or tuple(_SECTION_TO_KEY.keys())
     state_by_section: dict[str, Any] = {
         "settings_store": settings_api._SETTINGS_STORE,
+        "source_revision": settings_api._HOST_SOURCE_REVISION,
         "host_channels": settings_api._HOST_CHANNEL_STORE,
         "host_channel_catalog": settings_api._HOST_CHANNEL_CATALOG_CACHE,
+        "channel_role_bindings": settings_api._CHANNEL_ROLE_BINDING_STORE,
         "host_channel_last_sync_at": settings_api._HOST_CHANNEL_LAST_SYNC_AT,
         "host_connectivity_status": settings_api._HOST_CONNECTIVITY_STATUS,
         "baseline_definitions": baseline_definitions_api._DEFINITION_STORE,
         "baselines": baselines_api._BASELINE_STORE,
         "heats": heats_api._HEAT_STORE,
+        "tasks": tasks_api._TASK_STORE,
         "mock_heats": heats_api._MOCK_HEAT_STREAM_STORE,
         "next_heat_index": heats_api._NEXT_MOCK_HEAT_INDEX,
     }
@@ -86,18 +95,22 @@ async def persist_runtime_state(*sections: str) -> None:
                 continue
             key = _SECTION_TO_KEY[section]
             encoded = json.dumps(state_by_section[section], default=_json_default, ensure_ascii=False)
-            row = await session.get(Setting, key)
-            if row is None:
-                session.add(
-                    Setting(
-                        key=key,
-                        value=encoded,
-                        description=f"运行态持久化：{section}",
-                    )
-                )
-            else:
-                row.value = encoded
-                row.description = f"运行态持久化：{section}"
+            updated_at = datetime.now(UTC).replace(tzinfo=None)
+            statement = sqlite_insert(Setting).values(
+                key=key,
+                value=encoded,
+                description=f"运行态持久化：{section}",
+                updated_at=updated_at,
+            )
+            statement = statement.on_conflict_do_update(
+                index_elements=[Setting.key],
+                set_={
+                    "value": encoded,
+                    "description": f"运行态持久化：{section}",
+                    "updated_at": updated_at,
+                },
+            )
+            await session.execute(statement)
         await session.commit()
 
 
@@ -107,15 +120,37 @@ async def load_runtime_state() -> None:
     from .api import baselines as baselines_api
     from .api import heats as heats_api
     from .api import settings as settings_api
+    from .api import tasks as tasks_api
 
     payloads = await _read_runtime_payloads()
     if not any(payload is not None for payload in payloads.values()):
+        if app_settings.bootstrap_mode.strip().lower() == "blank":
+            settings_api._HOST_CHANNEL_STORE.clear()
+            settings_api._HOST_CHANNEL_CATALOG_CACHE.clear()
+            settings_api._clear_channel_role_bindings()
+            settings_api._HOST_CHANNEL_LAST_SYNC_AT = None
+            settings_api._HOST_CONNECTIVITY_STATUS.clear()
+            settings_api._HOST_CONNECTIVITY_STATUS.update(
+                settings_api._build_disconnected_host_connectivity_status(
+                    app_settings.edc_base_url
+                )
+            )
+            settings_api._SETTINGS_STORE["active_baseline_id"]["value"] = ""
+            baseline_definitions_api._DEFINITION_STORE.clear()
+            baselines_api._BASELINE_STORE.clear()
+            heats_api._HEAT_STORE.clear()
+            tasks_api._TASK_STORE.clear()
+            heats_api._MOCK_HEAT_STREAM_STORE.clear()
+            heats_api._NEXT_MOCK_HEAT_INDEX = 1
         await persist_runtime_state()
         return
 
     if isinstance(payloads.get("settings_store"), dict):
         settings_api._SETTINGS_STORE.clear()
         settings_api._SETTINGS_STORE.update(payloads["settings_store"])
+
+    if isinstance(payloads.get("source_revision"), int):
+        settings_api._HOST_SOURCE_REVISION = max(payloads["source_revision"], 1)
 
     edc_connection_overridden = settings_api.apply_app_edc_connection_override()
 
@@ -126,6 +161,10 @@ async def load_runtime_state() -> None:
     if isinstance(payloads.get("host_channel_catalog"), list) and not edc_connection_overridden:
         settings_api._HOST_CHANNEL_CATALOG_CACHE.clear()
         settings_api._HOST_CHANNEL_CATALOG_CACHE.extend(payloads["host_channel_catalog"])
+
+    if isinstance(payloads.get("channel_role_bindings"), dict):
+        settings_api._CHANNEL_ROLE_BINDING_STORE.clear()
+        settings_api._CHANNEL_ROLE_BINDING_STORE.update(payloads["channel_role_bindings"])
 
     if not edc_connection_overridden:
         settings_api._HOST_CHANNEL_LAST_SYNC_AT = payloads.get("host_channel_last_sync_at")
@@ -151,6 +190,10 @@ async def load_runtime_state() -> None:
         heats_api._HEAT_STORE.clear()
         heats_api._HEAT_STORE.update(ordinary_heats)
 
+    if isinstance(payloads.get("tasks"), dict):
+        tasks_api._TASK_STORE.clear()
+        tasks_api._TASK_STORE.update(payloads["tasks"])
+
     legacy_mock_heats = None
     if isinstance(payloads.get("heats"), dict):
         legacy_mock_heats = {
@@ -169,11 +212,14 @@ async def load_runtime_state() -> None:
     if isinstance(payloads.get("next_heat_index"), int):
         heats_api._NEXT_MOCK_HEAT_INDEX = payloads["next_heat_index"]
 
+    settings_api._reconcile_channel_role_binding_store()
+
     if edc_connection_overridden:
         await persist_runtime_state(
             "settings_store",
             "host_channels",
             "host_channel_catalog",
+            "channel_role_bindings",
             "host_channel_last_sync_at",
             "host_connectivity_status",
             "baseline_definitions",

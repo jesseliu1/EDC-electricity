@@ -37,6 +37,11 @@
   - 用户点击的是 `确认` 还是 `取消`
   - 确认后继续进入的是 `测试连接`、`同步通道` 还是 `保存设置`
 - 若旧来源状态存在但没有换源确认弹窗证据，则 `S04-TC02` 不得计为正式 `PASS`，`S05` 也不得直接计为正式恢复通过。
+- 自 `2026-03-30` 起，`S02 / S03 / S05 / S06` 的正式总账还必须补记“业务角色绑定”证据：
+  - `GET /api/settings/channel-role-bindings` 当前记录
+  - `GET /api/settings/runtime-status.channel_roles.missing_required_role_keys`
+  - `dashboard_primary / live_heat_inference` 是否已经指向当前源通道
+- 因此，本文件中 `2026-03-28` 留下的 `host-channels total > 0`、`runtime-status.overall_code=ready` 之类旧证据，只能证明当时宿主通道层已恢复，不能单独作为当前“业务链路 ready”总账依据。
 
 ## S01-TC03 验证后端已接收配置
 
@@ -89,6 +94,11 @@
   - `is_connected=true`
   - `machine_name=EDC Gateway (60.251.229.32)`
   - `last_sync_label=2026/3/28 23:21:41`
+- 补充口径说明：
+  - 本次历史记录只覆盖了 `host-channels` 与宿主连接态
+  - 本次未记录 `GET /api/settings/channel-role-bindings`
+  - 本次未记录 `runtime-status.channel_roles.missing_required_role_keys`
+  - 因此它可以证明“宿主通道已写入”，但不能单独证明按 `2026-03-30` 新口径的“业务链路 ready”
 - 因此 `S02-TC03` 当前正式结果为 `PASS`
 
 ## S04-TC01 记录切源前的旧绑定状态

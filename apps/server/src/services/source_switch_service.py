@@ -23,6 +23,7 @@ class SourceSwitchMutationResult:
     connection_material_changed: bool
     cleared_host_channel_count: int
     cleared_host_channel_catalog_count: int
+    cleared_channel_role_binding_count: int
     cleared_definition_binding_count: int
     cleared_active_baseline_id: str
     next_source: str
@@ -74,6 +75,7 @@ def apply_source_connection_change(
     settings_api._SETTINGS_STORE["edc_api_key"]["value"] = next_payload.api_key
 
     cleared_host_channel_count = 0
+    cleared_channel_role_binding_count = 0
     cleared_definition_binding_count = 0
     cleared_active_baseline_id = ""
     cleared_host_channel_catalog_count = len(settings_api._HOST_CHANNEL_CATALOG_CACHE)
@@ -89,6 +91,7 @@ def apply_source_connection_change(
     if source_identity_changed:
         cleared_host_channel_count = len(settings_api._HOST_CHANNEL_STORE)
         settings_api._HOST_CHANNEL_STORE.clear()
+        cleared_channel_role_binding_count = settings_api._clear_channel_role_bindings()
 
         cleared_active_baseline_id = str(
             settings_api._SETTINGS_STORE.get("active_baseline_id", {}).get("value") or ""
@@ -110,6 +113,7 @@ def apply_source_connection_change(
         connection_material_changed=connection_material_changed,
         cleared_host_channel_count=cleared_host_channel_count,
         cleared_host_channel_catalog_count=cleared_host_channel_catalog_count,
+        cleared_channel_role_binding_count=cleared_channel_role_binding_count,
         cleared_definition_binding_count=cleared_definition_binding_count,
         cleared_active_baseline_id=cleared_active_baseline_id,
         next_source=next_payload.base_url or "--",

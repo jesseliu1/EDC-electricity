@@ -238,7 +238,7 @@ onBeforeUnmount(() => {
                 {{ t('settings.edcBaseUrl') }}
               </p>
               <p class="mt-1 font-mono text-sm text-slate-800 break-all">
-                {{ edcSummary.baseUrl || settingStore.data.edcBaseUrl || '--' }}
+                {{ edcSummary.baseUrl || '--' }}
               </p>
             </div>
             <div class="rounded-lg border border-border-light bg-slate-50 px-4 py-3">

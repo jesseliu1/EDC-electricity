@@ -44,7 +44,7 @@ _DEFINITION_STORE: dict[str, dict[str, Any]] = {
                 "unit": "kW",
                 "color": "#409EFF",
                 "sort_order": 1,
-                "edc_channel_id": "2349-199",
+                "edc_channel_id": None,
             },
             {
                 "id": "metric-002",
@@ -52,7 +52,7 @@ _DEFINITION_STORE: dict[str, dict[str, Any]] = {
                 "unit": "V",
                 "color": "#67C23A",
                 "sort_order": 2,
-                "edc_channel_id": "2349-128",
+                "edc_channel_id": None,
             },
             {
                 "id": "metric-003",
@@ -60,7 +60,7 @@ _DEFINITION_STORE: dict[str, dict[str, Any]] = {
                 "unit": "°C",
                 "color": "#E6A23C",
                 "sort_order": 3,
-                "edc_channel_id": "2054-128",
+                "edc_channel_id": None,
             },
         ],
         "created_at": _now(),
@@ -79,7 +79,7 @@ _DEFINITION_STORE: dict[str, dict[str, Any]] = {
                 "unit": "kW",
                 "color": "#409EFF",
                 "sort_order": 1,
-                "edc_channel_id": "2349-142",
+                "edc_channel_id": None,
             },
             {
                 "id": "metric-005",
@@ -87,7 +87,7 @@ _DEFINITION_STORE: dict[str, dict[str, Any]] = {
                 "unit": "V",
                 "color": "#67C23A",
                 "sort_order": 2,
-                "edc_channel_id": "2349-130",
+                "edc_channel_id": None,
             },
             {
                 "id": "metric-006",
@@ -95,7 +95,7 @@ _DEFINITION_STORE: dict[str, dict[str, Any]] = {
                 "unit": "°C",
                 "color": "#E6A23C",
                 "sort_order": 3,
-                "edc_channel_id": "2066-128",
+                "edc_channel_id": None,
             },
             {
                 "id": "metric-007",
@@ -103,7 +103,7 @@ _DEFINITION_STORE: dict[str, dict[str, Any]] = {
                 "unit": "MPa",
                 "color": "#F56C6C",
                 "sort_order": 4,
-                "edc_channel_id": "769-128",
+                "edc_channel_id": None,
             },
         ],
         "created_at": _now(),

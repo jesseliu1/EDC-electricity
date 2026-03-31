@@ -247,7 +247,7 @@ function createHostApiRouter(basePath) {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const port = Number(process.env.PORT || 3001);
+const port = Number(process.env.PORT || process.env.ASNS_PORT || 3001);
 const basePath = normalizeBasePath(process.env.ASNS_BASE_PATH || process.env.VITE_ASNS_BASE_PATH || '/');
 const distDir = path.join(__dirname, 'dist');
 const indexFile = path.join(distDir, 'index.html');
@@ -255,7 +255,12 @@ const basePrefix = basePath === '/' ? '' : basePath.slice(0, -1);
 const compatibilityPrefixes = basePath === '/' ? ['/asns'] : [];
 const edcWebRoot = process.env.ASNS_EDC_WEB_ROOT || '/var/www/edc-electricity';
 const edcIndexFile = path.join(edcWebRoot, 'index.html');
-const edcApiBase = process.env.ASNS_EDC_API_BASE || 'http://127.0.0.1:8001';
+const edcApiPort = Number(process.env.ASNS_EDC_API_PORT || 8001);
+const edcApiHost = process.env.ASNS_EDC_API_HOST || '127.0.0.1';
+const edcApiProtocol = process.env.ASNS_EDC_API_PROTOCOL || 'http';
+const edcApiBase =
+  process.env.ASNS_EDC_API_BASE ||
+  `${edcApiProtocol}://${edcApiHost}:${edcApiPort}`;
 const edcAssetsAliasDir = detectPublishedAssetsDir(edcIndexFile);
 
 app.use(express.json({ limit: '1mb' }));

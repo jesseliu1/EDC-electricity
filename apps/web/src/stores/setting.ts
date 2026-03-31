@@ -3,8 +3,6 @@ import { settingApi } from '@/api/setting'
 
 export interface SystemSettings {
   defaultTolerancePercent: number
-  edcBaseUrl: string
-  edcApiKey: string
   reportGenerationHour: number
   timeTolerancePercent: number
   majorIssueDurationMinutes: number
@@ -16,8 +14,6 @@ export interface SystemSettings {
 
 const defaultSettings: SystemSettings = {
   defaultTolerancePercent: 15,
-  edcBaseUrl: '',
-  edcApiKey: '',
   reportGenerationHour: 2,
   timeTolerancePercent: 10,
   majorIssueDurationMinutes: 8,
@@ -46,8 +42,6 @@ export const useSettingStore = defineStore('setting', {
         const map = Object.fromEntries(settingsResult.items.map(item => [item.key, item.value]))
         const nextData: SystemSettings = {
           defaultTolerancePercent: Number(map.default_tolerance_percent || 15),
-          edcBaseUrl: map.edc_base_url || '',
-          edcApiKey: map.edc_api_key || '',
           reportGenerationHour: Number(map.report_generation_hour || 2),
           timeTolerancePercent: Number(map.time_tolerance_percent || 10),
           majorIssueDurationMinutes: Number(map.major_issue_duration_minutes || 8),

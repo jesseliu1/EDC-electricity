@@ -15,21 +15,24 @@ import {
   Settings,
   User,
 } from 'lucide-react';
-import { edcChannelSnapshot, edcSnapshotMeta } from './edcChannelSnapshot';
 import {
   buildHostConnectivityDraft,
+  clearHostConnectivityDraftStorage,
   hostSettingsStorageKey,
+  isHostConnectivityDraftCurrent,
   restoreHostConnectivityDraft,
   type HostEdcMeta,
   type PersistedConnectionState,
 } from './hostConnectivityState';
 import {
+  buildSourceIdentity,
   buildDisconnectedConnectionState,
   callHostApi,
   applySourceSwitchToBackend,
+  fetchHostBootstrap,
   hasSourceIdentityChanged,
-  normalizeSourceIdentity,
   reconcileAddedChannelIds,
+  SourceRevisionConflictError,
   syncSelectionToBackend,
   type HostChannelMappingItem,
 } from './hostConnectivitySync';
@@ -56,7 +59,23 @@ interface SourceSwitchDialogState {
   nextSource: string;
 }
 
-const snapshotCatalogSource = normalizeSourceIdentity(edcSnapshotMeta.source);
+interface PreparedSourceAwareState {
+  sourceRevision: number;
+  sourceIdentityChanged: boolean;
+  connectionMaterialChanged: boolean;
+  channelIds: string[];
+  catalog: ChannelMappingItem[];
+  catalogSource: string | null;
+  connection: PersistedConnectionState;
+  message: string | null;
+}
+
+const emptyMeta: HostEdcMeta = {
+  source: '--',
+  sensorCount: 0,
+  channelCount: 0,
+  enabledChannelCount: 0,
+};
 
 export default function SettingsView({ config, setConfig, t, isConnected, setIsConnected }: SettingsViewProps) {
   const [loading, setLoading] = useState(false);
@@ -66,12 +85,14 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
   const [channelCatalog, setChannelCatalog] = useState<ChannelMappingItem[]>([]);
   const [addedChannelIds, setAddedChannelIds] = useState<string[]>([]);
   const [channelCatalogSource, setChannelCatalogSource] = useState<string | null>(null);
-  const [lastAppliedConfig, setLastAppliedConfig] = useState<SettingsViewConfig | null>(config);
+  const [currentSourceIdentity, setCurrentSourceIdentity] = useState<string | null>(null);
+  const [currentSourceRevision, setCurrentSourceRevision] = useState(1);
+  const [lastAppliedConfig, setLastAppliedConfig] = useState<SettingsViewConfig | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [saveFeedback, setSaveFeedback] = useState('');
-  const [machineName, setMachineName] = useState('EDC Test Gateway');
-  const [lastSyncLabel, setLastSyncLabel] = useState('2026-03-16 11:12');
-  const [meta, setMeta] = useState<HostEdcMeta>(edcSnapshotMeta);
+  const [machineName, setMachineName] = useState('--');
+  const [lastSyncLabel, setLastSyncLabel] = useState('--');
+  const [meta, setMeta] = useState<HostEdcMeta>(emptyMeta);
   const [sourceSwitchDialog, setSourceSwitchDialog] = useState<SourceSwitchDialogState | null>(null);
   const sourceSwitchConfirmRef = useRef<((confirmed: boolean) => void) | null>(null);
 
@@ -88,6 +109,36 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
     setLastSyncLabel(connection.lastSyncLabel);
     setMeta(connection.meta);
   };
+
+  const mergeCatalogChannels = (
+    primary: ChannelMappingItem[],
+    fallback: ChannelMappingItem[],
+  ): ChannelMappingItem[] => {
+    const merged = new Map<string, ChannelMappingItem>();
+    primary.forEach((item) => merged.set(item.id, item));
+    fallback.forEach((item) => {
+      if (!merged.has(item.id)) {
+        merged.set(item.id, item);
+      }
+    });
+    return Array.from(merged.values());
+  };
+
+  const filterSelectedChannelIds = (
+    channelIds: string[],
+    catalog: ChannelMappingItem[],
+  ): string[] => {
+    const catalogIds = new Set(catalog.map((item) => item.id));
+    return Array.from(new Set(channelIds.filter((channelId) => catalogIds.has(channelId))));
+  };
+
+  const selectChannelsFromCatalog = (
+    channelIds: string[],
+    catalog: ChannelMappingItem[],
+  ): ChannelMappingItem[] =>
+    channelIds
+      .map((channelId) => catalog.find((item) => item.id === channelId))
+      .filter((item): item is ChannelMappingItem => Boolean(item));
 
   const clearSourceScopedSelection = () => {
     setChannelCatalog([]);
@@ -180,47 +231,84 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
     }));
   }, [addedChannels]);
 
+  const loadHostBootstrap = React.useCallback(async (clearDraftFirst = false) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (clearDraftFirst) {
+      clearHostConnectivityDraftStorage();
+    }
+
+    const bootstrap = await fetchHostBootstrap();
+    const backendConfig: SettingsViewConfig = {
+      endpoint: bootstrap.config.endpoint,
+      username: bootstrap.config.username,
+      password: bootstrap.config.password,
+    };
+    const backendCatalog = mergeCatalogChannels(
+      bootstrap.host_channel_catalog.items,
+      bootstrap.host_channels.items,
+    );
+    const backendSelectedIds = bootstrap.host_channels.items.map((item) => item.id);
+    const backendSourceIdentity = buildSourceIdentity(
+      backendConfig.endpoint,
+      backendConfig.username,
+    );
+
+    const restored = restoreHostConnectivityDraft(
+      window.localStorage.getItem(hostSettingsStorageKey),
+      backendCatalog.map((item) => item.id),
+      bootstrap.connectivity_status,
+    );
+    const shouldUseDraft = isHostConnectivityDraftCurrent(
+      restored,
+      backendSourceIdentity,
+      bootstrap.source_revision,
+    );
+    if (!shouldUseDraft && restored) {
+      clearHostConnectivityDraftStorage();
+    }
+
+    const effectiveCatalog = shouldUseDraft
+      ? mergeCatalogChannels(backendCatalog, restored.addedChannels)
+      : backendCatalog;
+    const effectiveSelectedIds = shouldUseDraft
+      ? filterSelectedChannelIds(
+          restored.addedChannels.length > 0
+            ? restored.addedChannels.map((item) => item.id)
+            : restored.addedChannelIds,
+          effectiveCatalog,
+        )
+      : filterSelectedChannelIds(backendSelectedIds, effectiveCatalog);
+
+    setCurrentSourceRevision(bootstrap.source_revision);
+    setCurrentSourceIdentity(backendSourceIdentity);
+    setLastAppliedConfig(backendConfig);
+    setConfig(shouldUseDraft && restored.config ? restored.config : backendConfig);
+    applyConnectionState(bootstrap.connectivity_status);
+    setChannelCatalog(effectiveCatalog);
+    setChannelCatalogSource(backendSourceIdentity);
+    setAddedChannelIds(effectiveSelectedIds);
+  }, [setConfig]);
+
+  useEffect(() => {
+    void loadHostBootstrap();
+  }, [loadHostBootstrap]);
+
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
-    try {
-      const restored = restoreHostConnectivityDraft(
-        window.localStorage.getItem(hostSettingsStorageKey),
-        edcChannelSnapshot.map((item) => item.id),
-        {
-          isConnected: false,
-          machineName: 'EDC Test Gateway',
-          lastSyncLabel: '2026-03-16 11:12',
-          meta: edcSnapshotMeta,
-        },
-      );
-      if (!restored) {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== hostSettingsStorageKey || event.newValue !== null) {
         return;
       }
-      if (restored.config) {
-        setConfig(restored.config);
-        setLastAppliedConfig(restored.config);
-      }
-      const restoredCatalog =
-        restored.addedChannels.length > 0
-          ? restored.addedChannels
-          : restored.channelCatalogSource === snapshotCatalogSource
-            ? edcChannelSnapshot.filter((item) => restored.addedChannelIds.includes(item.id))
-            : [];
-      setChannelCatalog(restoredCatalog);
-      setChannelCatalogSource(restored.channelCatalogSource);
-      setAddedChannelIds(restored.addedChannelIds);
-      if (restored.connection) {
-        applyConnectionState(restored.connection);
-      }
-      if (typeof restored.savedAt === 'string') {
-        setStatusMessage(`${t('draftRestored')} ${formatCheckedAt(restored.savedAt)}`);
-      }
-    } catch {
-      setStatusMessage(t('draftRestoreFailed'));
-    }
-  }, [setConfig, setIsConnected, t]);
+      void loadHostBootstrap();
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [loadHostBootstrap]);
 
   useEffect(() => {
     if (!saveFeedback) {
@@ -262,8 +350,25 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
     }
   };
 
-  const syncAddedChannelsWithCatalog = (channels: ChannelMappingItem[]) => {
-    const nextAddedChannelIds = reconcileAddedChannelIds(addedChannelIds, channels);
+  const hasConnectionMaterialChanged = (
+    previous: SettingsViewConfig | null,
+    next: SettingsViewConfig,
+  ) => {
+    if (!previous) {
+      return false;
+    }
+    return (
+      buildSourceIdentity(previous.endpoint, previous.username) !==
+        buildSourceIdentity(next.endpoint, next.username) ||
+      previous.password !== next.password
+    );
+  };
+
+  const syncAddedChannelsWithCatalog = (
+    baseAddedChannelIds: string[],
+    channels: ChannelMappingItem[],
+  ) => {
+    const nextAddedChannelIds = reconcileAddedChannelIds(baseAddedChannelIds, channels);
     setAddedChannelIds(nextAddedChannelIds);
     return nextAddedChannelIds;
   };
@@ -283,6 +388,8 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
       JSON.stringify(
         buildHostConnectivityDraft({
           config,
+          sourceIdentity: currentSourceIdentity,
+          baseSourceRevision: currentSourceRevision,
           addedChannelIds: channelIds,
           addedChannels: channelIds
             .map((channelId) => catalog.find((item) => item.id === channelId))
@@ -295,122 +402,167 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
     );
   };
 
-  const persistDraft = (
-    mode: 'draft' | 'apply',
-    connection = currentConnectionState(),
-    channelIds = addedChannelIds,
-    catalog = channelCatalog,
-    catalogSource = channelCatalogSource,
-  ) => {
-    if (typeof window === 'undefined') {
-      return;
-    }
+  const handleSaveDraft = () => {
     const savedAt = new Date().toISOString();
-    writeDraft(savedAt, connection, channelIds, catalog, catalogSource);
-    const message =
-      mode === 'draft'
-        ? `${t('draftSaved')} ${formatCheckedAt(savedAt)}`
-        : `${t('settingsAppliedMessage')} ${formatCheckedAt(savedAt)}`;
+    writeDraft(savedAt, currentConnectionState(), addedChannelIds, channelCatalog, channelCatalogSource);
+    const message = `${t('draftSaved')} ${formatCheckedAt(savedAt)}`;
     setStatusMessage(message);
     setSaveFeedback(message);
   };
 
-  const persistConnectionState = (
+  const applyRuntimeSyncResponse = (
+    nextSourceRevision: number,
+    nextConfig: SettingsViewConfig,
+    nextCatalog: ChannelMappingItem[],
+    nextSelectedIds: string[],
     connection: PersistedConnectionState,
-    channelIds = addedChannelIds,
-    catalog = channelCatalog,
-    catalogSource = channelCatalogSource,
   ) => {
-    writeDraft(new Date().toISOString(), connection, channelIds, catalog, catalogSource);
+    const nextSourceIdentity = buildSourceIdentity(nextConfig.endpoint, nextConfig.username);
+    setCurrentSourceRevision(nextSourceRevision);
+    setCurrentSourceIdentity(nextSourceIdentity);
+    setLastAppliedConfig(nextConfig);
+    applyConnectionState(connection);
+    setChannelCatalog(nextCatalog);
+    setChannelCatalogSource(nextSourceIdentity);
+    setAddedChannelIds(nextSelectedIds);
+    clearHostConnectivityDraftStorage();
   };
 
   const syncCurrentSelectionToBackend = async (
+    sourceRevision = currentSourceRevision,
     channelIds = addedChannelIds,
     catalog = channelCatalog,
     connection = currentConnectionState(),
   ) => {
-    const selectedChannels = channelIds
-      .map((channelId) => catalog.find((item) => item.id === channelId))
-      .filter((item): item is ChannelMappingItem => Boolean(item));
+    const selectedChannels = selectChannelsFromCatalog(channelIds, catalog);
     try {
-      await syncSelectionToBackend(selectedChannels, connection);
-    } catch {
+      const runtime = await syncSelectionToBackend(
+        sourceRevision,
+        selectedChannels,
+        catalog,
+        connection,
+      );
+      const nextCatalog = mergeCatalogChannels(
+        runtime.host_channel_catalog.items,
+        runtime.host_channels.items,
+      );
+      const nextSelectedIds = filterSelectedChannelIds(
+        runtime.host_channels.items.map((item) => item.id),
+        nextCatalog,
+      );
+      applyRuntimeSyncResponse(
+        runtime.source_revision,
+        config,
+        nextCatalog,
+        nextSelectedIds,
+        runtime.connectivity_status,
+      );
+      return runtime;
+    } catch (error) {
+      if (error instanceof SourceRevisionConflictError) {
+        throw error;
+      }
       throw new Error(t('settingsSyncFailed'));
     }
   };
 
-  const prepareSourceAwareAction = async (action: SourceAwareAction) => {
-    const sourceSwitched = hasSourceIdentityChanged(lastAppliedConfig, config);
-    if (!sourceSwitched) {
+  const reloadAfterRevisionConflict = async (message: string) => {
+    clearHostConnectivityDraftStorage();
+    setSaveFeedback('');
+    setStatusMessage(message);
+    await loadHostBootstrap(true);
+  };
+
+  const prepareSourceAwareAction = async (action: SourceAwareAction): Promise<PreparedSourceAwareState> => {
+    const sourceIdentityChanged = hasSourceIdentityChanged(lastAppliedConfig, config);
+    const connectionMaterialChanged = hasConnectionMaterialChanged(lastAppliedConfig, config);
+
+    if (!connectionMaterialChanged) {
       return {
-        sourceSwitched: false,
+        sourceRevision: currentSourceRevision,
+        sourceIdentityChanged: false,
+        connectionMaterialChanged: false,
         channelIds: addedChannelIds,
         catalog: channelCatalog,
         catalogSource: channelCatalogSource,
         connection: currentConnectionState(),
+        message: null,
       };
     }
 
-    if (hasSourceScopedState()) {
+    if (sourceIdentityChanged && hasSourceScopedState()) {
       const confirmed = await requestSourceSwitchConfirmation(action);
       if (!confirmed) {
         throw new Error(t('sourceSwitchCancelled'));
       }
     }
 
-    const result = await applySourceSwitchToBackend(config);
+    const result = await applySourceSwitchToBackend(config, currentSourceRevision);
+    const nextSourceIdentity = buildSourceIdentity(config.endpoint, config.username);
     const disconnectedState = buildDisconnectedConnectionState(config.endpoint);
+    const retainedChannels = sourceIdentityChanged
+      ? []
+      : selectChannelsFromCatalog(addedChannelIds, channelCatalog);
+    const retainedCatalog = sourceIdentityChanged ? [] : retainedChannels;
+    const retainedChannelIds = retainedChannels.map((item) => item.id);
+
     applyConnectionState(disconnectedState);
-    clearSourceScopedSelection();
-    persistConnectionState(disconnectedState, [], [], null);
+    if (sourceIdentityChanged) {
+      clearSourceScopedSelection();
+    } else {
+      setChannelCatalog(retainedCatalog);
+      setAddedChannelIds(retainedChannelIds);
+      setChannelCatalogSource(nextSourceIdentity);
+    }
+    setCurrentSourceRevision(result.source_revision);
+    setCurrentSourceIdentity(nextSourceIdentity);
     setLastAppliedConfig(config);
+    clearHostConnectivityDraftStorage();
+    setSaveFeedback('');
     setStatusMessage(result.message);
 
     return {
-      sourceSwitched: true,
-      channelIds: [] as string[],
-      catalog: [] as ChannelMappingItem[],
-      catalogSource: null as string | null,
+      sourceRevision: result.source_revision,
+      sourceIdentityChanged,
+      connectionMaterialChanged,
+      channelIds: sourceIdentityChanged ? [] : retainedChannelIds,
+      catalog: sourceIdentityChanged ? [] : retainedCatalog,
+      catalogSource: sourceIdentityChanged ? null : nextSourceIdentity,
       connection: disconnectedState,
+      message: result.message,
     };
   };
 
-  const handlePersist = async (mode: 'draft' | 'apply') => {
-    persistDraft(mode);
-    if (mode !== 'apply') {
-      return;
-    }
-
+  const handleApply = async () => {
     try {
       const prepared = await prepareSourceAwareAction('apply');
-      const nextConnection = prepared.connection;
-      const nextCatalog = prepared.catalog;
-      const nextChannelIds = prepared.channelIds;
-      const nextCatalogSource = prepared.catalogSource;
-      await syncCurrentSelectionToBackend(nextChannelIds, nextCatalog, nextConnection);
-      persistConnectionState(nextConnection, nextChannelIds, nextCatalog, nextCatalogSource);
+      if (!prepared.sourceIdentityChanged) {
+        await syncCurrentSelectionToBackend(
+          prepared.sourceRevision,
+          prepared.channelIds,
+          prepared.catalog,
+          prepared.connection,
+        );
+      }
       const savedAt = new Date().toISOString();
       const message = `${t('settingsAppliedMessage')} ${formatCheckedAt(savedAt)}`;
       setStatusMessage(message);
       setSaveFeedback(message);
     } catch (error) {
+      if (error instanceof SourceRevisionConflictError) {
+        await reloadAfterRevisionConflict(error.message);
+        return;
+      }
       const message = error instanceof Error ? error.message : t('settingsSyncFailed');
       setStatusMessage(message);
-      setSaveFeedback(message);
+      setSaveFeedback('');
     }
   };
 
   const handleConnect = async () => {
     setLoading(true);
-    let prepared:
-      | {
-          sourceSwitched: boolean;
-          channelIds: string[];
-          catalog: ChannelMappingItem[];
-          catalogSource: string | null;
-          connection: PersistedConnectionState;
-        }
-      | null = null;
+    setSaveFeedback('');
+    let prepared: PreparedSourceAwareState | null = null;
     try {
       prepared = await prepareSourceAwareAction('connect');
       const { response, data } = await callHostApi('/host-api/edc/test-connection', config);
@@ -420,34 +572,44 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
       const connectedState: PersistedConnectionState = {
         isConnected: true,
         machineName: data.nodeName,
-        lastSyncLabel: formatCheckedAt(data.checkedAt),
-        meta: data.meta,
+          lastSyncLabel: formatCheckedAt(data.checkedAt),
+          meta: data.meta,
       };
-      applyConnectionState(connectedState);
-      const nextCatalog = prepared.catalog;
-      const nextChannelIds = prepared.channelIds;
-      const nextCatalogSource = prepared.catalogSource;
-      await syncCurrentSelectionToBackend(nextChannelIds, nextCatalog, connectedState);
+      await syncCurrentSelectionToBackend(
+        prepared.sourceRevision,
+        prepared.channelIds,
+        prepared.catalog,
+        connectedState,
+      );
       setStatusMessage(data.message || t('testSuccess'));
-      persistConnectionState(connectedState, nextChannelIds, nextCatalog, nextCatalogSource);
-      setLastAppliedConfig(config);
     } catch (error) {
+      if (error instanceof SourceRevisionConflictError) {
+        await reloadAfterRevisionConflict(error.message);
+        return;
+      }
       if (!prepared) {
+        setSaveFeedback('');
         setStatusMessage(error instanceof Error ? error.message : t('testFailed'));
         return;
       }
       const disconnectedState = buildDisconnectedConnectionState(config.endpoint);
       applyConnectionState(disconnectedState);
-      const nextCatalog = prepared.catalog;
-      const nextChannelIds = prepared.channelIds;
-      const nextCatalogSource = prepared.catalogSource;
+      setSaveFeedback('');
       setStatusMessage(error instanceof Error ? error.message : t('testFailed'));
       try {
-        await syncCurrentSelectionToBackend(nextChannelIds, nextCatalog, disconnectedState);
-      } catch {
+        await syncCurrentSelectionToBackend(
+          prepared.sourceRevision,
+          prepared.channelIds,
+          prepared.catalog,
+          disconnectedState,
+        );
+      } catch (syncError) {
+        if (syncError instanceof SourceRevisionConflictError) {
+          await reloadAfterRevisionConflict(syncError.message);
+          return;
+        }
         // 连接校验失败时，后端断线摘要尽量同步；失败则保留原始提示。
       }
-      persistConnectionState(disconnectedState, nextChannelIds, nextCatalog, nextCatalogSource);
     } finally {
       setLoading(false);
     }
@@ -455,6 +617,7 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
 
   const handleSyncChannels = async () => {
     setSyncing(true);
+    setSaveFeedback('');
     try {
       const prepared = await prepareSourceAwareAction('sync');
       const { response, data } = await callHostApi('/host-api/edc/sync-channels', config);
@@ -464,24 +627,24 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
       const connectedState: PersistedConnectionState = {
         isConnected: true,
         machineName: data.nodeName,
-        lastSyncLabel: formatCheckedAt(data.checkedAt),
-        meta: data.meta,
+          lastSyncLabel: formatCheckedAt(data.checkedAt),
+          meta: data.meta,
       };
-      applyConnectionState(connectedState);
-      const nextCatalogSource = normalizeSourceIdentity(connectedState.meta.source || config.endpoint);
-      setChannelCatalog(data.channels);
-      setChannelCatalogSource(nextCatalogSource);
-      const nextAddedChannelIds = prepared.sourceSwitched
+      const nextAddedChannelIds = prepared.sourceIdentityChanged
         ? []
-        : syncAddedChannelsWithCatalog(data.channels);
-      if (prepared.sourceSwitched) {
-        setAddedChannelIds([]);
-      }
-      await syncCurrentSelectionToBackend(nextAddedChannelIds, data.channels, connectedState);
+        : syncAddedChannelsWithCatalog(prepared.channelIds, data.channels);
+      await syncCurrentSelectionToBackend(
+        prepared.sourceRevision,
+        nextAddedChannelIds,
+        data.channels,
+        connectedState,
+      );
       setStatusMessage(data.message || t('syncSuccess'));
-      persistConnectionState(connectedState, nextAddedChannelIds, data.channels, nextCatalogSource);
-      setLastAppliedConfig(config);
     } catch (error) {
+      if (error instanceof SourceRevisionConflictError) {
+        await reloadAfterRevisionConflict(error.message);
+        return;
+      }
       setStatusMessage(error instanceof Error ? error.message : t('syncFailed'));
     } finally {
       setSyncing(false);
@@ -861,14 +1024,14 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
             <div className="flex justify-end gap-3">
             <button
               type="button"
-              onClick={() => void handlePersist('draft')}
+              onClick={handleSaveDraft}
               className="px-4 py-3 rounded-2xl bg-white dark:bg-white/10 text-slate-700 dark:text-slate-200 text-xs font-black uppercase tracking-widest border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/15 transition-colors"
             >
               {t('saveDraft')}
             </button>
             <button
               type="button"
-              onClick={() => void handlePersist('apply')}
+              onClick={() => void handleApply()}
               className="px-4 py-3 rounded-2xl bg-slate-900 dark:bg-white dark:text-slate-900 text-white text-xs font-black uppercase tracking-widest shadow-lg hover:opacity-90 transition-opacity flex items-center gap-2"
             >
               <Save className="w-4 h-4" />

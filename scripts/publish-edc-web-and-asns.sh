@@ -7,13 +7,16 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 
 web_dir="${EDC_WEB_SOURCE_DIR:-$repo_root/apps/web}"
 asns_dir="${ASNS_SOURCE_DIR:-$repo_root/docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統}"
+asns_runtime_dir="${ASNS_RUNTIME_DIR:-/home/openclaw/asns-host-runtime}"
 webroot="${EDC_WEBROOT:-/var/www/edc-electricity}"
 asns_service_name="${ASNS_SERVICE_NAME:-asns-host.service}"
 edc_public_url="${EDC_PUBLIC_URL:-https://hopeofthepantheon.me/edc/}"
 asns_public_url="${ASNS_PUBLIC_URL:-https://hopeofthepantheon.me/asns/}"
+asns_local_health_url="${ASNS_LOCAL_HEALTH_URL:-http://127.0.0.1:3001/}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 new_assets_dir="assets-github-$timestamp"
 archive_dir="$webroot/.publish-$timestamp"
+asns_backup_dir="$asns_runtime_dir/backups/$timestamp"
 
 require_command() {
   local command_name="$1"
@@ -28,12 +31,71 @@ log_step() {
   printf "\n==> %s\n" "$1"
 }
 
+wait_for_url() {
+  local url="$1"
+  local attempts="${2:-15}"
+  local delay_seconds="${3:-1}"
+  local attempt=1
+
+  while (( attempt <= attempts )); do
+    if curl --fail --silent --show-error --location --max-time 20 "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$delay_seconds"
+    attempt=$((attempt + 1))
+  done
+
+  curl --fail --silent --show-error --location --max-time 20 "$url" >/dev/null
+}
+
+ensure_user_systemd_bus() {
+  local uid runtime_dir bus_socket
+
+  uid="$(id -u)"
+  runtime_dir="/run/user/$uid"
+  bus_socket="$runtime_dir/bus"
+
+  if [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
+    export XDG_RUNTIME_DIR="$runtime_dir"
+  fi
+  if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=$bus_socket"
+  fi
+
+  if [[ ! -S "$bus_socket" ]]; then
+    echo "systemd user bus socket not found: $bus_socket" >&2
+    exit 1
+  fi
+}
+
 current_assets_dir() {
   if [[ ! -f "$webroot/index.html" ]]; then
     return 0
   fi
 
   sed -n 's#.*src="/edc/\([^/]*\)/index-.*#\1#p' "$webroot/index.html" | head -n 1
+}
+
+backup_asns_runtime() {
+  mkdir -p "$asns_runtime_dir" "$asns_runtime_dir/backups" "$asns_backup_dir"
+  tar -C "$(dirname "$asns_runtime_dir")" -czf "$asns_backup_dir/runtime-pre-sync.tgz" \
+    --exclude="$(basename "$asns_runtime_dir")/backups" \
+    "$(basename "$asns_runtime_dir")"
+}
+
+cleanup_asns_runtime_root() {
+  find "$asns_runtime_dir" -maxdepth 1 -mindepth 1 \
+    ! -name .logs \
+    ! -name backups \
+    -exec rm -rf {} +
+}
+
+copy_asns_runtime_item() {
+  local relative_path="$1"
+
+  if [[ -e "$asns_dir/$relative_path" ]]; then
+    cp -a "$asns_dir/$relative_path" "$asns_runtime_dir/"
+  fi
 }
 
 require_command pnpm
@@ -45,6 +107,9 @@ require_command sed
 require_command grep
 require_command curl
 require_command systemctl
+require_command tar
+require_command find
+ensure_user_systemd_bus
 
 if [[ ! -d "$web_dir" ]]; then
   echo "EDC web source directory not found: $web_dir" >&2
@@ -114,16 +179,41 @@ log_step "Building ASNS with /asns/ base"
     npm run build
 )
 
+log_step "Backing up current ASNS runtime tree"
+backup_asns_runtime
+
+log_step "Stopping $asns_service_name"
+systemctl --user stop "$asns_service_name"
+
+log_step "Cleaning ASNS runtime tree while preserving .logs/ and backups/"
+cleanup_asns_runtime_root
+
+log_step "Copying ASNS runtime files into $asns_runtime_dir"
+copy_asns_runtime_item package.json
+copy_asns_runtime_item package-lock.json
+copy_asns_runtime_item server.mjs
+copy_asns_runtime_item dist
+
+log_step "Installing ASNS runtime dependencies without reusing old node_modules"
+(
+  cd "$asns_runtime_dir"
+  npm ci --omit=dev
+)
+
 log_step "Restarting $asns_service_name"
 systemctl --user daemon-reload
 systemctl --user restart "$asns_service_name"
 
 log_step "Checking public EDC URL"
-curl --fail --silent --show-error --location --max-time 20 "$edc_public_url" >/dev/null
+wait_for_url "$edc_public_url" 10 1
+
+log_step "Checking local ASNS runtime URL"
+wait_for_url "$asns_local_health_url" 20 1
 
 log_step "Checking public ASNS URL"
-curl --fail --silent --show-error --location --max-time 20 "$asns_public_url" >/dev/null
+wait_for_url "$asns_public_url" 20 1
 
 printf "\nEDC publish complete.\n"
 printf "New assets directory: %s\n" "$new_assets_dir"
 printf "Archived previous publish into: %s\n" "$archive_dir"
+printf "ASNS runtime backup: %s\n" "$asns_backup_dir/runtime-pre-sync.tgz"

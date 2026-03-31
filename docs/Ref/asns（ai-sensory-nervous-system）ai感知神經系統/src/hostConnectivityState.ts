@@ -33,6 +33,8 @@ export interface PersistedHostChannelDraftItem {
 
 export interface HostConnectivityDraft {
   config: HostConnectivityConfig;
+  sourceIdentity?: string | null;
+  baseSourceRevision?: number | null;
   addedChannelIds: string[];
   addedChannels?: PersistedHostChannelDraftItem[];
   channelCatalogSource?: string | null;
@@ -42,6 +44,8 @@ export interface HostConnectivityDraft {
 
 export interface RestoredHostConnectivityDraft {
   config: HostConnectivityConfig | null;
+  sourceIdentity: string | null;
+  baseSourceRevision: number | null;
   addedChannelIds: string[];
   addedChannels: PersistedHostChannelDraftItem[];
   channelCatalogSource: string | null;
@@ -174,14 +178,20 @@ export function restoreHostConnectivityDraft(
           password: parsed.config.password,
         }
       : null;
+  const sourceIdentity = isNonEmptyString(parsed.sourceIdentity)
+    ? normalizeSourceValue(parsed.sourceIdentity)
+    : null;
+  const baseSourceRevision =
+    typeof parsed.baseSourceRevision === 'number' && Number.isInteger(parsed.baseSourceRevision)
+      ? parsed.baseSourceRevision
+      : null;
   const channelCatalogSource = isNonEmptyString(parsed.channelCatalogSource)
     ? normalizeSourceValue(parsed.channelCatalogSource)
     : null;
-  const configSource = config ? normalizeSourceValue(config.endpoint) : null;
   const canRestoreCatalog =
     channelCatalogSource !== null &&
-    configSource !== null &&
-    channelCatalogSource === configSource;
+    sourceIdentity !== null &&
+    channelCatalogSource === sourceIdentity;
   const restoredChannels = canRestoreCatalog && Array.isArray(parsed.addedChannels)
     ? dedupeDraftChannels(parsed.addedChannels.map(normalizeDraftChannel).filter(
         (item): item is PersistedHostChannelDraftItem => item !== null,
@@ -198,6 +208,8 @@ export function restoreHostConnectivityDraft(
 
   return {
     config,
+    sourceIdentity,
+    baseSourceRevision,
     addedChannelIds: restoredChannelIds,
     addedChannels: restoredChannels,
     channelCatalogSource: canRestoreCatalog ? channelCatalogSource : null,
@@ -221,6 +233,13 @@ export function buildHostConnectivityDraft(
       username: draft.config.username,
       password: draft.config.password,
     },
+    sourceIdentity: isNonEmptyString(draft.sourceIdentity)
+      ? normalizeSourceValue(draft.sourceIdentity)
+      : null,
+    baseSourceRevision:
+      typeof draft.baseSourceRevision === 'number' && Number.isInteger(draft.baseSourceRevision)
+        ? draft.baseSourceRevision
+        : null,
     addedChannelIds: Array.from(new Set(draft.addedChannelIds)),
     addedChannels: normalizedAddedChannels,
     channelCatalogSource: isNonEmptyString(draft.channelCatalogSource)
@@ -236,6 +255,39 @@ export function buildHostConnectivityDraft(
         }
       : null,
   };
+}
+
+export function isHostConnectivityDraftCurrent(
+  draft: RestoredHostConnectivityDraft | null,
+  currentSourceIdentity: string | null,
+  currentSourceRevision: number,
+): boolean {
+  if (!draft) {
+    return false;
+  }
+  if (!isNonEmptyString(currentSourceIdentity)) {
+    return false;
+  }
+  if (!isNonEmptyString(draft.sourceIdentity)) {
+    return false;
+  }
+  if (
+    typeof draft.baseSourceRevision !== 'number' ||
+    !Number.isInteger(draft.baseSourceRevision)
+  ) {
+    return false;
+  }
+  return (
+    normalizeSourceValue(draft.sourceIdentity) === normalizeSourceValue(currentSourceIdentity) &&
+    draft.baseSourceRevision === currentSourceRevision
+  );
+}
+
+export function clearHostConnectivityDraftStorage(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.removeItem(hostSettingsStorageKey);
 }
 
 export function toggleWindowState(

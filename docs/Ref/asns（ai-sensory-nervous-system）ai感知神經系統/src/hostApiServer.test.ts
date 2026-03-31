@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 type MockRequestRecord = {
@@ -113,9 +114,18 @@ async function stopServer(server: ReturnType<typeof createServer>): Promise<void
   await once(server, 'close');
 }
 
-async function postJsonWithRetry(url: string, body: unknown, retries = 20): Promise<Response> {
+async function postJsonWithRetry(
+  url: string,
+  body: unknown,
+  retries = 20,
+  getFatalError?: () => Error | null,
+): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 0; attempt < retries; attempt += 1) {
+    const fatalError = getFatalError?.();
+    if (fatalError) {
+      throw fatalError;
+    }
     try {
       return await fetch(url, {
         method: 'POST',
@@ -127,15 +137,19 @@ async function postJsonWithRetry(url: string, body: unknown, retries = 20): Prom
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
+  const fatalError = getFatalError?.();
+  if (fatalError) {
+    throw fatalError;
+  }
   throw lastError instanceof Error ? lastError : new Error('宿主测试服务未能及时启动。');
 }
 
 test('server host-api accepts source-B-style numeric sensor payloads and returns connected summaries', async (t) => {
   const mockEdc = await startMockEdcServer();
   const hostPort = await getFreePort();
-  const hostRoot =
-    'D:\\project\\EDC electricity\\docs\\Ref\\asns（ai-sensory-nervous-system）ai感知神經系統';
+  const hostRoot = fileURLToPath(new URL('..', import.meta.url));
   const hostLogs: string[] = [];
+  let hostProcError: Error | null = null;
   const hostProc = spawn('node', ['server.mjs'], {
     cwd: hostRoot,
     env: {
@@ -154,10 +168,20 @@ test('server host-api accepts source-B-style numeric sensor payloads and returns
   hostProc.stderr.on('data', (chunk) => {
     hostLogs.push(chunk);
   });
+  hostProc.on('error', (error) => {
+    hostProcError = error;
+    hostLogs.push(`${error.stack || error.message}\n`);
+  });
 
   t.after(async () => {
-    hostProc.kill();
-    await once(hostProc, 'exit').catch(() => undefined);
+    if (hostProc.exitCode === null && !hostProc.killed) {
+      hostProc.kill();
+    }
+    await Promise.race([
+      once(hostProc, 'close'),
+      once(hostProc, 'exit'),
+      new Promise((resolve) => setTimeout(resolve, 1000)),
+    ]).catch(() => undefined);
     await stopServer(mockEdc.server);
   });
 
@@ -170,6 +194,8 @@ test('server host-api accepts source-B-style numeric sensor payloads and returns
   const testConnectionResponse = await postJsonWithRetry(
     `http://127.0.0.1:${hostPort}/host-api/edc/test-connection`,
     payload,
+    20,
+    () => hostProcError,
   );
   const testConnectionBody = (await testConnectionResponse.json()) as {
     ok: boolean;
@@ -201,6 +227,8 @@ test('server host-api accepts source-B-style numeric sensor payloads and returns
   const syncChannelsResponse = await postJsonWithRetry(
     `http://127.0.0.1:${hostPort}/host-api/edc/sync-channels`,
     payload,
+    20,
+    () => hostProcError,
   );
   const syncChannelsBody = (await syncChannelsResponse.json()) as {
     ok: boolean;
