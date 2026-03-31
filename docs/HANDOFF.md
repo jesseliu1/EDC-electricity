@@ -13,6 +13,20 @@
   - `origin/codex/hardcode-remediation` 是 docs-only 审计分支，不是代码修复分支
   - 当前真正阻塞 UAT 的硬编码/边界问题已经补到可验证状态
   - 当前下一步应进入完整 UAT，而不是继续围绕旧来源快照做调查
+- 当前本地与公网状态：
+  - 本地最新提交：`a38efd7 feat: consolidate host runtime source truth`
+  - 该版本已经重新部署到公网
+  - `/edc/` 当前资源目录：`assets-github-20260331T064047Z`
+  - `runtime-status` 当前为 `ready`
+  - 当前真源：`http://61.216.55.133`
+  - 当前监听进程：
+    - `127.0.0.1:8001` -> `uvicorn` PID `2475247`
+    - `*:3001` -> `node server.mjs` PID `2475602`
+    - 当前未发现 `8000` 监听实例
+- 当前明确未完事项：
+  - 需要基于公网最新版本做完整 UAT
+  - 需要决定 4 个临时文件是否纳入版本库或删除
+  - 本轮没有 push 远端仓库
 - 当前已验证通过：
   - `apps/server` 定向 pytest：`75 passed`
   - `apps/web`：`pnpm build` 通过
@@ -23,36 +37,39 @@
 
 | 服务 | 端口 | PID | 状态 |
 |------|------|-----|------|
-| ASNS 后端（uvicorn，edc-electricity-server） | 8001 | 2145878 | ✅ 运行中 |
-| ASNS 后端（uvicorn，旧实例） | 8000 | 2129768 | ✅ 运行中 |
-| ASNS 宿主前端（node server.mjs） | 3001 | 2159066 | ✅ 运行中 |
+| ASNS 后端（uvicorn，edc-electricity-server） | 8001 | 2475247 | ✅ 运行中 |
+| ASNS 后端（uvicorn，旧实例） | 8000 | — | ✅ 当前未监听 |
+| ASNS 宿主前端（node server.mjs） | 3001 | 2475602 | ✅ 运行中 |
 | EDC 前端（nginx /edc/） | 443 | — | ✅ 运行中 |
 | ASNS 界面（nginx /asns/） | 443 | — | ✅ 运行中（base path 已修复）|
-| 真实 EDC 硬件设备 | 8080 | — | ❌ 未接入（外部依赖）|
+| 真实 EDC 数据源 | 外部 | — | ⚠️ 当前真源为 `http://61.216.55.133` |
 
-## 已完成工作（本轮 commits）
+## 已完成工作（当前应以 `a38efd7` 为准）
 
-- `1cee4f3` — fix: 补 /api/health 别名路由，联通测试5/5全通
-- `591ad97` — 第四十四批集成冒烟测试留痕（Playwright 7/7全通）
-- `efdfb6f` — docs: 架构认知纠偏，ASNS负责连接8080真实硬件设备
-- `c4923d3` — fix: ASNS 重新构建设置 base path /asns/，页面资源路径修复
+- `a38efd7` — feat: consolidate host runtime source truth
+- 已完成来源真源收口、宿主旧快照清理、角色绑定拆层、runtime 发布模型统一
+- 已完成本地提交并重新部署到公网
+- 已完成定向验证：
+  - `apps/server` 定向 pytest `75 passed`
+  - `apps/web` 构建通过
+  - 宿主测试 `13 passed`
+  - 公网 `runtime-status=ready`
 
 ## 未完成工作（新 session 需要继续）
 
-1. **验证 ASNS 界面功能**：打开 https://hopeofthepantheon.me/asns/，确认页面正常加载，连接入口可操作
-2. **ASNS 宿主前端确保使用 systemd 管理**：当前 PID 2159066 是手动启动的，需确认 asns-host.service 是否正确管理
-3. **清理 8000 端口旧 uvicorn 实例**：PID 2129768 是多余的，只需保留 8001
-4. **确保 ASNS_EDC_BASE_URL 环境变量配置**：等真实设备 IP 就位后配置并重启 ASNS 后端
-5. **真实数据联调**：在 ASNS 界面填入真实 EDC 设备地址和账密，验证端到端数据流
-6. **最终 UAT 验收报告**：整理所有测试结果，给出是否可上线结论
+1. **完整 UAT 总验**：基于当前公网版本执行完整 UAT，重点做视觉确认、截图回看、业务链路留证
+2. **形成最终放行结论**：把当前公网版本的 UAT 结果整理进正式验收总账
+3. **处理 4 个临时文件**：决定 `asns_settings_html.txt`、`asns_settings_text.txt`、`asns_settings_text_final.txt`、`uat_s01_s02.sh` 是纳入版本库还是删除
+4. **决定是否 push 远端仓库**：当前只有本地 commit `a38efd7`，本轮没有推远端
+5. **后续结构治理（非当前 UAT 阻塞）**：继续评估 `tasks / heats / baselines` 从 `runtime_*` 快照迁到正式业务表的路径
 
 ## 已知问题和注意事项
 
-- **架构认知**：ASNS（apps/server）负责连接 8080 真实硬件设备，8080 不是我们的服务
+- **架构认知**：当前 ASNS 后端负责对接外部 EDC 来源；这台机器上不是直接托管 `8080` 服务
 - **PM agent 不直接改代码**：所有代码修改必须通过 Codex 执行
-- **pytest 串行跑**：`-p no:randomly`，必须在 `/home/openclaw/edc-electricity-server` 目录执行
+- **pytest 工作目录**：后端 pytest 需要在 `apps/server` 或对应 runtime 目录内执行，避免相对 SQLite 路径跑偏
 - **ASNS 构建必须设置 base path**：`VITE_ASNS_BASE_PATH=/asns/ npm run build`
-- **ASNS 宿主启动环境变量**：`ASNS_BASE_PATH=/ PORT=3001 node server.mjs`
+- **部署后必须核对资源指纹**：不能只看 `health`，还要检查公网 HTML 引用的 JS/CSS 是否已切到本次发布目录
 
 ## 关键文件路径
 

@@ -2,7 +2,48 @@
 
 > 用于在新 session 中快速恢复上下文。开始新会话时，优先阅读本文件，再按需展开 `progress.md / lessons.md / ui_issues.md`。
 
+> 口径说明：本文件顶部“最新交接摘要”才是当前现状。后续各节保留历史交接快照，内部出现的“当前 / 下一步 / ready / 8000 / 真源”都只代表对应时点，不代表现在。
+
 ---
+
+## 2026-03-31 最新交接摘要（优先于下面所有旧口径）
+
+- 当前本地最新提交：
+  - branch：`master`
+  - commit：`a38efd7`
+  - message：`feat: consolidate host runtime source truth`
+- 当前公网已经重新部署到这版：
+  - 已执行 `./scripts/sync-edc-server.sh`
+  - 已执行 `./scripts/publish-edc-web-and-asns.sh`
+  - `/edc/` 当前资源目录：`assets-github-20260331T064047Z`
+  - `/edc/` 当前入口脚本：`index-PrnKX7Pq.js`
+  - `/asns/` 当前入口脚本：`index-D_DiDccN.js`
+  - `GET /api/settings/runtime-status` 当前返回 `overall_code=ready`
+  - `GET /api/settings/host-bootstrap` 当前真源仍是 `http://61.216.55.133`
+- 当前最重要的结论：
+  - 会影响当前 UAT 正确性的来源收口问题已经修完并已部署
+  - 当前不需要继续调查“为什么还有旧源”
+  - 下一步应该直接围绕当前公网版本做完整 UAT
+- 当前明确未完事项：
+  - 基于公网最新版本跑完整 UAT，总验要带视觉确认和截图回看
+  - 决定 4 个未跟踪临时文件如何处理：
+    - `asns_settings_html.txt`
+    - `asns_settings_text.txt`
+    - `asns_settings_text_final.txt`
+    - `uat_s01_s02.sh`
+  - 若后续继续做结构治理，方向是：
+    - `tasks / heats / baselines` 逐步迁到正式业务表
+    - 收缩 `settings` 表对 `runtime_*` 快照的承载
+    - 清理默认参数与 demo/seed 数据硬编码
+- 当前不要遗漏的事实：
+  - 本轮只创建了本地 commit 并已部署公网
+  - 是否 push 到远端仓库，本轮没有执行
+  - 仓库工作树现在除了 4 个临时文件外是干净的
+  - 新 session 如果只是为了上线判断，先读：
+    - `docs/progress.md`
+    - `docs/HARDCODED_INVENTORY.md`
+    - `docs/FRONTEND_BACKEND_SEPARATION_AUDIT.md`
+    - `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`
 
 ## 2026-03-31 硬编码审计分支合流结果（优先于下面旧调查口径）
 

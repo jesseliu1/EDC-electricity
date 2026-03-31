@@ -2,7 +2,49 @@
 
 > 每次会话开始时读取此文件，完成功能后立即更新
 
+> 口径说明：本文件按时间倒序记录。只有最上面的最新条目代表“当前状态”。下面各条保留的是当时快照，内部出现的“当前 / 下一步 / ready / 端口 / 资源目录”等表述都只代表对应日期当时的状态，不能直接当成现在。
+
 ---
+
+### 2026-03-31（本地版本已落 commit，并已重新部署到公网）
+
+**当前阶段**：宿主 source truth 收口与硬编码整改已经形成可交接版本；本地最新提交已创建，公网 EDC / ASNS / backend runtime 已切到这版
+
+**本轮完成**：
+
+- [x] 已创建本地提交：
+  - [x] branch：`master`
+  - [x] commit：`a38efd7`
+  - [x] message：`feat: consolidate host runtime source truth`
+- [x] 已重新部署当前版本到公网：
+  - [x] 执行 `./scripts/sync-edc-server.sh`
+  - [x] 执行 `./scripts/publish-edc-web-and-asns.sh`
+- [x] 已确认公网资源指纹切到本轮版本：
+  - [x] `/edc/` 当前资源目录：`assets-github-20260331T064047Z`
+  - [x] `/edc/` 当前入口脚本：`index-PrnKX7Pq.js`
+  - [x] `/asns/` 当前入口脚本：`index-D_DiDccN.js`
+- [x] 已确认公网运行态正常：
+  - [x] `GET https://hopeofthepantheon.me/api/settings/runtime-status` -> `overall_code=ready`
+  - [x] `GET https://hopeofthepantheon.me/api/settings/host-bootstrap` -> 当前真源 `http://61.216.55.133`
+  - [x] 本机 `http://127.0.0.1:8001/health` -> `{"status":"ok"}`
+
+**当前未完事项**：
+
+- [ ] 需要基于当前公网状态补一轮完整 UAT，总验重点是业务链路与视觉确认
+- [ ] 需要决定 4 个临时文件是否纳入版本库或删除：
+  - [ ] `asns_settings_html.txt`
+  - [ ] `asns_settings_text.txt`
+  - [ ] `asns_settings_text_final.txt`
+  - [ ] `uat_s01_s02.sh`
+- [ ] 结构债仍在，但不阻塞当前 UAT：
+  - [ ] `tasks / heats / baselines` 仍主要依赖 `runtime_*` 快照，而非全部迁到正式业务表
+  - [ ] 默认参数与 demo/seed 数据仍在代码里
+
+**交接备注**：
+
+- [x] 当前公网已经是本地提交 `a38efd7` 对应版本
+- [x] 这次只做了本地 commit + 公网部署，是否推送远端仓库，本轮没有执行
+- [x] 新 session 若继续推进，优先做 UAT，不要再重复做来源收口调查
 
 ### 2026-03-31（硬编码审计分支已合入当前主线并完成针对性整改验证）
 

@@ -10,6 +10,11 @@
 - ASNS 宿主：`https://hopeofthepantheon.me/asns/`
 - 后端 API：`https://hopeofthepantheon.me/api/`
 
+> 当前口径说明：
+> - 本文档是正式 UAT 脚本与放行标准，不自动代表“当前版本已经通过”。
+> - 当前公网最新已部署版本是本地提交 `a38efd7 feat: consolidate host runtime source truth`。
+> - 这版的最终放行 UAT 还需要按本文档重跑并补齐视觉证据，不能直接沿用 `2026-03-30` 及更早历史报告里的 PASS 结论。
+
 ---
 
 ## 0. 本文档说明
