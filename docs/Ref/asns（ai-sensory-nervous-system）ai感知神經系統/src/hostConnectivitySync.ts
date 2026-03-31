@@ -332,7 +332,10 @@ export function buildDisconnectedConnectionState(source: string): PersistedConne
 
 export async function callHostApi(path: string, config: HostConnectivityConfig) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const response = await fetch(`${hostApiBase}${normalizedPath}`, {
+  const requestPath = normalizedPath.startsWith(hostApiBase)
+    ? normalizedPath
+    : `${hostApiBase}${normalizedPath}`;
+  const response = await fetch(requestPath, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),

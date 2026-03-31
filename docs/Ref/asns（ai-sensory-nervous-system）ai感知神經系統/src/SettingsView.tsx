@@ -565,7 +565,7 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
     let prepared: PreparedSourceAwareState | null = null;
     try {
       prepared = await prepareSourceAwareAction('connect');
-      const { response, data } = await callHostApi('/host-api/edc/test-connection', config);
+      const { response, data } = await callHostApi('/edc/test-connection', config);
       if (!response.ok || !data.ok) {
         throw new Error(data.message || t('testFailed'));
       }
@@ -620,7 +620,7 @@ export default function SettingsView({ config, setConfig, t, isConnected, setIsC
     setSaveFeedback('');
     try {
       const prepared = await prepareSourceAwareAction('sync');
-      const { response, data } = await callHostApi('/host-api/edc/sync-channels', config);
+      const { response, data } = await callHostApi('/edc/sync-channels', config);
       if (!response.ok || !data.ok || !data.channels) {
         throw new Error(data.message || t('syncFailed'));
       }
