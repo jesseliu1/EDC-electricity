@@ -6,6 +6,395 @@
 
 ---
 
+### 2026-04-01（前端炉次列表/详情接入运行态字段与进行中刷新）
+
+**当前阶段**：UAT 前性能方案落地（前端对接运行态）
+
+**本轮完成**：
+
+- [x] 前端已对接 `/api/heats` 新增运行态字段：
+  - [x] `completion_status / last_point_at`
+  - [x] `baseline_version_id / baseline_effective_from`
+  - [x] `snapshot_status`
+- [x] 炉次列表新增：
+  - [x] 进行中标识
+  - [x] 历史台账刷新/预热提示
+  - [x] `active_runtime` 数据来源文案
+- [x] 炉次详情新增：
+  - [x] 进行中提示
+  - [x] 最后采样时间展示
+  - [x] 60 秒级自动刷新（仅进行中炉次）
+- [x] 已更新 UAT 脚本与交接：
+  - [x] `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md` 新增进行中炉次用例
+  - [x] `docs/session_handoff.md` 已补最新变更摘要
+- [x] i18n 文案已同步：
+  - [x] `zh-CN / en-US / zh-TW / ja-JP`
+
+**验证结果**：
+
+- [ ] 未运行前端测试（需要时再补）
+
+**当前结论**：
+
+- [x] 前端已能区分历史固化与当前实时炉次，并对进行中炉次持续刷新
+
+### 2026-04-01（后端主读链路已切到“历史固化 + 当前实时”，不再默认走 live cache）
+
+**当前阶段**：按设计稿推进第一阶段后端重构
+
+**本轮完成**：
+
+- [x] 已按新架构口径记录经验到 `docs/lessons.md`：
+  - [x] 结构性重构不再为了“最小改动”保留旧错误主路径
+- [x] 已完成后端炉次运行态主读链路替换：
+  - [x] `apps/server/src/api/heats.py`
+  - [x] `/api/heats` 不再默认触发请求期实时推断
+  - [x] 列表读取已改成 `runtime_heats` 历史固化 + `active_heat_runtime` 当前实时组合
+  - [x] `resolve_heat_record()` 默认不再 live fallback
+  - [x] 已新增 `POST /api/heats/runtime/refresh`
+  - [x] 已新增启动时后台调度 `schedule_heat_runtime_refresh(reason="startup")`
+- [x] 已补运行态持久化：
+  - [x] `runtime_active_heat_runtime`
+  - [x] `runtime_heat_runtime_refresh_meta`
+- [x] 已补接口/模型字段：
+  - [x] `HeatResponse.completion_status`
+  - [x] `HeatResponse.last_point_at`
+  - [x] `HeatResponse.baseline_version_id`
+  - [x] `HeatResponse.baseline_effective_from`
+  - [x] `HeatListResponse.snapshot_status`
+- [x] 已补基线版本生效时间字段骨架：
+  - [x] `BaselineCreate / BaselineUpdate / BaselineResponse.effective_from`
+  - [x] 发布时若未指定 `effective_from`，默认落发布时刻
+- [x] 已同步测试基座与 API 测试：
+  - [x] `apps/server/tests/conftest.py`
+  - [x] `apps/server/tests/test_heats_api.py`
+  - [x] 旧的“普通列表隐式 live fallback”测试已改成新口径
+  - [x] 已新增 `active_heat_runtime` 持久化恢复测试
+
+**验证结果**：
+
+- [x] `uv run pytest tests/test_heats_api.py tests/test_baselines_dashboard_api.py tests/test_tasks_reports_settings_api.py`
+- [x] 共 `74 passed`
+- [x] `python -m compileall apps/server/src` 通过
+
+**当前结论**：
+
+- [x] 后端当前已经从“列表接口顺手现算炉次”切到“运行态先准备，接口只读”的主路径
+- [x] 旧 `_LIVE_HEAT_CACHE` 仍在代码里，但已经不再参与 `/api/heats` 默认读取
+- [x] 下一步若继续推进，应优先把前端热列表 / 详情页显式消费 `completion_status / snapshot_status`
+
+---
+
+### 2026-04-01（炉次设计稿已收口为“历史固化 + 当前实时 + 基线版本生效时间”）
+
+**当前阶段**：UAT 前性能方案细化与时间语义收口
+
+**本轮完成**：
+
+- [x] 已根据业务口径修正炉次设计稿中的缓存语义，明确：
+  - [x] 历史炉次固化后不因新基线 / 新规则回改
+  - [x] 当前进行中的炉次必须实时显示，不等待历史固化刷新完成
+  - [x] 基线修改不覆盖旧版本，而是新增版本并带 `effective_from`
+- [x] 已将设计稿从“单层快照”收口为“双层运行态”：
+  - [x] `runtime_heats` = 历史固化炉次
+  - [x] `active_heat_runtime` = 当前进行中炉次实时态
+- [x] 已修正 `/api/heats` 目标职责：
+  - [x] 返回历史固化炉次列表
+  - [x] 如存在当前进行中炉次，则拼入 `in_progress` 实时记录
+- [x] 已修正手动刷新语义：
+  - [x] 默认异步执行
+  - [x] 默认只刷最近窗口，不做普通入口的全量重建
+
+**当前结论**：
+
+- [x] 当前最合理的后端口径不是“旧快照 stale 继续顶着用”，而是“历史固化可读 + 当前炉次实时补齐”
+- [x] 当前最关键的业务约束是：新基线只影响 `effective_from` 之后开始的新炉次
+
+---
+
+### 2026-04-01（架构问题已完成盘点并形成待处理交接单）
+
+**当前阶段**：UAT 前性能瓶颈收口与结构债识别并行
+
+**本轮完成**：
+
+- [x] 已完成当前代码架构抽样审计，重点覆盖：
+  - [x] 前后端边界
+  - [x] 后端 API / runtime state / services 的耦合方式
+  - [x] 前端页面是否仍承担业务数据推导
+- [x] 已形成独立交接文档：
+  - [x] `docs/ARCHITECTURE_DEBT_HANDOFF.md`
+- [x] 已把该问题挂入最新交接入口：
+  - [x] `docs/session_handoff.md`
+
+**当前结论**：
+
+- [x] 当前方向上已经不是“前端直接掌握系统连接真源”
+- [x] 但还没有做到“前端只负责显示，后端只负责提供标准化数据”
+- [x] 当前最大的结构问题是：
+  - [x] 后端内部仍通过 API 模块级 `_STORE` 和跨模块私有调用耦合在一起
+  - [x] `baselines / heats / tasks` 仍主要依赖 `runtime_*` 快照落库
+  - [x] 前端仍保留局部数据推导和假图兜底
+
+**当前未处理事项**：
+
+- [ ] 尚未开始架构重构
+- [ ] 尚未把 `baseline / heat / task` 迁到正式业务表主路径
+- [ ] 尚未把前端重数据推导进一步下沉到后端
+- [ ] 尚未落地真实 `packages/core / plugin-*` 运行边界
+
+**下一步建议**：
+
+- [ ] 若下一轮继续做架构治理，先按 `docs/ARCHITECTURE_DEBT_HANDOFF.md` 中的顺序推进：
+  - [ ] 先拆后端内部边界
+  - [ ] 再迁业务持久化
+  - [ ] 再收缩前端数据推导
+  - [ ] 最后再推进插件化落地
+
+### 2026-04-01（炉次缓存与基线向导解耦方案已形成设计稿）
+
+**当前阶段**：UAT 前性能瓶颈收口与方案评审
+
+**本轮完成**：
+
+- [x] 已定位当前慢点根因不只是前端超时，而是 `/api/heats` 在读接口路径中实时触发炉次推断
+- [x] 已确认真实链路：
+  - [x] `list_heats()` -> `_list_heat_store()`
+  - [x] `_list_heat_store()` -> `_get_live_inferred_heat_store()`
+  - [x] 列表阶段之后还会继续 `_build_heat_list_views()`
+- [x] 已确认基线向导当前预览链路仍通过 `heat_id` 反查时间窗，默认依赖炉次能力
+- [x] 已完成一版独立设计稿：
+  - [x] `docs/HEAT_RUNTIME_CACHE_AND_BASELINE_WIZARD_REDESIGN.md`
+- [x] 设计稿已明确推荐方向：
+  - [x] `/api/heats` 改成只读后台准备好的运行态炉次台账
+  - [x] 运行态继续复用 SQLite `settings` 表持久化，不新增表结构
+  - [x] 新增 `runtime_heats_refresh_meta` 记录快照 freshness / refresh 状态
+  - [x] 基线向导默认主路径改成“按日拉定义指标曲线 + 手动框选时间窗”
+  - [x] 候选炉次降级为高级模式，而不是默认路径
+- [x] 已先做一轮前端止血：
+  - [x] `BaselineWizard` 已改为进入第 2 步才加载候选炉次与预览曲线
+  - [x] `vite.config.ts` 默认代理已从 `localhost:8000` 收口到 `127.0.0.1:8000`
+
+**当前结论**：
+
+- [x] 当前 UAT 前最值得推进的不是继续调大 timeout，而是把“炉次推断”迁出 UI 请求路径
+- [x] 当前最合理的下一步是先评审并锁定设计稿，再按“先 `/api/heats`，后基线向导”顺序实施
+
+---
+
+### 2026-04-01（UAT 脚本已对齐当前宿主真源协议）
+
+**当前阶段**：正式 UAT 执行前文档口径收口
+
+**本轮完成**：
+
+- [x] 已复核 `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md` 与当前实现的真实协议边界
+- [x] 已修正旧接口引用：
+  - [x] `S01-TC03` 不再引用不存在的 `GET /api/settings/edc-connection`
+  - [x] 改为以 `GET /api/settings/host-bootstrap` 校验当前真源配置
+  - [x] 改为以 `GET /api/settings/host-connectivity-status` 校验 `is_connected`
+- [x] 已修正宿主“目录缓存”与“已添加通道”混写：
+  - [x] `0.8 宿主通道目录 vs 业务角色绑定口径` 已补 `host-bootstrap.host_channel_catalog`
+  - [x] `S02-TC01` 已改为用 `host-bootstrap.host_channel_catalog.total > 0` 证明目录同步成功
+  - [x] `S05-TC01` 已改为用 `host-bootstrap.host_channel_catalog` 判断新源目录恢复
+  - [x] `S04-TC03` 已补“切源后目录缓存应清空”的验证点
+
+**当前结论**：
+
+- [x] 当前正式 UAT 脚本已不再把旧接口或旧状态边界当成验收依据
+- [x] 接下来执行 UAT 时，应明确区分：
+  - [x] `host-bootstrap.host_channel_catalog` = 宿主目录缓存
+  - [x] `host-channels` = 已添加并生效的宿主通道
+  - [x] `channel-role-bindings / runtime-status.channel_roles` = 业务角色是否 ready
+
+---
+
+### 2026-04-01（本机联调栈已重新部署并验活）
+
+**当前阶段**：本机前后端 + ASNS 宿主联调环境恢复
+
+**本轮完成**：
+
+- [x] 已按本机启动口径重新部署联调栈：
+  - [x] 先清理 `8000 / 3000 / 3001` 监听
+  - [x] 已重新构建 ASNS 宿主 `dist`
+  - [x] 已重新启动后端 `127.0.0.1:8000`
+  - [x] 已重新启动前端 `http://localhost:3000/edc/`
+  - [x] 已重新启动 ASNS 宿主 `http://localhost:3001/`
+- [x] 已完成入口验活：
+  - [x] `GET http://127.0.0.1:8000/health` -> `200`
+  - [x] `GET http://localhost:3000/edc/` -> `200`
+  - [x] `GET http://localhost:3000/api/health` -> `200`
+  - [x] `GET http://localhost:3001/` -> `200`
+  - [x] `GET http://localhost:3001/api/health` -> `200`
+- [x] 已确认宿主页运行时注入正常：
+  - [x] `window.__ASNS_EDC_APP_URL__ = "http://localhost:3000/edc/";`
+- [x] 已再次按同一口径手动重启一轮本机联调栈，当前监听进程为：
+  - [x] backend `127.0.0.1:8000`
+  - [x] web `localhost:3000/edc/`
+  - [x] asns host `localhost:3001`
+
+**当前结论**：
+
+- [x] 本机当前可直接从 `3001` 进入 ASNS 宿主，从 `3000/edc/` 进入 EDC 前端，从 `8000` 访问后端 API
+
+---
+
+### 2026-03-31（宿主连线设置 JSON 解析错误已定位并修复）
+
+**当前阶段**：本机 ASNS + EDC 宿主连线设置回归
+
+**本轮完成**：
+
+- [x] 已在真实宿主页 `http://localhost:3001/` 的“连线设置”页复现报错：
+  - [x] 页面提示 `Failed to execute 'json' on 'Response': Unexpected token '<'`
+- [x] 已通过页面级探针确认根因不是 EDC 接口异常，也不是清库漏清：
+  - [x] 实际错误请求为 `POST /host-api/host-api/edc/test-connection`
+  - [x] 返回 `404 text/html`
+  - [x] 返回体为 `Cannot POST /host-api/host-api/edc/test-connection`
+- [x] 已确认根因是宿主设置页把 `/host-api` 前缀重复拼接：
+  - [x] `SettingsView.tsx` 把完整 `/host-api/edc/*` 传给 `callHostApi(...)`
+  - [x] `callHostApi(...)` 又基于 `hostApiBase=/host-api` 再拼接一次
+- [x] 已完成修复：
+  - [x] `SettingsView.tsx` 改为传 `/edc/test-connection`、`/edc/sync-channels`
+  - [x] `hostConnectivitySync.ts` 增加防重前缀保护，误传完整 `/host-api/...` 时不再重复拼接
+- [x] 已重新构建并重启宿主 `3001`
+- [x] 已完成回归验证：
+  - [x] 页面不再请求双前缀 `/host-api/host-api/...`
+  - [x] 当前请求已变为正确的 `/host-api/edc/test-connection`
+  - [x] 页面不再出现 `<!DOCTYPE ... is not valid JSON`
+
+**当前结论**：
+
+- [x] 本次报错首因是宿主前端路径拼接错误，不是后端、SQLite 或 EDC 上游问题
+- [x] 影响范围包括“测试连接”和“同步通道”两个按钮
+- [x] 当前本机后端配置仍保持空白态，修复验证未把 `60.251.229.32 / volapu / admin` 留在后端设置中
+
+---
+
+### 2026-03-31（本机已按 factory-reset + blank 重建为空白系统）
+
+**当前阶段**：本机迁厂初始化口径验证
+
+**本轮完成**：
+
+- [x] 已备份本机 SQLite：
+  - [x] `D:\project\EDC electricity\.tmp_run\db_backups\asns-before-factory-reset-20260331-193954.db`
+- [x] 已执行本机运行态清空：
+  - [x] `apps/server/.venv/Scripts/python.exe -m src.runtime_state_admin --db apps/server/data/asns.db --mode factory-reset`
+- [x] 已按 `ASNS_BOOTSTRAP_MODE=blank` 重启本机联调栈：
+  - [x] 后端：`http://127.0.0.1:8000`
+  - [x] 前端：`http://localhost:3000/edc/`
+  - [x] 宿主：`http://localhost:3001/`
+- [x] 已确认本机当前为空白初始态：
+  - [x] `GET /api/baselines` -> `{"items":[],"total":0}`
+  - [x] `GET /api/settings/runtime-status` -> `active_baseline = null`
+  - [x] `GET /api/settings` -> `edc_base_url = ""`、`edc_username = ""`、`active_baseline_id = ""`
+  - [x] 宿主页仍正确注入 `window.__ASNS_EDC_APP_URL__ = "http://localhost:3000/edc/";`
+
+**当前结论**：
+
+- [x] 当前本机已不再继承旧厂 baseline / host channels / role bindings / runtime settings 运行态
+- [x] `factory-reset + blank` 已可把本机恢复为可联调的空白新系统
+- [ ] 后续若要把这套口径变成正式交付能力，仍应实现显式“清空数据库 / 新厂初始化”模式，而不是继续依赖运维命令组合
+
+---
+
+### 2026-03-31（跨厂迁移清库口径已补入文档待实现）
+
+**当前阶段**：本机联调问题范围确认与迁厂初始化口径收口
+
+**本轮完成**：
+
+- [x] 已确认炉次详情中的“第三方”不是机器线缓存，而是后端 SQLite `runtime_baselines` 中的一条已发布 baseline
+- [x] 已确认普通重部署不会清空 SQLite：
+  - [x] `scripts/sync-edc-server.sh` 清 runtime 时明确保留 `data/`
+  - [x] 当前部署默认更适合同厂升级，不适合直接作为跨厂迁移口径
+- [x] 已确认当前系统不少有业务意义的数据实际保存在 `settings.runtime_*`：
+  - [x] 本机 `baselines / heats / tasks` 实体表当前为空
+  - [x] 当前运行态业务对象主要落在 `runtime_baselines / runtime_settings_store / runtime_host_* / runtime_channel_role_bindings`
+- [x] 已补文档留痕：
+  - [x] `docs/lessons.md`
+  - [x] `docs/ui_issues.md`
+  - [x] 已登记需要新增“清空数据库 / 新厂初始化”显式模式
+
+**当前结论**：
+
+- [x] 当前 `factory-reset` 能清空全部 `runtime_*`，但这仍是运维级入口，不是正式的“跨厂迁移 / 新厂初始化”产品化模式
+- [ ] 下一步应实现一个显式可审计的清库模式，确保 A 厂迁 B 厂时能得到真正空白的新系统
+
+---
+
+### 2026-03-31（本机宿主启动顺序已固化为脚本）
+
+**当前阶段**：本机联调启动口径收口
+
+**本轮完成**：
+
+- [x] 已确认本机“测试连接失败”的首因不是后端主逻辑坏，而是宿主 `3001` 一度在服务旧 `dist`
+- [x] 已确认旧包症状：
+  - [x] 宿主页面仍调用旧接口 `PUT /api/settings/host-channels`
+  - [x] 宿主页面仍调用旧接口 `PUT /api/settings/host-connectivity-status`
+  - [x] 后端因此返回 `422`
+- [x] 已确认当前源码并无该问题：
+  - [x] `src/hostConnectivitySync.ts` 已切到 `GET /api/settings/host-bootstrap`
+  - [x] `src/hostConnectivitySync.ts` 已切到 `PUT /api/settings/host-runtime-sync`
+- [x] 已重新构建 ASNS 宿主：
+  - [x] 旧入口脚本：`index-BYiChWWV.js`
+  - [x] 新入口脚本：`index-CSRltjWm.js`
+- [x] 已新增本机统一启动脚本：
+  - [x] `scripts/start-local-edc-stack.sh`
+  - [x] 已把“先 build ASNS，再起 3001”固化进脚本
+- [x] 已补文档：
+  - [x] `docs/DEPLOYMENT.md`
+  - [x] `docs/lessons.md`
+- [x] 已补宿主真源协议字段归一化：
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`
+  - [x] 已把后端 `snake_case` 响应映射为宿主页面消费的 `camelCase` 结构
+  - [x] 本机最新 `PUT /api/settings/host-runtime-sync` 已由 `422` 恢复为 `200`
+
+**当前结论**：
+
+- [x] 本机这次问题的根因是启动顺序错误，不是服务器发布脚本缺 build
+- [x] 另一个真实代码问题是宿主前端没有归一化 `host-bootstrap / host-runtime-sync` 的字段风格，现已修复
+- [x] 服务器发布脚本 `scripts/publish-edc-web-and-asns.sh` 本身已经包含 `npm run build`，不会因为“只重启宿主、不重建 dist”而天然复现同类问题
+- [x] 后续本机联调应统一改用 `./scripts/start-local-edc-stack.sh`
+
+### 2026-03-31（本机前后端已重新拉起）
+
+**当前阶段**：本机联调环境恢复
+
+**本轮完成**：
+
+- [x] 已确认当前仓库本地依赖具备启动条件：
+  - [x] `apps/server/.venv` 存在
+  - [x] `apps/server/data/asns.db` 存在
+  - [x] `apps/web/node_modules` 存在
+- [x] 已在本机重新启动后端：
+  - [x] 工作目录：`apps/server`
+  - [x] 监听地址：`127.0.0.1:8000`
+  - [x] 健康检查：`GET http://127.0.0.1:8000/health` -> `{"status":"ok"}`
+- [x] 已在本机重新启动前端：
+  - [x] 工作目录：`apps/web`
+  - [x] 访问地址：`http://localhost:3000/edc/`
+  - [x] 已确认前端首页返回 `200`
+- [x] 已在本机重新启动 ASNS 宿主：
+  - [x] 工作目录：`docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統`
+  - [x] 访问地址：`http://localhost:3001/`
+  - [x] 已确认宿主首页返回 `200`
+  - [x] 已确认宿主代理 `GET http://localhost:3001/api/health` -> `{"status":"ok"}`
+- [x] 已确认前后端代理链路正常：
+  - [x] `GET http://localhost:3000/api/health` -> `{"status":"ok"}`
+
+**本轮备注**：
+
+- [x] 当前 Vite 本地开发服务监听在 `::1:3000`，因此应优先使用 `http://localhost:3000/edc/`
+- [x] 直接访问 `127.0.0.1:3000` 可能失败，不代表前端未启动
+- [x] 宿主本机启动时额外覆盖了本地代理口径：
+  - [x] `ASNS_EDC_API_PORT=8000`
+  - [x] `ASNS_EDC_API_HOST=127.0.0.1`
+  - [x] `ASNS_BASE_PATH=/`
+
 ### 2026-03-31（本地版本已落 commit，并已重新部署到公网）
 
 **当前阶段**：宿主 source truth 收口与硬编码整改已经形成可交接版本；本地最新提交已创建，公网 EDC / ASNS / backend runtime 已切到这版
@@ -4876,3 +5265,18 @@ EDC 前端（apps/web，/edc/）
 - [x] Dashboard 统计验证：今日炉次1条，正常率100%，待处理任务0条
 - [x] 主机连接状态验证：is_connected=true，machine_name=EDC Gateway (60.251.229.32)
 - [x] UAT 最终结论：系统已完全接入真实数据，运行正常，可推进正式上线
+
+### 2026-03-31（本机宿主跳转修复）
+
+- [x] 定位 `EDC electricity` 无法正常跳转的直接根因：本机 `3001` 首页未把 `ASNS_EDC_APP_URL` 注入到浏览器侧，前端 fallback 到 `/edc/`
+- [x] 确认 `/edc/` 在本机未配置 `ASNS_EDC_WEB_ROOT` 时会被宿主 catch-all 回退成 ASNS 自己的 `index.html`，形成宿主自嵌套
+- [x] 修复 [server.mjs](D:\project\EDC electricity\docs\Ref\asns（ai-sensory-nervous-system）ai感知神經系統\server.mjs)：注入 `__ASNS_EDC_APP_URL__` / `__ASNS_APP_API_BASE__` / `__ASNS_HOST_API_BASE__`
+- [x] 修复 [server.mjs](D:\project\EDC electricity\docs\Ref\asns（ai-sensory-nervous-system）ai感知神經系統\server.mjs)：宿主页静态资源改为 `index: false`，避免 `express.static()` 先于 HTML 注入链路直接返回原始 `index.html`
+- [x] 加固 [start-local-edc-stack.sh](D:\project\EDC electricity\scripts\start-local-edc-stack.sh)：启动 `3001` 后强制校验首页响应里包含 `window.__ASNS_EDC_APP_URL__ = "http://localhost:3000/edc/";`
+- [x] 验证：`http://localhost:3001/` 当前已返回带 runtime 注入脚本的宿主页 HTML
+
+### 2026-04-01（UAT 图表验收用例更新）
+
+- [x] 更新 `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md` 的 `S06` 用例，新增基线定义、黄金基线 Wizard、炉次详情 4 条曲线三条核心验收路径
+- [x] 将图表验收口径收紧为“必须回看截图确认曲线真实渲染、图例数量正确、图中内容符合预期”，不再接受仅凭 API 成功或 `series > 0` 判定通过
+- [x] 保留并后移原有 Dashboard/偏差收件箱验收项，补齐 `S07` 前置依赖与商业交付通过标准

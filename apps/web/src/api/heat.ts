@@ -3,9 +3,12 @@ import { client } from './client'
 const HEAT_LIST_TIMEOUT_MS = 45000
 
 export type HeatStatus = 'normal' | 'abnormal' | 'pending'
+export type HeatCompletionStatus = 'completed' | 'in_progress'
+export type HeatRuntimeSnapshotStatus = 'ready' | 'warming' | 'refreshing_history'
 export type HeatDataSource =
   | 'live_edc'
   | 'live_inferred'
+  | 'active_runtime'
   | 'demo_seed'
   | 'demo_curve'
   | 'mock_stream'
@@ -18,7 +21,11 @@ export interface HeatResponseItem {
   description: string | null
   start_time: string
   end_time: string
+  completion_status: HeatCompletionStatus
+  last_point_at: string | null
   baseline_id: string | null
+  baseline_version_id: string | null
+  baseline_effective_from: string | null
   deviation_percent: number | null
   avg_deviation_percent: number | null
   time_offset_percent: number | null
@@ -41,6 +48,7 @@ export interface HeatListResponse {
   total: number
   page: number
   page_size: number
+  snapshot_status: HeatRuntimeSnapshotStatus
 }
 
 export interface HeatListQuery {

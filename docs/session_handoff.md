@@ -6,6 +6,36 @@
 
 ---
 
+## 2026-04-01 前端运行态对接与 UAT 脚本更新（优先于下面旧口径）
+
+- 前端炉次列表/详情已对接运行态字段：
+  - `completion_status / last_point_at`
+  - `baseline_version_id / baseline_effective_from`
+  - `snapshot_status`
+- 炉次列表新增进行中标识与历史台账刷新/预热提示，详情页进行中炉次每 60 秒自动刷新
+- 已更新 UAT 脚本，新增「进行中炉次实时刷新与时间显示」用例：
+  - `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`（S06-TC03A）
+
+## 2026-04-01 架构问题交接摘要（优先于下面旧口径）
+
+- 本轮没有做架构重构，只完成了“已确认、未处理”的问题盘点
+- 已新增专项交接文档：
+  - `docs/ARCHITECTURE_DEBT_HANDOFF.md`
+- 当前结论应统一理解为：
+  - 前后台边界方向基本正确，但还没有做到“前端只展示、后端只提供标准化数据”
+  - 当前最大结构问题不是前端再写系统连接，而是后端内部仍通过 API 模块级 `_STORE` 和跨模块私有调用耦合在一起
+  - `baseline / heat / task` 仍主要依赖 `runtime_*` 快照落库，而不是各自正式业务表
+  - 前端仍有局部数据推导与假图兜底，典型在 Heat List 微缩图与 Heat Detail 手工调整/compare 视图逻辑
+- 后续若要继续处理这类问题，建议顺序：
+  - 先拆后端内部边界与 service/repository
+  - 再迁业务实体持久化
+  - 再收缩前端重数据推导
+  - 最后再推进真正插件化
+- 新 session 若是为了继续做架构治理，优先阅读：
+  - `docs/ARCHITECTURE_DEBT_HANDOFF.md`
+  - `docs/FRONTEND_BACKEND_SEPARATION_AUDIT.md`
+  - `docs/progress.md`
+
 ## 2026-03-31 最新交接摘要（优先于下面所有旧口径）
 
 - 当前本地最新提交：

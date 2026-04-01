@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -91,12 +91,14 @@ const heatId = computed(() => String(route.params.id || ''))
 const current = computed(() => heatStore.current)
 const detailLoading = computed(() => heatStore.detailLoading)
 const detailError = computed(() => heatStore.detailError)
+const refreshError = computed(() => heatStore.refreshError)
 const manualAdjustDisabledReason = computed(() => {
   if (detailLoading.value) return t('common.loading')
   if (detailError.value || !current.value) return t('heat.manualAdjustUnavailable')
   return ''
 })
 const canManualAdjust = computed(() => manualAdjustDisabledReason.value === '')
+const isInProgress = computed(() => current.value?.base.completionStatus === 'in_progress')
 
 const editingDescription = ref(false)
 const descriptionDraft = ref('')
@@ -114,6 +116,8 @@ let syncingManualAdjustState = false
 let manualAdjustPointerState: PointerState | null = null
 
 const pointerDragThreshold = 6
+const refreshIntervalMs = 60 * 1000
+let refreshTimer: number | null = null
 
 const selectedComparison = computed(() => {
   if (!current.value) return null
@@ -257,6 +261,8 @@ const statusText = computed(() => {
 function dataSourceText(source: HeatDataSource) {
   if (source === 'live_edc') return t('heat.dataSource.liveEdc')
   if (source === 'live_inferred') return t('heat.dataSource.liveInferred')
+  if (source === 'active_runtime') return t('heat.dataSource.activeRuntime')
+  if (source === 'demo_seed') return t('heat.dataSource.demoSeed')
   if (source === 'mock_curve') return t('heat.dataSource.demoCurve')
   if (source === 'mock_stream') return t('heat.dataSource.demoSeed')
   if (source === 'demo_curve') return t('heat.dataSource.demoCurve')
@@ -338,11 +344,21 @@ function clipCurveToWindow(
 const compareCoreWindow = computed(() => {
   if (!current.value) return null
   const heatStart = dayjs(current.value.base.startTime)
-  const heatEnd = dayjs(current.value.base.endTime)
+  const heatEnd = isInProgress.value
+    ? dayjs(current.value.base.lastPointAt || dayjs())
+    : dayjs(current.value.base.endTime)
   return {
     start: heatStart.valueOf(),
     end: heatEnd.valueOf(),
   }
+})
+
+const endTimeDisplay = computed(() => {
+  if (!current.value) return '--'
+  if (current.value.base.completionStatus === 'in_progress') {
+    return current.value.base.lastPointAt || t('heat.inProgressNow')
+  }
+  return current.value.base.endTime
 })
 
 const shouldShowSourceBanner = computed(() => {
@@ -848,8 +864,9 @@ function openManualAdjust() {
     ElMessage.info(manualAdjustDisabledReason.value || t('heat.manualAdjustUnavailable'))
     return
   }
+  const endTime = current.value.base.lastPointAt || current.value.base.endTime
   manualAdjustStart.value = dayjs(current.value.base.startTime).valueOf()
-  manualAdjustEnd.value = dayjs(current.value.base.endTime).valueOf()
+  manualAdjustEnd.value = dayjs(endTime).valueOf()
   syncRangeFromBounds()
   syncManualAdjustZoomToCurrentRange()
   manualAdjustVisible.value = true
@@ -914,6 +931,25 @@ async function handleResumeCutting() {
   ElMessage.success(t('heat.resumeCuttingSuccess'))
 }
 
+function stopRefreshTimer() {
+  if (refreshTimer !== null) {
+    window.clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
+function startRefreshTimer() {
+  if (refreshTimer !== null) return
+  refreshTimer = window.setInterval(() => {
+    if (!heatId.value) return
+    if (current.value?.base.completionStatus !== 'in_progress') {
+      stopRefreshTimer()
+      return
+    }
+    void heatStore.refreshDetail(heatId.value)
+  }, refreshIntervalMs)
+}
+
 async function syncDetailRouteToCanonicalId(requestedId: string) {
   const resolvedId = heatStore.current?.base.id
   if (!resolvedId || resolvedId === requestedId || heatId.value !== requestedId) return
@@ -943,6 +979,22 @@ watch(
   },
   { immediate: true }
 )
+
+watch(
+  () => current.value?.base.completionStatus,
+  (status) => {
+    if (status === 'in_progress') {
+      startRefreshTimer()
+      return
+    }
+    stopRefreshTimer()
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  stopRefreshTimer()
+})
 </script>
 
 <template>
@@ -955,6 +1007,13 @@ watch(
       :description="current?.base.description || 'Furnace-A01'"
     >
       <template #actions>
+        <StatusBadge
+          v-if="current?.base.completionStatus === 'in_progress'"
+          type="warning"
+          class="mr-2"
+        >
+          {{ t('heat.statusInProgress') }}
+        </StatusBadge>
         <StatusBadge :type="statusTagType" class="mr-2">
           {{ statusText }}
         </StatusBadge>
@@ -995,6 +1054,36 @@ watch(
         </button>
       </template>
     </PageHeader>
+
+    <div
+      v-if="current?.base.completionStatus === 'in_progress'"
+      class="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800"
+      data-testid="heat-in-progress-banner"
+    >
+      <div class="font-semibold">
+        {{ t('heat.inProgressTitle') }}
+      </div>
+      <div class="mt-1 text-sky-700">
+        {{
+          t('heat.inProgressBody', {
+            time: current?.base.lastPointAt || t('heat.inProgressNow'),
+          })
+        }}
+      </div>
+    </div>
+
+    <div
+      v-if="current && refreshError"
+      class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+      data-testid="heat-refresh-error-banner"
+    >
+      <div class="font-semibold">
+        {{ t('heat.refreshFailedTitle') }}
+      </div>
+      <div class="mt-1 text-amber-700">
+        {{ t('heat.refreshFailedBody', { message: refreshError }) }}
+      </div>
+    </div>
 
     <div v-if="current" class="grid grid-cols-1 gap-6 xl:grid-cols-3">
       <div class="xl:col-span-2 space-y-6">
@@ -1179,7 +1268,7 @@ watch(
                 </div>
                 <div class="flex justify-between">
                   <span class="font-sans text-slate-400">{{ t('heat.endTime') }}</span>
-                  <span>{{ current.base.endTime }}</span>
+                  <span>{{ endTimeDisplay }}</span>
                 </div>
               </div>
             </div>

@@ -7,9 +7,11 @@ import type {
   CuttingTimelineEvent,
   CurvePoint,
   DeviationRange,
+  HeatCompletionStatus,
   HeatDataSource,
   HeatCompareResponse,
   HeatListQuery,
+  HeatRuntimeSnapshotStatus,
   HeatResponseItem,
   HeatStatus,
 } from '@/api/heat'
@@ -20,7 +22,11 @@ export interface HeatItem {
   description: string | null
   startTime: string
   endTime: string
+  completionStatus: HeatCompletionStatus
+  lastPointAt: string | null
   baselineId: string | null
+  baselineVersionId: string | null
+  baselineEffectiveFrom: string | null
   deviationPercent: number | null
   avgDeviationPercent: number | null
   timeOffsetPercent: number | null
@@ -139,7 +145,13 @@ function mapHeat(item: HeatResponseItem): HeatItem {
     description: item.description ?? null,
     startTime: dayjs(item.start_time).format('YYYY-MM-DD HH:mm'),
     endTime: dayjs(item.end_time).format('YYYY-MM-DD HH:mm'),
+    completionStatus: item.completion_status || 'completed',
+    lastPointAt: item.last_point_at ? dayjs(item.last_point_at).format('YYYY-MM-DD HH:mm') : null,
     baselineId: item.baseline_id,
+    baselineVersionId: item.baseline_version_id,
+    baselineEffectiveFrom: item.baseline_effective_from
+      ? dayjs(item.baseline_effective_from).format('YYYY-MM-DD HH:mm')
+      : null,
     deviationPercent: item.deviation_percent,
     avgDeviationPercent: item.avg_deviation_percent,
     timeOffsetPercent: item.time_offset_percent,
@@ -198,9 +210,11 @@ export const useHeatStore = defineStore('heat', {
       loading: false,
       detailLoading: false,
       detailError: null as string | null,
+      refreshError: null as string | null,
       page: persisted.page,
       pageSize: persisted.pageSize,
       total: 0,
+      snapshotStatus: 'warming' as HeatRuntimeSnapshotStatus,
       filters: persisted.filters
     }
   },
@@ -222,6 +236,7 @@ export const useHeatStore = defineStore('heat', {
         const data = await heatApi.list(query)
         this.list = data.items.map(mapHeat)
         this.total = data.total
+        this.snapshotStatus = data.snapshot_status
         persistHeatViewState({
           page: this.page,
           pageSize: this.pageSize,
@@ -231,6 +246,7 @@ export const useHeatStore = defineStore('heat', {
         console.error('Heat list request failed.', error)
         this.list = []
         this.total = 0
+        this.snapshotStatus = 'warming'
       } finally {
         this.loading = false
       }
@@ -288,6 +304,7 @@ export const useHeatStore = defineStore('heat', {
     async fetchDetail(id: string) {
       this.detailLoading = true
       this.detailError = null
+      this.refreshError = null
       this.current = null
       try {
         const [compare, timeline] = await Promise.all([
@@ -301,6 +318,21 @@ export const useHeatStore = defineStore('heat', {
         this.detailError = resolveApiErrorMessage(error, '炉次详情加载失败')
       } finally {
         this.detailLoading = false
+      }
+    },
+    async refreshDetail(id: string) {
+      if (!id) return
+
+      try {
+        const [compare, timeline] = await Promise.all([
+          heatApi.getCompare(id),
+          heatApi.getCuttingTimeline(id)
+        ])
+        this.current = mapDetail(compare, timeline.events)
+        this.refreshError = null
+      } catch (error) {
+        console.error('Heat detail refresh failed.', error)
+        this.refreshError = resolveApiErrorMessage(error, '炉次数据刷新失败')
       }
     },
     async fetchPreview(id: string) {

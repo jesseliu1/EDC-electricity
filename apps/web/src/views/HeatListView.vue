@@ -8,7 +8,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useHeatStore } from '@/stores/heat'
-import type { HeatStatus } from '@/api/heat'
+import type { HeatCompletionStatus, HeatStatus } from '@/api/heat'
 import type { HeatItem } from '@/stores/heat'
 import { isShowtimeMode } from '@/utils/showtime'
 
@@ -33,6 +33,9 @@ const majorIssueCount = computed(
 const hasDemoHeatRecords = computed(
   () => showtimeMode && heatStore.list.some((item) => demoRecordSources.has(item.recordSource))
 )
+const snapshotStatus = computed(() => heatStore.snapshotStatus)
+const showSnapshotWarming = computed(() => snapshotStatus.value === 'warming')
+const showSnapshotRefreshing = computed(() => snapshotStatus.value === 'refreshing_history')
 
 type StatusFilter = 'all' | HeatStatus
 
@@ -67,15 +70,27 @@ function statusBadgeType(status: HeatStatus) {
   return 'info' as const
 }
 
+function completionBadgeType(status: HeatCompletionStatus) {
+  if (status === 'in_progress') return 'warning' as const
+  return 'info' as const
+}
+
 function statusText(status: HeatStatus) {
   if (status === 'normal') return t('heat.statusNormal')
   if (status === 'abnormal') return t('heat.statusAbnormal')
   return t('heat.statusPending')
 }
 
+function completionText(status: HeatCompletionStatus) {
+  if (status === 'in_progress') return t('heat.statusInProgress')
+  return t('heat.statusCompleted')
+}
+
 function dataSourceText(source: HeatItem['recordSource']) {
   if (source === 'live_edc') return t('heat.dataSource.liveEdc')
   if (source === 'live_inferred') return t('heat.dataSource.liveInferred')
+  if (source === 'active_runtime') return t('heat.dataSource.activeRuntime')
+  if (source === 'demo_seed') return t('heat.dataSource.demoSeed')
   if (source === 'mock_curve') return t('heat.dataSource.demoCurve')
   if (source === 'mock_stream') return t('heat.dataSource.demoSeed')
   if (source === 'demo_curve') return t('heat.dataSource.demoCurve')
@@ -101,6 +116,10 @@ function getDeviationBarClass(value: number | null) {
   if (value > 5) return 'bg-orange-300 w-3/5'
   if (value > 2) return 'bg-primary w-2/5'
   return 'bg-primary w-1/4'
+}
+
+function isInProgress(item: HeatItem) {
+  return item.completionStatus === 'in_progress'
 }
 
 function buildSeries(seed: string, base: number, amplitude: number) {
@@ -153,7 +172,10 @@ function getPeakPower(item: HeatItem) {
 
 function getDurationMinutes(item: HeatItem) {
   const start = dayjs(item.startTime)
-  const end = dayjs(item.endTime)
+  const end =
+    item.completionStatus === 'in_progress'
+      ? dayjs(item.lastPointAt || dayjs())
+      : dayjs(item.endTime)
   return Math.max(end.diff(start, 'minute'), 0)
 }
 
@@ -334,6 +356,38 @@ onMounted(() => {
       </div>
     </div>
 
+    <div
+      v-if="showSnapshotRefreshing"
+      class="flex items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800"
+      data-testid="heat-list-refresh-banner"
+    >
+      <span class="material-symbols-outlined text-sky-600">autorenew</span>
+      <div>
+        <div class="font-semibold">
+          {{ t('heat.snapshotRefreshingTitle') }}
+        </div>
+        <div class="mt-1 text-sky-700">
+          {{ t('heat.snapshotRefreshingBody') }}
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="showSnapshotWarming"
+      class="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700"
+      data-testid="heat-list-warming-banner"
+    >
+      <span class="material-symbols-outlined text-slate-500">cloud_sync</span>
+      <div>
+        <div class="font-semibold">
+          {{ t('heat.snapshotWarmingTitle') }}
+        </div>
+        <div class="mt-1 text-slate-500">
+          {{ t('heat.snapshotWarmingBody') }}
+        </div>
+      </div>
+    </div>
+
     <div class="bg-white rounded-xl border border-border-light shadow-card overflow-hidden">
       <div v-if="heatStore.list.length > 0">
         <table class="w-full">
@@ -406,9 +460,17 @@ onMounted(() => {
                   </div>
                 </td>
                 <td class="px-4 py-4">
-                  <StatusBadge :type="statusBadgeType(item.status)">
-                    {{ statusText(item.status) }}
-                  </StatusBadge>
+                  <div class="flex flex-col items-start gap-2">
+                    <StatusBadge :type="statusBadgeType(item.status)">
+                      {{ statusText(item.status) }}
+                    </StatusBadge>
+                    <StatusBadge
+                      v-if="isInProgress(item)"
+                      :type="completionBadgeType(item.completionStatus)"
+                    >
+                      {{ completionText(item.completionStatus) }}
+                    </StatusBadge>
+                  </div>
                 </td>
                 <td class="px-6 py-4">
                   <div class="flex items-center justify-end gap-2">
