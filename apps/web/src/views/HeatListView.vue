@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -8,7 +8,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useHeatStore } from '@/stores/heat'
-import type { HeatCompletionStatus, HeatStatus } from '@/api/heat'
+import type { HeatStatus } from '@/api/heat'
 import type { HeatItem } from '@/stores/heat'
 import { isShowtimeMode } from '@/utils/showtime'
 
@@ -36,6 +36,10 @@ const hasDemoHeatRecords = computed(
 const snapshotStatus = computed(() => heatStore.snapshotStatus)
 const showSnapshotWarming = computed(() => snapshotStatus.value === 'warming')
 const showSnapshotRefreshing = computed(() => snapshotStatus.value === 'refreshing_history')
+const showSnapshotStale = computed(() => snapshotStatus.value === 'stale')
+const showSnapshotError = computed(() => snapshotStatus.value === 'error')
+const listRefreshIntervalMs = 60 * 1000
+let listRefreshTimer: number | null = null
 
 type StatusFilter = 'all' | HeatStatus
 
@@ -70,8 +74,9 @@ function statusBadgeType(status: HeatStatus) {
   return 'info' as const
 }
 
-function completionBadgeType(status: HeatCompletionStatus) {
-  if (status === 'in_progress') return 'warning' as const
+function completionBadgeType(item: HeatItem) {
+  if (item.completionStatus === 'in_progress' && !item.realtimeCurrent) return 'info' as const
+  if (item.completionStatus === 'in_progress') return 'warning' as const
   return 'info' as const
 }
 
@@ -81,15 +86,26 @@ function statusText(status: HeatStatus) {
   return t('heat.statusPending')
 }
 
-function completionText(status: HeatCompletionStatus) {
-  if (status === 'in_progress') return t('heat.statusInProgress')
+function completionText(item: HeatItem) {
+  if (
+    item.completionStatus === 'in_progress' &&
+    !item.realtimeCurrent &&
+    (item.runtimeSnapshotStatus === 'stale' || item.runtimeSnapshotStatus === 'error')
+  ) {
+    return t('heat.statusAwaitRefresh')
+  }
+  if (item.completionStatus === 'in_progress') return t('heat.statusInProgress')
   return t('heat.statusCompleted')
 }
 
-function dataSourceText(source: HeatItem['recordSource']) {
+function dataSourceText(source: HeatItem['recordSource'], realtimeCurrent = true) {
   if (source === 'live_edc') return t('heat.dataSource.liveEdc')
   if (source === 'live_inferred') return t('heat.dataSource.liveInferred')
-  if (source === 'active_runtime') return t('heat.dataSource.activeRuntime')
+  if (source === 'active_runtime') {
+    return realtimeCurrent
+      ? t('heat.dataSource.activeRuntime')
+      : t('heat.dataSource.activeRuntimeSnapshot')
+  }
   if (source === 'demo_seed') return t('heat.dataSource.demoSeed')
   if (source === 'mock_curve') return t('heat.dataSource.demoCurve')
   if (source === 'mock_stream') return t('heat.dataSource.demoSeed')
@@ -210,8 +226,27 @@ function toggleExpand(id: string) {
   }
 }
 
+function startListRefreshTimer() {
+  if (listRefreshTimer !== null) return
+  listRefreshTimer = window.setInterval(() => {
+    if (heatStore.loading) return
+    void heatStore.fetchList()
+  }, listRefreshIntervalMs)
+}
+
+function stopListRefreshTimer() {
+  if (listRefreshTimer === null) return
+  window.clearInterval(listRefreshTimer)
+  listRefreshTimer = null
+}
+
 onMounted(() => {
   void heatStore.fetchList()
+  startListRefreshTimer()
+})
+
+onBeforeUnmount(() => {
+  stopListRefreshTimer()
 })
 </script>
 
@@ -373,6 +408,47 @@ onMounted(() => {
     </div>
 
     <div
+      v-if="showSnapshotStale"
+      class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+      data-testid="heat-list-stale-banner"
+    >
+      <span class="material-symbols-outlined text-amber-600">schedule</span>
+      <div>
+        <div class="font-semibold">
+          {{ t('heat.snapshotStaleTitle') }}
+        </div>
+        <div class="mt-1 text-amber-700">
+          {{
+            t('heat.snapshotStaleBody', {
+              time: heatStore.snapshotWatermark || '--'
+            })
+          }}
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="showSnapshotError"
+      class="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+      data-testid="heat-list-error-banner"
+    >
+      <span class="material-symbols-outlined text-red-600">error</span>
+      <div>
+        <div class="font-semibold">
+          {{ t('heat.snapshotErrorTitle') }}
+        </div>
+        <div class="mt-1 text-red-700">
+          {{
+            t('heat.snapshotErrorBody', {
+              count: heatStore.refreshFailureCount,
+              message: heatStore.refreshFailureMessage || '--'
+            })
+          }}
+        </div>
+      </div>
+    </div>
+
+    <div
       v-if="showSnapshotWarming"
       class="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700"
       data-testid="heat-list-warming-banner"
@@ -438,7 +514,7 @@ onMounted(() => {
                   </div>
                   <div class="mt-2">
                     <span class="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                      {{ dataSourceText(item.recordSource) }}
+                      {{ dataSourceText(item.recordSource, item.realtimeCurrent) }}
                     </span>
                   </div>
                 </td>
@@ -466,9 +542,9 @@ onMounted(() => {
                     </StatusBadge>
                     <StatusBadge
                       v-if="isInProgress(item)"
-                      :type="completionBadgeType(item.completionStatus)"
+                      :type="completionBadgeType(item)"
                     >
-                      {{ completionText(item.completionStatus) }}
+                      {{ completionText(item) }}
                     </StatusBadge>
                   </div>
                 </td>

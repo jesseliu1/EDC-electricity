@@ -24,6 +24,8 @@ export interface HeatItem {
   endTime: string
   completionStatus: HeatCompletionStatus
   lastPointAt: string | null
+  runtimeSnapshotStatus: HeatRuntimeSnapshotStatus
+  realtimeCurrent: boolean
   baselineId: string | null
   baselineVersionId: string | null
   baselineEffectiveFrom: string | null
@@ -147,6 +149,8 @@ function mapHeat(item: HeatResponseItem): HeatItem {
     endTime: dayjs(item.end_time).format('YYYY-MM-DD HH:mm'),
     completionStatus: item.completion_status || 'completed',
     lastPointAt: item.last_point_at ? dayjs(item.last_point_at).format('YYYY-MM-DD HH:mm') : null,
+    runtimeSnapshotStatus: item.runtime_snapshot_status || 'warming',
+    realtimeCurrent: Boolean(item.realtime_current),
     baselineId: item.baseline_id,
     baselineVersionId: item.baseline_version_id,
     baselineEffectiveFrom: item.baseline_effective_from
@@ -215,6 +219,11 @@ export const useHeatStore = defineStore('heat', {
       pageSize: persisted.pageSize,
       total: 0,
       snapshotStatus: 'warming' as HeatRuntimeSnapshotStatus,
+      snapshotWatermark: null as string | null,
+      lastRefreshStartedAt: null as string | null,
+      lastRefreshCompletedAt: null as string | null,
+      refreshFailureCount: 0,
+      refreshFailureMessage: null as string | null,
       filters: persisted.filters
     }
   },
@@ -237,6 +246,17 @@ export const useHeatStore = defineStore('heat', {
         this.list = data.items.map(mapHeat)
         this.total = data.total
         this.snapshotStatus = data.snapshot_status
+        this.snapshotWatermark = data.snapshot_watermark
+          ? dayjs(data.snapshot_watermark).format('YYYY-MM-DD HH:mm:ss')
+          : null
+        this.lastRefreshStartedAt = data.last_refresh_started_at
+          ? dayjs(data.last_refresh_started_at).format('YYYY-MM-DD HH:mm:ss')
+          : null
+        this.lastRefreshCompletedAt = data.last_refresh_completed_at
+          ? dayjs(data.last_refresh_completed_at).format('YYYY-MM-DD HH:mm:ss')
+          : null
+        this.refreshFailureCount = data.refresh_failure_count || 0
+        this.refreshFailureMessage = data.refresh_error || null
         persistHeatViewState({
           page: this.page,
           pageSize: this.pageSize,
@@ -247,6 +267,11 @@ export const useHeatStore = defineStore('heat', {
         this.list = []
         this.total = 0
         this.snapshotStatus = 'warming'
+        this.snapshotWatermark = null
+        this.lastRefreshStartedAt = null
+        this.lastRefreshCompletedAt = null
+        this.refreshFailureCount = 0
+        this.refreshFailureMessage = resolveApiErrorMessage(error, '炉次列表加载失败')
       } finally {
         this.loading = false
       }

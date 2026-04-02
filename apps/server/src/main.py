@@ -32,9 +32,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await load_runtime_state()
     from .api import heats as heats_api
 
-    heats_api.schedule_heat_runtime_refresh(reason="startup")
+    heats_api.start_heat_runtime_refresh_loop()
     yield
     # 关闭时清理资源
+    await heats_api.stop_heat_runtime_refresh_loop()
     await close_shared_edc_clients()
 
 

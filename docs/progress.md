@@ -6,6 +6,41 @@
 
 ---
 
+### 2026-04-02（炉次运行态补后台定时刷新与 freshness 状态机，旧快照不再冒充当前实时炉次）
+
+**当前阶段**：跨模块联调整体验收与性能优化
+
+**本轮完成**：
+
+- [x] 后端已为炉次运行态补常驻后台刷新循环：
+  - [x] 有进行中炉次时按 `30s` 刷新
+  - [x] 无进行中炉次时按 `60s` 刷新
+- [x] `/api/heats` 已补 freshness 契约：
+  - [x] `snapshot_status` 扩展为 `ready / warming / refreshing_history / stale / error`
+  - [x] 新增 `snapshot_watermark / last_refresh_started_at / last_refresh_completed_at / refresh_error / refresh_failure_count`
+- [x] 单条炉次响应已补 `realtime_current` 与 `runtime_snapshot_status`
+  - [x] stale / error 下旧 `active_runtime` 不再被当成可信当前炉次
+- [x] 前端炉次列表/详情已对齐 freshness 语义：
+  - [x] 列表每 `60s` 自动重读最新快照
+  - [x] stale / error 时显示明确提示
+  - [x] `active_runtime` 来源文案区分为“当前炉次实时态 / 运行态炉次快照”
+  - [x] 旧快照的“进行中”标签改为“待刷新”，避免误导
+- [x] 已同步更新 UAT 文档，新增 stale/error 保护态回看口径
+- [x] 已补后续执行者提示词文档 `docs/UAT_CONTINUATION_PROMPT.md`
+
+**验证结果**：
+
+- [x] `apps/server/.venv/Scripts/pytest.exe tests/test_heats_api.py -k "active_runtime or stale or repeated_refresh_failures or refresh_heat_runtime_populates_history_from_live_points"`
+- [x] `apps/server/.venv/Scripts/ruff.exe check src/api/heats.py src/main.py src/schemas/heat.py tests/test_heats_api.py`
+- [x] `pnpm --dir apps/web build`
+
+**当前结论**：
+
+- [x] 当前炉次是否可信实时，已不再只靠 `completion_status=in_progress` 判断
+- [x] 当快照过旧或连续刷新失败时，页面会进入 stale/error 语义，而不是继续把旧快照包装成“当前炉次实时态”
+
+---
+
 ### 2026-04-02（基线向导整天预览改为异步任务，禁重复触发并补长耗时状态）
 
 **当前阶段**：跨模块联调整体验收与性能优化

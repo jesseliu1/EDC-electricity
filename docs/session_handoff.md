@@ -6,6 +6,42 @@
 
 ---
 
+## 2026-04-02 炉次 freshness 状态机（优先于下面旧口径）
+
+- 炉次运行态不再只在 `startup / manual refresh` 触发，后端已补后台定时刷新循环：
+  - 有进行中炉次时 `30s`
+  - 否则 `60s`
+- `/api/heats` 已不再只返回 `snapshot_status`，还会返回：
+  - `snapshot_watermark`
+  - `last_refresh_started_at`
+  - `last_refresh_completed_at`
+  - `refresh_error`
+  - `refresh_failure_count`
+- `snapshot_status` 现在统一按 freshness 解释：
+  - `ready`
+  - `warming`
+  - `refreshing_history`
+  - `stale`
+  - `error`
+- 单条炉次响应新增：
+  - `runtime_snapshot_status`
+  - `realtime_current`
+- 当前口径必须这样理解：
+  - `completion_status=in_progress` 不再等于“可信当前炉次”
+  - 只有 `realtime_current=true` 时，前端才允许显示“当前炉次实时态”
+  - stale / error 时旧 `active_runtime` 只能按“运行态炉次快照”展示，不能再冒充实时当前
+- 已同步更新：
+  - `apps/server/src/api/heats.py`
+  - `apps/server/src/main.py`
+  - `apps/server/src/schemas/heat.py`
+  - `apps/web/src/api/heat.ts`
+  - `apps/web/src/stores/heat.ts`
+  - `apps/web/src/views/HeatListView.vue`
+  - `apps/web/src/views/HeatDetailView.vue`
+  - `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`
+- 后续如需把测试 / UAT 交给其他人，直接使用：
+  - `docs/UAT_CONTINUATION_PROMPT.md`
+
 ## 2026-04-02 测试规则升级（优先于下面旧口径）
 
 - 已把“完整用户路径验证”正式写入仓库规则，不再只是口头要求

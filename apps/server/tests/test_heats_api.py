@@ -138,12 +138,12 @@ async def test_list_heats_filter_by_status(client) -> None:
 async def test_list_heats_includes_active_runtime_item(client) -> None:
     import src.api.heats as heats_module
 
-    start_time = datetime(2026, 4, 1, 10, 20, 0)
+    start_time = datetime.now().replace(second=0, microsecond=0) - timedelta(minutes=5)
     active_id = "active-heat-001"
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
     heats_module._ACTIVE_HEAT_RUNTIME[active_id] = {
         "id": active_id,
-        "heat_no": "H20260401-1020",
+        "heat_no": "H20260402-2145",
         "description": "进行中炉次",
         "start_time": start_time,
         "end_time": start_time + timedelta(minutes=5),
@@ -176,6 +176,9 @@ async def test_list_heats_includes_active_runtime_item(client) -> None:
         "baseline_power_curve": [],
         "baseline_voltage_curve": [],
     }
+    heats_module._HEAT_RUNTIME_REFRESH_META["snapshot_watermark"] = start_time + timedelta(minutes=5)
+    heats_module._HEAT_RUNTIME_REFRESH_META["refresh_failure_count"] = 0
+    heats_module._HEAT_RUNTIME_REFRESH_META["refresh_status"] = "idle"
 
     response = await client.get("/api/heats", params={"page_size": 20})
     assert response.status_code == 200
@@ -185,6 +188,117 @@ async def test_list_heats_includes_active_runtime_item(client) -> None:
     assert active_item["record_source"] == "active_runtime"
     assert active_item["baseline_version_id"] == "baseline-001"
     assert payload["snapshot_status"] == "ready"
+    assert active_item["runtime_snapshot_status"] == "ready"
+    assert active_item["realtime_current"] is True
+
+
+@pytest.mark.asyncio
+async def test_list_heats_marks_active_runtime_as_stale_when_watermark_is_old(client) -> None:
+    import src.api.heats as heats_module
+
+    start_time = datetime.now().replace(second=0, microsecond=0) - timedelta(minutes=20)
+    active_id = "active-heat-stale"
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._ACTIVE_HEAT_RUNTIME[active_id] = {
+        "id": active_id,
+        "heat_no": "H20260402-2100",
+        "description": "过期快照炉次",
+        "start_time": start_time,
+        "end_time": start_time + timedelta(minutes=8),
+        "completion_status": "in_progress",
+        "last_point_at": start_time + timedelta(minutes=8),
+        "baseline_id": "baseline-001",
+        "baseline_version_id": "baseline-001",
+        "baseline_effective_from": _BASELINE_STORE["baseline-001"]["effective_from"],
+        "baseline_ids": ["baseline-001"],
+        "deviation_percent": None,
+        "avg_deviation_percent": None,
+        "time_offset_percent": None,
+        "mismatch_duration_minutes": None,
+        "schedule_tag": "work",
+        "cut_reason": "active_runtime",
+        "cut_status": "normal",
+        "major_issue": False,
+        "blocked_by_issue": False,
+        "status": "pending",
+        "temperature": None,
+        "record_source": "active_runtime",
+        "current_curve_source": "live_edc",
+        "baseline_curve_source": "live_edc",
+        "created_at": start_time,
+        "power_curve": [],
+        "voltage_curve": [],
+        "baseline_power_curve": [],
+        "baseline_voltage_curve": [],
+    }
+    heats_module._HEAT_RUNTIME_REFRESH_META["snapshot_watermark"] = datetime.now() - timedelta(minutes=10)
+    heats_module._HEAT_RUNTIME_REFRESH_META["refresh_failure_count"] = 0
+    heats_module._HEAT_RUNTIME_REFRESH_META["refresh_status"] = "idle"
+
+    response = await client.get("/api/heats", params={"page_size": 20})
+    assert response.status_code == 200
+    payload = response.json()
+    active_item = next(item for item in payload["items"] if item["id"] == active_id)
+    assert payload["snapshot_status"] == "stale"
+    assert active_item["runtime_snapshot_status"] == "stale"
+    assert active_item["realtime_current"] is False
+
+
+@pytest.mark.asyncio
+async def test_list_heats_marks_active_runtime_as_untrusted_after_repeated_refresh_failures(
+    client,
+) -> None:
+    import src.api.heats as heats_module
+
+    start_time = datetime.now().replace(second=0, microsecond=0) - timedelta(minutes=2)
+    active_id = "active-heat-error"
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._ACTIVE_HEAT_RUNTIME[active_id] = {
+        "id": active_id,
+        "heat_no": "H20260402-2140",
+        "description": "错误态炉次",
+        "start_time": start_time,
+        "end_time": start_time + timedelta(minutes=2),
+        "completion_status": "in_progress",
+        "last_point_at": start_time + timedelta(minutes=2),
+        "baseline_id": "baseline-001",
+        "baseline_version_id": "baseline-001",
+        "baseline_effective_from": _BASELINE_STORE["baseline-001"]["effective_from"],
+        "baseline_ids": ["baseline-001"],
+        "deviation_percent": None,
+        "avg_deviation_percent": None,
+        "time_offset_percent": None,
+        "mismatch_duration_minutes": None,
+        "schedule_tag": "work",
+        "cut_reason": "active_runtime",
+        "cut_status": "normal",
+        "major_issue": False,
+        "blocked_by_issue": False,
+        "status": "pending",
+        "temperature": None,
+        "record_source": "active_runtime",
+        "current_curve_source": "live_edc",
+        "baseline_curve_source": "live_edc",
+        "created_at": start_time,
+        "power_curve": [],
+        "voltage_curve": [],
+        "baseline_power_curve": [],
+        "baseline_voltage_curve": [],
+    }
+    heats_module._HEAT_RUNTIME_REFRESH_META["snapshot_watermark"] = datetime.now() - timedelta(seconds=30)
+    heats_module._HEAT_RUNTIME_REFRESH_META["refresh_failure_count"] = 3
+    heats_module._HEAT_RUNTIME_REFRESH_META["refresh_status"] = "idle"
+    heats_module._HEAT_RUNTIME_REFRESH_META["refresh_error"] = "upstream_timeout"
+
+    response = await client.get("/api/heats", params={"page_size": 20})
+    assert response.status_code == 200
+    payload = response.json()
+    active_item = next(item for item in payload["items"] if item["id"] == active_id)
+    assert payload["snapshot_status"] == "error"
+    assert payload["refresh_failure_count"] == 3
+    assert payload["refresh_error"] == "upstream_timeout"
+    assert active_item["runtime_snapshot_status"] == "error"
+    assert active_item["realtime_current"] is False
 
 
 @pytest.mark.asyncio
@@ -895,7 +1009,7 @@ async def test_refresh_heat_runtime_populates_history_from_live_points(client, m
     assert all(item["record_source"] == "live_inferred" for item in payload["items"])
     assert all(item["current_curve_source"] == "live_edc" for item in payload["items"])
     assert payload["items"][0]["id"].startswith("live-heat-")
-    assert payload["snapshot_status"] == "ready"
+    assert payload["snapshot_status"] == "stale"
 
 
 @pytest.mark.asyncio

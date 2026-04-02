@@ -59,6 +59,10 @@ _HEAT_COMPARE_CONTEXT_PADDING_MINUTES = 60
 _HEAT_COMPARE_CACHE_TTL_SECONDS = 20
 _COMPARE_BASELINE_CACHE_TTL_SECONDS = 20
 _COMPARE_CHANNEL_CURVE_CACHE_TTL_SECONDS = 20
+_HEAT_RUNTIME_REFRESH_ACTIVE_INTERVAL_SECONDS = 30
+_HEAT_RUNTIME_REFRESH_IDLE_INTERVAL_SECONDS = 60
+_HEAT_RUNTIME_STALE_THRESHOLD_SECONDS = 180
+_HEAT_RUNTIME_ERROR_FAILURE_THRESHOLD = 3
 _LIVE_HEAT_CACHE: dict[str, Any] = {
     "contexts": {},
 }
@@ -1183,37 +1187,31 @@ async def refresh_heat_runtime_state(*, reason: str) -> dict[str, Any]:
     if is_mock_dataset_enabled():
         _HEAT_RUNTIME_REFRESH_META.update(
             {
-                "snapshot_status": "ready",
                 "refresh_status": "idle",
                 "refresh_reason": reason,
                 "refresh_error": None,
+                "refresh_failure_count": 0,
             }
         )
-        return dict(_HEAT_RUNTIME_REFRESH_META)
+        _sync_heat_runtime_refresh_meta_status()
+        return _build_heat_runtime_refresh_meta_snapshot()
 
     started_at = datetime.now()
     _HEAT_RUNTIME_REFRESH_META.update(
         {
-            "snapshot_status": "refreshing_history",
             "refresh_status": "running",
             "refresh_reason": reason,
             "refresh_error": None,
             "last_refresh_started_at": started_at,
         }
     )
+    _sync_heat_runtime_refresh_meta_status(now=started_at)
 
     context = _resolve_live_heat_inference_context()
     if not _is_live_heat_inference_enabled() or not context:
-        _HEAT_RUNTIME_REFRESH_META.update(
-            {
-                "snapshot_status": "ready" if _HEAT_STORE or _ACTIVE_HEAT_RUNTIME else "warming",
-                "refresh_status": "idle",
-                "refresh_error": "live_heat_inference_unavailable",
-                "last_refresh_completed_at": datetime.now(),
-            }
-        )
+        _mark_heat_runtime_refresh_failure(error="live_heat_inference_unavailable")
         await persist_runtime_state(*_runtime_heat_sections())
-        return dict(_HEAT_RUNTIME_REFRESH_META)
+        return _build_heat_runtime_refresh_meta_snapshot()
 
     points = await _load_live_heat_inference_power_points(context["channel"])
     inferred_items = _infer_live_heat_items(
@@ -1223,16 +1221,9 @@ async def refresh_heat_runtime_state(*, reason: str) -> dict[str, Any]:
         expected_duration_minutes=int(context["expected_duration_minutes"]),
     )
     if not inferred_items:
-        _HEAT_RUNTIME_REFRESH_META.update(
-            {
-                "snapshot_status": "ready" if _HEAT_STORE or _ACTIVE_HEAT_RUNTIME else "warming",
-                "refresh_status": "idle",
-                "refresh_error": "no_runtime_heats_inferred",
-                "last_refresh_completed_at": datetime.now(),
-            }
-        )
+        _mark_heat_runtime_refresh_failure(error="no_runtime_heats_inferred")
         await persist_runtime_state(*_runtime_heat_sections())
-        return dict(_HEAT_RUNTIME_REFRESH_META)
+        return _build_heat_runtime_refresh_meta_snapshot()
 
     now = datetime.now()
     history_items: dict[str, dict[str, Any]] = {}
@@ -1261,17 +1252,12 @@ async def refresh_heat_runtime_state(*, reason: str) -> dict[str, Any]:
     if active_item and isinstance(active_item.get("last_point_at"), datetime):
         watermark_candidates.append(active_item["last_point_at"])
 
-    _HEAT_RUNTIME_REFRESH_META.update(
-        {
-            "snapshot_status": "ready" if history_items or _ACTIVE_HEAT_RUNTIME else "warming",
-            "refresh_status": "idle",
-            "refresh_error": None,
-            "snapshot_watermark": max(watermark_candidates) if watermark_candidates else None,
-            "last_refresh_completed_at": datetime.now(),
-        }
+    _mark_heat_runtime_refresh_success(
+        reason=reason,
+        snapshot_watermark=max(watermark_candidates) if watermark_candidates else None,
     )
     await persist_runtime_state(*_runtime_heat_sections())
-    return dict(_HEAT_RUNTIME_REFRESH_META)
+    return _build_heat_runtime_refresh_meta_snapshot()
 
 
 def schedule_heat_runtime_refresh(*, reason: str) -> asyncio.Task[dict[str, Any]] | None:
@@ -1286,14 +1272,7 @@ def schedule_heat_runtime_refresh(*, reason: str) -> asyncio.Task[dict[str, Any]
         try:
             return await refresh_heat_runtime_state(reason=reason)
         except Exception as exc:
-            _HEAT_RUNTIME_REFRESH_META.update(
-                {
-                    "snapshot_status": "warming" if not _HEAT_STORE and not _ACTIVE_HEAT_RUNTIME else "ready",
-                    "refresh_status": "idle",
-                    "refresh_error": str(exc),
-                    "last_refresh_completed_at": datetime.now(),
-                }
-            )
+            _mark_heat_runtime_refresh_failure(error=str(exc))
             await persist_runtime_state(*_runtime_heat_sections())
             raise
         finally:
@@ -1301,6 +1280,48 @@ def schedule_heat_runtime_refresh(*, reason: str) -> asyncio.Task[dict[str, Any]
 
     _HEAT_RUNTIME_REFRESH_INFLIGHT = asyncio.create_task(_runner())
     return _HEAT_RUNTIME_REFRESH_INFLIGHT
+
+
+def _heat_runtime_refresh_interval_seconds() -> int:
+    return (
+        _HEAT_RUNTIME_REFRESH_ACTIVE_INTERVAL_SECONDS
+        if _ACTIVE_HEAT_RUNTIME
+        else _HEAT_RUNTIME_REFRESH_IDLE_INTERVAL_SECONDS
+    )
+
+
+async def _heat_runtime_refresh_loop() -> None:
+    while True:
+        task = schedule_heat_runtime_refresh(reason="background")
+        if task is not None:
+            try:
+                await task
+            except Exception as exc:  # pragma: no cover - 记录并继续后台循环
+                log_event("heat_runtime_refresh_loop_error", error=str(exc))
+        await asyncio.sleep(_heat_runtime_refresh_interval_seconds())
+
+
+def start_heat_runtime_refresh_loop() -> asyncio.Task[None] | None:
+    global _HEAT_RUNTIME_REFRESH_LOOP_TASK
+    if is_mock_dataset_enabled():
+        return None
+    if _HEAT_RUNTIME_REFRESH_LOOP_TASK and not _HEAT_RUNTIME_REFRESH_LOOP_TASK.done():
+        return _HEAT_RUNTIME_REFRESH_LOOP_TASK
+    _HEAT_RUNTIME_REFRESH_LOOP_TASK = asyncio.create_task(_heat_runtime_refresh_loop())
+    return _HEAT_RUNTIME_REFRESH_LOOP_TASK
+
+
+async def stop_heat_runtime_refresh_loop() -> None:
+    global _HEAT_RUNTIME_REFRESH_LOOP_TASK
+    if not _HEAT_RUNTIME_REFRESH_LOOP_TASK:
+        return
+    _HEAT_RUNTIME_REFRESH_LOOP_TASK.cancel()
+    try:
+        await _HEAT_RUNTIME_REFRESH_LOOP_TASK
+    except asyncio.CancelledError:
+        pass
+    finally:
+        _HEAT_RUNTIME_REFRESH_LOOP_TASK = None
 
 
 async def _load_heat_curves_from_edc_window(
@@ -2149,6 +2170,7 @@ _MOCK_HEAT_STREAM_STORE: dict[str, dict[str, Any]] = _seed_mock_stream_heats()
 _NEXT_MOCK_HEAT_INDEX = len(_MOCK_HEAT_STREAM_STORE) + 1
 _HEAT_RUNTIME_REFRESH_META: dict[str, Any] = {}
 _HEAT_RUNTIME_REFRESH_INFLIGHT: asyncio.Task[dict[str, Any]] | None = None
+_HEAT_RUNTIME_REFRESH_LOOP_TASK: asyncio.Task[None] | None = None
 
 
 def _default_heat_runtime_refresh_meta() -> dict[str, Any]:
@@ -2157,6 +2179,7 @@ def _default_heat_runtime_refresh_meta() -> dict[str, Any]:
         "refresh_status": "idle",
         "refresh_reason": None,
         "refresh_error": None,
+        "refresh_failure_count": 0,
         "snapshot_watermark": None,
         "last_refresh_started_at": None,
         "last_refresh_completed_at": None,
@@ -2241,11 +2264,103 @@ def _is_active_runtime_candidate(item: dict[str, Any], *, now: datetime) -> bool
     return (now - end_time) <= timedelta(minutes=_LIVE_HEAT_GAP_MINUTES)
 
 
-def _runtime_snapshot_status() -> str:
-    return str(_HEAT_RUNTIME_REFRESH_META.get("snapshot_status") or "warming")
+def _refresh_failure_count() -> int:
+    try:
+        return max(int(_HEAT_RUNTIME_REFRESH_META.get("refresh_failure_count") or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _runtime_snapshot_watermark() -> datetime | None:
+    watermark = _HEAT_RUNTIME_REFRESH_META.get("snapshot_watermark")
+    return watermark if isinstance(watermark, datetime) else None
+
+
+def _has_runtime_snapshot_data() -> bool:
+    return bool(_HEAT_STORE or _ACTIVE_HEAT_RUNTIME or _runtime_snapshot_watermark())
+
+
+def _is_runtime_snapshot_fresh(*, now: datetime | None = None) -> bool:
+    watermark = _runtime_snapshot_watermark()
+    if watermark is None:
+        return False
+    current_time = now or datetime.now()
+    return (current_time - watermark) <= timedelta(seconds=_HEAT_RUNTIME_STALE_THRESHOLD_SECONDS)
+
+
+def _runtime_snapshot_status(*, now: datetime | None = None) -> str:
+    current_time = now or datetime.now()
+    refresh_status = str(_HEAT_RUNTIME_REFRESH_META.get("refresh_status") or "idle")
+    has_snapshot_data = _has_runtime_snapshot_data()
+    if refresh_status == "running":
+        return "warming" if not has_snapshot_data else "refreshing_history"
+    if _refresh_failure_count() >= _HEAT_RUNTIME_ERROR_FAILURE_THRESHOLD:
+        return "error"
+    if not has_snapshot_data:
+        return "warming"
+    if not _is_runtime_snapshot_fresh(now=current_time):
+        return "stale"
+    return "ready"
+
+
+def _sync_heat_runtime_refresh_meta_status(*, now: datetime | None = None) -> None:
+    _HEAT_RUNTIME_REFRESH_META["snapshot_status"] = _runtime_snapshot_status(now=now)
+
+
+def _build_heat_runtime_refresh_meta_snapshot(*, now: datetime | None = None) -> dict[str, Any]:
+    current_time = now or datetime.now()
+    snapshot = dict(_HEAT_RUNTIME_REFRESH_META)
+    snapshot["refresh_failure_count"] = _refresh_failure_count()
+    snapshot["snapshot_is_fresh"] = _is_runtime_snapshot_fresh(now=current_time)
+    snapshot["snapshot_status"] = _runtime_snapshot_status(now=current_time)
+    return snapshot
+
+
+def _mark_heat_runtime_refresh_failure(*, error: str, completed_at: datetime | None = None) -> None:
+    finished_at = completed_at or datetime.now()
+    _HEAT_RUNTIME_REFRESH_META.update(
+        {
+            "refresh_status": "idle",
+            "refresh_error": error,
+            "refresh_failure_count": _refresh_failure_count() + 1,
+            "last_refresh_completed_at": finished_at,
+        }
+    )
+    _sync_heat_runtime_refresh_meta_status(now=finished_at)
+
+
+def _mark_heat_runtime_refresh_success(
+    *,
+    reason: str,
+    snapshot_watermark: datetime | None,
+    completed_at: datetime | None = None,
+) -> None:
+    finished_at = completed_at or datetime.now()
+    _HEAT_RUNTIME_REFRESH_META.update(
+        {
+            "refresh_reason": reason,
+            "refresh_status": "idle",
+            "refresh_error": None,
+            "refresh_failure_count": 0,
+            "snapshot_watermark": snapshot_watermark,
+            "last_refresh_completed_at": finished_at,
+        }
+    )
+    _sync_heat_runtime_refresh_meta_status(now=finished_at)
+
+
+def _is_realtime_current_heat(item: dict[str, Any], *, now: datetime | None = None) -> bool:
+    current_time = now or datetime.now()
+    return (
+        str(item.get("record_source") or "") == "active_runtime"
+        and str(item.get("completion_status") or "") == "in_progress"
+        and _runtime_snapshot_status(now=current_time) in {"ready", "refreshing_history"}
+        and _is_runtime_snapshot_fresh(now=current_time)
+    )
 
 
 def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
+    current_time = datetime.now()
     return HeatResponse(
         id=item["id"],
         heat_no=item["heat_no"],
@@ -2254,6 +2369,8 @@ def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
         end_time=item["end_time"],
         completion_status=str(item.get("completion_status") or "completed"),
         last_point_at=item.get("last_point_at"),
+        runtime_snapshot_status=_runtime_snapshot_status(now=current_time),
+        realtime_current=_is_realtime_current_heat(item, now=current_time),
         baseline_id=item["baseline_id"],
         baseline_version_id=item.get("baseline_version_id"),
         baseline_effective_from=item.get("baseline_effective_from"),
@@ -2467,6 +2584,7 @@ async def list_heats(
 ) -> HeatListResponse:
     """获取炉次列表（支持状态和日期范围筛选）。"""
     started_at = perf_counter()
+    current_time = datetime.now()
     normalized_start_date = _normalize_filter_datetime(start_date)
     normalized_end_date = _normalize_filter_datetime(end_date)
     items = list((await _list_heat_store()).values())
@@ -2491,13 +2609,19 @@ async def list_heats(
     start_idx = (page - 1) * page_size
     end_idx = start_idx + page_size
     paged = prepared_items[start_idx:end_idx]
+    refresh_meta = _build_heat_runtime_refresh_meta_snapshot(now=current_time)
 
     response = HeatListResponse(
         items=[_to_heat_response(item) for item in paged],
         total=total,
         page=page,
         page_size=page_size,
-        snapshot_status=_runtime_snapshot_status(),
+        snapshot_status=str(refresh_meta["snapshot_status"]),
+        snapshot_watermark=refresh_meta.get("snapshot_watermark"),
+        last_refresh_started_at=refresh_meta.get("last_refresh_started_at"),
+        last_refresh_completed_at=refresh_meta.get("last_refresh_completed_at"),
+        refresh_error=refresh_meta.get("refresh_error"),
+        refresh_failure_count=int(refresh_meta.get("refresh_failure_count") or 0),
     )
     log_event(
         "api_heats_list",

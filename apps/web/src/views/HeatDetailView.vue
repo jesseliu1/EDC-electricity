@@ -99,6 +99,9 @@ const manualAdjustDisabledReason = computed(() => {
 })
 const canManualAdjust = computed(() => manualAdjustDisabledReason.value === '')
 const isInProgress = computed(() => current.value?.base.completionStatus === 'in_progress')
+const isRealtimeCurrent = computed(() => Boolean(current.value?.base.realtimeCurrent))
+const showSnapshotStaleInDetail = computed(() => current.value?.base.runtimeSnapshotStatus === 'stale')
+const showSnapshotErrorInDetail = computed(() => current.value?.base.runtimeSnapshotStatus === 'error')
 
 const editingDescription = ref(false)
 const descriptionDraft = ref('')
@@ -258,10 +261,14 @@ const statusText = computed(() => {
   return t('heat.statusPending')
 })
 
-function dataSourceText(source: HeatDataSource) {
+function dataSourceText(source: HeatDataSource, realtimeCurrent = true) {
   if (source === 'live_edc') return t('heat.dataSource.liveEdc')
   if (source === 'live_inferred') return t('heat.dataSource.liveInferred')
-  if (source === 'active_runtime') return t('heat.dataSource.activeRuntime')
+  if (source === 'active_runtime') {
+    return realtimeCurrent
+      ? t('heat.dataSource.activeRuntime')
+      : t('heat.dataSource.activeRuntimeSnapshot')
+  }
   if (source === 'demo_seed') return t('heat.dataSource.demoSeed')
   if (source === 'mock_curve') return t('heat.dataSource.demoCurve')
   if (source === 'mock_stream') return t('heat.dataSource.demoSeed')
@@ -1008,7 +1015,7 @@ onBeforeUnmount(() => {
     >
       <template #actions>
         <StatusBadge
-          v-if="current?.base.completionStatus === 'in_progress'"
+          v-if="current?.base.realtimeCurrent"
           type="warning"
           class="mr-2"
         >
@@ -1056,7 +1063,33 @@ onBeforeUnmount(() => {
     </PageHeader>
 
     <div
-      v-if="current?.base.completionStatus === 'in_progress'"
+      v-if="showSnapshotStaleInDetail"
+      class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+      data-testid="heat-detail-stale-banner"
+    >
+      <div class="font-semibold">
+        {{ t('heat.snapshotStaleTitle') }}
+      </div>
+      <div class="mt-1 text-amber-700">
+        {{ t('heat.snapshotStaleBody', { time: current?.base.lastPointAt || '--' }) }}
+      </div>
+    </div>
+
+    <div
+      v-if="showSnapshotErrorInDetail"
+      class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+      data-testid="heat-detail-error-banner"
+    >
+      <div class="font-semibold">
+        {{ t('heat.snapshotErrorTitle') }}
+      </div>
+      <div class="mt-1 text-red-700">
+        {{ t('heat.snapshotErrorDetailBody', { message: refreshError || '--' }) }}
+      </div>
+    </div>
+
+    <div
+      v-if="isInProgress && isRealtimeCurrent"
       class="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800"
       data-testid="heat-in-progress-banner"
     >
@@ -1098,15 +1131,15 @@ onBeforeUnmount(() => {
           <div class="mt-2 flex flex-wrap gap-3 text-amber-700">
             <span
               >{{ t('heat.recordSourceLabel') }}:
-              {{ dataSourceText(current.base.recordSource) }}</span
+              {{ dataSourceText(current.base.recordSource, current.base.realtimeCurrent) }}</span
             >
             <span
               >{{ t('heat.currentCurveSourceLabel') }}:
-              {{ dataSourceText(current.base.currentCurveSource) }}</span
+              {{ dataSourceText(current.base.currentCurveSource, current.base.realtimeCurrent) }}</span
             >
             <span
               >{{ t('heat.baselineCurveSourceLabel') }}:
-              {{ dataSourceText(current.base.baselineCurveSource) }}</span
+              {{ dataSourceText(current.base.baselineCurveSource, current.base.realtimeCurrent) }}</span
             >
           </div>
         </div>

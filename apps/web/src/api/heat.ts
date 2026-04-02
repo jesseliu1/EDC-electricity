@@ -4,7 +4,12 @@ const HEAT_LIST_TIMEOUT_MS = 45000
 
 export type HeatStatus = 'normal' | 'abnormal' | 'pending'
 export type HeatCompletionStatus = 'completed' | 'in_progress'
-export type HeatRuntimeSnapshotStatus = 'ready' | 'warming' | 'refreshing_history'
+export type HeatRuntimeSnapshotStatus =
+  | 'ready'
+  | 'warming'
+  | 'refreshing_history'
+  | 'stale'
+  | 'error'
 export type HeatDataSource =
   | 'live_edc'
   | 'live_inferred'
@@ -23,6 +28,8 @@ export interface HeatResponseItem {
   end_time: string
   completion_status: HeatCompletionStatus
   last_point_at: string | null
+  runtime_snapshot_status: HeatRuntimeSnapshotStatus
+  realtime_current: boolean
   baseline_id: string | null
   baseline_version_id: string | null
   baseline_effective_from: string | null
@@ -49,6 +56,11 @@ export interface HeatListResponse {
   page: number
   page_size: number
   snapshot_status: HeatRuntimeSnapshotStatus
+  snapshot_watermark: string | null
+  last_refresh_started_at: string | null
+  last_refresh_completed_at: string | null
+  refresh_error: string | null
+  refresh_failure_count: number
 }
 
 export interface HeatListQuery {

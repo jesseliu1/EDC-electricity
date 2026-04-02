@@ -25,6 +25,8 @@ class HeatResponse(BaseModel):
     end_time: datetime = Field(..., description="结束时间")
     completion_status: str = Field(default="completed", description="完成状态: completed/in_progress")
     last_point_at: datetime | None = Field(default=None, description="当前已采样到的最后时间")
+    runtime_snapshot_status: str = Field(default="warming", description="当前运行态快照状态")
+    realtime_current: bool = Field(default=False, description="是否可作为可信当前炉次展示")
     baseline_id: str | None = Field(default=None, description="对比基线ID")
     baseline_version_id: str | None = Field(default=None, description="绑定的基线版本ID")
     baseline_effective_from: datetime | None = Field(default=None, description="绑定基线的生效时间")
@@ -109,6 +111,11 @@ class HeatListResponse(BaseModel):
     page: int = Field(..., description="当前页码")
     page_size: int = Field(..., description="每页数量")
     snapshot_status: str = Field(default="ready", description="历史炉次运行态状态")
+    snapshot_watermark: datetime | None = Field(default=None, description="快照覆盖到的最新真实数据时间")
+    last_refresh_started_at: datetime | None = Field(default=None, description="最近一次刷新开始时间")
+    last_refresh_completed_at: datetime | None = Field(default=None, description="最近一次刷新完成时间")
+    refresh_error: str | None = Field(default=None, description="最近一次刷新错误")
+    refresh_failure_count: int = Field(default=0, description="连续刷新失败次数")
 
 
 class HeatAnalyzeRequest(BaseModel):
