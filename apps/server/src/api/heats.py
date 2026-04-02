@@ -9,6 +9,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from time import perf_counter
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -73,12 +74,21 @@ _COMPARE_CHANNEL_CURVE_CACHE: dict[str, Any] = {
 
 _LIVE_HEAT_LEGACY_ID_PATTERN = re.compile(r"^live-heat-(\d+)-(\d+)$")
 _LIVE_HEAT_CANONICAL_ID_PATTERN = re.compile(r"^live-heat-([0-9a-f]{8})-(\d+)-(\d+)$")
+_LOCAL_RUNTIME_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def _as_cache_token(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value or "")
+
+
+def _normalize_filter_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(_LOCAL_RUNTIME_TZ).replace(tzinfo=None)
 
 
 def _build_heat_compare_cache_key(item: dict[str, Any], baseline_ids: list[str]) -> str:
@@ -556,9 +566,9 @@ def _build_generated_curve(
 
 
 def _resolve_primary_baseline_id(item: dict[str, Any]) -> str | None:
-    active_baseline = _resolve_active_baseline_item()
-    if active_baseline and active_baseline.get("id"):
-        return str(active_baseline["id"])
+    baseline_version_id = item.get("baseline_version_id")
+    if isinstance(baseline_version_id, str) and baseline_version_id:
+        return baseline_version_id
 
     baseline_id = item.get("baseline_id")
     if isinstance(baseline_id, str) and baseline_id:
@@ -569,6 +579,9 @@ def _resolve_primary_baseline_id(item: dict[str, Any]) -> str | None:
         first = baseline_ids[0]
         if isinstance(first, str) and first:
             return first
+    active_baseline = _resolve_active_baseline_item()
+    if active_baseline and active_baseline.get("id"):
+        return str(active_baseline["id"])
     return None
 
 
@@ -665,7 +678,11 @@ def _build_live_heat_item(
         "start_time": start_time,
         "end_time": end_time,
         "baseline_id": baseline_id,
+        "baseline_version_id": baseline_id,
+        "baseline_effective_from": _baseline_effective_from(_BASELINE_STORE.get(baseline_id)) if baseline_id else None,
         "baseline_ids": [baseline_id] if baseline_id else [],
+        "completion_status": "completed",
+        "last_point_at": end_time,
         "deviation_percent": None,
         "avg_deviation_percent": None,
         "time_offset_percent": None,
@@ -1128,24 +1145,17 @@ async def resolve_heat_record(
     *,
     preferred_live_context: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
+    del preferred_live_context
     if is_mock_dataset_enabled():
         return _MOCK_HEAT_STREAM_STORE.get(heat_id)
+
+    active_item = _ACTIVE_HEAT_RUNTIME.get(heat_id)
+    if active_item and _is_real_heat_record(active_item):
+        return active_item
 
     stored_item = _HEAT_STORE.get(heat_id)
     if stored_item and _is_real_heat_record(stored_item):
         return stored_item
-
-    for context in _collect_live_heat_lookup_contexts(
-        heat_id=heat_id,
-        preferred_context=preferred_live_context,
-    ):
-        live_items = await _get_live_inferred_heat_store(context)
-        candidate = _resolve_live_heat_candidate(heat_id, live_items)
-        if candidate:
-            persisted_alias = _find_persisted_live_heat_alias(candidate)
-            if persisted_alias:
-                return _merge_live_heat_with_persisted_state(candidate, persisted_alias)
-            return candidate
     return None
 
 
@@ -1164,21 +1174,133 @@ async def _list_heat_store() -> dict[str, dict[str, Any]]:
     if is_mock_dataset_enabled():
         return dict(_MOCK_HEAT_STREAM_STORE)
 
-    live_items = await _get_live_inferred_heat_store()
-    if not live_items:
-        return {}
-
-    merged: dict[str, dict[str, Any]] = {}
-    for live_item in live_items.values():
-        persisted_alias = _find_persisted_live_heat_alias(live_item)
-        if persisted_alias:
-            merged[str(live_item["id"])] = _merge_live_heat_with_persisted_state(
-                live_item,
-                persisted_alias,
-            )
-            continue
-        merged[str(live_item["id"])] = live_item
+    merged = dict(_HEAT_STORE)
+    merged.update(_ACTIVE_HEAT_RUNTIME)
     return merged
+
+
+async def refresh_heat_runtime_state(*, reason: str) -> dict[str, Any]:
+    if is_mock_dataset_enabled():
+        _HEAT_RUNTIME_REFRESH_META.update(
+            {
+                "snapshot_status": "ready",
+                "refresh_status": "idle",
+                "refresh_reason": reason,
+                "refresh_error": None,
+            }
+        )
+        return dict(_HEAT_RUNTIME_REFRESH_META)
+
+    started_at = datetime.now()
+    _HEAT_RUNTIME_REFRESH_META.update(
+        {
+            "snapshot_status": "refreshing_history",
+            "refresh_status": "running",
+            "refresh_reason": reason,
+            "refresh_error": None,
+            "last_refresh_started_at": started_at,
+        }
+    )
+
+    context = _resolve_live_heat_inference_context()
+    if not _is_live_heat_inference_enabled() or not context:
+        _HEAT_RUNTIME_REFRESH_META.update(
+            {
+                "snapshot_status": "ready" if _HEAT_STORE or _ACTIVE_HEAT_RUNTIME else "warming",
+                "refresh_status": "idle",
+                "refresh_error": "live_heat_inference_unavailable",
+                "last_refresh_completed_at": datetime.now(),
+            }
+        )
+        await persist_runtime_state(*_runtime_heat_sections())
+        return dict(_HEAT_RUNTIME_REFRESH_META)
+
+    points = await _load_live_heat_inference_power_points(context["channel"])
+    inferred_items = _infer_live_heat_items(
+        context=context,
+        points=points,
+        baseline_id=context["baseline_id"],
+        expected_duration_minutes=int(context["expected_duration_minutes"]),
+    )
+    if not inferred_items:
+        _HEAT_RUNTIME_REFRESH_META.update(
+            {
+                "snapshot_status": "ready" if _HEAT_STORE or _ACTIVE_HEAT_RUNTIME else "warming",
+                "refresh_status": "idle",
+                "refresh_error": "no_runtime_heats_inferred",
+                "last_refresh_completed_at": datetime.now(),
+            }
+        )
+        await persist_runtime_state(*_runtime_heat_sections())
+        return dict(_HEAT_RUNTIME_REFRESH_META)
+
+    now = datetime.now()
+    history_items: dict[str, dict[str, Any]] = {}
+    active_candidates: list[dict[str, Any]] = []
+    for raw_item in inferred_items.values():
+        runtime_item = _bind_runtime_baseline(raw_item)
+        if _is_active_runtime_candidate(runtime_item, now=now):
+            active_candidates.append(_mark_active_runtime(runtime_item))
+            continue
+        history_items[str(runtime_item["id"])] = _mark_history_runtime(runtime_item)
+
+    active_candidates.sort(key=lambda item: item["start_time"], reverse=True)
+    _HEAT_STORE.clear()
+    _HEAT_STORE.update(history_items)
+    _ACTIVE_HEAT_RUNTIME.clear()
+    if active_candidates:
+        active_item = active_candidates[0]
+        _ACTIVE_HEAT_RUNTIME[str(active_item["id"])] = active_item
+
+    watermark_candidates = [
+        item.get("last_point_at") or item.get("end_time")
+        for item in history_items.values()
+        if isinstance(item.get("last_point_at") or item.get("end_time"), datetime)
+    ]
+    active_item = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
+    if active_item and isinstance(active_item.get("last_point_at"), datetime):
+        watermark_candidates.append(active_item["last_point_at"])
+
+    _HEAT_RUNTIME_REFRESH_META.update(
+        {
+            "snapshot_status": "ready" if history_items or _ACTIVE_HEAT_RUNTIME else "warming",
+            "refresh_status": "idle",
+            "refresh_error": None,
+            "snapshot_watermark": max(watermark_candidates) if watermark_candidates else None,
+            "last_refresh_completed_at": datetime.now(),
+        }
+    )
+    await persist_runtime_state(*_runtime_heat_sections())
+    return dict(_HEAT_RUNTIME_REFRESH_META)
+
+
+def schedule_heat_runtime_refresh(*, reason: str) -> asyncio.Task[dict[str, Any]] | None:
+    global _HEAT_RUNTIME_REFRESH_INFLIGHT
+    if is_mock_dataset_enabled():
+        return None
+    if _HEAT_RUNTIME_REFRESH_INFLIGHT and not _HEAT_RUNTIME_REFRESH_INFLIGHT.done():
+        return _HEAT_RUNTIME_REFRESH_INFLIGHT
+
+    async def _runner() -> dict[str, Any]:
+        global _HEAT_RUNTIME_REFRESH_INFLIGHT
+        try:
+            return await refresh_heat_runtime_state(reason=reason)
+        except Exception as exc:
+            _HEAT_RUNTIME_REFRESH_META.update(
+                {
+                    "snapshot_status": "warming" if not _HEAT_STORE and not _ACTIVE_HEAT_RUNTIME else "ready",
+                    "refresh_status": "idle",
+                    "refresh_error": str(exc),
+                    "last_refresh_completed_at": datetime.now(),
+                }
+            )
+            await persist_runtime_state(*_runtime_heat_sections())
+            raise
+        finally:
+            _HEAT_RUNTIME_REFRESH_INFLIGHT = None
+
+    _HEAT_RUNTIME_REFRESH_INFLIGHT = asyncio.create_task(_runner())
+    return _HEAT_RUNTIME_REFRESH_INFLIGHT
 
 
 async def _load_heat_curves_from_edc_window(
@@ -1970,7 +2092,11 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
             "description": None,
             "start_time": start_time,
             "end_time": end_time,
+            "completion_status": "completed",
+            "last_point_at": end_time,
             "baseline_id": "baseline-001" if status != "pending" else None,
+            "baseline_version_id": "baseline-001" if status != "pending" else None,
+            "baseline_effective_from": None,
             "baseline_ids": ["baseline-001", "baseline-002"] if status != "pending" else [],
             "deviation_percent": max_dev,
             "avg_deviation_percent": avg_dev,
@@ -2010,12 +2136,113 @@ def _is_mock_heat_record(item: dict[str, Any]) -> bool:
 
 
 def _is_real_heat_record(item: dict[str, Any]) -> bool:
-    return str(item.get("record_source") or "").strip().lower() in {"live_inferred", "live_edc"}
+    return str(item.get("record_source") or "").strip().lower() in {
+        "live_inferred",
+        "live_edc",
+        "active_runtime",
+    }
 
 
 _HEAT_STORE: dict[str, dict[str, Any]] = {}
+_ACTIVE_HEAT_RUNTIME: dict[str, dict[str, Any]] = {}
 _MOCK_HEAT_STREAM_STORE: dict[str, dict[str, Any]] = _seed_mock_stream_heats()
 _NEXT_MOCK_HEAT_INDEX = len(_MOCK_HEAT_STREAM_STORE) + 1
+_HEAT_RUNTIME_REFRESH_META: dict[str, Any] = {}
+_HEAT_RUNTIME_REFRESH_INFLIGHT: asyncio.Task[dict[str, Any]] | None = None
+
+
+def _default_heat_runtime_refresh_meta() -> dict[str, Any]:
+    return {
+        "snapshot_status": "warming",
+        "refresh_status": "idle",
+        "refresh_reason": None,
+        "refresh_error": None,
+        "snapshot_watermark": None,
+        "last_refresh_started_at": None,
+        "last_refresh_completed_at": None,
+    }
+
+
+def _reset_heat_runtime_refresh_meta() -> None:
+    _HEAT_RUNTIME_REFRESH_META.clear()
+    _HEAT_RUNTIME_REFRESH_META.update(_default_heat_runtime_refresh_meta())
+
+
+_reset_heat_runtime_refresh_meta()
+
+
+def _baseline_effective_from(item: dict[str, Any] | None) -> datetime | None:
+    if not item:
+        return None
+    effective_from = item.get("effective_from")
+    if isinstance(effective_from, datetime):
+        return effective_from
+    published_at = item.get("published_at")
+    if isinstance(published_at, datetime):
+        return published_at
+    updated_at = item.get("updated_at")
+    if isinstance(updated_at, datetime):
+        return updated_at
+    created_at = item.get("created_at")
+    if isinstance(created_at, datetime):
+        return created_at
+    return None
+
+
+def _resolve_baseline_version_for_time(at_time: datetime) -> dict[str, Any] | None:
+    published = [
+        item
+        for item in _BASELINE_STORE.values()
+        if item.get("status") == "published" and _baseline_effective_from(item) is not None
+    ]
+    if published:
+        eligible = [item for item in published if _baseline_effective_from(item) <= at_time]
+        if eligible:
+            eligible.sort(key=lambda item: _baseline_effective_from(item), reverse=True)
+            return eligible[0]
+        published.sort(key=lambda item: _baseline_effective_from(item), reverse=True)
+        return published[0]
+    return _resolve_active_baseline_item()
+
+
+def _bind_runtime_baseline(item: dict[str, Any]) -> dict[str, Any]:
+    bound = dict(item)
+    baseline_item = _resolve_baseline_version_for_time(bound["start_time"])
+    baseline_id = str(baseline_item["id"]) if baseline_item and baseline_item.get("id") else None
+    effective_from = _baseline_effective_from(baseline_item)
+    bound["baseline_id"] = baseline_id
+    bound["baseline_version_id"] = baseline_id
+    bound["baseline_effective_from"] = effective_from
+    bound["baseline_ids"] = [baseline_id] if baseline_id else []
+    return bound
+
+
+def _mark_active_runtime(item: dict[str, Any]) -> dict[str, Any]:
+    active_item = dict(item)
+    active_item["completion_status"] = "in_progress"
+    active_item["last_point_at"] = active_item.get("end_time")
+    active_item["status"] = "pending"
+    active_item["record_source"] = "active_runtime"
+    return active_item
+
+
+def _mark_history_runtime(item: dict[str, Any]) -> dict[str, Any]:
+    history_item = dict(item)
+    history_item["completion_status"] = "completed"
+    history_item["last_point_at"] = history_item.get("end_time")
+    history_item["sealed_at"] = datetime.now()
+    return history_item
+
+
+def _is_active_runtime_candidate(item: dict[str, Any], *, now: datetime) -> bool:
+    end_time = item.get("end_time")
+    if not isinstance(end_time, datetime):
+        return False
+    return (now - end_time) <= timedelta(minutes=_LIVE_HEAT_GAP_MINUTES)
+
+
+def _runtime_snapshot_status() -> str:
+    return str(_HEAT_RUNTIME_REFRESH_META.get("snapshot_status") or "warming")
 
 
 def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
@@ -2025,7 +2252,11 @@ def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
         description=item.get("description"),
         start_time=item["start_time"],
         end_time=item["end_time"],
+        completion_status=str(item.get("completion_status") or "completed"),
+        last_point_at=item.get("last_point_at"),
         baseline_id=item["baseline_id"],
+        baseline_version_id=item.get("baseline_version_id"),
+        baseline_effective_from=item.get("baseline_effective_from"),
         deviation_percent=item["deviation_percent"],
         avg_deviation_percent=item["avg_deviation_percent"],
         time_offset_percent=item.get("time_offset_percent"),
@@ -2071,7 +2302,7 @@ def _mutable_heat_store() -> dict[str, dict[str, Any]]:
 def _runtime_heat_sections() -> tuple[str, ...]:
     if is_mock_dataset_enabled():
         return ("mock_heats", "next_heat_index")
-    return ("heats",)
+    return ("heats", "active_heat_runtime", "heat_runtime_refresh_meta")
 
 
 async def _get_or_404(heat_id: str) -> dict[str, Any]:
@@ -2163,7 +2394,11 @@ def _build_ingested_heat() -> dict[str, Any]:
         "description": None,
         "start_time": start_time,
         "end_time": end_time,
+        "completion_status": "completed",
+        "last_point_at": end_time,
         "baseline_id": "baseline-001" if status != "pending" else None,
+        "baseline_version_id": "baseline-001" if status != "pending" else None,
+        "baseline_effective_from": None,
         "baseline_ids": ["baseline-001", "baseline-002"] if status != "pending" else [],
         "deviation_percent": max_dev,
         "avg_deviation_percent": avg_dev,
@@ -2232,6 +2467,8 @@ async def list_heats(
 ) -> HeatListResponse:
     """获取炉次列表（支持状态和日期范围筛选）。"""
     started_at = perf_counter()
+    normalized_start_date = _normalize_filter_datetime(start_date)
+    normalized_end_date = _normalize_filter_datetime(end_date)
     items = list((await _list_heat_store()).values())
     items.sort(key=lambda x: x["start_time"], reverse=True)
     prepared_items = await _build_heat_list_views(
@@ -2241,10 +2478,14 @@ async def list_heats(
 
     if status:
         prepared_items = [item for item in prepared_items if item["status"] == status]
-    if start_date:
-        prepared_items = [item for item in prepared_items if item["start_time"] >= start_date]
-    if end_date:
-        prepared_items = [item for item in prepared_items if item["start_time"] <= end_date]
+    if normalized_start_date:
+        prepared_items = [
+            item for item in prepared_items if item["start_time"] >= normalized_start_date
+        ]
+    if normalized_end_date:
+        prepared_items = [
+            item for item in prepared_items if item["start_time"] <= normalized_end_date
+        ]
 
     total = len(prepared_items)
     start_idx = (page - 1) * page_size
@@ -2256,12 +2497,13 @@ async def list_heats(
         total=total,
         page=page,
         page_size=page_size,
+        snapshot_status=_runtime_snapshot_status(),
     )
     log_event(
         "api_heats_list",
         status=status,
-        start_date=start_date,
-        end_date=end_date,
+        start_date=normalized_start_date,
+        end_date=normalized_end_date,
         total=total,
         page=page,
         page_size=page_size,
@@ -2269,6 +2511,17 @@ async def list_heats(
         duration_ms=round((perf_counter() - started_at) * 1000, 1),
     )
     return response
+
+
+@router.post("/runtime/refresh")
+async def refresh_heat_runtime() -> dict[str, Any]:
+    """异步刷新历史炉次运行态。"""
+    task = schedule_heat_runtime_refresh(reason="manual")
+    return {
+        "success": True,
+        "refresh_status": "running" if task else "idle",
+        "snapshot_status": _runtime_snapshot_status(),
+    }
 
 
 @router.get("/{heat_id}", response_model=HeatResponse)

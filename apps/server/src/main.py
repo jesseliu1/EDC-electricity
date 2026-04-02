@@ -30,6 +30,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # 启动时初始化数据库
     await init_db()
     await load_runtime_state()
+    from .api import heats as heats_api
+
+    heats_api.schedule_heat_runtime_refresh(reason="startup")
     yield
     # 关闭时清理资源
     await close_shared_edc_clients()

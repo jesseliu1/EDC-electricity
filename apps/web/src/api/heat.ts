@@ -143,6 +143,10 @@ export const heatApi = {
       timeout: HEAT_LIST_TIMEOUT_MS,
       meta: { operation: 'heat_list' }
     }),
+  refreshRuntime: () =>
+    client.post<{ success: boolean; refresh_status: string; snapshot_status: HeatRuntimeSnapshotStatus }>(
+      '/heats/runtime/refresh'
+    ),
   get: (id: string) => client.get<HeatResponseItem>(`/heats/${id}`),
   getCurve: (id: string) => client.get<HeatWithCurveResponse>(`/heats/${id}/curve`),
   getCompare: (id: string) => client.get<HeatCompareResponse>(`/heats/${id}/compare`),

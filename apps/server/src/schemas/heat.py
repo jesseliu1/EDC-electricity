@@ -23,7 +23,11 @@ class HeatResponse(BaseModel):
     description: str | None = Field(default=None, description="炉次描述")
     start_time: datetime = Field(..., description="开始时间")
     end_time: datetime = Field(..., description="结束时间")
+    completion_status: str = Field(default="completed", description="完成状态: completed/in_progress")
+    last_point_at: datetime | None = Field(default=None, description="当前已采样到的最后时间")
     baseline_id: str | None = Field(default=None, description="对比基线ID")
+    baseline_version_id: str | None = Field(default=None, description="绑定的基线版本ID")
+    baseline_effective_from: datetime | None = Field(default=None, description="绑定基线的生效时间")
     deviation_percent: float | None = Field(default=None, description="最大偏差百分比")
     avg_deviation_percent: float | None = Field(default=None, description="平均偏差百分比")
     time_offset_percent: float | None = Field(default=None, description="时间偏移百分比")
@@ -104,6 +108,7 @@ class HeatListResponse(BaseModel):
     total: int = Field(..., description="总数")
     page: int = Field(..., description="当前页码")
     page_size: int = Field(..., description="每页数量")
+    snapshot_status: str = Field(default="ready", description="历史炉次运行态状态")
 
 
 class HeatAnalyzeRequest(BaseModel):

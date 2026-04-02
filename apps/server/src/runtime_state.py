@@ -27,6 +27,8 @@ _SECTION_TO_KEY = {
     "baseline_definitions": "runtime_baseline_definitions",
     "baselines": "runtime_baselines",
     "heats": "runtime_heats",
+    "active_heat_runtime": "runtime_active_heat_runtime",
+    "heat_runtime_refresh_meta": "runtime_heat_runtime_refresh_meta",
     "tasks": "runtime_tasks",
     "mock_heats": "runtime_mock_heats",
     "next_heat_index": "runtime_next_heat_index",
@@ -84,6 +86,8 @@ async def persist_runtime_state(*sections: str) -> None:
         "baseline_definitions": baseline_definitions_api._DEFINITION_STORE,
         "baselines": baselines_api._BASELINE_STORE,
         "heats": heats_api._HEAT_STORE,
+        "active_heat_runtime": heats_api._ACTIVE_HEAT_RUNTIME,
+        "heat_runtime_refresh_meta": heats_api._HEAT_RUNTIME_REFRESH_META,
         "tasks": tasks_api._TASK_STORE,
         "mock_heats": heats_api._MOCK_HEAT_STREAM_STORE,
         "next_heat_index": heats_api._NEXT_MOCK_HEAT_INDEX,
@@ -139,6 +143,8 @@ async def load_runtime_state() -> None:
             baseline_definitions_api._DEFINITION_STORE.clear()
             baselines_api._BASELINE_STORE.clear()
             heats_api._HEAT_STORE.clear()
+            heats_api._ACTIVE_HEAT_RUNTIME.clear()
+            heats_api._reset_heat_runtime_refresh_meta()
             tasks_api._TASK_STORE.clear()
             heats_api._MOCK_HEAT_STREAM_STORE.clear()
             heats_api._NEXT_MOCK_HEAT_INDEX = 1
@@ -189,6 +195,16 @@ async def load_runtime_state() -> None:
         }
         heats_api._HEAT_STORE.clear()
         heats_api._HEAT_STORE.update(ordinary_heats)
+
+    if isinstance(payloads.get("active_heat_runtime"), dict):
+        heats_api._ACTIVE_HEAT_RUNTIME.clear()
+        heats_api._ACTIVE_HEAT_RUNTIME.update(payloads["active_heat_runtime"])
+
+    if isinstance(payloads.get("heat_runtime_refresh_meta"), dict):
+        heats_api._HEAT_RUNTIME_REFRESH_META.clear()
+        heats_api._HEAT_RUNTIME_REFRESH_META.update(payloads["heat_runtime_refresh_meta"])
+    else:
+        heats_api._reset_heat_runtime_refresh_meta()
 
     if isinstance(payloads.get("tasks"), dict):
         tasks_api._TASK_STORE.clear()

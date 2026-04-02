@@ -166,6 +166,7 @@ _BASELINE_STORE: dict[str, dict[str, Any]] = {
         "source_heat_id": "heat-ref-001",
         "selected_start_time": None,
         "selected_end_time": None,
+        "effective_from": _now(),
         "tolerance_percent": 15.0,
         "status": "published",
         "version": 2,
@@ -187,6 +188,7 @@ _BASELINE_STORE: dict[str, dict[str, Any]] = {
         "source_heat_id": "heat-ref-002",
         "selected_start_time": None,
         "selected_end_time": None,
+        "effective_from": None,
         "tolerance_percent": 12.0,
         "status": "draft",
         "version": 1,
@@ -236,6 +238,7 @@ def _to_baseline_response(item: dict[str, Any]) -> BaselineResponse:
         source_heat_id=item["source_heat_id"],
         selected_start_time=item.get("selected_start_time"),
         selected_end_time=item.get("selected_end_time"),
+        effective_from=item.get("effective_from"),
         tolerance_percent=item["tolerance_percent"],
         status=item["status"],
         version=item["version"],
@@ -270,6 +273,7 @@ def _to_baseline_with_curve(item: dict[str, Any]) -> BaselineWithCurve:
         source_heat_id=item["source_heat_id"],
         selected_start_time=item.get("selected_start_time"),
         selected_end_time=item.get("selected_end_time"),
+        effective_from=item.get("effective_from"),
         tolerance_percent=item["tolerance_percent"],
         status=item["status"],
         version=item["version"],
@@ -569,6 +573,7 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
         "source_heat_id": str(source_heat["id"]),
         "selected_start_time": data.selected_start_time,
         "selected_end_time": data.selected_end_time,
+        "effective_from": data.effective_from,
         "tolerance_percent": data.tolerance_percent,
         "status": "draft",
         "version": 1,
@@ -603,6 +608,8 @@ async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineRes
         item["selected_start_time"] = data.selected_start_time
     if data.selected_end_time is not None:
         item["selected_end_time"] = data.selected_end_time
+    if data.effective_from is not None:
+        item["effective_from"] = data.effective_from
     if data.tolerance_percent is not None:
         item["tolerance_percent"] = data.tolerance_percent
     item["updated_at"] = _now()
@@ -624,6 +631,8 @@ async def publish_baseline(baseline_id: str) -> BaselineResponse:
     now = _now()
     item["status"] = "published"
     item["published_at"] = now
+    if not isinstance(item.get("effective_from"), datetime):
+        item["effective_from"] = now
     item["updated_at"] = now
     active_item = _resolve_active_baseline_item()
     if active_item is None:
