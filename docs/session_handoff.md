@@ -6,6 +6,18 @@
 
 ---
 
+## 2026-04-02 测试规则升级（优先于下面旧口径）
+
+- 已把“完整用户路径验证”正式写入仓库规则，不再只是口头要求
+- 以后代码修改完成后，若影响用户可见流程、状态机、图表、筛选、时间语义或正式验收结论，必须：
+  - 先按 `docs/testing.md` 的完整用户路径规则验证
+  - 再检查并必要时更新 `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`
+- 已同步更新：
+  - `AGENTS.md`
+  - `docs/testing.md`
+  - `docs/IMPLEMENTATION_PLAN.md`
+  - `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`
+
 ## 2026-04-02 基线向导日期筛选补丁（优先于下面旧口径）
 
 - 基线向导 Step 2 已新增「选择日期 + 刷新候选炉次」入口

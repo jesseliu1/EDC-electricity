@@ -6,6 +6,43 @@
 
 ---
 
+### 2026-04-02（基线向导整天预览改为异步任务，禁重复触发并补长耗时状态）
+
+**当前阶段**：跨模块联调整体验收与性能优化
+
+**本轮完成**：
+
+- [x] 已把基线向导 Step 2 的整天真实曲线预览改成异步任务链路：
+  - [x] 后端新增 `POST /api/baseline-definitions/{id}/preview-jobs`
+  - [x] 后端新增 `GET /api/baseline-definitions/{id}/preview-jobs`
+  - [x] 同一 `definition + 日期` 的预览任务运行中不再重复启动
+- [x] 已把前端预览交互改成任务态：
+  - [x] Step 2 先显示“正在读取所选日期的整天真实曲线”状态
+  - [x] 任务运行中禁用“刷新候选炉次”，避免重复触发
+  - [x] 有旧图时保留旧图并叠加刷新提示，不再因一次失败直接清空
+  - [x] 预览失败或未成功时，禁止继续进入下一步创建基线
+- [x] 已把前端全局请求超时从 `10s` 提高到 `600s`
+- [x] 已补回归测试并对齐新契约：
+  - [x] 后端 pytest 新增 `preview-jobs` 运行中 / 成功 / 失败状态测试
+  - [x] 前端 Playwright 基线向导 mock 已从旧 `preview-curves` 改成新 `preview-jobs`
+  - [x] 基线向导验收脚本已覆盖“加载中提示 + 禁重复点击 + 成功后出图 + 失败不可继续”
+- [x] 已同步更新正式 UAT 文档 `S06-TC02`，把 Step 2 长耗时中间态纳入正式验收
+
+**验证结果**：
+
+- [x] `apps/server/.venv/Scripts/pytest.exe tests/test_baselines_dashboard_api.py -k "preview_job or preview_curves"`
+- [x] `apps/server/.venv/Scripts/ruff.exe check tests/conftest.py tests/test_baselines_dashboard_api.py`
+- [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts --grep "can create and publish a baseline from the wizard"`
+- [x] `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts --grep "baseline wizard keeps chart picking|does not fallback to local preview"`
+- [x] `pnpm --dir apps/web build`
+
+**当前结论**：
+
+- [x] 基线向导 Step 2 现在不再依赖同步整天重请求；同一任务不会被重复点击打爆
+- [x] 用户在长耗时期间能看到明确加载状态，失败时不会误以为是“空白但可继续”
+
+---
+
 ### 2026-04-02（本机联调脚本已改为 factory-reset + blank，并已按该语义重启）
 
 **当前阶段**：跨模块联调整体验收与性能优化
@@ -5344,3 +5381,19 @@ EDC 前端（apps/web，/edc/）
 - [x] 更新 `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md` 的 `S06` 用例，新增基线定义、黄金基线 Wizard、炉次详情 4 条曲线三条核心验收路径
 - [x] 将图表验收口径收紧为“必须回看截图确认曲线真实渲染、图例数量正确、图中内容符合预期”，不再接受仅凭 API 成功或 `series > 0` 判定通过
 - [x] 保留并后移原有 Dashboard/偏差收件箱验收项，补齐 `S07` 前置依赖与商业交付通过标准
+
+### 2026-04-02（黄金基线向导候选炉次空态根因修复）
+
+- [x] 复盘 `新建基线 -> 选择炉次与选点` 空白问题，确认并非“当天无炉次”，而是前后端状态与时间契约同时失配
+- [x] 修复 [heats.py](D:\project\EDC electricity\apps\server\src\api\heats.py)：`/api/heats` 对 `start_date/end_date` 先统一转换为 `Asia/Shanghai` 本地 naive datetime，再参与炉次列表过滤，消除前端 ISO UTC 参数触发的时区比较错误
+- [x] 修复 [BaselineWizard.vue](D:\project\EDC electricity\apps\web\src\components\baseline\BaselineWizard.vue)：向导第二步识别 `snapshot_status=warming/refreshing_history`，展示“运行态准备中”提示并自动重试，不再把运行态预热误判为“当前日期没有可用炉次候选”
+- [x] 扩展 [heat.ts](D:\project\EDC electricity\apps\web\src\api\heat.ts)：补充 `refreshRuntime()` 接口，允许向导在 `warming` 首次进入时主动触发运行态刷新
+- [x] 补齐多语言文案：新增候选炉次准备中提示，覆盖 `zh-CN/en-US/zh-TW/ja-JP`
+- [x] 验证：`/api/heats?start_date=2026-04-01T16:00:00Z&end_date=2026-04-02T15:59:59Z` 已可返回 2026-04-02 炉次；`python -m py_compile apps/server/src/api/heats.py` 与 `pnpm --dir apps/web build` 均通过
+
+### 2026-04-02（完整用户路径验证规则落盘）
+
+- [x] 更新 [AGENTS.md](D:\project\EDC electricity\AGENTS.md)：新增 `docs/testing.md` / 正式 UAT 文档为必读入口，并把“代码修改完成后必须按完整用户路径验证、必要时同步更新 UAT”写成仓库级规则
+- [x] 更新 [docs/testing.md](D:\project\EDC electricity\docs\testing.md)：新增“完整用户路径验证规则”，明确触发条件、四层验证深度、状态覆盖、请求参数核对、回归要求、UAT 联动规则与执行清单
+- [x] 更新 [docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md](D:\project\EDC electricity\docs\test-reports\UAT-EDC-ASNS-commercial-acceptance.md)：新增“代码变更后的联动执行规则”和“用户路径先行原则”，要求 UAT 与最新主路径同步
+- [x] 更新 [docs/IMPLEMENTATION_PLAN.md](D:\project\EDC electricity\docs\IMPLEMENTATION_PLAN.md)：将“完整用户路径验证”和“影响正式验收时必须同步更新 UAT”纳入每个 Step 的完成标准

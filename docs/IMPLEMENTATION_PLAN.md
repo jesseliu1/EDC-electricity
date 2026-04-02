@@ -179,9 +179,10 @@
 
 每个 Step 完成后需要：
 1. ✅ 代码通过 lint 检查
-2. ✅ 关键功能有测试覆盖
+2. ✅ 关键功能有测试覆盖；涉及用户可见流程时，必须按 `docs/testing.md` 完成“完整用户路径验证”
 3. ✅ 更新 progress.md
-4. ✅ 提交 Git
+4. ✅ 若改动影响正式验收路径、判定标准或证据要求，必须同步更新 `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`
+5. ✅ 提交 Git
 
 ---
 

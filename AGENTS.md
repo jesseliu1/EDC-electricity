@@ -56,6 +56,8 @@ CRITICAL: 当遇到以下任务时，必须先用 Read 工具读取对应文档�
 | 前端样式实现 | @docs/FRONTEND_GUIDELINES.md |
 | 后端架构设计 | @docs/BACKEND_STRUCTURE.md |
 | 开发顺序确认 | @docs/IMPLEMENTATION_PLAN.md |
+| 测试策略与验证口径 | @docs/testing.md |
+| 正式 UAT 范围与脚本 | @docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md |
 | 进度状态查看 | @docs/progress.md |
 | 历史经验教训 | @docs/lessons.md |
 
@@ -78,6 +80,12 @@ CRITICAL: 当遇到以下任务时，必须先用 Read 工具读取对应文档�
 ### 会话结束时
 1. 更新 `docs/progress.md` 记录完成的工作
 2. 如有新发现的问题模式，更新 `docs/lessons.md`
+
+### 代码修改完成后
+1. 按 `docs/testing.md` 的“完整用户路径验证规则”验证本轮改动
+2. 不允许只按代码路径验证，必须按真实用户路径验证：入口、操作、请求参数、中间态、成功态、空态、错误态
+3. 只要改动影响用户可见流程、页面状态、跨系统联动、图表、提示文案、筛选条件、时间语义或 UAT 结论，就必须检查是否同步更新 `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`
+4. 如未完成上述验证与文档联动，不得声称“已验证完成”“可开始 UAT”或“已通过 UAT”
 
 ### 错误纠正时
 当用户纠正你的错误时：

@@ -21,6 +21,48 @@
 
 ## 记录
 
+### 2026-04-02 Windows 本机联调验活：不要把 `Invoke-WebRequest` 对 Vite 的结果直接当成最终健康结论
+
+- **错误模式**: 在 Windows 本机恢复联调栈时，用 PowerShell `Invoke-WebRequest` 轮询 `http://localhost:3000/edc/` 与 `http://localhost:3000/api/health`，并把返回的 `503` 直接当成前端未启动。实际 Vite 已经 ready，`curl.exe` 访问同一地址返回 `200`，导致启动脚本等价实现被误判中断。
+- **正确做法**: Windows 本机对 Vite/代理链路做健康检查时，优先用 `curl.exe` 或直接看实际 HTTP 响应内容，不要只依赖 `Invoke-WebRequest` 的成功/失败分支。若 PowerShell 报 `503`，必须先用第二种方式复核，再判断服务是否真的未启动。
+- **适用场景**: Windows PowerShell 本机联调、Vite 开发服务器、前端 `/api` 代理链路、本地启动脚本从 Bash 改写为 PowerShell 的场景。
+- **相关文档**: `docs/DEPLOYMENT.md`, `scripts/start-local-edc-stack.sh`
+
+### 2026-04-01 重构边界：不要为了“最小改动”保留不该保留的旧错误路径
+
+- **错误模式**: 在已经确认旧架构主路径本身就是问题源时，仍试图做“兼容旧路径的最小重构”，例如让新运行态继续依赖旧 `live cache` 做 bootstrap，或者在新旧读链路之间保留默认 fallback。这样会把旧错误语义一起带进新实现，形成长期中间态，后面更难拆。
+- **正确做法**: 只要决定做结构性重构，就应让新主路径与旧错误路径脱钩，直接完成完整替换。可以接受因此暴露出新的 bug，但不要为了短期稳态把旧错误设计继续包装进新架构。主读链路、运行态、API 职责必须一次切干净，旧路径最多保留为显式调试能力，不能再做默认兼容。
+- **适用场景**: API 主读链路重构、前后台分离改造、运行态缓存替换、去除请求期现算、拆除错误 fallback、任何“旧实现已被确认是设计问题而不是局部 bug”的重构场景。
+- **相关文档**: `docs/HEAT_RUNTIME_CACHE_AND_BASELINE_WIZARD_REDESIGN.md`, `apps/server/src/api/heats.py`, `apps/server/src/runtime_state.py`
+
+### 2026-03-31 宿主 API 路径：不能在调用方和封装层同时拼接同一个前缀
+
+- **错误模式**: 宿主设置页调用 `callHostApi(...)` 时直接传入完整 `/host-api/edc/*` 路径，而 `callHostApi(...)` 自身又会基于 `hostApiBase=/host-api` 再拼一次。结果真实请求变成 `/host-api/host-api/edc/*`，后端返回 HTML 404，页面再执行 `response.json()` 就会炸成 `Unexpected token '<'`。
+- **正确做法**: 宿主 API 调用要统一约定一层负责拼前缀。调用方只传相对业务路径如 `/edc/test-connection`、`/edc/sync-channels`；底层封装再统一拼 `hostApiBase`。同时在封装层增加防重前缀保护，避免误传完整路径时再次生成双前缀。
+- **适用场景**: 宿主页 API 封装、React/Vite 前端 fetch helper、带运行时注入 `hostApiBase` 的微宿主页面、任何“base path + 业务 path”双层拼接的前端请求代码。
+- **相关文档**: `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/SettingsView.tsx`, `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`, `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/server.mjs`
+
+### 2026-03-31 跨厂迁移：不能把“保留 SQLite”与“新厂全新系统”混成同一套部署口径
+
+- **错误模式**: 默认部署脚本会保留 `data/` 与 SQLite，适合同厂升级；但如果系统要从 A 厂迁到 B 厂，仍沿用这套口径，就会把 A 厂的基线、炉次、任务、宿主通道、角色绑定和连接配置一并带到 B 厂。更隐蔽的是，当前不少真正有业务意义的数据虽然存放在 `runtime_*`，名字看起来像“运行态/缓存”，却不能按“可忽略缓存”处理。
+- **正确做法**: 必须显式区分两种场景：1) 同厂升级，保留 SQLite；2) 跨厂迁移/新厂交付，提供明确的“清空数据库/新厂初始化”模式，把旧厂业务数据整体清空，并以 `blank` 初始态启动。不能让操作者靠猜测 `factory-reset`、手工删库或直接重部署来凑这个流程。
+- **适用场景**: 工厂迁移、客户环境复制、新厂初始化、PoC 环境转正式环境、任何需要保证“新环境不继承旧环境业务数据”的交付场景。
+- **相关文档**: `docs/DEPLOYMENT.md`, `apps/server/src/runtime_state.py`, `apps/server/src/runtime_state_admin.py`, `scripts/sync-edc-server.sh`
+
+### 2026-03-31 本机宿主启动：不能把“重启 3001”当成“宿主前端已经是最新代码”
+
+- **错误模式**: 在 Windows 本机联调时，只把 ASNS 宿主 `node server.mjs` 拉起来，就默认浏览器会拿到当前 `src` 对应的新逻辑；但宿主实际服务的是磁盘里的 `dist/`，如果启动前没先重建，页面仍会跑旧 bundle，继续请求已经废弃的旧接口。
+- **正确做法**: 本机凡是涉及 ASNS 宿主前端改动，都必须先 `npm run build`，再启动或重启 `3001`。不能把“进程活着”误当成“前端代码已更新”。应固定使用一条带 build 的本机启动脚本，避免再次漏掉这一步。
+- **适用场景**: Windows 本机联调、ASNS 宿主 `3001`、React/Vite 构建产物由 `server.mjs` 提供、宿主源码改了但页面表现仍像旧逻辑的场景。
+- **相关文档**: `scripts/start-local-edc-stack.sh`, `docs/DEPLOYMENT.md`, `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/server.mjs`
+
+### 2026-03-31 宿主真源协议：后端返回 `snake_case` 时，前端不能直接按 `camelCase` 消费
+
+- **错误模式**: 宿主前端把 `host-bootstrap` / `host-runtime-sync` 返回的通道项和连接摘要，直接当成 `deviceName / channelName / machineName / sensorCount` 这类 `camelCase` 结构来用；而后端真实返回的是 `device_name / channel_name / machine_name / sensor_count`。结果前端内存态混入一批 `undefined` 字段，再回写 `host-runtime-sync` 时被后端 schema 以 `422` 拒绝。
+- **正确做法**: 只要宿主前端消费后端真源协议，就必须在入口层把后端响应统一归一化，再进入页面状态。不要假设宿主 `host-api` 的本地对象结构和后端 API 响应结构天然一致。
+- **适用场景**: `host-bootstrap`、`host-runtime-sync`、宿主 source truth 协议、任何前端本地对象与后端 Pydantic/JSON 响应字段风格不同的场景。
+- **相关文档**: `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/hostConnectivitySync.ts`, `apps/server/src/schemas/setting.py`
+
 ### 2026-03-31 部署闭环：不能只看 health，要核对公网资源指纹是否真的切到目标版本
 
 - **错误模式**: 发布脚本跑完、`health` 正常、`runtime-status=ready` 后就默认“公网已经是最新代码”。这样如果静态资源目录没切、反代还指向旧资源，或者只更新了后端没更新前端，交接时会误把“服务活着”写成“版本已同步”。
@@ -826,3 +868,17 @@
 - **正确做法**: 配置心跳前先用 `tmux ls` + `tmux capture-pane` 核实目标 session/window 名称，确认 agent 在跑后再写入心跳 payload。session 切换时必须同步更新心跳配置。
 - **适用场景**: 用心跳 cron job 监督 tmux 内运行的 AI agent（Gemini CLI、Codex、Claude Code 等）。
 - **相关文档**: checkpoints/edc-asns-heartbeat-board.md
+
+### 2026-03-31 本机 ASNS 宿主嵌入 EDC：不能只设置进程环境变量，必须确认宿主页真的拿到了 runtime 配置
+
+- **错误模式**: 本机启动 `3001` 时给 Node 进程设置了 `ASNS_EDC_APP_URL=http://localhost:3000/edc/`，但宿主页 `index.html` 没有把这个值注入到浏览器侧。前端实际仍走 fallback `/edc/`，而本机又没配置 `ASNS_EDC_WEB_ROOT`，结果 `/edc/` 被宿主 catch-all 回退成 ASNS 自己的壳页，点击 `EDC electricity` 变成“宿主里再嵌一层宿主”。
+- **正确做法**: 宿主 `server.mjs` 这类 Node 入口如果依赖运行时 URL，必须把 `ASNS_EDC_APP_URL`、`ASNS_APP_API_BASE`、`ASNS_HOST_API_BASE` 明确注入到返回的 HTML；同时本机启动脚本要校验首页响应中确实包含这些 runtime 变量，不能只看 `3001` 端口起来了。
+- **适用场景**: Node 托管的 Vite/React 宿主页面、浏览器端要消费运行时环境变量、宿主内嵌业务应用或 iframe 的联调环境。
+- **相关文档**: docs/DEPLOYMENT.md, docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/server.mjs
+
+### 2026-04-02 黄金基线向导：不能把 warming 当 empty，也不能让前后端各自解释日期时区
+
+- **错误模式**: 基线向导第二步按日期查询炉次时，前端传的是 ISO UTC 时间串，后端却直接拿它与本地 naive datetime 做比较；同时 UI 在 `snapshot_status=warming/refreshing_history` 时直接展示“当天没有炉次”。结果是明明存在运行态炉次，用户仍看到空态并误判为后端没数据。
+- **正确做法**: 列表 API 必须先把查询时间统一归一到业务时区再过滤；UI 必须把 `warming/refreshing_history/ready` 当成不同状态机处理，只有 `ready + empty` 才能渲染真正空态，`warming` 应提示“准备中”并自动重试或触发刷新。
+- **适用场景**: 前端按日筛选、浏览器使用 `toISOString()`、后端内部存本地时间、以及任何“后台异步准备快照，前台同步读结果”的页面。
+- **相关文档**: apps/server/src/api/heats.py, apps/web/src/components/baseline/BaselineWizard.vue
