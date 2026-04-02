@@ -94,6 +94,22 @@ function detectPublishedAssetsDir(indexFile) {
   return match?.[1] || null;
 }
 
+function injectRuntimeConfig(indexHtml, runtimeConfig) {
+  const serializedConfig = Object.entries(runtimeConfig)
+    .filter(([, value]) => typeof value === 'string' && value.trim().length > 0)
+    .map(([key, value]) => `window.${key} = ${JSON.stringify(value)};`)
+    .join('\n');
+
+  if (!serializedConfig) {
+    return indexHtml;
+  }
+
+  return indexHtml.replace(
+    '</head>',
+    `  <script>\n${serializedConfig}\n  </script>\n</head>`,
+  );
+}
+
 function decodeSensorPayload(rawText) {
   const trimmed = rawText.trim();
   if (!trimmed) {
@@ -262,6 +278,22 @@ const edcApiBase =
   process.env.ASNS_EDC_API_BASE ||
   `${edcApiProtocol}://${edcApiHost}:${edcApiPort}`;
 const edcAssetsAliasDir = detectPublishedAssetsDir(edcIndexFile);
+const hostApiBase =
+  process.env.ASNS_HOST_API_BASE ||
+  `${basePrefix || ''}/host-api`;
+const appApiBase =
+  process.env.ASNS_APP_API_BASE ||
+  '/api';
+const edcAppUrl =
+  process.env.ASNS_EDC_APP_URL ||
+  '/edc/';
+const hostIndexHtml = existsSync(indexFile)
+  ? injectRuntimeConfig(readFileSync(indexFile, 'utf-8'), {
+      __ASNS_APP_API_BASE__: appApiBase,
+      __ASNS_HOST_API_BASE__: hostApiBase,
+      __ASNS_EDC_APP_URL__: edcAppUrl,
+    })
+  : null;
 
 app.use(express.json({ limit: '1mb' }));
 app.use(createHostApiRouter(basePath));
@@ -285,21 +317,21 @@ if (existsSync(edcIndexFile)) {
 
 if (basePath === '/') {
   for (const prefix of compatibilityPrefixes) {
-    app.use(prefix, express.static(distDir));
+    app.use(prefix, express.static(distDir, { index: false }));
   }
-  app.use(express.static(distDir));
+  app.use(express.static(distDir, { index: false }));
   for (const prefix of compatibilityPrefixes) {
     app.get([prefix, `${prefix}/*`], (_req, res) => {
-      res.sendFile(indexFile);
+      res.type('html').send(hostIndexHtml);
     });
   }
   app.get('*', (_req, res) => {
-    res.sendFile(indexFile);
+    res.type('html').send(hostIndexHtml);
   });
 } else {
-  app.use(basePath, express.static(distDir));
+  app.use(basePath, express.static(distDir, { index: false }));
   app.get([basePrefix, `${basePrefix}/*`], (_req, res) => {
-    res.sendFile(indexFile);
+    res.type('html').send(hostIndexHtml);
   });
 }
 

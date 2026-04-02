@@ -74,6 +74,55 @@ interface SourceRevisionConflictPayload {
   };
 }
 
+interface RawHostChannelItem {
+  id?: unknown;
+  device_name?: unknown;
+  device_type?: unknown;
+  area?: unknown;
+  suid?: unknown;
+  cuid?: unknown;
+  channel_name?: unknown;
+  unit?: unknown;
+  last_value?: unknown;
+  status?: unknown;
+}
+
+interface RawHostChannelCollectionResponse {
+  items?: unknown;
+  total?: unknown;
+}
+
+interface RawHostConnectivityMeta {
+  source?: unknown;
+  sensor_count?: unknown;
+  channel_count?: unknown;
+  enabled_channel_count?: unknown;
+}
+
+interface RawHostConnectivityStatusResponse {
+  is_connected?: unknown;
+  machine_name?: unknown;
+  last_sync_label?: unknown;
+  meta?: unknown;
+}
+
+interface RawHostBootstrapResponse {
+  source_revision?: unknown;
+  config?: unknown;
+  host_channels?: unknown;
+  host_channel_catalog?: unknown;
+  connectivity_status?: unknown;
+}
+
+interface RawHostRuntimeSyncResponse {
+  success?: unknown;
+  message?: unknown;
+  source_revision?: unknown;
+  host_channels?: unknown;
+  host_channel_catalog?: unknown;
+  connectivity_status?: unknown;
+}
+
 export class SourceRevisionConflictError extends Error {
   currentSourceRevision: number | null;
 
@@ -97,6 +146,128 @@ type HostImportMetaEnv = {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
+}
+
+function asString(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function asBoolean(value: unknown, fallback = false): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function normalizeHostChannelItem(value: unknown): HostChannelMappingItem | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const raw = value as RawHostChannelItem;
+  const id = asString(raw.id);
+  const suid = asString(raw.suid);
+  const cuid = asString(raw.cuid);
+  if (!id || !suid || !cuid) {
+    return null;
+  }
+
+  const status = raw.status === 'idle' ? 'idle' : 'online';
+  return {
+    id,
+    deviceName: asString(raw.device_name),
+    deviceType: asString(raw.device_type),
+    area: asString(raw.area),
+    suid,
+    cuid,
+    channelName: asString(raw.channel_name),
+    unit: asString(raw.unit),
+    lastValue: asString(raw.last_value, '--'),
+    status,
+  };
+}
+
+function normalizeHostChannelCollectionResponse(value: unknown): HostChannelCollectionResponse {
+  if (!value || typeof value !== 'object') {
+    return { items: [], total: 0 };
+  }
+
+  const raw = value as RawHostChannelCollectionResponse;
+  const items = Array.isArray(raw.items)
+    ? raw.items
+        .map((item) => normalizeHostChannelItem(item))
+        .filter((item): item is HostChannelMappingItem => item !== null)
+    : [];
+  return {
+    items,
+    total: asNumber(raw.total, items.length),
+  };
+}
+
+function normalizeConnectionState(value: unknown): PersistedConnectionState {
+  const fallback: PersistedConnectionState = {
+    isConnected: false,
+    machineName: '--',
+    lastSyncLabel: '--',
+    meta: {
+      source: '--',
+      sensorCount: 0,
+      channelCount: 0,
+      enabledChannelCount: 0,
+    },
+  };
+
+  if (!value || typeof value !== 'object') {
+    return fallback;
+  }
+
+  const raw = value as RawHostConnectivityStatusResponse;
+  const rawMeta =
+    raw.meta && typeof raw.meta === 'object' ? (raw.meta as RawHostConnectivityMeta) : {};
+  return {
+    isConnected: asBoolean(raw.is_connected),
+    machineName: asString(raw.machine_name, '--'),
+    lastSyncLabel: asString(raw.last_sync_label, '--'),
+    meta: {
+      source: asString(rawMeta.source, '--'),
+      sensorCount: asNumber(rawMeta.sensor_count),
+      channelCount: asNumber(rawMeta.channel_count),
+      enabledChannelCount: asNumber(rawMeta.enabled_channel_count),
+    },
+  };
+}
+
+function normalizeHostBootstrapResponse(value: unknown): HostBootstrapResponse {
+  const raw = (value as RawHostBootstrapResponse) || {};
+  const rawConfig =
+    raw.config && typeof raw.config === 'object'
+      ? (raw.config as Partial<HostSourceConfig>)
+      : {};
+
+  return {
+    source_revision: asNumber(raw.source_revision, 1),
+    config: {
+      endpoint: asString(rawConfig.endpoint),
+      username: asString(rawConfig.username),
+      password: asString(rawConfig.password),
+    },
+    host_channels: normalizeHostChannelCollectionResponse(raw.host_channels),
+    host_channel_catalog: normalizeHostChannelCollectionResponse(raw.host_channel_catalog),
+    connectivity_status: normalizeConnectionState(raw.connectivity_status),
+  };
+}
+
+function normalizeHostRuntimeSyncResponse(value: unknown): HostRuntimeSyncResponse {
+  const raw = (value as RawHostRuntimeSyncResponse) || {};
+  return {
+    success: asBoolean(raw.success),
+    message: asString(raw.message),
+    source_revision: asNumber(raw.source_revision, 1),
+    host_channels: normalizeHostChannelCollectionResponse(raw.host_channels),
+    host_channel_catalog: normalizeHostChannelCollectionResponse(raw.host_channel_catalog),
+    connectivity_status: normalizeConnectionState(raw.connectivity_status),
+  };
 }
 
 function normalizeConfigValue(value: string): string {
@@ -366,7 +537,7 @@ export async function fetchHostBootstrap(): Promise<HostBootstrapResponse> {
   if (!response.ok) {
     throw new Error('Failed to load host bootstrap');
   }
-  return parseJsonResponse<HostBootstrapResponse>(response);
+  return normalizeHostBootstrapResponse(await parseJsonResponse<unknown>(response));
 }
 
 export async function syncSelectionToBackend(
@@ -426,7 +597,7 @@ export async function syncSelectionToBackend(
   if (!response.ok) {
     throw new Error('Settings sync failed');
   }
-  return parseJsonResponse<HostRuntimeSyncResponse>(response);
+  return normalizeHostRuntimeSyncResponse(await parseJsonResponse<unknown>(response));
 }
 
 export async function applySourceSwitchToBackend(

@@ -10,6 +10,10 @@
 - `scripts/publish-edc-web-and-asns.sh`
 - 服务器路径与同步原则见 `docs/SERVER_LAYOUT_AND_SYNC.md`
 
+本机 Windows 联调入口：
+
+- `scripts/start-local-edc-stack.sh`
+
 补充说明：
 
 - 当前两个发布脚本已内建 `systemctl --user` 的 user bus 环境补齐逻辑
@@ -252,6 +256,41 @@ EDC_SERVER_REBIND_DEFINITIONS=0
 - 清空 ASNS runtime 旧运行库
 - 从源码复制最小运行文件并执行 `npm ci --omit=dev`
 - 重启 `asns-host.service`
+
+## 6.1 本机 Windows 联调启动
+
+如果是在当前 Windows 开发机上恢复本机联调，优先使用：
+
+```bash
+./scripts/start-local-edc-stack.sh
+```
+
+当前脚本语义：
+
+- 先停止本机 `8000 / 3000 / 3001`
+- 先对本机 SQLite 执行 `factory-reset`
+- 再以 `ASNS_BOOTSTRAP_MODE=blank` 启动后端
+- 先重建 ASNS 宿主 `dist`
+- 再启动：
+  - FastAPI 后端 `127.0.0.1:8000`
+  - EDC 前端 `http://localhost:3000/edc/`
+  - ASNS 宿主 `http://localhost:3001/`
+- 最后自动检查：
+  - `http://127.0.0.1:8000/health`
+  - `http://localhost:3000/edc/`
+  - `http://localhost:3000/api/health`
+  - `http://localhost:3001/`
+  - `http://localhost:3001/api/health`
+- 额外校验：
+  - 后端启动后 `runtime_baseline_definitions` / `runtime_baselines` / `active_baseline_id` 必须为空白态
+  - `http://localhost:3001/` 首页必须包含 `window.__ASNS_EDC_APP_URL__ = "http://localhost:3000/edc/";`
+  - 这一步用于确认宿主页真的拿到了浏览器侧 runtime 配置，而不是只把环境变量留在 Node 进程里
+
+目的：
+
+- 避免旧 runtime 数据在本机重启后继续恢复
+- 避免“只重启 3001，但宿主仍服务旧 `dist`”的本地假部署
+- 把“先 factory-reset，再 blank 启动后端，再 build ASNS，再起宿主”固化成标准顺序
 
 ## 7. 最小验收清单
 
