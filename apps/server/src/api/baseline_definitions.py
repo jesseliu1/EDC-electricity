@@ -8,7 +8,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query
 
 from ..runtime_state import persist_runtime_state
-from ..schemas import BaselinePreviewResponse, CurveData
+from ..schemas import BaselinePreviewJobResponse, BaselinePreviewResponse, CurveData
 from ..schemas.baseline_definition import (
     BaselineDefinitionCreate,
     BaselineDefinitionListResponse,
@@ -23,6 +23,11 @@ from ..services import EDCClientError, get_shared_edc_client
 from .settings import _HOST_CHANNEL_STORE, get_edc_connection_config
 
 router = APIRouter(prefix="/baseline-definitions", tags=["BaselineDefinitions"])
+
+_PREVIEW_TASK_TIMEOUT_SECONDS = 600.0
+_PREVIEW_JOB_TTL = timedelta(hours=6)
+_PREVIEW_JOB_STORE: dict[str, dict[str, Any]] = {}
+_PREVIEW_JOB_LOCK = asyncio.Lock()
 
 
 def _now() -> datetime:
@@ -211,7 +216,7 @@ async def _build_preview_curves(
 
     if bound_metrics and config["base_url"] and config["username"] and config["password"]:
         try:
-            client = await get_shared_edc_client(**config)
+            client = await get_shared_edc_client(**config, timeout=_PREVIEW_TASK_TIMEOUT_SECONDS)
             await client.login()
             tasks = {
                 str(metric["id"]): asyncio.create_task(
@@ -254,6 +259,173 @@ async def _build_preview_curves(
             )
         )
     return curves
+
+
+def _preview_job_key(*, definition_id: str, range_start: datetime) -> str:
+    return f"{definition_id}:{range_start.strftime('%Y-%m-%d')}"
+
+
+def _preview_job_has_points(entry: dict[str, Any]) -> bool:
+    curves = entry.get("curves_data") or []
+    return any(
+        curve.points if hasattr(curve, "points") else curve.get("points", [])
+        for curve in curves
+    )
+
+
+def _serialize_preview_job(
+    entry: dict[str, Any],
+    *,
+    source_heat_id: str,
+) -> BaselinePreviewJobResponse:
+    return BaselinePreviewJobResponse(
+        job_key=str(entry["job_key"]),
+        definition_id=str(entry["definition_id"]),
+        source_heat_id=source_heat_id,
+        status=str(entry["status"]),
+        range_start=entry["range_start"],
+        range_end=entry["range_end"],
+        curves_data=list(entry.get("curves_data") or []),
+        last_error=entry.get("last_error"),
+        created_at=entry.get("created_at"),
+        started_at=entry.get("started_at"),
+        updated_at=entry.get("updated_at"),
+        completed_at=entry.get("completed_at"),
+    )
+
+
+def _prune_preview_jobs(now: datetime) -> None:
+    expired_keys = [
+        job_key
+        for job_key, entry in _PREVIEW_JOB_STORE.items()
+        if entry.get("status") in {"succeeded", "failed"}
+        and isinstance(entry.get("updated_at"), datetime)
+        and now - entry["updated_at"] >= _PREVIEW_JOB_TTL
+    ]
+    for job_key in expired_keys:
+        _PREVIEW_JOB_STORE.pop(job_key, None)
+
+
+async def _run_preview_job(job_key: str) -> None:
+    async with _PREVIEW_JOB_LOCK:
+        entry = _PREVIEW_JOB_STORE.get(job_key)
+        if not entry:
+            return
+        entry["status"] = "running"
+        entry["started_at"] = _now()
+        entry["updated_at"] = entry["started_at"]
+        definition_id = str(entry["definition_id"])
+        range_start = entry["range_start"]
+        range_end = entry["range_end"]
+
+    try:
+        definition = _get_or_404(definition_id)
+        curves = await _build_preview_curves(
+            definition=definition,
+            range_start=range_start,
+            range_end=range_end,
+        )
+        if not any(
+            curve.points if hasattr(curve, "points") else curve.get("points", [])
+            for curve in curves
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail="未获取到真实预览数据，请检查宿主连接和通道绑定",
+            )
+
+        completed_at = _now()
+        async with _PREVIEW_JOB_LOCK:
+            latest = _PREVIEW_JOB_STORE.get(job_key)
+            if not latest:
+                return
+            latest["status"] = "succeeded"
+            latest["curves_data"] = curves
+            latest["last_error"] = None
+            latest["updated_at"] = completed_at
+            latest["completed_at"] = completed_at
+            latest["task"] = None
+    except HTTPException as exc:
+        failed_at = _now()
+        async with _PREVIEW_JOB_LOCK:
+            latest = _PREVIEW_JOB_STORE.get(job_key)
+            if not latest:
+                return
+            latest["status"] = "failed"
+            latest["last_error"] = str(exc.detail)
+            latest["updated_at"] = failed_at
+            latest["completed_at"] = failed_at
+            latest["task"] = None
+    except Exception as exc:
+        failed_at = _now()
+        async with _PREVIEW_JOB_LOCK:
+            latest = _PREVIEW_JOB_STORE.get(job_key)
+            if not latest:
+                return
+            latest["status"] = "failed"
+            latest["last_error"] = str(exc)
+            latest["updated_at"] = failed_at
+            latest["completed_at"] = failed_at
+            latest["task"] = None
+
+
+async def _ensure_preview_job(
+    *,
+    definition_id: str,
+    heat_id: str,
+) -> BaselinePreviewJobResponse:
+    range_start, range_end = await _resolve_preview_window(heat_id, definition_id=definition_id)
+    job_key = _preview_job_key(definition_id=definition_id, range_start=range_start)
+    now = _now()
+
+    async with _PREVIEW_JOB_LOCK:
+        _prune_preview_jobs(now)
+        entry = _PREVIEW_JOB_STORE.get(job_key)
+        if entry is None:
+            entry = {
+                "job_key": job_key,
+                "definition_id": definition_id,
+                "range_start": range_start,
+                "range_end": range_end,
+                "status": "idle",
+                "curves_data": [],
+                "last_error": None,
+                "created_at": now,
+                "started_at": None,
+                "updated_at": now,
+                "completed_at": None,
+                "task": None,
+            }
+            _PREVIEW_JOB_STORE[job_key] = entry
+
+        task = entry.get("task")
+        if isinstance(task, asyncio.Task) and not task.done():
+            return _serialize_preview_job(entry, source_heat_id=heat_id)
+
+        if entry.get("status") == "succeeded" and _preview_job_has_points(entry):
+            return _serialize_preview_job(entry, source_heat_id=heat_id)
+
+        entry["status"] = "running"
+        entry["last_error"] = None
+        entry["started_at"] = now
+        entry["updated_at"] = now
+        entry["completed_at"] = None
+        entry["task"] = asyncio.create_task(_run_preview_job(job_key))
+        return _serialize_preview_job(entry, source_heat_id=heat_id)
+
+
+async def _get_preview_job(
+    *,
+    definition_id: str,
+    heat_id: str,
+) -> BaselinePreviewJobResponse:
+    range_start, _range_end = await _resolve_preview_window(heat_id, definition_id=definition_id)
+    job_key = _preview_job_key(definition_id=definition_id, range_start=range_start)
+    async with _PREVIEW_JOB_LOCK:
+        entry = _PREVIEW_JOB_STORE.get(job_key)
+        if not entry:
+            raise HTTPException(status_code=404, detail="预览任务不存在")
+        return _serialize_preview_job(entry, source_heat_id=heat_id)
 
 
 @router.get("", response_model=BaselineDefinitionListResponse)
@@ -316,6 +488,26 @@ async def get_definition_preview_curves(
         range_end=range_end,
         curves_data=curves,
     )
+
+
+@router.post("/{definition_id}/preview-jobs", response_model=BaselinePreviewJobResponse)
+async def start_definition_preview_job(
+    definition_id: str,
+    heat_id: str = Query(..., description="来源炉次ID"),
+) -> BaselinePreviewJobResponse:
+    """启动或复用整天预览任务。"""
+    _get_or_404(definition_id)
+    return await _ensure_preview_job(definition_id=definition_id, heat_id=heat_id)
+
+
+@router.get("/{definition_id}/preview-jobs", response_model=BaselinePreviewJobResponse)
+async def get_definition_preview_job(
+    definition_id: str,
+    heat_id: str = Query(..., description="来源炉次ID"),
+) -> BaselinePreviewJobResponse:
+    """查询整天预览任务状态。"""
+    _get_or_404(definition_id)
+    return await _get_preview_job(definition_id=definition_id, heat_id=heat_id)
 
 
 @router.post("", response_model=BaselineDefinitionResponse, status_code=201)

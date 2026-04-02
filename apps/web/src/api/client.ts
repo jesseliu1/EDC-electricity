@@ -9,7 +9,7 @@ const SLOW_REQUEST_THRESHOLD_MS = 4000
 
 const instance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
-  timeout: 10000
+  timeout: 600000
 })
 
 interface RequestMeta {

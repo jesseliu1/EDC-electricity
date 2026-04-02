@@ -124,6 +124,51 @@ async function mockBaselineWizardAcceptance(
 ) {
   const powerCurve = buildCurvePoints('2026-03-19T08:00:00Z', 40, 1, 438, 6)
   const voltageCurve = buildCurvePoints('2026-03-19T08:00:00Z', 40, 1, 386, 1.5)
+  let previewPollCount = 0
+
+  const buildPreviewJobPayload = (status: 'running' | 'succeeded' | 'failed') => ({
+    job_key: 'def-real:2026-03-19',
+    definition_id: 'def-real',
+    source_heat_id: 'heat-real-001',
+    status,
+    range_start: '2026-03-19T00:00:00Z',
+    range_end: '2026-03-20T00:00:00Z',
+    curves_data:
+      status === 'succeeded'
+        ? [
+            {
+              metric_id: 'metric-power',
+              metric_name: '功率',
+              unit: 'kW',
+              color: '#409EFF',
+              edc_channel_id: '2349-199',
+              source_channel_name: '总有功功率',
+              source_channel_label: 'SSTW / 总有功功率 / kW',
+              points: powerCurve,
+            },
+            {
+              metric_id: 'metric-voltage',
+              metric_name: '电压',
+              unit: 'V',
+              color: '#67C23A',
+              edc_channel_id: '2349-128',
+              source_channel_name: 'A相电压',
+              source_channel_label: 'SSTW / A相电压 / V',
+              points: voltageCurve,
+            },
+          ]
+        : [],
+    last_error: status === 'failed' ? '未获取到真实预览数据，请检查宿主连接和通道绑定' : null,
+    created_at: '2026-03-19T08:00:00Z',
+    started_at: '2026-03-19T08:00:01Z',
+    updated_at: status === 'succeeded' ? '2026-03-19T08:00:05Z' : '2026-03-19T08:00:02Z',
+    completed_at:
+      status === 'succeeded'
+        ? '2026-03-19T08:00:05Z'
+        : status === 'failed'
+          ? '2026-03-19T08:00:03Z'
+          : null,
+  })
 
   await page.route('**/api/baselines/active', async (route) => {
     await fulfillJson(route, null)
@@ -170,7 +215,7 @@ async function mockBaselineWizardAcceptance(
       total: 1,
     })
   })
-  await page.route('**/api/heats?page=1&page_size=50', async (route) => {
+  await page.route('**/api/heats?*', async (route) => {
     await fulfillJson(route, {
       items: [
         {
@@ -179,6 +224,10 @@ async function mockBaselineWizardAcceptance(
           description: null,
           start_time: '2026-03-19T08:00:00Z',
           end_time: '2026-03-19T08:40:00Z',
+          completion_status: 'completed',
+          last_point_at: '2026-03-19T08:40:00Z',
+          baseline_version_id: null,
+          baseline_effective_from: null,
           baseline_id: null,
           deviation_percent: null,
           avg_deviation_percent: null,
@@ -197,42 +246,28 @@ async function mockBaselineWizardAcceptance(
       total: 1,
       page: 1,
       page_size: 50,
+      snapshot_status: 'ready',
     })
   })
-  await page.route('**/api/baseline-definitions/def-real/preview-curves?*', async (route) => {
-    if (options?.previewUnavailable) {
-      await fulfillJson(route, { detail: '未获取到真实预览数据，请检查宿主连接和通道绑定' }, 503)
+  await page.route('**/api/baseline-definitions/def-real/preview-jobs?*', async (route) => {
+    if (route.request().method() === 'POST') {
+      await fulfillJson(
+        route,
+        buildPreviewJobPayload(options?.previewUnavailable ? 'failed' : 'running')
+      )
       return
     }
 
-    await fulfillJson(route, {
-      definition_id: 'def-real',
-      source_heat_id: 'heat-real-001',
-      range_start: '2026-03-19T08:00:00Z',
-      range_end: '2026-03-19T08:40:00Z',
-      curves_data: [
-        {
-          metric_id: 'metric-power',
-          metric_name: '功率',
-          unit: 'kW',
-          color: '#409EFF',
-          edc_channel_id: '2349-199',
-          source_channel_name: '总有功功率',
-          source_channel_label: 'SSTW / 总有功功率 / kW',
-          points: powerCurve,
-        },
-        {
-          metric_id: 'metric-voltage',
-          metric_name: '电压',
-          unit: 'V',
-          color: '#67C23A',
-          edc_channel_id: '2349-128',
-          source_channel_name: 'A相电压',
-          source_channel_label: 'SSTW / A相电压 / V',
-          points: voltageCurve,
-        },
-      ],
-    })
+    if (options?.previewUnavailable) {
+      await fulfillJson(route, buildPreviewJobPayload('failed'))
+      return
+    }
+
+    previewPollCount += 1
+    await fulfillJson(
+      route,
+      buildPreviewJobPayload(previewPollCount >= 2 ? 'succeeded' : 'running')
+    )
   })
 }
 
@@ -599,6 +634,9 @@ test.describe('EDC issue acceptance checks', () => {
     )
     await page.getByTestId('baseline-wizard-name-input').fill('Issue 验收基线')
     await page.getByTestId('baseline-wizard-next').click()
+    await expect(page.getByTestId('baseline-wizard-preview-loading')).toBeVisible()
+    await expect(page.getByTestId('baseline-wizard-refresh-candidates')).toBeDisabled()
+    await expect(page.getByText(/正在读取所选日期的整天真实曲线/)).toBeVisible()
 
     const startItem = page.getByTestId('baseline-wizard-start-form-item')
     const endItem = page.getByTestId('baseline-wizard-end-form-item')
@@ -607,6 +645,8 @@ test.describe('EDC issue acceptance checks', () => {
     expect(startBox).not.toBeNull()
     expect(endBox).not.toBeNull()
     expect(endBox?.y || 0).toBeGreaterThan(startBox?.y || 0)
+    await expect(page.getByTestId('baseline-wizard-refresh-candidates')).toBeEnabled()
+    await expect(page.getByText(/整天真实曲线最近一次成功更新时间/)).toBeVisible()
 
     await expect(page.getByText(/峰值功率/)).toBeVisible()
     await expect(page.getByText(/\d+\s?kW/).first()).toBeVisible()
@@ -689,16 +729,7 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(page.getByTestId('baseline-wizard-preview-empty')).toContainText(
       '未获取到真实预览数据'
     )
-    await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute(
-      'data-start',
-      ''
-    )
-    await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute(
-      'data-end',
-      ''
-    )
-
-    await page.getByTestId('baseline-wizard-next').click()
+    await expect(page.getByTestId('baseline-wizard-next')).toBeDisabled()
     await expect(page.getByTestId('baseline-wizard-publish')).toHaveCount(0)
   })
 

@@ -25,6 +25,41 @@ function buildCurvePoints(
 async function mockBaselineWizardSmoke(page: Page) {
   const powerCurve = buildCurvePoints('2026-03-19T08:00:00Z', 40, 1, 438, 6)
   const voltageCurve = buildCurvePoints('2026-03-19T08:00:00Z', 40, 1, 386, 1.5)
+  const previewJobPayload = {
+    job_key: 'def-real:2026-03-19',
+    definition_id: 'def-real',
+    source_heat_id: 'heat-real-001',
+    status: 'succeeded',
+    range_start: '2026-03-19T00:00:00Z',
+    range_end: '2026-03-20T00:00:00Z',
+    curves_data: [
+      {
+        metric_id: 'metric-power',
+        metric_name: '功率',
+        unit: 'kW',
+        color: '#409EFF',
+        edc_channel_id: '2349-199',
+        source_channel_name: '总有功功率',
+        source_channel_label: 'SSTW / 总有功功率 / kW',
+        points: powerCurve,
+      },
+      {
+        metric_id: 'metric-voltage',
+        metric_name: '电压',
+        unit: 'V',
+        color: '#67C23A',
+        edc_channel_id: '2349-128',
+        source_channel_name: 'A相电压',
+        source_channel_label: 'SSTW / A相电压 / V',
+        points: voltageCurve,
+      },
+    ],
+    last_error: null,
+    created_at: '2026-03-19T08:00:00Z',
+    started_at: '2026-03-19T08:00:01Z',
+    updated_at: '2026-03-19T08:00:02Z',
+    completed_at: '2026-03-19T08:00:02Z',
+  }
 
   await page.route('**/api/baselines/active', async (route) => {
     await fulfillJson(route, null)
@@ -116,7 +151,7 @@ async function mockBaselineWizardSmoke(page: Page) {
       total: 1,
     })
   })
-  await page.route('**/api/heats?page=1&page_size=50', async (route) => {
+  await page.route('**/api/heats?*', async (route) => {
     await fulfillJson(route, {
       items: [
         {
@@ -125,6 +160,10 @@ async function mockBaselineWizardSmoke(page: Page) {
           description: null,
           start_time: '2026-03-19T08:00:00Z',
           end_time: '2026-03-19T08:40:00Z',
+          completion_status: 'completed',
+          last_point_at: '2026-03-19T08:40:00Z',
+          baseline_version_id: null,
+          baseline_effective_from: null,
           baseline_id: null,
           deviation_percent: null,
           avg_deviation_percent: null,
@@ -143,37 +182,11 @@ async function mockBaselineWizardSmoke(page: Page) {
       total: 1,
       page: 1,
       page_size: 50,
+      snapshot_status: 'ready',
     })
   })
-  await page.route('**/api/baseline-definitions/def-real/preview-curves?*', async (route) => {
-    await fulfillJson(route, {
-      definition_id: 'def-real',
-      source_heat_id: 'heat-real-001',
-      range_start: '2026-03-19T08:00:00Z',
-      range_end: '2026-03-19T08:40:00Z',
-      curves_data: [
-        {
-          metric_id: 'metric-power',
-          metric_name: '功率',
-          unit: 'kW',
-          color: '#409EFF',
-          edc_channel_id: '2349-199',
-          source_channel_name: '总有功功率',
-          source_channel_label: 'SSTW / 总有功功率 / kW',
-          points: powerCurve,
-        },
-        {
-          metric_id: 'metric-voltage',
-          metric_name: '电压',
-          unit: 'V',
-          color: '#67C23A',
-          edc_channel_id: '2349-128',
-          source_channel_name: 'A相电压',
-          source_channel_label: 'SSTW / A相电压 / V',
-          points: voltageCurve,
-        },
-      ],
-    })
+  await page.route('**/api/baseline-definitions/def-real/preview-jobs?*', async (route) => {
+    await fulfillJson(route, previewJobPayload)
   })
 }
 

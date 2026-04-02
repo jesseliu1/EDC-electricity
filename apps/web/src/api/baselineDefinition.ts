@@ -45,6 +45,23 @@ export interface BaselinePreviewResponse {
   curves_data: PreviewCurveData[]
 }
 
+export type BaselinePreviewJobStatus = 'idle' | 'running' | 'succeeded' | 'failed'
+
+export interface BaselinePreviewJobResponse {
+  job_key: string
+  definition_id: string
+  source_heat_id: string
+  status: BaselinePreviewJobStatus
+  range_start: string
+  range_end: string
+  curves_data: PreviewCurveData[]
+  last_error: string | null
+  created_at: string | null
+  started_at: string | null
+  updated_at: string | null
+  completed_at: string | null
+}
+
 export interface BaselineDefinitionListResponse {
   items: BaselineDefinitionResponse[]
   total: number
@@ -84,6 +101,14 @@ export const baselineDefinitionApi = {
     client.get<BaselineDefinitionListResponse>('/baseline-definitions', { params }),
   get: (id: string) =>
     client.get<BaselineDefinitionResponse>(`/baseline-definitions/${id}`),
+  getPreviewJob: (id: string, heatId: string) =>
+    client.get<BaselinePreviewJobResponse>(`/baseline-definitions/${id}/preview-jobs`, {
+      params: { heat_id: heatId }
+    }),
+  startPreviewJob: (id: string, heatId: string) =>
+    client.post<BaselinePreviewJobResponse>(`/baseline-definitions/${id}/preview-jobs`, undefined, {
+      params: { heat_id: heatId }
+    }),
   previewCurves: (id: string, heatId: string) =>
     client.get<BaselinePreviewResponse>(`/baseline-definitions/${id}/preview-curves`, {
       params: { heat_id: heatId }

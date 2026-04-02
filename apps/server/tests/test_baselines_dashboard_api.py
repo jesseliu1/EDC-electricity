@@ -1,5 +1,6 @@
 """基线、基线定义与仪表盘 API 测试。"""
 
+import asyncio
 from datetime import datetime
 
 import pytest
@@ -20,9 +21,7 @@ SHOWTIME_HEADERS = {"X-Showtime": "true"}
 def _seed_compare_caches() -> None:
     _HEAT_COMPARE_CACHE["entries"] = {"heat-001": {"heat_id": "heat-001"}}
     _COMPARE_BASELINE_CACHE["entries"] = {"baseline-001": {"payload": {"id": "baseline-001"}}}
-    _COMPARE_CHANNEL_CURVE_CACHE["entries"] = {
-        "curve-001": {"payload": {"2349:199": []}}
-    }
+    _COMPARE_CHANNEL_CURVE_CACHE["entries"] = {"curve-001": {"payload": {"2349:199": []}}}
 
 
 class _FakeSharedEDCClient:
@@ -365,7 +364,7 @@ async def test_settings_host_channels_can_be_saved(client) -> None:
                     "last_value": "226.8",
                     "status": "online",
                 }
-            ]
+            ],
         },
         headers=HOST_SYNC_HEADERS,
     )
@@ -557,13 +556,127 @@ async def test_definition_preview_curves_do_not_fallback_when_mock_enabled(
 
 
 @pytest.mark.asyncio
+async def test_definition_preview_job_runs_async_and_reuses_same_job_key(
+    client, monkeypatch
+) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    build_calls = 0
+
+    async def fake_build_preview_curves(**_kwargs):
+        nonlocal build_calls
+        build_calls += 1
+        started.set()
+        await release.wait()
+        return [
+            {
+                "metric_id": "metric-001",
+                "metric_name": "功率",
+                "unit": "kW",
+                "color": "#409EFF",
+                "edc_channel_id": "2349-199",
+                "source_channel_name": "总有功功率",
+                "source_channel_label": "SSTW / 总有功功率 / kW",
+                "points": [
+                    {"timestamp": 1000, "value": 401.0},
+                    {"timestamp": 2000, "value": 402.0},
+                ],
+            }
+        ]
+
+    monkeypatch.setattr(
+        "src.api.baseline_definitions._build_preview_curves",
+        fake_build_preview_curves,
+    )
+
+    first_response = await client.post(
+        "/api/baseline-definitions/def-001/preview-jobs",
+        params={"heat_id": "heat-001"},
+    )
+    assert first_response.status_code == 200
+    first_payload = first_response.json()
+    assert first_payload["status"] == "running"
+    assert first_payload["curves_data"] == []
+
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    second_response = await client.post(
+        "/api/baseline-definitions/def-001/preview-jobs",
+        params={"heat_id": "heat-001"},
+    )
+    assert second_response.status_code == 200
+    second_payload = second_response.json()
+    assert second_payload["status"] == "running"
+    assert second_payload["job_key"] == first_payload["job_key"]
+    assert build_calls == 1
+
+    running_status = await client.get(
+        "/api/baseline-definitions/def-001/preview-jobs",
+        params={"heat_id": "heat-001"},
+    )
+    assert running_status.status_code == 200
+    assert running_status.json()["status"] == "running"
+
+    release.set()
+
+    preview_payload = None
+    for _ in range(20):
+        status_response = await client.get(
+            "/api/baseline-definitions/def-001/preview-jobs",
+            params={"heat_id": "heat-001"},
+        )
+        assert status_response.status_code == 200
+        preview_payload = status_response.json()
+        if preview_payload["status"] == "succeeded":
+            break
+        await asyncio.sleep(0.01)
+
+    assert preview_payload is not None
+    assert preview_payload["status"] == "succeeded"
+    assert preview_payload["job_key"] == first_payload["job_key"]
+    assert preview_payload["curves_data"][0]["points"][0]["value"] == 401.0
+
+
+@pytest.mark.asyncio
+async def test_definition_preview_job_reports_failed_state(client, monkeypatch) -> None:
+    async def fake_build_preview_curves(**_kwargs):
+        return []
+
+    monkeypatch.setattr(
+        "src.api.baseline_definitions._build_preview_curves",
+        fake_build_preview_curves,
+    )
+
+    start_response = await client.post(
+        "/api/baseline-definitions/def-001/preview-jobs",
+        params={"heat_id": "heat-001"},
+    )
+    assert start_response.status_code == 200
+    assert start_response.json()["status"] == "running"
+
+    failed_payload = None
+    for _ in range(20):
+        status_response = await client.get(
+            "/api/baseline-definitions/def-001/preview-jobs",
+            params={"heat_id": "heat-001"},
+        )
+        assert status_response.status_code == 200
+        failed_payload = status_response.json()
+        if failed_payload["status"] == "failed":
+            break
+        await asyncio.sleep(0.01)
+
+    assert failed_payload is not None
+    assert failed_payload["status"] == "failed"
+    assert "未获取到真实预览数据" in failed_payload["last_error"]
+
+
+@pytest.mark.asyncio
 async def test_baseline_definition_crud_and_metric_workflow(client) -> None:
     list_resp = await client.get("/api/baseline-definitions")
     assert list_resp.status_code == 200
     assert list_resp.json()["total"] >= 2
-    instance_counts = {
-        item["id"]: item["instance_count"] for item in list_resp.json()["items"]
-    }
+    instance_counts = {item["id"]: item["instance_count"] for item in list_resp.json()["items"]}
     assert instance_counts["def-001"] == 1
     assert instance_counts["def-002"] == 1
 
@@ -573,9 +686,7 @@ async def test_baseline_definition_crud_and_metric_workflow(client) -> None:
             "definition_name": "测试定义",
             "description": "自动化回归定义",
             "expected_duration_minutes": 40,
-            "metrics": [
-                {"name": "氧含量", "unit": "%", "color": "#7c3aed", "sort_order": 1}
-            ],
+            "metrics": [{"name": "氧含量", "unit": "%", "color": "#7c3aed", "sort_order": 1}],
         },
     )
     assert create_resp.status_code == 201
@@ -615,7 +726,9 @@ async def test_baseline_definition_crud_and_metric_workflow(client) -> None:
     )
     assert metric_update_resp.status_code == 200
     metric_updated = metric_update_resp.json()
-    updated_metric = next(metric for metric in metric_updated["metrics"] if metric["id"] == added_metric["id"])
+    updated_metric = next(
+        metric for metric in metric_updated["metrics"] if metric["id"] == added_metric["id"]
+    )
     assert updated_metric["name"] == "炉压"
     assert updated_metric["edc_channel_id"] == "769-129"
 

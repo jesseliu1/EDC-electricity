@@ -1,41 +1,41 @@
 """测试配置"""
 
 import copy
-from datetime import datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
-from src.api.baseline_definitions import _DEFINITION_STORE
+from src.api.baseline_definitions import _DEFINITION_STORE, _PREVIEW_JOB_STORE
 from src.api.baselines import _BASELINE_STORE
 from src.api.heats import (
+    _ACTIVE_HEAT_RUNTIME,
     _COMPARE_BASELINE_CACHE,
     _COMPARE_CHANNEL_CURVE_CACHE,
     _HEAT_COMPARE_CACHE,
+    _HEAT_RUNTIME_REFRESH_META,
     _HEAT_STORE,
     _LIVE_HEAT_CACHE,
     _MOCK_HEAT_STREAM_STORE,
     _NEXT_MOCK_HEAT_INDEX,
-    _get_live_heat_cache_entry,
-    _resolve_live_heat_inference_context,
+    _reset_heat_runtime_refresh_meta,
     _seed_heats,
 )
 from src.api.settings import (
     _CHANNEL_ROLE_BINDING_STORE,
     _HOST_CHANNEL_CATALOG_CACHE,
     _HOST_CHANNEL_LAST_SYNC_AT,
-    _HOST_SOURCE_REVISION,
     _HOST_CHANNEL_STORE,
     _HOST_CONNECTIVITY_STATUS,
+    _HOST_SOURCE_REVISION,
     _SETTINGS_STORE,
     _reconcile_channel_role_binding_store,
 )
 from src.api.tasks import _SHOWTIME_TASK_STORE, _TASK_STORE
 from src.config import settings
 from src.database import async_session_maker, init_db
-from src.models import Setting
 from src.main import app
+from src.models import Setting
 from src.runtime_state import _SECTION_TO_KEY, load_runtime_state
 from src.services import close_shared_edc_clients
 
@@ -188,6 +188,8 @@ def reset_in_memory_stores():
     baseline_snapshot = copy.deepcopy(_BASELINE_STORE)
     definition_snapshot = copy.deepcopy(_DEFINITION_STORE)
     heat_snapshot = copy.deepcopy(_HEAT_STORE)
+    active_heat_snapshot = copy.deepcopy(_ACTIVE_HEAT_RUNTIME)
+    heat_runtime_refresh_meta_snapshot = copy.deepcopy(_HEAT_RUNTIME_REFRESH_META)
     live_heat_cache_snapshot = copy.deepcopy(_LIVE_HEAT_CACHE)
     heat_compare_cache_snapshot = copy.deepcopy(_HEAT_COMPARE_CACHE)
     compare_baseline_cache_snapshot = copy.deepcopy(_COMPARE_BASELINE_CACHE)
@@ -204,7 +206,16 @@ def reset_in_memory_stores():
     host_connectivity_status_snapshot = copy.deepcopy(_HOST_CONNECTIVITY_STATUS)
     next_heat_index_snapshot = _NEXT_MOCK_HEAT_INDEX
     enable_mock_dataset_snapshot = settings.enable_mock_dataset
+    for entry in list(_PREVIEW_JOB_STORE.values()):
+        task = entry.get("task")
+        if task is not None and hasattr(task, "cancel") and not task.done():
+            task.cancel()
+    _PREVIEW_JOB_STORE.clear()
     _HEAT_STORE.clear()
+    _HEAT_STORE.update(copy.deepcopy(_build_test_reference_heats()))
+    _ACTIVE_HEAT_RUNTIME.clear()
+    _reset_heat_runtime_refresh_meta()
+    _HEAT_RUNTIME_REFRESH_META["snapshot_status"] = "ready"
     _HOST_CHANNEL_STORE.clear()
     _HOST_CHANNEL_STORE.extend(copy.deepcopy(_build_test_host_channels()))
     _HOST_CHANNEL_CATALOG_CACHE.clear()
@@ -213,11 +224,6 @@ def reset_in_memory_stores():
     _reconcile_channel_role_binding_store()
     _LIVE_HEAT_CACHE.clear()
     _LIVE_HEAT_CACHE["contexts"] = {}
-    default_context = _resolve_live_heat_inference_context()
-    if default_context:
-        cache_entry = _get_live_heat_cache_entry(default_context)
-        cache_entry["expires_at"] = datetime.now() + timedelta(hours=1)
-        cache_entry["items"] = _build_test_reference_heats()
     _HEAT_COMPARE_CACHE["entries"] = {}
     _COMPARE_BASELINE_CACHE["entries"] = {}
     _COMPARE_CHANNEL_CURVE_CACHE["entries"] = {}
@@ -233,6 +239,12 @@ def reset_in_memory_stores():
 
     _HEAT_STORE.clear()
     _HEAT_STORE.update(copy.deepcopy(heat_snapshot))
+
+    _ACTIVE_HEAT_RUNTIME.clear()
+    _ACTIVE_HEAT_RUNTIME.update(copy.deepcopy(active_heat_snapshot))
+
+    _HEAT_RUNTIME_REFRESH_META.clear()
+    _HEAT_RUNTIME_REFRESH_META.update(copy.deepcopy(heat_runtime_refresh_meta_snapshot))
 
     _LIVE_HEAT_CACHE.clear()
     _LIVE_HEAT_CACHE.update(copy.deepcopy(live_heat_cache_snapshot))
@@ -278,4 +290,9 @@ def reset_in_memory_stores():
     import src.api.heats as heats_module
 
     heats_module._NEXT_MOCK_HEAT_INDEX = next_heat_index_snapshot
+    for entry in list(_PREVIEW_JOB_STORE.values()):
+        task = entry.get("task")
+        if task is not None and hasattr(task, "cancel") and not task.done():
+            task.cancel()
+    _PREVIEW_JOB_STORE.clear()
     settings.enable_mock_dataset = enable_mock_dataset_snapshot

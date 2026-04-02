@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ElButton,
@@ -16,21 +16,35 @@ import {
   ElRadio,
   ElSelect,
   ElStep,
-  ElSteps
+  ElSteps,
 } from 'element-plus'
 import { FullScreen } from '@element-plus/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
-import { DataZoomComponent, GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import {
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  TooltipComponent,
+} from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { ECharts, EChartsOption } from 'echarts'
 import dayjs from 'dayjs'
 import { useBaselineDefinitionStore } from '@/stores/baselineDefinition'
 import { baselineDefinitionApi } from '@/api/baselineDefinition'
+import type { BaselinePreviewJobResponse, BaselinePreviewJobStatus } from '@/api/baselineDefinition'
 import { heatApi } from '@/api/heat'
+import type { HeatRuntimeSnapshotStatus } from '@/api/heat'
 
-use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent])
+use([
+  CanvasRenderer,
+  LineChart,
+  GridComponent,
+  LegendComponent,
+  TooltipComponent,
+  DataZoomComponent,
+])
 
 interface PreviewMetricCurve {
   metricId: string
@@ -106,7 +120,7 @@ const props = withDefaults(defineProps<Props>(), {
   initialSelectedStartTime: '',
   initialSelectedEndTime: '',
   initialName: '',
-  submitting: false
+  submitting: false,
 })
 
 const emit = defineEmits<Emits>()
@@ -124,20 +138,26 @@ const fullscreenChartRef = ref<InstanceType<typeof VChart> | null>(null)
 const zoomWindow = ref({ start: 0, end: 100 })
 const heatCandidatesError = ref('')
 const heatCandidatesEmpty = ref(false)
+const heatCandidatesSnapshotStatus = ref<HeatRuntimeSnapshotStatus>('warming')
 const previewError = ref('')
 const previewLoading = ref(false)
+const previewJobStatus = ref<BaselinePreviewJobStatus>('idle')
+const previewJobUpdatedAt = ref('')
 const heatCandidatesLoading = ref(false)
 const stepTwoActivated = ref(false)
 const stepTwoBootstrapping = ref(false)
 const previewWindowLabel = ref('')
 const heatCandidatesDate = ref<Date | null>(dayjs().toDate())
+const currentPreviewRequestKey = ref('')
 let previewRequestToken = 0
+let heatCandidatesRetryTimer: number | null = null
+let previewPollTimer: number | null = null
 
 const formData = ref({
   name: '',
   description: '',
   definitionId: '',
-  tolerancePercent: 15
+  tolerancePercent: 15,
 })
 
 const selectedStart = ref<number | null>(null)
@@ -145,20 +165,20 @@ const selectedEnd = ref<number | null>(null)
 const pointerStates: Partial<Record<ChartSurface, PointerState>> = {}
 const pointerDragThreshold = 6
 
-const selectedDefinition = computed(() =>
-  baselineDefinitionStore.list.find(item => item.id === formData.value.definitionId) || null
+const selectedDefinition = computed(
+  () => baselineDefinitionStore.list.find((item) => item.id === formData.value.definitionId) || null
 )
 
 const metricBindingSummary = computed(() => {
   const metrics = selectedDefinition.value?.metrics || []
-  const bound = metrics.filter(metric => Boolean(metric.edcChannelId))
-  const unbound = metrics.filter(metric => !metric.edcChannelId)
+  const bound = metrics.filter((metric) => Boolean(metric.edcChannelId))
+  const unbound = metrics.filter((metric) => !metric.edcChannelId)
 
   return {
     total: metrics.length,
     boundCount: bound.length,
     unboundCount: unbound.length,
-    unboundMetrics: unbound
+    unboundMetrics: unbound,
   }
 })
 
@@ -167,8 +187,8 @@ function resolveMetricBindingLabel(edcChannelId: string | null) {
   return t('baseline.wizard.metricBoundTo', { channelId: edcChannelId })
 }
 
-const selectedHeat = computed(() =>
-  heatCandidates.value.find(item => item.id === selectedHeatId.value) || null
+const selectedHeat = computed(
+  () => heatCandidates.value.find((item) => item.id === selectedHeatId.value) || null
 )
 
 const selectionProbe = computed(() => ({
@@ -177,7 +197,7 @@ const selectionProbe = computed(() => ({
   end: normalizedTimestamp(selectedEnd.value),
   zoomStart: zoomWindow.value.start,
   zoomEnd: zoomWindow.value.end,
-  fullscreen: fullscreenVisible.value ? 'true' : 'false'
+  fullscreen: fullscreenVisible.value ? 'true' : 'false',
 }))
 
 function mapPreviewCurves(
@@ -189,51 +209,68 @@ function mapPreviewCurves(
     points: Array<{ timestamp: number; value: number }>
   }>
 ) {
-  return curves.map(curve => ({
+  return curves.map((curve) => ({
     metricId: curve.metric_id,
     metricName: curve.metric_name,
     unit: curve.unit,
     color: curve.color,
-    points: [...curve.points].sort((left, right) => left.timestamp - right.timestamp)
+    points: [...curve.points].sort((left, right) => left.timestamp - right.timestamp),
   }))
 }
 
 async function loadHeatCandidates() {
+  clearHeatCandidatesRetry()
   heatCandidatesError.value = ''
   heatCandidatesEmpty.value = false
   heatCandidatesLoading.value = true
+  const previousCandidates = [...heatCandidates.value]
   try {
     const dateValue = heatCandidatesDate.value ? dayjs(heatCandidatesDate.value) : null
     const data = await heatApi.list({
       page: 1,
       page_size: 50,
       start_date: dateValue ? dateValue.startOf('day').toISOString() : undefined,
-      end_date: dateValue ? dateValue.endOf('day').toISOString() : undefined
+      end_date: dateValue ? dateValue.endOf('day').toISOString() : undefined,
     })
-    heatCandidates.value = data.items.map(item => ({
+    heatCandidatesSnapshotStatus.value = data.snapshot_status
+    const nextCandidates = data.items.map((item) => ({
       id: item.id,
       heatNo: item.heat_no,
       date: dayjs(item.start_time).format('YYYY-MM-DD HH:mm:ss'),
       startTime: dayjs(item.start_time).valueOf(),
-      endTime: dayjs(item.end_time).valueOf()
+      endTime: dayjs(item.end_time).valueOf(),
     }))
-    if (heatCandidates.value.length === 0) {
+    const shouldKeepPreviousCandidates =
+      nextCandidates.length === 0 &&
+      data.snapshot_status !== 'ready' &&
+      previousCandidates.length > 0
+    heatCandidates.value = shouldKeepPreviousCandidates ? previousCandidates : nextCandidates
+    if (heatCandidates.value.length === 0 && data.snapshot_status === 'ready') {
       heatCandidatesEmpty.value = true
+    }
+    if (heatCandidates.value.length === 0 && data.snapshot_status !== 'ready') {
+      if (data.snapshot_status === 'warming') {
+        await heatApi.refreshRuntime()
+      }
+      scheduleHeatCandidatesRetry()
     }
   } catch (error) {
     console.error('BaselineWizard heat list request failed.', error)
-    heatCandidates.value = []
-    selectedHeatId.value = ''
-    selectedStart.value = null
-    selectedEnd.value = null
+    if (previousCandidates.length === 0) {
+      heatCandidates.value = []
+      selectedHeatId.value = ''
+      selectedStart.value = null
+      selectedEnd.value = null
+    }
     heatCandidatesEmpty.value = false
+    heatCandidatesSnapshotStatus.value = 'warming'
     heatCandidatesError.value = t('baseline.wizard.heatCandidatesUnavailable')
   } finally {
     heatCandidatesLoading.value = false
   }
 
   if (props.initialSourceHeatId) {
-    const exists = heatCandidates.value.some(item => item.id === props.initialSourceHeatId)
+    const exists = heatCandidates.value.some((item) => item.id === props.initialSourceHeatId)
     if (!exists) {
       const start = props.initialSelectedStartTime
         ? dayjs(props.initialSelectedStartTime)
@@ -247,9 +284,17 @@ async function loadHeatCandidates() {
         heatNo: props.initialName || `H-PREFILL-${props.initialSourceHeatId}`,
         date: start.format('YYYY-MM-DD HH:mm:ss'),
         startTime: start.valueOf(),
-        endTime: end.valueOf()
+        endTime: end.valueOf(),
       })
     }
+  }
+
+  if (
+    selectedHeatId.value &&
+    !heatCandidates.value.some((item) => item.id === selectedHeatId.value)
+  ) {
+    const fallbackHeat = heatCandidates.value[0]
+    selectedHeatId.value = fallbackHeat?.id || ''
   }
 }
 
@@ -260,30 +305,103 @@ async function loadPreviewCurves() {
   const targetHeatId = selectedHeatId.value || heatCandidates.value[0]?.id
   if (!targetHeatId) return
 
+  const selectedHeatItem = heatCandidates.value.find((item) => item.id === targetHeatId)
+  const nextPreviewRequestKey = selectedHeatItem
+    ? `${formData.value.definitionId}:${dayjs(selectedHeatItem.startTime).format('YYYY-MM-DD')}`
+    : `${formData.value.definitionId}:${targetHeatId}`
+  const isSamePreviewRequest = currentPreviewRequestKey.value === nextPreviewRequestKey
+  currentPreviewRequestKey.value = nextPreviewRequestKey
+
+  if (!isSamePreviewRequest) {
+    clearPreviewPoll()
+    previewCurves.value = []
+    previewError.value = ''
+    previewWindowLabel.value = ''
+    previewJobUpdatedAt.value = ''
+    previewJobStatus.value = 'idle'
+  }
+
   const requestToken = ++previewRequestToken
-  previewError.value = ''
-  previewLoading.value = true
   try {
-    const preview = await baselineDefinitionApi.previewCurves(formData.value.definitionId, targetHeatId)
+    previewLoading.value = true
+    const preview = await baselineDefinitionApi.startPreviewJob(
+      formData.value.definitionId,
+      targetHeatId
+    )
     if (requestToken !== previewRequestToken) return
-    previewCurves.value = mapPreviewCurves(preview.curves_data)
-    zoomWindow.value = { start: 0, end: 100 }
-    previewWindowLabel.value = `${dayjs(preview.range_start).format('MM-DD HH:mm:ss')} ~ ${dayjs(
-      preview.range_end
-    ).format('MM-DD HH:mm:ss')}`
+    applyPreviewJobState(preview)
+    if (preview.status === 'running') {
+      schedulePreviewPoll(targetHeatId)
+    } else {
+      clearPreviewPoll()
+    }
   } catch (error) {
     if (requestToken !== previewRequestToken) return
     console.error('BaselineWizard preview request failed.', error)
-    previewCurves.value = []
-    selectedStart.value = null
-    selectedEnd.value = null
-    previewWindowLabel.value = ''
+    previewJobStatus.value = 'failed'
     previewError.value = t('baseline.wizard.previewUnavailable')
   } finally {
-    if (requestToken === previewRequestToken) {
+    if (requestToken === previewRequestToken && previewJobStatus.value !== 'running') {
       previewLoading.value = false
     }
   }
+}
+
+function clearPreviewPoll() {
+  if (previewPollTimer !== null) {
+    window.clearTimeout(previewPollTimer)
+    previewPollTimer = null
+  }
+}
+
+function applyPreviewJobState(previewJob: BaselinePreviewJobResponse) {
+  previewJobStatus.value = previewJob.status
+  previewWindowLabel.value = `${dayjs(previewJob.range_start).format('MM-DD HH:mm:ss')} ~ ${dayjs(
+    previewJob.range_end
+  ).format('MM-DD HH:mm:ss')}`
+  previewJobUpdatedAt.value = previewJob.completed_at
+    ? dayjs(previewJob.completed_at).format('YYYY-MM-DD HH:mm:ss')
+    : ''
+
+  const mappedCurves = mapPreviewCurves(previewJob.curves_data)
+  if (mappedCurves.some((curve) => curve.points.length > 0)) {
+    previewCurves.value = mappedCurves
+    zoomWindow.value = { start: 0, end: 100 }
+  }
+
+  if (previewJob.status === 'failed') {
+    previewError.value = previewJob.last_error || t('baseline.wizard.previewUnavailable')
+    previewLoading.value = false
+    return
+  }
+
+  if (previewJob.status === 'succeeded') {
+    previewError.value = ''
+    previewLoading.value = false
+  }
+}
+
+function schedulePreviewPoll(heatId: string) {
+  clearPreviewPoll()
+  previewPollTimer = window.setTimeout(async () => {
+    const requestToken = ++previewRequestToken
+    try {
+      const preview = await baselineDefinitionApi.getPreviewJob(formData.value.definitionId, heatId)
+      if (requestToken !== previewRequestToken) return
+      applyPreviewJobState(preview)
+      if (preview.status === 'running') {
+        schedulePreviewPoll(heatId)
+      } else {
+        clearPreviewPoll()
+      }
+    } catch (error) {
+      if (requestToken !== previewRequestToken) return
+      console.error('BaselineWizard preview polling failed.', error)
+      previewJobStatus.value = 'failed'
+      previewError.value = t('baseline.wizard.previewUnavailable')
+      previewLoading.value = false
+    }
+  }, 3000)
 }
 
 async function ensureStepTwoData() {
@@ -313,17 +431,76 @@ async function ensureStepTwoData() {
   await loadPreviewCurves()
 }
 
+function clearHeatCandidatesRetry() {
+  if (heatCandidatesRetryTimer !== null) {
+    window.clearTimeout(heatCandidatesRetryTimer)
+    heatCandidatesRetryTimer = null
+  }
+}
+
+function scheduleHeatCandidatesRetry() {
+  clearHeatCandidatesRetry()
+  heatCandidatesRetryTimer = window.setTimeout(() => {
+    void loadHeatCandidates()
+  }, 2500)
+}
+
+async function handleRefreshHeatCandidates() {
+  await loadHeatCandidates()
+  if (!stepTwoActivated.value || stepTwoBootstrapping.value) {
+    return
+  }
+  if (!selectedHeatId.value && heatCandidates.value[0]) {
+    selectedHeatId.value = heatCandidates.value[0].id
+    return
+  }
+  if (selectedHeatId.value) {
+    await loadPreviewCurves()
+  }
+}
+
 function handleCandidateDateChange(value: Date | null) {
   heatCandidatesDate.value = value
   selectedHeatId.value = ''
   selectedStart.value = null
   selectedEnd.value = null
+  clearPreviewPoll()
   previewCurves.value = []
   previewError.value = ''
+  previewJobStatus.value = 'idle'
+  previewJobUpdatedAt.value = ''
   previewWindowLabel.value = ''
+  currentPreviewRequestKey.value = ''
   heatCandidatesEmpty.value = false
+  heatCandidatesSnapshotStatus.value = 'warming'
   void loadHeatCandidates()
 }
+
+const heatCandidatesPreparing = computed(
+  () =>
+    heatCandidatesSnapshotStatus.value === 'warming' ||
+    heatCandidatesSnapshotStatus.value === 'refreshing_history'
+)
+const previewHasCachedData = computed(() =>
+  previewCurves.value.some((curve) => curve.points.length > 0)
+)
+const previewRunning = computed(() => previewJobStatus.value === 'running')
+const canProceedPreviewStep = computed(() => hasPreviewData.value && !previewRunning.value)
+const nextStepDisabled = computed(
+  () => props.submitting || (activeStep.value === 1 && !canProceedPreviewStep.value)
+)
+const previewStatusHint = computed(() => {
+  if (previewRunning.value && previewHasCachedData.value && previewJobUpdatedAt.value) {
+    return t('baseline.wizard.previewRefreshingCached', { time: previewJobUpdatedAt.value })
+  }
+  if (previewRunning.value) {
+    return t('baseline.wizard.previewLoadingLong')
+  }
+  if (previewJobUpdatedAt.value) {
+    return t('baseline.wizard.previewLoadedAt', { time: previewJobUpdatedAt.value })
+  }
+  return ''
+})
 
 function normalizedTimestamp(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === '') return null
@@ -367,19 +544,23 @@ const primaryPreviewCurve = computed(() => {
   const definition = selectedDefinition.value
   const primaryMetric = definition?.metrics[0]
   if (!primaryMetric) return null
-  return previewCurves.value.find(curve => curve.metricId === primaryMetric.id) || null
+  return previewCurves.value.find((curve) => curve.metricId === primaryMetric.id) || null
 })
 
-const hasPreviewData = computed(() => previewCurves.value.some(curve => curve.points.length > 0))
+const hasPreviewData = computed(() => previewCurves.value.some((curve) => curve.points.length > 0))
 
 function selectNearestPoint(targetTimestamp: number) {
   const points = primaryPreviewCurve.value?.points || []
-  const point = points.reduce<{ timestamp: number; value: number } | null>((closestPoint, currentPoint) => {
-    if (!closestPoint) return currentPoint
-    return Math.abs(currentPoint.timestamp - targetTimestamp) < Math.abs(closestPoint.timestamp - targetTimestamp)
-      ? currentPoint
-      : closestPoint
-  }, null)
+  const point = points.reduce<{ timestamp: number; value: number } | null>(
+    (closestPoint, currentPoint) => {
+      if (!closestPoint) return currentPoint
+      return Math.abs(currentPoint.timestamp - targetTimestamp) <
+        Math.abs(closestPoint.timestamp - targetTimestamp)
+        ? currentPoint
+        : closestPoint
+    },
+    null
+  )
 
   if (!point) return
 
@@ -399,9 +580,9 @@ function clearPointerState(surface: ChartSurface) {
 }
 
 function resolveChartInstance(surface: ChartSurface) {
-  const chartRef = (surface === 'inline'
-    ? inlineChartRef.value?.chart
-    : fullscreenChartRef.value?.chart) as ExposedChart | undefined
+  const chartRef = (
+    surface === 'inline' ? inlineChartRef.value?.chart : fullscreenChartRef.value?.chart
+  ) as ExposedChart | undefined
   if (!chartRef) return null
   if ('containPixel' in chartRef && 'convertFromPixel' in chartRef) {
     return chartRef
@@ -430,7 +611,7 @@ function handleChartPointerDown(surface: ChartSurface, event: PointerEventPayloa
   pointerStates[surface] = {
     startX: event.offsetX,
     startY: event.offsetY,
-    dragging: false
+    dragging: false,
   }
 }
 
@@ -479,7 +660,7 @@ function handleChartDataZoom(payload: DataZoomPayload) {
   const latest = payload.batch?.[0] || payload
   zoomWindow.value = {
     start: latest.start ?? zoomWindow.value.start,
-    end: latest.end ?? zoomWindow.value.end
+    end: latest.end ?? zoomWindow.value.end,
   }
 }
 
@@ -492,7 +673,7 @@ function summarizeChartSeries(option: EChartsOption): ChartRuntimeSeriesSummary[
     return {
       name: String(candidate.name || ''),
       type: String(candidate.type || ''),
-      pointCount: Array.isArray(candidate.data) ? candidate.data.length : 0
+      pointCount: Array.isArray(candidate.data) ? candidate.data.length : 0,
     }
   })
 }
@@ -505,15 +686,15 @@ const chartOption = computed<EChartsOption>(() => {
   const rangeEnd = normalizedTimestamp(selectedEnd.value)
 
   const metrics = [...definition.metrics].sort((left, right) => left.sortOrder - right.sortOrder)
-  const units = Array.from(new Set(metrics.map(metric => metric.unit)))
+  const units = Array.from(new Set(metrics.map((metric) => metric.unit)))
   const yAxis = units.map((unit, index) => ({
     type: 'value' as const,
     name: unit,
-    position: index % 2 === 0 ? 'left' as const : 'right' as const,
+    position: index % 2 === 0 ? ('left' as const) : ('right' as const),
     offset: index > 1 ? Math.floor((index - 1) / 2) * 56 : 0,
     axisLabel: { color: '#64748b' },
     nameTextStyle: { color: '#64748b' },
-    splitLine: index === 0 ? { lineStyle: { color: '#e2e8f0' } } : { show: false }
+    splitLine: index === 0 ? { lineStyle: { color: '#e2e8f0' } } : { show: false },
   }))
 
   return {
@@ -521,11 +702,12 @@ const chartOption = computed<EChartsOption>(() => {
     grid: { left: 56, right: 72, top: 48, bottom: 86 },
     tooltip: {
       trigger: 'axis',
-      valueFormatter: value => (typeof value === 'number' ? value.toFixed(2).replace(/\.00$/, '') : `${value || ''}`)
+      valueFormatter: (value) =>
+        typeof value === 'number' ? value.toFixed(2).replace(/\.00$/, '') : `${value || ''}`,
     },
     legend: {
       top: 0,
-      data: metrics.map(metric => metric.name)
+      data: metrics.map((metric) => metric.name),
     },
     dataZoom: [
       {
@@ -533,23 +715,23 @@ const chartOption = computed<EChartsOption>(() => {
         moveOnMouseMove: true,
         zoomOnMouseWheel: true,
         start: zoomWindow.value.start,
-        end: zoomWindow.value.end
+        end: zoomWindow.value.end,
       },
       {
         type: 'slider',
         height: 28,
         bottom: 24,
         start: zoomWindow.value.start,
-        end: zoomWindow.value.end
-      }
+        end: zoomWindow.value.end,
+      },
     ],
     xAxis: {
       type: 'time',
       minInterval: 60 * 1000,
       axisLabel: {
         color: '#64748b',
-        formatter: (value: number) => dayjs(value).format('MM-DD HH:mm')
-      }
+        formatter: (value: number) => dayjs(value).format('MM-DD HH:mm'),
+      },
     },
     yAxis,
     series: metrics.map((metric, index) => ({
@@ -564,14 +746,14 @@ const chartOption = computed<EChartsOption>(() => {
         index === 0 && rangeStart !== null && rangeEnd !== null
           ? {
               itemStyle: { color: 'rgba(17, 82, 212, 0.12)' },
-              data: [[{ xAxis: rangeStart }, { xAxis: rangeEnd }]]
+              data: [[{ xAxis: rangeStart }, { xAxis: rangeEnd }]],
             }
           : undefined,
       data:
         previewCurves.value
-          .find(curve => curve.metricId === metric.id)
-          ?.points.map(point => [point.timestamp, point.value]) || []
-    }))
+          .find((curve) => curve.metricId === metric.id)
+          ?.points.map((point) => [point.timestamp, point.value]) || [],
+    })),
   }
 })
 
@@ -591,14 +773,14 @@ const summaryStats = computed(() => {
       avg: 0,
       peak: 0,
       durationSecond: 0,
-      unit: ''
+      unit: '',
     }
   }
 
   const selectedPoints =
     primaryPreviewCurve.value?.points
-      .filter(point => point.timestamp >= rangeStart && point.timestamp <= rangeEnd)
-      .map(point => point.value) || []
+      .filter((point) => point.timestamp >= rangeStart && point.timestamp <= rangeEnd)
+      .map((point) => point.value) || []
 
   if (selectedPoints.length === 0) {
     return {
@@ -606,7 +788,7 @@ const summaryStats = computed(() => {
       avg: 0,
       peak: 0,
       durationSecond: 0,
-      unit: primaryMetric.unit
+      unit: primaryMetric.unit,
     }
   }
 
@@ -617,7 +799,7 @@ const summaryStats = computed(() => {
     avg: Number(avg.toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)),
     peak: Number(Math.max(...selectedPoints).toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)),
     durationSecond: Math.floor((rangeEnd - rangeStart) / 1000),
-    unit: primaryMetric.unit
+    unit: primaryMetric.unit,
   }
 })
 
@@ -642,6 +824,14 @@ async function nextStep() {
   }
   if (activeStep.value === 1 && !selectedHeatId.value) {
     ElMessage.warning(t('baseline.wizard.selectHeatRequired'))
+    return
+  }
+  if (activeStep.value === 1 && previewRunning.value) {
+    ElMessage.warning(t('baseline.wizard.previewLoadingLong'))
+    return
+  }
+  if (activeStep.value === 1 && !hasPreviewData.value) {
+    ElMessage.warning(previewError.value || t('baseline.wizard.previewUnavailable'))
     return
   }
   if (activeStep.value === 1 && (!selectedStart.value || !selectedEnd.value)) {
@@ -690,7 +880,7 @@ function submit(mode: 'draft' | 'publish') {
     selectedStartTime: rangeStart !== null ? dayjs(rangeStart).toISOString() : undefined,
     selectedEndTime: rangeEnd !== null ? dayjs(rangeEnd).toISOString() : undefined,
     tolerancePercent: formData.value.tolerancePercent,
-    mode
+    mode,
   })
 }
 
@@ -738,13 +928,15 @@ onMounted(async () => {
     selectedHeatId.value = props.initialSourceHeatId
   }
 })
+
+onBeforeUnmount(() => {
+  clearHeatCandidatesRetry()
+  clearPreviewPoll()
+})
 </script>
 
 <template>
-  <div
-    class="space-y-6"
-    data-testid="baseline-wizard"
-  >
+  <div class="space-y-6" data-testid="baseline-wizard">
     <div
       class="sr-only"
       data-testid="baseline-wizard-selection-state"
@@ -756,19 +948,13 @@ onMounted(async () => {
       :data-fullscreen="selectionProbe.fullscreen"
     />
 
-    <el-steps
-      :active="activeStep + 1"
-      finish-status="success"
-    >
+    <el-steps :active="activeStep + 1" finish-status="success">
       <el-step :title="t('baseline.wizard.step1')" />
       <el-step :title="t('baseline.wizard.step2')" />
       <el-step :title="t('baseline.wizard.step3')" />
     </el-steps>
 
-    <div
-      v-if="activeStep === 0"
-      class="space-y-4"
-    >
+    <div v-if="activeStep === 0" class="space-y-4">
       <el-card>
         <el-form label-position="top">
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -823,7 +1009,8 @@ onMounted(async () => {
           <div class="flex items-center justify-between">
             <span>{{ selectedDefinition.definitionName }}</span>
             <span class="text-xs text-slate-500">
-              {{ selectedDefinition.metrics.length }} 条曲线 · {{ selectedDefinition.expectedDurationMinutes }} 分钟
+              {{ selectedDefinition.metrics.length }} 条曲线 ·
+              {{ selectedDefinition.expectedDurationMinutes }} 分钟
             </span>
           </div>
         </template>
@@ -835,7 +1022,7 @@ onMounted(async () => {
         >
           {{ t('baseline.wizard.bindingWarning', { count: metricBindingSummary.unboundCount }) }}
           <span class="ml-1 text-amber-800">
-            {{ metricBindingSummary.unboundMetrics.map(metric => metric.name).join(' / ') }}
+            {{ metricBindingSummary.unboundMetrics.map((metric) => metric.name).join(' / ') }}
           </span>
         </div>
 
@@ -846,10 +1033,7 @@ onMounted(async () => {
             class="rounded-lg border border-border-light bg-slate-50 p-3"
           >
             <div class="flex items-center gap-2 text-sm font-semibold text-slate-800">
-              <span
-                class="h-2.5 w-2.5 rounded-full"
-                :style="{ backgroundColor: metric.color }"
-              />
+              <span class="h-2.5 w-2.5 rounded-full" :style="{ backgroundColor: metric.color }" />
               {{ metric.name }}
             </div>
             <div class="mt-1 text-xs text-slate-500">
@@ -879,10 +1063,7 @@ onMounted(async () => {
       </el-card>
     </div>
 
-    <div
-      v-if="activeStep === 1"
-      class="space-y-4"
-    >
+    <div v-if="activeStep === 1" class="space-y-4">
       <el-card>
         <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div class="space-y-1">
@@ -899,8 +1080,9 @@ onMounted(async () => {
           </div>
           <el-button
             :loading="heatCandidatesLoading"
+            :disabled="previewRunning"
             data-testid="baseline-wizard-refresh-candidates"
-            @click="loadHeatCandidates"
+            @click="handleRefreshHeatCandidates"
           >
             {{ t('baseline.wizard.refreshHeatCandidates') }}
           </el-button>
@@ -909,6 +1091,12 @@ onMounted(async () => {
           class="max-h-[520px] overflow-y-auto pr-2 md:max-h-[360px]"
           data-testid="baseline-wizard-heat-candidate-list"
         >
+          <div
+            v-if="heatCandidatesPreparing && !heatCandidatesLoading && heatCandidates.length === 0"
+            class="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700"
+          >
+            {{ t('baseline.wizard.heatCandidatesPreparing') }}
+          </div>
           <div
             v-if="heatCandidatesLoading"
             class="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
@@ -955,16 +1143,20 @@ onMounted(async () => {
             <div>
               <div>{{ t('baseline.wizard.chartPickTitle') }}</div>
               <div class="mt-1 text-xs text-slate-500">
-                {{ selectedDefinition?.definitionName || '--' }} · {{ t('baseline.wizard.pickHint') }}
+                {{ selectedDefinition?.definitionName || '--' }} ·
+                {{ t('baseline.wizard.pickHint') }}
               </div>
               <div class="mt-1 text-xs text-slate-400">
                 {{ t('baseline.wizard.previewHeatWindow', { heat: previewHeatSummary }) }}
               </div>
-              <div
-                v-if="previewWindowLabel"
-                class="mt-1 text-xs text-slate-400"
-              >
+              <div v-if="previewWindowLabel" class="mt-1 text-xs text-slate-400">
                 {{ t('baseline.wizard.previewDayWindow', { range: previewWindowLabel }) }}
+              </div>
+              <div
+                v-if="previewStatusHint"
+                class="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700"
+              >
+                {{ previewStatusHint }}
               </div>
             </div>
             <el-button
@@ -977,10 +1169,7 @@ onMounted(async () => {
           </div>
         </template>
 
-        <div
-          v-if="selectedDefinition && hasPreviewData"
-          class="space-y-4"
-        >
+        <div v-if="selectedDefinition && hasPreviewData" class="space-y-4">
           <div
             class="relative"
             data-testid="baseline-wizard-chart"
@@ -1008,10 +1197,7 @@ onMounted(async () => {
           </div>
 
           <div class="grid grid-cols-1 gap-4 xl:grid-cols-[220px_1fr]">
-            <div
-              class="space-y-2"
-              data-testid="baseline-wizard-point-range-panel"
-            >
+            <div class="space-y-2" data-testid="baseline-wizard-point-range-panel">
               <div class="text-sm text-gray-500">
                 {{ t('baseline.wizard.pointRange') }}
               </div>
@@ -1047,12 +1233,8 @@ onMounted(async () => {
                     class="w-full"
                     data-testid="baseline-wizard-range-start"
                   />
-                  <el-button @click="adjustBoundary('start', -1)">
-                    -1s
-                  </el-button>
-                  <el-button @click="adjustBoundary('start', 1)">
-                    +1s
-                  </el-button>
+                  <el-button @click="adjustBoundary('start', -1)"> -1s </el-button>
+                  <el-button @click="adjustBoundary('start', 1)"> +1s </el-button>
                 </div>
               </el-form-item>
               <el-form-item
@@ -1068,12 +1250,8 @@ onMounted(async () => {
                     class="w-full"
                     data-testid="baseline-wizard-range-end"
                   />
-                  <el-button @click="adjustBoundary('end', -1)">
-                    -1s
-                  </el-button>
-                  <el-button @click="adjustBoundary('end', 1)">
-                    +1s
-                  </el-button>
+                  <el-button @click="adjustBoundary('end', -1)"> -1s </el-button>
+                  <el-button @click="adjustBoundary('end', 1)"> +1s </el-button>
                 </div>
               </el-form-item>
             </div>
@@ -1123,13 +1301,12 @@ onMounted(async () => {
       </el-card>
     </div>
 
-    <div
-      v-if="activeStep === 2"
-      class="space-y-4"
-    >
+    <div v-if="activeStep === 2" class="space-y-4">
       <el-card>
         <div class="space-y-2 text-sm text-gray-700">
-          <div><span class="text-gray-500">{{ t('baseline.name') }}:</span> {{ formData.name }}</div>
+          <div>
+            <span class="text-gray-500">{{ t('baseline.name') }}:</span> {{ formData.name }}
+          </div>
           <div>
             <span class="text-gray-500">{{ t('baseline.wizard.definition') }}:</span>
             {{ selectedDefinition?.definitionName || '--' }}
@@ -1184,7 +1361,7 @@ onMounted(async () => {
           v-if="activeStep < 2"
           type="primary"
           data-testid="baseline-wizard-next"
-          :disabled="props.submitting"
+          :disabled="nextStepDisabled"
           @click="nextStep"
         >
           {{ t('common.next') }}
@@ -1287,12 +1464,8 @@ onMounted(async () => {
                 class="w-full"
                 data-testid="baseline-wizard-fullscreen-range-start"
               />
-              <el-button @click="adjustBoundary('start', -1)">
-                -1s
-              </el-button>
-              <el-button @click="adjustBoundary('start', 1)">
-                +1s
-              </el-button>
+              <el-button @click="adjustBoundary('start', -1)"> -1s </el-button>
+              <el-button @click="adjustBoundary('start', 1)"> +1s </el-button>
             </div>
 
             <div
@@ -1310,12 +1483,8 @@ onMounted(async () => {
                 class="w-full"
                 data-testid="baseline-wizard-fullscreen-range-end"
               />
-              <el-button @click="adjustBoundary('end', -1)">
-                -1s
-              </el-button>
-              <el-button @click="adjustBoundary('end', 1)">
-                +1s
-              </el-button>
+              <el-button @click="adjustBoundary('end', -1)"> -1s </el-button>
+              <el-button @click="adjustBoundary('end', 1)"> +1s </el-button>
             </div>
           </div>
         </div>
