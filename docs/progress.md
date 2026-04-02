@@ -6,6 +6,70 @@
 
 ---
 
+### 2026-04-02（本机联调脚本已改为 factory-reset + blank，并已按该语义重启）
+
+**当前阶段**：跨模块联调整体验收与性能优化
+
+**本轮完成**：
+
+- [x] 已按 `docs/DEPLOYMENT.md` 的本机联调口径恢复当前开发机运行环境
+- [x] 已把 `scripts/start-local-edc-stack.sh` 收口为：
+  - [x] 启动前先执行 `factory-reset`
+  - [x] 后端显式以 `ASNS_BOOTSTRAP_MODE=blank` 启动
+  - [x] 后端启动后自动校验 `runtime_baseline_definitions / runtime_baselines / active_baseline_id` 为空
+- [x] 已确认本机依赖具备启动条件：
+  - [x] `apps/server/.venv`
+  - [x] `apps/web/node_modules`
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/node_modules`
+- [x] 已重新启动本机三段服务：
+  - [x] 后端 `http://127.0.0.1:8000`
+  - [x] 前端 `http://localhost:3000/edc/`
+  - [x] 宿主 `http://localhost:3001/`
+- [x] 已完成入口验活：
+  - [x] `GET http://127.0.0.1:8000/health` -> `200`
+  - [x] `GET http://localhost:3000/edc/` -> `200`
+  - [x] `GET http://localhost:3000/api/health` -> `200`
+  - [x] `GET http://localhost:3001/` -> `200`
+  - [x] `GET http://localhost:3001/api/health` -> `200`
+- [x] 已确认宿主页运行时注入正常：
+  - [x] `window.__ASNS_EDC_APP_URL__ = "http://localhost:3000/edc/";`
+- [x] 已确认当前本机为空白态：
+  - [x] `GET /api/baseline-definitions` -> `{"items":[],"total":0}`
+  - [x] `GET /api/baselines` -> `{"items":[],"total":0}`
+  - [x] SQLite `settings.runtime_baseline_definitions = {}`
+  - [x] SQLite `settings.runtime_baselines = {}`
+  - [x] SQLite `settings.runtime_settings_store.active_baseline_id = ""`
+
+**本轮备注**：
+
+- [x] 当前 Windows shell 环境没有可直接调用的 `bash`，因此本轮未直接运行 `scripts/start-local-edc-stack.sh`
+- [x] 已按修改后的脚本同等步骤在 PowerShell 中完成重启与验库
+- [x] PowerShell `Invoke-WebRequest` 在当前机器上对 Vite 本地服务出现过 `503` 误判；实际以 `curl.exe` 复核后前端可正常返回 `200`
+
+**当前结论**：
+
+- [x] 当前开发机本地联调栈已恢复为真正空白的新系统，可从 `3001` 进入宿主、从 `3000/edc/` 进入 EDC、从 `8000` 访问后端 API
+
+---
+
+### 2026-04-02（基线向导补“按日期筛选炉次”与空态提示）
+
+**当前阶段**：UAT 前基线向导体验修复
+
+**本轮完成**：
+
+- [x] 基线向导 Step 2 新增「选择日期 + 刷新候选炉次」入口
+- [x] 候选炉次为空时补显式空态提示
+- [x] 相关 i18n 文案已同步（`zh-CN / en-US / zh-TW / ja-JP`）
+
+**验证结果**：
+
+- [ ] 未运行前端测试（需要时再补）
+
+**当前结论**：
+
+- [x] 基线向导现可按日期筛选炉次候选，避免列表空白无指引
+
 ### 2026-04-01（前端炉次列表/详情接入运行态字段与进行中刷新）
 
 **当前阶段**：UAT 前性能方案落地（前端对接运行态）

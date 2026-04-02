@@ -123,9 +123,14 @@ const inlineChartRef = ref<InstanceType<typeof VChart> | null>(null)
 const fullscreenChartRef = ref<InstanceType<typeof VChart> | null>(null)
 const zoomWindow = ref({ start: 0, end: 100 })
 const heatCandidatesError = ref('')
+const heatCandidatesEmpty = ref(false)
 const previewError = ref('')
 const previewLoading = ref(false)
+const heatCandidatesLoading = ref(false)
+const stepTwoActivated = ref(false)
+const stepTwoBootstrapping = ref(false)
 const previewWindowLabel = ref('')
+const heatCandidatesDate = ref<Date | null>(dayjs().toDate())
 let previewRequestToken = 0
 
 const formData = ref({
@@ -195,8 +200,16 @@ function mapPreviewCurves(
 
 async function loadHeatCandidates() {
   heatCandidatesError.value = ''
+  heatCandidatesEmpty.value = false
+  heatCandidatesLoading.value = true
   try {
-    const data = await heatApi.list({ page: 1, page_size: 50 })
+    const dateValue = heatCandidatesDate.value ? dayjs(heatCandidatesDate.value) : null
+    const data = await heatApi.list({
+      page: 1,
+      page_size: 50,
+      start_date: dateValue ? dateValue.startOf('day').toISOString() : undefined,
+      end_date: dateValue ? dateValue.endOf('day').toISOString() : undefined
+    })
     heatCandidates.value = data.items.map(item => ({
       id: item.id,
       heatNo: item.heat_no,
@@ -204,13 +217,19 @@ async function loadHeatCandidates() {
       startTime: dayjs(item.start_time).valueOf(),
       endTime: dayjs(item.end_time).valueOf()
     }))
+    if (heatCandidates.value.length === 0) {
+      heatCandidatesEmpty.value = true
+    }
   } catch (error) {
     console.error('BaselineWizard heat list request failed.', error)
     heatCandidates.value = []
     selectedHeatId.value = ''
     selectedStart.value = null
     selectedEnd.value = null
+    heatCandidatesEmpty.value = false
     heatCandidatesError.value = t('baseline.wizard.heatCandidatesUnavailable')
+  } finally {
+    heatCandidatesLoading.value = false
   }
 
   if (props.initialSourceHeatId) {
@@ -235,6 +254,7 @@ async function loadHeatCandidates() {
 }
 
 async function loadPreviewCurves() {
+  if (!stepTwoActivated.value) return
   if (!formData.value.definitionId) return
 
   const targetHeatId = selectedHeatId.value || heatCandidates.value[0]?.id
@@ -264,6 +284,45 @@ async function loadPreviewCurves() {
       previewLoading.value = false
     }
   }
+}
+
+async function ensureStepTwoData() {
+  stepTwoBootstrapping.value = true
+  try {
+    if (heatCandidates.value.length === 0 && !heatCandidatesLoading.value) {
+      await loadHeatCandidates()
+    }
+
+    if (props.initialSourceHeatId) {
+      selectedHeatId.value = props.initialSourceHeatId
+    } else if (!selectedHeatId.value && heatCandidates.value[0]) {
+      selectedHeatId.value = heatCandidates.value[0].id
+    }
+
+    if (props.initialSelectedStartTime && props.initialSelectedEndTime) {
+      selectedStart.value = dayjs(props.initialSelectedStartTime).valueOf()
+      selectedEnd.value = dayjs(props.initialSelectedEndTime).valueOf()
+      normalizeRange()
+    } else if (!selectedStart.value || !selectedEnd.value) {
+      resetRangeByHeat()
+    }
+  } finally {
+    stepTwoBootstrapping.value = false
+  }
+
+  await loadPreviewCurves()
+}
+
+function handleCandidateDateChange(value: Date | null) {
+  heatCandidatesDate.value = value
+  selectedHeatId.value = ''
+  selectedStart.value = null
+  selectedEnd.value = null
+  previewCurves.value = []
+  previewError.value = ''
+  previewWindowLabel.value = ''
+  heatCandidatesEmpty.value = false
+  void loadHeatCandidates()
 }
 
 function normalizedTimestamp(value: number | string | null | undefined) {
@@ -569,7 +628,7 @@ const previewHeatSummary = computed(() => {
   )} ~ ${dayjs(selectedHeat.value.endTime).format('MM-DD HH:mm:ss')}`
 })
 
-function nextStep() {
+async function nextStep() {
   if (props.submitting) {
     return
   }
@@ -587,6 +646,13 @@ function nextStep() {
   }
   if (activeStep.value === 1 && (!selectedStart.value || !selectedEnd.value)) {
     ElMessage.warning(t('baseline.wizard.pointRangeRequired'))
+    return
+  }
+
+  if (activeStep.value === 0) {
+    stepTwoActivated.value = true
+    activeStep.value = 1
+    await ensureStepTwoData()
     return
   }
 
@@ -631,6 +697,9 @@ function submit(mode: 'draft' | 'publish') {
 watch(
   () => formData.value.definitionId,
   async () => {
+    if (!stepTwoActivated.value || stepTwoBootstrapping.value) {
+      return
+    }
     if (!selectedHeatId.value && heatCandidates.value[0]) {
       selectedHeatId.value = heatCandidates.value[0].id
     }
@@ -646,6 +715,9 @@ watch(
 )
 
 watch(selectedHeatId, async () => {
+  if (!stepTwoActivated.value || stepTwoBootstrapping.value) {
+    return
+  }
   if (activeStep.value === 1 || !selectedStart.value || !selectedEnd.value) {
     resetRangeByHeat()
   }
@@ -654,7 +726,6 @@ watch(selectedHeatId, async () => {
 
 onMounted(async () => {
   await baselineDefinitionStore.fetchList('active')
-  await loadHeatCandidates()
 
   const firstDefinition = baselineDefinitionStore.list[0]
   if (!formData.value.definitionId && firstDefinition) {
@@ -666,20 +737,6 @@ onMounted(async () => {
   if (props.initialSourceHeatId) {
     selectedHeatId.value = props.initialSourceHeatId
   }
-
-  if (!selectedHeatId.value && heatCandidates.value[0]) {
-    selectedHeatId.value = heatCandidates.value[0].id
-  }
-
-  if (props.initialSelectedStartTime && props.initialSelectedEndTime) {
-    selectedStart.value = dayjs(props.initialSelectedStartTime).valueOf()
-    selectedEnd.value = dayjs(props.initialSelectedEndTime).valueOf()
-    normalizeRange()
-  } else {
-    resetRangeByHeat()
-  }
-
-  await loadPreviewCurves()
 })
 </script>
 
@@ -827,16 +884,47 @@ onMounted(async () => {
       class="space-y-4"
     >
       <el-card>
+        <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div class="space-y-1">
+            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              {{ t('baseline.wizard.heatCandidatesDate') }}
+            </div>
+            <el-date-picker
+              v-model="heatCandidatesDate"
+              type="date"
+              format="YYYY-MM-DD"
+              class="!w-[220px]"
+              @update:model-value="handleCandidateDateChange"
+            />
+          </div>
+          <el-button
+            :loading="heatCandidatesLoading"
+            data-testid="baseline-wizard-refresh-candidates"
+            @click="loadHeatCandidates"
+          >
+            {{ t('baseline.wizard.refreshHeatCandidates') }}
+          </el-button>
+        </div>
         <div
           class="max-h-[520px] overflow-y-auto pr-2 md:max-h-[360px]"
           data-testid="baseline-wizard-heat-candidate-list"
         >
+          <div
+            v-if="heatCandidatesLoading"
+            class="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
+          >
+            {{ t('baseline.wizard.previewLoading') }}
+          </div>
           <div
             v-if="heatCandidatesError"
             class="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
           >
             {{ heatCandidatesError }}
           </div>
+          <el-empty
+            v-if="!heatCandidatesLoading && heatCandidates.length === 0 && heatCandidatesEmpty"
+            :description="t('baseline.wizard.heatCandidatesEmpty')"
+          />
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
             <label
               v-for="item in heatCandidates"
