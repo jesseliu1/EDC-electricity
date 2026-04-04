@@ -19,8 +19,10 @@ from .common import (
     DateRangeParams,
     ErrorResponse,
     MessageResponse,
+    OptionalTimestampMs,
     PaginatedResponse,
     PaginationParams,
+    TimestampMs,
 )
 from .dashboard import (
     DashboardStats,
@@ -87,6 +89,8 @@ from .task import (
 __all__ = [
     # Common
     "CurvePoint",
+    "TimestampMs",
+    "OptionalTimestampMs",
     "PaginationParams",
     "PaginatedResponse",
     "DateRangeParams",

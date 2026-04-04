@@ -22,6 +22,7 @@ from .channel_roles import (
 from .config import settings as app_settings
 from .runtime_state import _SECTION_TO_KEY
 from .services import EDCClient, EDCClientError
+from .time_utils import to_timestamp_ms, utc_now
 
 RUNTIME_SETTINGS_STORE_KEY = _SECTION_TO_KEY["settings_store"]
 RUNTIME_HOST_CHANNELS_KEY = _SECTION_TO_KEY["host_channels"]
@@ -636,7 +637,7 @@ async def refresh_runtime_source_state(
             sensor_list = await client.get_all_sensor_list()
             catalog = _normalize_host_channels(sensor_list)
             probe_counts: dict[str, int] = {}
-            probe_end = datetime.now()
+            probe_end = utc_now()
             probe_start = probe_end - REALTIME_PROBE_WINDOW
             preferred_probe_channels = [
                 *current_host_channels,
@@ -671,7 +672,7 @@ async def refresh_runtime_source_state(
                 if channel is not None
             ],
         )
-        checked_at = datetime.now()
+        checked_at = utc_now()
         connected_status = _build_connected_status(
             base_url=base_url,
             sensor_count=len(sensor_list),
@@ -722,7 +723,7 @@ async def refresh_runtime_source_state(
         _upsert_json_record(
             connection,
             key=RUNTIME_HOST_CHANNEL_LAST_SYNC_KEY,
-            payload={"__type__": "datetime", "value": checked_at.isoformat()},
+            payload={"__type__": "timestamp_ms", "value": to_timestamp_ms(checked_at)},
             description="运行态持久化：host_channel_last_sync_at",
         )
 

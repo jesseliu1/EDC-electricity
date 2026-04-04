@@ -1,7 +1,11 @@
 import { defineStore } from 'pinia'
-import dayjs from 'dayjs'
 import { heatApi } from '@/api/heat'
 import { resolveApiErrorMessage } from '@/utils/apiError'
+import {
+  plantDateRangeFromPicker,
+  timestampToDate,
+  toTimestampMs,
+} from '@/utils/time'
 import type {
   BaselineCompareItem,
   CuttingTimelineEvent,
@@ -20,15 +24,15 @@ export interface HeatItem {
   id: string
   heatNo: string
   description: string | null
-  startTime: string
-  endTime: string
+  startTime: number
+  endTime: number
   completionStatus: HeatCompletionStatus
-  lastPointAt: string | null
+  lastPointAt: number | null
   runtimeSnapshotStatus: HeatRuntimeSnapshotStatus
   realtimeCurrent: boolean
   baselineId: string | null
   baselineVersionId: string | null
-  baselineEffectiveFrom: string | null
+  baselineEffectiveFrom: number | null
   deviationPercent: number | null
   avgDeviationPercent: number | null
   timeOffsetPercent: number | null
@@ -75,20 +79,17 @@ function readHeatViewState(): {
       page?: number
       pageSize?: number
       status?: HeatFilters['status']
-      dateRange?: [string, string] | null
+      dateRange?: [number | string, number | string] | null
     }
-    const start = parsed.dateRange?.[0]
-    const end = parsed.dateRange?.[1]
+    const start = toTimestampMs(parsed.dateRange?.[0])
+    const end = toTimestampMs(parsed.dateRange?.[1])
 
     return {
       page: parsed.page && parsed.page > 0 ? parsed.page : 1,
       pageSize: parsed.pageSize && parsed.pageSize > 0 ? parsed.pageSize : 10,
       filters: {
         status: parsed.status || 'all',
-        dateRange:
-          start && end && dayjs(start).isValid() && dayjs(end).isValid()
-            ? [dayjs(start).toDate(), dayjs(end).toDate()]
-            : null
+        dateRange: start !== null && end !== null ? [timestampToDate(start)!, timestampToDate(end)!] : null
       }
     }
   } catch {
@@ -131,10 +132,7 @@ function persistHeatViewState(state: {
     pageSize: state.pageSize,
     status: state.filters.status,
     dateRange: state.filters.dateRange
-      ? [
-          dayjs(state.filters.dateRange[0]).toISOString(),
-          dayjs(state.filters.dateRange[1]).toISOString()
-        ]
+      ? [toTimestampMs(state.filters.dateRange[0]), toTimestampMs(state.filters.dateRange[1])]
       : null
   }
   window.localStorage.setItem(HEAT_VIEW_STATE_KEY, JSON.stringify(payload))
@@ -145,17 +143,15 @@ function mapHeat(item: HeatResponseItem): HeatItem {
     id: item.id,
     heatNo: item.heat_no,
     description: item.description ?? null,
-    startTime: dayjs(item.start_time).format('YYYY-MM-DD HH:mm'),
-    endTime: dayjs(item.end_time).format('YYYY-MM-DD HH:mm'),
+    startTime: item.start_time,
+    endTime: item.end_time,
     completionStatus: item.completion_status || 'completed',
-    lastPointAt: item.last_point_at ? dayjs(item.last_point_at).format('YYYY-MM-DD HH:mm') : null,
+    lastPointAt: item.last_point_at,
     runtimeSnapshotStatus: item.runtime_snapshot_status || 'warming',
     realtimeCurrent: Boolean(item.realtime_current),
     baselineId: item.baseline_id,
     baselineVersionId: item.baseline_version_id,
-    baselineEffectiveFrom: item.baseline_effective_from
-      ? dayjs(item.baseline_effective_from).format('YYYY-MM-DD HH:mm')
-      : null,
+    baselineEffectiveFrom: item.baseline_effective_from,
     deviationPercent: item.deviation_percent,
     avgDeviationPercent: item.avg_deviation_percent,
     timeOffsetPercent: item.time_offset_percent,
@@ -219,9 +215,9 @@ export const useHeatStore = defineStore('heat', {
       pageSize: persisted.pageSize,
       total: 0,
       snapshotStatus: 'warming' as HeatRuntimeSnapshotStatus,
-      snapshotWatermark: null as string | null,
-      lastRefreshStartedAt: null as string | null,
-      lastRefreshCompletedAt: null as string | null,
+      snapshotWatermark: null as number | null,
+      lastRefreshStartedAt: null as number | null,
+      lastRefreshCompletedAt: null as number | null,
       refreshFailureCount: 0,
       refreshFailureMessage: null as string | null,
       filters: persisted.filters
@@ -231,30 +227,21 @@ export const useHeatStore = defineStore('heat', {
     async fetchList() {
       this.loading = true
       try {
+        const plantRange = plantDateRangeFromPicker(this.filters.dateRange)
         const query: HeatListQuery = {
           page: this.page,
           page_size: this.pageSize,
           status: this.filters.status === 'all' ? undefined : this.filters.status,
-          start_date: this.filters.dateRange?.[0]
-            ? dayjs(this.filters.dateRange[0]).toISOString()
-            : undefined,
-          end_date: this.filters.dateRange?.[1]
-            ? dayjs(this.filters.dateRange[1]).toISOString()
-            : undefined
+          start_date: plantRange?.start,
+          end_date: plantRange?.end,
         }
         const data = await heatApi.list(query)
         this.list = data.items.map(mapHeat)
         this.total = data.total
         this.snapshotStatus = data.snapshot_status
         this.snapshotWatermark = data.snapshot_watermark
-          ? dayjs(data.snapshot_watermark).format('YYYY-MM-DD HH:mm:ss')
-          : null
         this.lastRefreshStartedAt = data.last_refresh_started_at
-          ? dayjs(data.last_refresh_started_at).format('YYYY-MM-DD HH:mm:ss')
-          : null
         this.lastRefreshCompletedAt = data.last_refresh_completed_at
-          ? dayjs(data.last_refresh_completed_at).format('YYYY-MM-DD HH:mm:ss')
-          : null
         this.refreshFailureCount = data.refresh_failure_count || 0
         this.refreshFailureMessage = data.refresh_error || null
         persistHeatViewState({
@@ -397,11 +384,11 @@ export const useHeatStore = defineStore('heat', {
         console.warn('Update heat description failed.', error)
       }
     },
-    async updateTiming(id: string, startTime: string, endTime: string, adjustSubsequent: boolean) {
+    async updateTiming(id: string, startTime: number, endTime: number, adjustSubsequent: boolean) {
       try {
         const updated = await heatApi.update(id, {
-          start_time: dayjs(startTime).toISOString(),
-          end_time: dayjs(endTime).toISOString(),
+          start_time: startTime,
+          end_time: endTime,
           adjust_subsequent: adjustSubsequent
         })
         const mapped = mapHeat(updated)

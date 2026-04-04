@@ -1,8 +1,36 @@
 """通用 Pydantic 模式"""
 
+from typing import Annotated
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer
+
+from ..time_utils import parse_timestamp_ms, to_timestamp_ms
+
+
+def _parse_optional_timestamp_ms(value: object) -> datetime | None:
+    if value is None or value == "":
+        return None
+    return parse_timestamp_ms(value)
+
+
+def _serialize_optional_timestamp_ms(value: datetime | None) -> int | None:
+    if value is None:
+        return None
+    return to_timestamp_ms(value)
+
+
+TimestampMs = Annotated[
+    datetime,
+    BeforeValidator(parse_timestamp_ms),
+    PlainSerializer(to_timestamp_ms, return_type=int),
+]
+
+OptionalTimestampMs = Annotated[
+    datetime | None,
+    BeforeValidator(_parse_optional_timestamp_ms),
+    PlainSerializer(_serialize_optional_timestamp_ms, return_type=int | None),
+]
 
 
 class CurvePoint(BaseModel):
@@ -31,8 +59,8 @@ class PaginatedResponse(BaseModel):
 class DateRangeParams(BaseModel):
     """日期范围参数"""
 
-    start_date: datetime | None = Field(default=None, description="开始日期")
-    end_date: datetime | None = Field(default=None, description="结束日期")
+    start_date: OptionalTimestampMs = Field(default=None, description="开始时间戳")
+    end_date: OptionalTimestampMs = Field(default=None, description="结束时间戳")
 
 
 class MessageResponse(BaseModel):

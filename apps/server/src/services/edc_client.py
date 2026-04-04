@@ -12,6 +12,7 @@ import httpx
 
 from ..observability import log_event
 from ..schemas.common import CurvePoint
+from ..time_utils import to_timestamp_ms
 
 
 class EDCClientError(RuntimeError):
@@ -92,8 +93,8 @@ class EDCClient:
             {
                 "suid": suid,
                 "cuid": cuid,
-                "startTime": str(int(start_time.timestamp() * 1000)),
-                "endTime": str(int(end_time.timestamp() * 1000)),
+                "startTime": str(to_timestamp_ms(start_time)),
+                "endTime": str(to_timestamp_ms(end_time)),
             },
         )
         points = self._parse_curve_text(payload.get("data"))

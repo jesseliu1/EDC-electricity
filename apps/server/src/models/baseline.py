@@ -2,10 +2,12 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from ..db_types import TimestampMsType
 from ..database import Base
+from ..time_utils import utc_now
 
 
 class BaselineDefinition(Base):
@@ -29,12 +31,12 @@ class BaselineDefinition(Base):
     created_by: Mapped[str] = mapped_column(String(50), nullable=False, comment="创建人")
     updated_by: Mapped[str] = mapped_column(String(50), nullable=False, comment="更新人")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False, comment="创建时间"
+        TimestampMsType(), default=utc_now, nullable=False, comment="创建时间"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        TimestampMsType(),
+        default=utc_now,
+        onupdate=utc_now,
         nullable=False,
         comment="更新时间",
     )
@@ -81,12 +83,12 @@ class BaselineDefinitionMetric(Base):
         Boolean, default=True, nullable=False, comment="是否启用"
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False, comment="创建时间"
+        TimestampMsType(), default=utc_now, nullable=False, comment="创建时间"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        TimestampMsType(),
+        default=utc_now,
+        onupdate=utc_now,
         nullable=False,
         comment="更新时间",
     )
@@ -123,13 +125,13 @@ class Baseline(Base):
         String(100), nullable=False, comment="生成该基线的来源炉次"
     )
     selected_start_time: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, comment="选区开始时间"
+        TimestampMsType(), nullable=False, comment="选区开始时间"
     )
     selected_end_time: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, comment="选区结束时间"
+        TimestampMsType(), nullable=False, comment="选区结束时间"
     )
     effective_from: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, comment="生效时间"
+        TimestampMsType(), nullable=False, comment="生效时间"
     )
     tolerance_percent: Mapped[float] = mapped_column(
         Float, nullable=False, comment="容许误差百分比"
@@ -137,17 +139,17 @@ class Baseline(Base):
     created_by: Mapped[str] = mapped_column(String(50), nullable=False, comment="创建人")
     updated_by: Mapped[str] = mapped_column(String(50), nullable=False, comment="更新人")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False, comment="创建时间"
+        TimestampMsType(), default=utc_now, nullable=False, comment="创建时间"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        TimestampMsType(),
+        default=utc_now,
+        onupdate=utc_now,
         nullable=False,
         comment="更新时间",
     )
     published_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True, comment="发布时间"
+        TimestampMsType(), nullable=True, comment="发布时间"
     )
 
     def __repr__(self) -> str:

@@ -12,6 +12,7 @@ from ..channel_roles import infer_metric_kind
 from ..database import async_session_maker
 from ..models import BaselineDefinitionMetric, Heat, MetricSeries
 from ..schemas.common import CurvePoint
+from ..time_utils import from_timestamp_ms, to_timestamp_ms, utc_now
 from .formal_baseline_service import decode_baseline_id, encode_baseline_id
 
 DEFAULT_METRIC_SPECS: dict[str, dict[str, Any]] = {
@@ -63,10 +64,10 @@ def _build_series_payload(
     points: list[CurvePoint],
 ) -> str:
     payload = {
-        "context_start_time": context_start_time.isoformat(),
-        "heat_start_time": heat_start_time.isoformat(),
-        "heat_end_time": heat_end_time.isoformat(),
-        "context_end_time": context_end_time.isoformat(),
+        "context_start_time": to_timestamp_ms(context_start_time),
+        "heat_start_time": to_timestamp_ms(heat_start_time),
+        "heat_end_time": to_timestamp_ms(heat_end_time),
+        "context_end_time": to_timestamp_ms(context_end_time),
         "points": [
             {"timestamp": int(point.timestamp), "value": float(point.value)} for point in points
         ],
@@ -107,10 +108,10 @@ def _context_boundaries_from_series(series_rows: list[MetricSeries]) -> tuple[da
         payload = _parse_series_payload(row.series_json)
         start_raw = payload.get("context_start_time")
         end_raw = payload.get("context_end_time")
-        if isinstance(start_raw, str) and isinstance(end_raw, str):
+        if isinstance(start_raw, (int, float)) and isinstance(end_raw, (int, float)):
             try:
-                return datetime.fromisoformat(start_raw), datetime.fromisoformat(end_raw)
-            except ValueError:
+                return from_timestamp_ms(start_raw), from_timestamp_ms(end_raw)
+            except (TypeError, ValueError):
                 continue
     return None, None
 
@@ -265,7 +266,7 @@ async def update_formal_heat_record(
         heat.start_time = new_start
         heat.end_time = new_end
         heat.updated_by = updated_by
-        heat.updated_at = datetime.now()
+        heat.updated_at = utc_now()
         await session.commit()
 
     return await get_formal_heat_record(heat_id)
@@ -289,7 +290,7 @@ async def resume_formal_heat_cutting(
             heat.status = "normal"
         heat.time_offset_percent = min(heat.time_offset_percent or 0.0, 8.0)
         heat.updated_by = updated_by
-        heat.updated_at = datetime.now()
+        heat.updated_at = utc_now()
         await session.commit()
 
     return await get_formal_heat_record(heat_id)
@@ -319,7 +320,7 @@ async def save_formal_heat_analysis(
         heat.deviation_details_json = _serialize_deviation_details(abnormal_ranges)
         heat.status = status
         heat.updated_by = updated_by
-        heat.updated_at = datetime.now()
+        heat.updated_at = utc_now()
         await session.commit()
 
     return await get_formal_heat_record(heat_id)
@@ -449,7 +450,7 @@ async def persist_sealed_heat_candidates(
                 end_time=end_time,
                 context_start_time=candidate.get("context_start_time") or start_time,
                 context_end_time=candidate.get("context_end_time") or end_time,
-                sealed_at=datetime.now(),
+                sealed_at=utc_now(),
                 source_kind=str(candidate.get("record_source") or "live_inferred"),
                 baseline_definition_id=baseline_definition_id,
                 baseline_item=baseline_item,
@@ -469,8 +470,8 @@ async def persist_sealed_heat_candidates(
                 status=str(candidate.get("status") or "normal"),
                 created_by="system",
                 updated_by="system",
-                created_at=candidate.get("created_at") or datetime.now(),
-                updated_at=datetime.now(),
+                created_at=candidate.get("created_at") or utc_now(),
+                updated_at=utc_now(),
             )
             session.add(heat)
 

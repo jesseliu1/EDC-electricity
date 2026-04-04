@@ -84,6 +84,13 @@ apps/server/
 - 历史炉次的指标值允许保留“前 30 分钟 + 当前炉次区间 + 后 30 分钟”的上下文窗口，便于后续单炉次人工调整
 - 所有未确认的自动回退、自动补全、自动替换都不应进入正式业务链路
 
+时间语义约束：
+
+- 所有绝对时间统一存 `timestamp(ms)`，数据库字段使用整数毫秒值，不再使用 SQLite `DateTime` 作为业务真源
+- 所有 API 输入输出统一传 `timestamp(ms)`，前端不再提交或依赖无时区 ISO 字符串
+- 业务日期、整天范围、班次、日报分组、基线生效匹配等“本地时间语义”统一按 `settings.plant_timezone` 解释
+- `plant_timezone` 默认值为 `Asia/Shanghai`
+
 ### 2.2 `baseline_definitions`
 
 主数据主表。
@@ -97,8 +104,8 @@ apps/server/
 | 5 | `status` | `string(20)` | 否 | 是 | 定义状态，控制该定义是否还能继续创建新基线 |
 | 6 | `created_by` | `string(50)` | 否 | 是 | 创建人 |
 | 7 | `updated_by` | `string(50)` | 否 | 是 | 更新人 |
-| 8 | `created_at` | `datetime` | 否 | 是 | 创建时间 |
-| 9 | `updated_at` | `datetime` | 否 | 是 | 更新时间 |
+| 8 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 9 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
 
 样例：
 
@@ -111,8 +118,8 @@ apps/server/
   "status": "active",
   "created_by": "wang",
   "updated_by": "wang",
-  "created_at": "2026-04-03T17:30:00",
-  "updated_at": "2026-04-03T17:30:00"
+  "created_at": 1775218200000,
+  "updated_at": 1775218200000
 }
 ```
 
@@ -140,8 +147,8 @@ apps/server/
 | 10 | `source_channel_name` | `string(100)` | 否 | 否 | 通道名称快照 |
 | 11 | `source_channel_label` | `string(255)` | 否 | 否 | 通道显示标签快照 |
 | 12 | `enabled` | `bool` | 否 | 是 | 是否启用 |
-| 13 | `created_at` | `datetime` | 否 | 是 | 创建时间 |
-| 14 | `updated_at` | `datetime` | 否 | 是 | 更新时间 |
+| 13 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 14 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
 
 样例：
 
@@ -197,15 +204,15 @@ apps/server/
 | 5 | `description` | `text` | 否 | 否 | 基线描述 |
 | 6 | `status` | `string(20)` | 否 | 否 | 基线状态，允许为空 |
 | 7 | `source_heat_id` | `string(36)` | 否 | 是 | 生成该基线的来源炉次 |
-| 8 | `selected_start_time` | `datetime` | 否 | 是 | 选区开始时间 |
-| 9 | `selected_end_time` | `datetime` | 否 | 是 | 选区结束时间 |
-| 10 | `effective_from` | `datetime` | 否 | 是 | 生效时间 |
+| 8 | `selected_start_time` | `int64(timestamp_ms)` | 否 | 是 | 选区开始时间 |
+| 9 | `selected_end_time` | `int64(timestamp_ms)` | 否 | 是 | 选区结束时间 |
+| 10 | `effective_from` | `int64(timestamp_ms)` | 否 | 是 | 生效时间 |
 | 11 | `tolerance_percent` | `float` | 否 | 是 | 容许误差百分比 |
 | 12 | `created_by` | `string(50)` | 否 | 是 | 创建人 |
 | 13 | `updated_by` | `string(50)` | 否 | 是 | 更新人 |
-| 14 | `created_at` | `datetime` | 否 | 是 | 创建时间 |
-| 15 | `updated_at` | `datetime` | 否 | 是 | 更新时间 |
-| 16 | `published_at` | `datetime` | 否 | 否 | 发布时间 |
+| 14 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 15 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
+| 16 | `published_at` | `int64(timestamp_ms)` | 否 | 否 | 发布时间 |
 
 样例：
 
@@ -218,15 +225,15 @@ apps/server/
   "description": "2026-04 第一版",
   "status": "published",
   "source_heat_id": "heat-1740",
-  "selected_start_time": "2026-04-03T17:40:00",
-  "selected_end_time": "2026-04-03T18:09:00",
-  "effective_from": "2026-04-03T18:36:00",
+  "selected_start_time": 1775218800000,
+  "selected_end_time": 1775220540000,
+  "effective_from": 1775222160000,
   "tolerance_percent": 15.0,
   "created_by": "wang",
   "updated_by": "wang",
-  "created_at": "2026-04-03T18:36:00",
-  "updated_at": "2026-04-03T18:36:00",
-  "published_at": "2026-04-03T18:37:00"
+  "created_at": 1775222160000,
+  "updated_at": 1775222160000,
+  "published_at": 1775222220000
 }
 ```
 
@@ -260,8 +267,8 @@ apps/server/
 | 13 | `source_channel_label` | `string(255)` | 否 | 否 | 通道标签快照 |
 | 14 | `series_json` | `text` | 否 | 是 | 指标完整窗口数据 JSON，包含前 30 分钟 + 当前炉次区间 + 后 30 分钟 |
 | 15 | `stat_json` | `text` | 否 | 否 | 统计信息 JSON |
-| 16 | `created_at` | `datetime` | 否 | 是 | 创建时间 |
-| 17 | `updated_at` | `datetime` | 否 | 是 | 更新时间 |
+| 16 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 17 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
 
 样例（基线）：
 
@@ -305,10 +312,10 @@ apps/server/
   "source_channel_name": "總有功功率",
   "source_channel_label": "A01 / 總有功功率 / kW",
   "series_json": {
-    "context_start_time": "2026-04-03T17:10:00",
-    "heat_start_time": "2026-04-03T17:40:00",
-    "heat_end_time": "2026-04-03T18:09:00",
-    "context_end_time": "2026-04-03T18:39:00",
+    "context_start_time": 1775217000000,
+    "heat_start_time": 1775218800000,
+    "heat_end_time": 1775220540000,
+    "context_end_time": 1775222340000,
     "points": [
       { "timestamp": 1775217000000, "value": 32.1 },
       { "timestamp": 1775217060000, "value": 31.8 },
@@ -340,15 +347,15 @@ apps/server/
 | 2 | `heat_no` | `string(50)` | 否 | 是 | 炉次编号 |
 | 3 | `description` | `text` | 否 | 否 | 炉次备注 |
 | 4 | `furnace_id` | `string(50)` | 否 | 否 | 炉号/设备 ID |
-| 5 | `start_time` | `datetime` | 否 | 是 | 开始时间 |
-| 6 | `end_time` | `datetime` | 否 | 是 | 结束时间 |
-| 7 | `context_start_time` | `datetime` | 否 | 是 | 上下文窗口开始时间，通常为真实开始前 30 分钟 |
-| 8 | `context_end_time` | `datetime` | 否 | 是 | 上下文窗口结束时间，通常为真实结束后 30 分钟 |
-| 9 | `sealed_at` | `datetime` | 否 | 是 | 固化入库时间 |
+| 5 | `start_time` | `int64(timestamp_ms)` | 否 | 是 | 开始时间 |
+| 6 | `end_time` | `int64(timestamp_ms)` | 否 | 是 | 结束时间 |
+| 7 | `context_start_time` | `int64(timestamp_ms)` | 否 | 是 | 上下文窗口开始时间，通常为真实开始前 30 分钟 |
+| 8 | `context_end_time` | `int64(timestamp_ms)` | 否 | 是 | 上下文窗口结束时间，通常为真实结束后 30 分钟 |
+| 9 | `sealed_at` | `int64(timestamp_ms)` | 否 | 是 | 固化入库时间 |
 | 10 | `source_kind` | `string(30)` | 否 | 是 | 来源类型 |
 | 11 | `baseline_definition_id` | `string(36)` | 否 | 否 | 绑定的基线定义 ID |
 | 12 | `baseline_item` | `string(3)` | 否 | 否 | 绑定的基线版本项 |
-| 13 | `baseline_effective_from_snapshot` | `datetime` | 否 | 否 | 绑定时的基线生效时间快照 |
+| 13 | `baseline_effective_from_snapshot` | `int64(timestamp_ms)` | 否 | 否 | 绑定时的基线生效时间快照 |
 | 14 | `deviation_status` | `string(20)` | 否 | 是 | 偏离度状态 |
 | 15 | `deviation_percent` | `float` | 否 | 否 | 最大偏离度 |
 | 16 | `avg_deviation_percent` | `float` | 否 | 否 | 平均偏离度 |
@@ -360,8 +367,8 @@ apps/server/
 | 22 | `status` | `string(20)` | 否 | 是 | 炉次状态 |
 | 23 | `created_by` | `string(50)` | 否 | 否 | 创建人 |
 | 24 | `updated_by` | `string(50)` | 否 | 否 | 更新人 |
-| 25 | `created_at` | `datetime` | 否 | 是 | 创建时间 |
-| 26 | `updated_at` | `datetime` | 否 | 是 | 更新时间 |
+| 25 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 26 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
 
 样例：
 
@@ -370,15 +377,15 @@ apps/server/
   "id": "heat-20260403-1740",
   "heat_no": "H20260403-1740",
   "furnace_id": "Furnace-A01",
-  "start_time": "2026-04-03T17:40:00",
-  "end_time": "2026-04-03T18:09:00",
-  "context_start_time": "2026-04-03T17:10:00",
-  "context_end_time": "2026-04-03T18:39:00",
-  "sealed_at": "2026-04-03T18:12:00",
+  "start_time": 1775218800000,
+  "end_time": 1775220540000,
+  "context_start_time": 1775217000000,
+  "context_end_time": 1775222340000,
+  "sealed_at": 1775220720000,
   "source_kind": "live_inferred",
   "baseline_definition_id": "def-std-melt",
   "baseline_item": "001",
-  "baseline_effective_from_snapshot": "2026-04-03T18:36:00",
+  "baseline_effective_from_snapshot": 1775222160000,
   "deviation_status": "ready",
   "deviation_percent": 12.8,
   "avg_deviation_percent": 7.3,
@@ -401,9 +408,9 @@ apps/server/
 | 9 | `improvement` | `text` | 否 | 否 | 改善措施 |
 | 10 | `prevention` | `text` | 否 | 否 | 预防措施 |
 | 11 | `status` | `string(20)` | 否 | 是 | 任务状态 |
-| 12 | `created_at` | `datetime` | 否 | 是 | 创建时间 |
-| 13 | `updated_at` | `datetime` | 否 | 是 | 更新时间 |
-| 14 | `completed_at` | `datetime` | 否 | 否 | 完成时间 |
+| 12 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 13 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
+| 14 | `completed_at` | `int64(timestamp_ms)` | 否 | 否 | 完成时间 |
 
 ### 2.8 `settings`
 
@@ -414,7 +421,12 @@ apps/server/
 | 1 | `key` | `string(100)` | 是 | 是 | 设置项键 |
 | 2 | `value` | `text` | 否 | 是 | 设置值 |
 | 3 | `description` | `string(255)` | 否 | 否 | 设置说明 |
-| 4 | `updated_at` | `datetime` | 否 | 是 | 更新时间 |
+| 4 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
+
+关键设置项：
+
+- `plant_timezone`: 工厂业务时区，默认 `Asia/Shanghai`
+- `work_start_time / work_end_time / break_periods`: 作为 `plant_timezone` 下的本地时间规则解释
 
 ### 2.9 表关系
 

@@ -11,9 +11,9 @@ export interface TaskItemResponse {
   improvement: string | null
   prevention: string | null
   status: TaskStatus
-  created_at: string
-  updated_at: string
-  completed_at: string | null
+  created_at: number
+  updated_at: number
+  completed_at: number | null
 }
 
 export interface TaskListResponse {

@@ -1,11 +1,13 @@
 import { defineStore } from 'pinia'
 import { settingApi } from '@/api/setting'
+import { normalizeTimezone, setPlantTimezone } from '@/utils/time'
 
 export interface SystemSettings {
   defaultTolerancePercent: number
   reportGenerationHour: number
   timeTolerancePercent: number
   majorIssueDurationMinutes: number
+  plantTimezone: string
   workStartTime: string
   workEndTime: string
   breakPeriods: string
@@ -17,6 +19,7 @@ const defaultSettings: SystemSettings = {
   reportGenerationHour: 2,
   timeTolerancePercent: 10,
   majorIssueDurationMinutes: 8,
+  plantTimezone: 'Asia/Shanghai',
   workStartTime: '08:00',
   workEndTime: '18:00',
   breakPeriods: '12:00-13:00',
@@ -45,6 +48,7 @@ export const useSettingStore = defineStore('setting', {
           reportGenerationHour: Number(map.report_generation_hour || 2),
           timeTolerancePercent: Number(map.time_tolerance_percent || 10),
           majorIssueDurationMinutes: Number(map.major_issue_duration_minutes || 8),
+          plantTimezone: normalizeTimezone(map.plant_timezone || 'Asia/Shanghai'),
           workStartTime: map.work_start_time || '08:00',
           workEndTime: map.work_end_time || '18:00',
           breakPeriods: map.break_periods || '12:00-13:00',
@@ -55,6 +59,7 @@ export const useSettingStore = defineStore('setting', {
           mode === 'system' || mode === 'production_line' ? mode : 'definition'
         this.data = cloneSettings(nextData)
         this.savedData = cloneSettings(nextData)
+        setPlantTimezone(nextData.plantTimezone)
       } catch (error) {
         console.warn('Settings fallback to default.', error)
       } finally {
@@ -73,6 +78,7 @@ export const useSettingStore = defineStore('setting', {
       await settingApi.updateCutting({
         time_tolerance_percent: this.data.timeTolerancePercent,
         major_issue_duration_minutes: this.data.majorIssueDurationMinutes,
+        plant_timezone: this.data.plantTimezone,
         work_start_time: this.data.workStartTime,
         work_end_time: this.data.workEndTime,
         break_periods: this.data.breakPeriods
@@ -83,10 +89,12 @@ export const useSettingStore = defineStore('setting', {
       await settingApi.updateBaselineLengthScope(this.data.baselineLengthScopeMode)
       this.savedData.timeTolerancePercent = this.data.timeTolerancePercent
       this.savedData.majorIssueDurationMinutes = this.data.majorIssueDurationMinutes
+      this.savedData.plantTimezone = this.data.plantTimezone
       this.savedData.workStartTime = this.data.workStartTime
       this.savedData.workEndTime = this.data.workEndTime
       this.savedData.breakPeriods = this.data.breakPeriods
       this.savedData.baselineLengthScopeMode = this.data.baselineLengthScopeMode
+      setPlantTimezone(this.data.plantTimezone)
     },
     resetTolerance() {
       this.data.defaultTolerancePercent = this.savedData.defaultTolerancePercent

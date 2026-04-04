@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import { formatTimestamp } from '@/utils/time'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -10,7 +11,7 @@ type HeatStatus = 'normal' | 'abnormal' | 'pending'
 interface HeatItem {
   id: string
   heatNo: string
-  startTime: string
+  startTime: number
   duration?: string
   deviationPercent: number | null
   status: HeatStatus
@@ -136,7 +137,7 @@ const handleViewDetail = (heatId: string) => {
               }}</span>
             </td>
             <td class="px-4 py-3.5">
-              <span class="text-sm text-slate-600">{{ heat.startTime }}</span>
+              <span class="text-sm text-slate-600">{{ formatTimestamp(heat.startTime) }}</span>
             </td>
             <td class="px-4 py-3.5">
               <span

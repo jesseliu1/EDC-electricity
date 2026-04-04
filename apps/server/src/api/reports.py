@@ -11,6 +11,9 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from ..schemas.common import OptionalTimestampMs
+from ..time_utils import plant_date_of, utc_now
+from .settings import get_plant_timezone
 from .tasks import _list_task_store
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
@@ -26,7 +29,7 @@ class DailyReportSummary(BaseModel):
     avg_deviation: float = Field(..., description="平均偏差百分比")
     pending_tasks: int = Field(..., description="待处理任务数")
     completed_tasks: int = Field(..., description="已完成任务数")
-    generated_at: datetime | None = Field(default=None, description="生成时间")
+    generated_at: OptionalTimestampMs = Field(default=None, description="生成时间")
 
 
 class DailyReportListResponse(BaseModel):
@@ -45,17 +48,18 @@ class DailyReportDetail(DailyReportSummary):
 
 
 def _task_anchor_date(task: dict[str, Any]) -> dt_date | None:
+    timezone_name = get_plant_timezone()
     completed_at = task.get("completed_at")
     if isinstance(completed_at, datetime):
-        return completed_at.date()
+        return plant_date_of(completed_at, timezone_name)
 
     updated_at = task.get("updated_at")
     if isinstance(updated_at, datetime):
-        return updated_at.date()
+        return plant_date_of(updated_at, timezone_name)
 
     created_at = task.get("created_at")
     if isinstance(created_at, datetime):
-        return created_at.date()
+        return plant_date_of(created_at, timezone_name)
     return None
 
 
@@ -82,7 +86,13 @@ def _build_daily_report(
     heats: list[dict[str, Any]],
     tasks: list[dict[str, Any]],
 ) -> DailyReportDetail:
-    scoped_heats = [item for item in heats if item["start_time"].date() == report_date]
+    timezone_name = get_plant_timezone()
+    scoped_heats = [
+        item
+        for item in heats
+        if isinstance(item.get("start_time"), datetime)
+        and plant_date_of(item["start_time"], timezone_name) == report_date
+    ]
     if not scoped_heats:
         raise HTTPException(status_code=404, detail="日报不存在")
 
@@ -148,7 +158,15 @@ async def list_daily_reports(
 ) -> DailyReportListResponse:
     """获取日报列表。"""
     heats, tasks = await _report_context()
-    report_dates = sorted({item["start_time"].date() for item in heats}, reverse=True)
+    timezone_name = get_plant_timezone()
+    report_dates = sorted(
+        {
+            plant_date_of(item["start_time"], timezone_name)
+            for item in heats
+            if isinstance(item.get("start_time"), datetime)
+        },
+        reverse=True,
+    )
 
     if start_date:
         report_dates = [item for item in report_dates if item >= start_date]
@@ -202,5 +220,5 @@ async def export_daily_report_pdf(report_date: dt_date) -> StreamingResponse:
 async def generate_daily_report(report_date: dt_date) -> DailyReportDetail:
     """手动生成指定日期日报。"""
     report = await get_daily_report(report_date)
-    report.generated_at = datetime.now()
+    report.generated_at = utc_now()
     return report

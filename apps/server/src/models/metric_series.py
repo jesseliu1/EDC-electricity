@@ -2,10 +2,12 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, String, Text
+from sqlalchemy import Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from ..db_types import TimestampMsType
 from ..database import Base
+from ..time_utils import utc_now
 
 
 class MetricSeries(Base):
@@ -48,12 +50,12 @@ class MetricSeries(Base):
     )
     stat_json: Mapped[str | None] = mapped_column(Text, nullable=True, comment="统计信息JSON")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False, comment="创建时间"
+        TimestampMsType(), default=utc_now, nullable=False, comment="创建时间"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        TimestampMsType(),
+        default=utc_now,
+        onupdate=utc_now,
         nullable=False,
         comment="更新时间",
     )

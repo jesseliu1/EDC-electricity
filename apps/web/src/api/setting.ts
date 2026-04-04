@@ -60,6 +60,7 @@ export interface RuntimeFlagsSummaryResponse {
   showtime_enabled: boolean
   live_heat_inference_enabled: boolean
   baseline_length_scope_mode: 'definition' | 'system' | 'production_line'
+  plant_timezone: string
 }
 
 export interface RuntimePipelineStatusResponse {
@@ -97,6 +98,7 @@ export const settingApi = {
   updateCutting: (payload: {
     time_tolerance_percent: number
     major_issue_duration_minutes: number
+    plant_timezone: string
     work_start_time: string
     work_end_time: string
     break_periods: string[]

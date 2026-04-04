@@ -1,11 +1,9 @@
 """基线 Pydantic 模式"""
-
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .common import CurvePoint
+from .common import CurvePoint, OptionalTimestampMs, TimestampMs
 
 
 class CurveData(BaseModel):
@@ -28,9 +26,9 @@ class BaselineCreate(BaseModel):
     description: str | None = Field(default=None, description="基线描述")
     definition_id: str = Field(..., description="所属基线定义ID")
     source_heat_id: str = Field(..., description="来源炉次ID")
-    selected_start_time: datetime | None = Field(default=None, description="图上选点开始时间")
-    selected_end_time: datetime | None = Field(default=None, description="图上选点结束时间")
-    effective_from: datetime | None = Field(default=None, description="生效时间")
+    selected_start_time: OptionalTimestampMs = Field(default=None, description="图上选点开始时间")
+    selected_end_time: OptionalTimestampMs = Field(default=None, description="图上选点结束时间")
+    effective_from: OptionalTimestampMs = Field(default=None, description="生效时间")
     tolerance_percent: float = Field(default=15.0, ge=0, le=100, description="容许误差百分比")
 
 
@@ -39,9 +37,9 @@ class BaselineUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=100, description="基线名称")
     description: str | None = Field(default=None, description="基线描述")
-    selected_start_time: datetime | None = Field(default=None, description="图上选点开始时间")
-    selected_end_time: datetime | None = Field(default=None, description="图上选点结束时间")
-    effective_from: datetime | None = Field(default=None, description="生效时间")
+    selected_start_time: OptionalTimestampMs = Field(default=None, description="图上选点开始时间")
+    selected_end_time: OptionalTimestampMs = Field(default=None, description="图上选点结束时间")
+    effective_from: OptionalTimestampMs = Field(default=None, description="生效时间")
     tolerance_percent: float | None = Field(
         default=None, ge=0, le=100, description="容许误差百分比"
     )
@@ -56,16 +54,16 @@ class BaselineResponse(BaseModel):
     definition_id: str = Field(..., description="所属基线定义ID")
     definition_name: str = Field(default="", description="所属基线定义名称")
     source_heat_id: str = Field(..., description="来源炉次ID")
-    selected_start_time: datetime | None = Field(default=None, description="图上选点开始时间")
-    selected_end_time: datetime | None = Field(default=None, description="图上选点结束时间")
-    effective_from: datetime | None = Field(default=None, description="生效时间")
+    selected_start_time: OptionalTimestampMs = Field(default=None, description="图上选点开始时间")
+    selected_end_time: OptionalTimestampMs = Field(default=None, description="图上选点结束时间")
+    effective_from: OptionalTimestampMs = Field(default=None, description="生效时间")
     tolerance_percent: float = Field(..., description="容许误差百分比")
     status: str = Field(..., description="状态: draft/published/disabled")
     version: int = Field(..., description="版本号")
     curve_source: str = Field(default="none", description="基线曲线来源")
-    created_at: datetime = Field(..., description="创建时间")
-    updated_at: datetime = Field(..., description="更新时间")
-    published_at: datetime | None = Field(default=None, description="发布时间")
+    created_at: TimestampMs = Field(..., description="创建时间")
+    updated_at: TimestampMs = Field(..., description="更新时间")
+    published_at: OptionalTimestampMs = Field(default=None, description="发布时间")
 
     model_config = {"from_attributes": True}
 
@@ -86,8 +84,8 @@ class BaselinePreviewResponse(BaseModel):
 
     definition_id: str = Field(..., description="所属定义ID")
     source_heat_id: str = Field(..., description="来源炉次ID")
-    range_start: datetime = Field(..., description="预览开始时间")
-    range_end: datetime = Field(..., description="预览结束时间")
+    range_start: TimestampMs = Field(..., description="预览开始时间")
+    range_end: TimestampMs = Field(..., description="预览结束时间")
     curves_data: list[CurveData] = Field(default_factory=list, description="候选曲线数据")
 
 
@@ -100,14 +98,14 @@ class BaselinePreviewJobResponse(BaseModel):
     status: Literal["idle", "running", "succeeded", "failed"] = Field(
         ..., description="任务状态"
     )
-    range_start: datetime = Field(..., description="预览开始时间")
-    range_end: datetime = Field(..., description="预览结束时间")
+    range_start: TimestampMs = Field(..., description="预览开始时间")
+    range_end: TimestampMs = Field(..., description="预览结束时间")
     curves_data: list[CurveData] = Field(default_factory=list, description="候选曲线数据")
     last_error: str | None = Field(default=None, description="最近错误")
-    created_at: datetime | None = Field(default=None, description="任务创建时间")
-    started_at: datetime | None = Field(default=None, description="任务开始时间")
-    updated_at: datetime | None = Field(default=None, description="最近状态更新时间")
-    completed_at: datetime | None = Field(default=None, description="任务完成时间")
+    created_at: OptionalTimestampMs = Field(default=None, description="任务创建时间")
+    started_at: OptionalTimestampMs = Field(default=None, description="任务开始时间")
+    updated_at: OptionalTimestampMs = Field(default=None, description="最近状态更新时间")
+    completed_at: OptionalTimestampMs = Field(default=None, description="任务完成时间")
 
 
 class BaselineListResponse(BaseModel):

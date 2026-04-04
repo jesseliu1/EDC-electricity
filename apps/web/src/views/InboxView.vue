@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useHeatStore } from '@/stores/heat'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
+import { formatTimestamp } from '@/utils/time'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -85,7 +86,7 @@ onMounted(async () => {
                 </span>
               </div>
               <div class="text-sm text-slate-500 flex items-center gap-3">
-                <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">schedule</span> {{ item.startTime }}</span>
+                <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">schedule</span> {{ formatTimestamp(item.startTime) }}</span>
               </div>
             </div>
           </div>

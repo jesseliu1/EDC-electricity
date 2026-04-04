@@ -30,12 +30,12 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { ECharts, EChartsOption } from 'echarts'
-import dayjs from 'dayjs'
 import { useBaselineDefinitionStore } from '@/stores/baselineDefinition'
 import { baselineDefinitionApi } from '@/api/baselineDefinition'
 import type { BaselinePreviewJobResponse, BaselinePreviewJobStatus } from '@/api/baselineDefinition'
 import { heatApi } from '@/api/heat'
 import type { HeatRuntimeSnapshotStatus } from '@/api/heat'
+import { formatTimestamp, plantDayRangeFromDate } from '@/utils/time'
 
 use([
   CanvasRenderer,
@@ -67,16 +67,16 @@ interface WizardSubmitPayload {
   description: string
   definitionId: string
   sourceHeatId: string
-  selectedStartTime?: string
-  selectedEndTime?: string
+  selectedStartTime?: number
+  selectedEndTime?: number
   tolerancePercent: number
   mode: 'draft' | 'publish'
 }
 
 interface Props {
   initialSourceHeatId?: string
-  initialSelectedStartTime?: string
-  initialSelectedEndTime?: string
+  initialSelectedStartTime?: number | null
+  initialSelectedEndTime?: number | null
   initialName?: string
   submitting?: boolean
 }
@@ -117,8 +117,8 @@ type ChartRuntimeSeriesSummary = {
 
 const props = withDefaults(defineProps<Props>(), {
   initialSourceHeatId: '',
-  initialSelectedStartTime: '',
-  initialSelectedEndTime: '',
+  initialSelectedStartTime: null,
+  initialSelectedEndTime: null,
   initialName: '',
   submitting: false,
 })
@@ -147,7 +147,7 @@ const heatCandidatesLoading = ref(false)
 const stepTwoActivated = ref(false)
 const stepTwoBootstrapping = ref(false)
 const previewWindowLabel = ref('')
-const heatCandidatesDate = ref<Date | null>(dayjs().toDate())
+const heatCandidatesDate = ref<Date | null>(new Date())
 const currentPreviewRequestKey = ref('')
 let previewRequestToken = 0
 let heatCandidatesRetryTimer: number | null = null
@@ -225,20 +225,22 @@ async function loadHeatCandidates() {
   heatCandidatesLoading.value = true
   const previousCandidates = [...heatCandidates.value]
   try {
-    const dateValue = heatCandidatesDate.value ? dayjs(heatCandidatesDate.value) : null
+    const dateRange = heatCandidatesDate.value
+      ? plantDayRangeFromDate(heatCandidatesDate.value)
+      : null
     const data = await heatApi.list({
       page: 1,
       page_size: 50,
-      start_date: dateValue ? dateValue.startOf('day').toISOString() : undefined,
-      end_date: dateValue ? dateValue.endOf('day').toISOString() : undefined,
+      start_date: dateRange?.start,
+      end_date: dateRange?.end,
     })
     heatCandidatesSnapshotStatus.value = data.snapshot_status
     const nextCandidates = data.items.map((item) => ({
       id: item.id,
       heatNo: item.heat_no,
-      date: dayjs(item.start_time).format('YYYY-MM-DD HH:mm:ss'),
-      startTime: dayjs(item.start_time).valueOf(),
-      endTime: dayjs(item.end_time).valueOf(),
+      date: formatTimestamp(item.start_time, 'YYYY-MM-DD HH:mm:ss'),
+      startTime: item.start_time,
+      endTime: item.end_time,
     }))
     const shouldKeepPreviousCandidates =
       nextCandidates.length === 0 &&
@@ -272,19 +274,15 @@ async function loadHeatCandidates() {
   if (props.initialSourceHeatId) {
     const exists = heatCandidates.value.some((item) => item.id === props.initialSourceHeatId)
     if (!exists) {
-      const start = props.initialSelectedStartTime
-        ? dayjs(props.initialSelectedStartTime)
-        : dayjs().subtract(4, 'hour')
-      const end = props.initialSelectedEndTime
-        ? dayjs(props.initialSelectedEndTime)
-        : start.add(35, 'minute')
+      const start = props.initialSelectedStartTime ?? Date.now() - 4 * 60 * 60 * 1000
+      const end = props.initialSelectedEndTime ?? start + 35 * 60 * 1000
 
       heatCandidates.value.unshift({
         id: props.initialSourceHeatId,
         heatNo: props.initialName || `H-PREFILL-${props.initialSourceHeatId}`,
-        date: start.format('YYYY-MM-DD HH:mm:ss'),
-        startTime: start.valueOf(),
-        endTime: end.valueOf(),
+        date: formatTimestamp(start, 'YYYY-MM-DD HH:mm:ss'),
+        startTime: start,
+        endTime: end,
       })
     }
   }
@@ -307,7 +305,7 @@ async function loadPreviewCurves() {
 
   const selectedHeatItem = heatCandidates.value.find((item) => item.id === targetHeatId)
   const nextPreviewRequestKey = selectedHeatItem
-    ? `${formData.value.definitionId}:${dayjs(selectedHeatItem.startTime).format('YYYY-MM-DD')}`
+    ? `${formData.value.definitionId}:${formatTimestamp(selectedHeatItem.startTime, 'YYYY-MM-DD')}`
     : `${formData.value.definitionId}:${targetHeatId}`
   const isSamePreviewRequest = currentPreviewRequestKey.value === nextPreviewRequestKey
   currentPreviewRequestKey.value = nextPreviewRequestKey
@@ -356,11 +354,12 @@ function clearPreviewPoll() {
 
 function applyPreviewJobState(previewJob: BaselinePreviewJobResponse) {
   previewJobStatus.value = previewJob.status
-  previewWindowLabel.value = `${dayjs(previewJob.range_start).format('MM-DD HH:mm:ss')} ~ ${dayjs(
-    previewJob.range_end
-  ).format('MM-DD HH:mm:ss')}`
+  previewWindowLabel.value = `${formatTimestamp(previewJob.range_start, 'MM-DD HH:mm:ss')} ~ ${formatTimestamp(
+    previewJob.range_end,
+    'MM-DD HH:mm:ss'
+  )}`
   previewJobUpdatedAt.value = previewJob.completed_at
-    ? dayjs(previewJob.completed_at).format('YYYY-MM-DD HH:mm:ss')
+    ? formatTimestamp(previewJob.completed_at, 'YYYY-MM-DD HH:mm:ss')
     : ''
 
   const mappedCurves = mapPreviewCurves(previewJob.curves_data)
@@ -417,9 +416,9 @@ async function ensureStepTwoData() {
       selectedHeatId.value = heatCandidates.value[0].id
     }
 
-    if (props.initialSelectedStartTime && props.initialSelectedEndTime) {
-      selectedStart.value = dayjs(props.initialSelectedStartTime).valueOf()
-      selectedEnd.value = dayjs(props.initialSelectedEndTime).valueOf()
+    if (props.initialSelectedStartTime !== null && props.initialSelectedEndTime !== null) {
+      selectedStart.value = props.initialSelectedStartTime
+      selectedEnd.value = props.initialSelectedEndTime
       normalizeRange()
     } else if (!selectedStart.value || !selectedEnd.value) {
       resetRangeByHeat()
@@ -759,7 +758,7 @@ const chartOption = computed<EChartsOption>(() => {
       minInterval: 60 * 1000,
       axisLabel: {
         color: '#64748b',
-        formatter: (value: number) => dayjs(value).format('MM-DD HH:mm'),
+        formatter: (value: number) => formatTimestamp(value, 'MM-DD HH:mm'),
       },
     },
     yAxis,
@@ -841,9 +840,10 @@ const summaryStats = computed(() => {
 
 const previewHeatSummary = computed(() => {
   if (!selectedHeat.value) return '--'
-  return `${selectedHeat.value.heatNo} · ${dayjs(selectedHeat.value.startTime).format(
+  return `${selectedHeat.value.heatNo} · ${formatTimestamp(
+    selectedHeat.value.startTime,
     'MM-DD HH:mm:ss'
-  )} ~ ${dayjs(selectedHeat.value.endTime).format('MM-DD HH:mm:ss')}`
+  )} ~ ${formatTimestamp(selectedHeat.value.endTime, 'MM-DD HH:mm:ss')}`
 })
 
 async function nextStep() {
@@ -913,8 +913,8 @@ function submit(mode: 'draft' | 'publish') {
     description: formData.value.description.trim(),
     definitionId: formData.value.definitionId,
     sourceHeatId: selectedHeatId.value,
-    selectedStartTime: rangeStart !== null ? dayjs(rangeStart).toISOString() : undefined,
-    selectedEndTime: rangeEnd !== null ? dayjs(rangeEnd).toISOString() : undefined,
+    selectedStartTime: rangeStart !== null ? rangeStart : undefined,
+    selectedEndTime: rangeEnd !== null ? rangeEnd : undefined,
     tolerancePercent: formData.value.tolerancePercent,
     mode,
   })
@@ -929,9 +929,9 @@ watch(
     if (!selectedHeatId.value && heatCandidates.value[0]) {
       selectedHeatId.value = heatCandidates.value[0].id
     }
-    if (props.initialSelectedStartTime && props.initialSelectedEndTime) {
-      selectedStart.value = dayjs(props.initialSelectedStartTime).valueOf()
-      selectedEnd.value = dayjs(props.initialSelectedEndTime).valueOf()
+    if (props.initialSelectedStartTime !== null && props.initialSelectedEndTime !== null) {
+      selectedStart.value = props.initialSelectedStartTime
+      selectedEnd.value = props.initialSelectedEndTime
       normalizeRange()
     } else if (!selectedStart.value || !selectedEnd.value) {
       resetRangeByHeat()
@@ -1165,8 +1165,8 @@ onBeforeUnmount(() => {
               </el-radio>
               <div class="mt-2 text-xs text-gray-500">{{ item.date }}</div>
               <div class="mt-1 text-xs text-slate-400">
-                {{ dayjs(item.startTime).format('MM-DD HH:mm:ss') }} ~
-                {{ dayjs(item.endTime).format('MM-DD HH:mm:ss') }}
+                {{ formatTimestamp(item.startTime, 'MM-DD HH:mm:ss') }} ~
+                {{ formatTimestamp(item.endTime, 'MM-DD HH:mm:ss') }}
               </div>
             </label>
           </div>
@@ -1373,9 +1373,9 @@ onBeforeUnmount(() => {
           </div>
           <div>
             <span class="text-gray-500">{{ t('baseline.wizard.pointRange') }}:</span>
-            {{ selectedStart ? dayjs(selectedStart).format('YYYY-MM-DD HH:mm:ss') : '--' }}
+            {{ selectedStart ? formatTimestamp(selectedStart, 'YYYY-MM-DD HH:mm:ss') : '--' }}
             ~
-            {{ selectedEnd ? dayjs(selectedEnd).format('YYYY-MM-DD HH:mm:ss') : '--' }}
+            {{ selectedEnd ? formatTimestamp(selectedEnd, 'YYYY-MM-DD HH:mm:ss') : '--' }}
           </div>
           <div>
             <span class="text-gray-500">{{ t('baseline.tolerance') }}:</span>

@@ -1,10 +1,8 @@
 """炉次 Pydantic 模式"""
 
-from datetime import datetime
-
 from pydantic import BaseModel, Field
 
-from .common import CurvePoint
+from .common import CurvePoint, OptionalTimestampMs, TimestampMs
 
 
 class DeviationRange(BaseModel):
@@ -21,15 +19,15 @@ class HeatResponse(BaseModel):
     id: str = Field(..., description="炉次ID")
     heat_no: str = Field(..., description="炉次编号")
     description: str | None = Field(default=None, description="炉次描述")
-    start_time: datetime = Field(..., description="开始时间")
-    end_time: datetime = Field(..., description="结束时间")
+    start_time: TimestampMs = Field(..., description="开始时间")
+    end_time: TimestampMs = Field(..., description="结束时间")
     completion_status: str = Field(default="completed", description="完成状态: completed/in_progress")
-    last_point_at: datetime | None = Field(default=None, description="当前已采样到的最后时间")
+    last_point_at: OptionalTimestampMs = Field(default=None, description="当前已采样到的最后时间")
     runtime_snapshot_status: str = Field(default="warming", description="当前运行态快照状态")
     realtime_current: bool = Field(default=False, description="是否可作为可信当前炉次展示")
     baseline_id: str | None = Field(default=None, description="对比基线ID")
     baseline_version_id: str | None = Field(default=None, description="绑定的基线版本ID")
-    baseline_effective_from: datetime | None = Field(default=None, description="绑定基线的生效时间")
+    baseline_effective_from: OptionalTimestampMs = Field(default=None, description="绑定基线的生效时间")
     deviation_percent: float | None = Field(default=None, description="最大偏差百分比")
     avg_deviation_percent: float | None = Field(default=None, description="平均偏差百分比")
     time_offset_percent: float | None = Field(default=None, description="时间偏移百分比")
@@ -44,7 +42,7 @@ class HeatResponse(BaseModel):
     record_source: str = Field(default="none", description="炉次主记录来源")
     current_curve_source: str = Field(default="none", description="当前曲线来源")
     baseline_curve_source: str = Field(default="none", description="对比基线曲线来源")
-    created_at: datetime = Field(..., description="创建时间")
+    created_at: TimestampMs = Field(..., description="创建时间")
 
     model_config = {"from_attributes": True}
 
@@ -111,9 +109,15 @@ class HeatListResponse(BaseModel):
     page: int = Field(..., description="当前页码")
     page_size: int = Field(..., description="每页数量")
     snapshot_status: str = Field(default="ready", description="历史炉次运行态状态")
-    snapshot_watermark: datetime | None = Field(default=None, description="快照覆盖到的最新真实数据时间")
-    last_refresh_started_at: datetime | None = Field(default=None, description="最近一次刷新开始时间")
-    last_refresh_completed_at: datetime | None = Field(default=None, description="最近一次刷新完成时间")
+    snapshot_watermark: OptionalTimestampMs = Field(
+        default=None, description="快照覆盖到的最新真实数据时间"
+    )
+    last_refresh_started_at: OptionalTimestampMs = Field(
+        default=None, description="最近一次刷新开始时间"
+    )
+    last_refresh_completed_at: OptionalTimestampMs = Field(
+        default=None, description="最近一次刷新完成时间"
+    )
     refresh_error: str | None = Field(default=None, description="最近一次刷新错误")
     refresh_failure_count: int = Field(default=0, description="连续刷新失败次数")
 
@@ -139,8 +143,8 @@ class HeatUpdate(BaseModel):
     """更新炉次请求"""
 
     description: str | None = Field(default=None, description="炉次描述")
-    start_time: datetime | None = Field(default=None, description="开始时间")
-    end_time: datetime | None = Field(default=None, description="结束时间")
+    start_time: OptionalTimestampMs = Field(default=None, description="开始时间")
+    end_time: OptionalTimestampMs = Field(default=None, description="结束时间")
     adjust_subsequent: bool = Field(default=False, description="是否自动调整后续炉次")
 
 
@@ -154,7 +158,7 @@ class HeatResumeCuttingRequest(BaseModel):
 class CuttingTimelineEvent(BaseModel):
     """切割判定时间轴事件"""
 
-    timestamp: datetime = Field(..., description="事件时间")
+    timestamp: TimestampMs = Field(..., description="事件时间")
     event_type: str = Field(..., description="事件类型")
     title: str = Field(..., description="事件标题")
     detail: str = Field(..., description="事件详情")

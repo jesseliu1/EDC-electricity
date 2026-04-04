@@ -40,7 +40,8 @@ from ..services import (
 from ..services import (
     update_definition_metric as update_definition_metric_record,
 )
-from .settings import _HOST_CHANNEL_STORE, get_edc_connection_config
+from ..time_utils import plant_date_of, plant_day_bounds_datetime, utc_now
+from .settings import _HOST_CHANNEL_STORE, get_edc_connection_config, get_plant_timezone
 
 router = APIRouter(prefix="/baseline-definitions", tags=["BaselineDefinitions"])
 
@@ -51,7 +52,7 @@ _PREVIEW_JOB_LOCK = asyncio.Lock()
 
 
 def _now() -> datetime:
-    return datetime.now()
+    return utc_now()
 
 
 _DEFINITION_STORE: dict[str, dict[str, Any]] = {}
@@ -129,8 +130,7 @@ async def _resolve_preview_window(
         raise HTTPException(status_code=404, detail="来源炉次不存在")
 
     heat_start: datetime = heat["start_time"]
-    day_start = heat_start.replace(hour=0, minute=0, second=0, microsecond=0)
-    return day_start, day_start + timedelta(days=1)
+    return plant_day_bounds_datetime(heat_start, get_plant_timezone())
 
 
 async def _build_preview_curves(
@@ -196,7 +196,8 @@ async def _build_preview_curves(
 
 
 def _preview_job_key(*, definition_id: str, range_start: datetime) -> str:
-    return f"{definition_id}:{range_start.strftime('%Y-%m-%d')}"
+    plant_date = plant_date_of(range_start, get_plant_timezone())
+    return f"{definition_id}:{plant_date.isoformat()}"
 
 
 def _preview_job_has_points(entry: dict[str, Any]) -> bool:

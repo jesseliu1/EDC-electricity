@@ -21,6 +21,13 @@
 
 ## 记录
 
+### 2026-04-04 时间重构里必须分清“日期选择器 wall-clock”与“已存在绝对时间戳”
+
+- **错误模式**: 把同一个“按天取范围”的前端 helper 同时用于日期选择器返回的 `Date` 和后端已存在的绝对 `timestamp(ms)`。前者需要按用户选中的日历日期解释，后者需要先转成 `plant_timezone` 下的本地日期；两者混用时，会把浏览器本地时区偷偷带回业务语义。
+- **正确做法**: 前端时间工具必须至少拆成两类：1) 处理日期选择器 wall-clock 的 helper，例如“根据用户选中的日期生成 plant day range”；2) 处理后端绝对时间戳的 helper，例如“根据 timestamp 先投影到 `plant_timezone`，再求该业务日范围”。不要复用同一个 helper 同时处理这两类输入。
+- **适用场景**: Vue/Element Plus 日期选择器、按自然日筛炉次、整天曲线预览、热详情上下文日范围、任何“浏览器本地日期对象”和“业务绝对时间戳”同时存在的前端时间改造。
+- **相关文档**: `apps/web/src/utils/time.ts`, `apps/web/src/views/HeatDetailView.vue`, `apps/web/src/components/baseline/BaselineWizard.vue`
+
 ### 2026-04-04 服务器上收到“重新部署 GitHub 最新内容”指令时，默认先刷新当前工作区到目标版本
 
 - **错误模式**: 用户已经明确要求在服务器上重新部署 GitHub 最新内容，但排查或部署前没有先刷新当前工作区，继续基于旧工作区代码阅读、判断或比对，导致“工作区代码版本”“GitHub 目标版本”“正在运行版本”三者口径混杂。

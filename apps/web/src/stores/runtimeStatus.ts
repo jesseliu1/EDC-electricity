@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { settingApi } from '@/api/setting'
+import { setPlantTimezone } from '@/utils/time'
 
 let runtimeStatusPendingRequest: Promise<void> | null = null
 let runtimeStatusLastLoadedAt = 0
@@ -44,6 +45,7 @@ export interface RuntimeStatusState {
     showtimeEnabled: boolean
     liveHeatInferenceEnabled: boolean
     baselineLengthScopeMode: 'definition' | 'system' | 'production_line'
+    plantTimezone: string
   }
   pipelines: {
     dashboard: RuntimePipelineStatus
@@ -87,7 +89,8 @@ const defaultState = (): RuntimeStatusState => ({
   runtime: {
     showtimeEnabled: false,
     liveHeatInferenceEnabled: false,
-    baselineLengthScopeMode: 'definition'
+    baselineLengthScopeMode: 'definition',
+    plantTimezone: 'Asia/Shanghai'
   },
   pipelines: {
     dashboard: defaultPipeline(),
@@ -149,7 +152,8 @@ export const useRuntimeStatusStore = defineStore('runtime-status', {
             runtime: {
               showtimeEnabled: response.runtime.showtime_enabled,
               liveHeatInferenceEnabled: response.runtime.live_heat_inference_enabled,
-              baselineLengthScopeMode: response.runtime.baseline_length_scope_mode
+              baselineLengthScopeMode: response.runtime.baseline_length_scope_mode,
+              plantTimezone: response.runtime.plant_timezone
             },
             pipelines: {
               dashboard: response.pipelines.dashboard,
@@ -161,6 +165,7 @@ export const useRuntimeStatusStore = defineStore('runtime-status', {
               settings: response.pipelines.settings
             }
           }
+          setPlantTimezone(response.runtime.plant_timezone)
           this.loaded = true
           runtimeStatusLastLoadedAt = Date.now()
         } catch (error) {

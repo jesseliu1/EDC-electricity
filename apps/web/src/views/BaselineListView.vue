@@ -19,8 +19,8 @@ const wizardSubmitting = ref(false)
 const searchKeyword = ref('')
 const wizardPrefill = ref<{
   sourceHeatId?: string
-  selectedStartTime?: string
-  selectedEndTime?: string
+  selectedStartTime?: number
+  selectedEndTime?: number
   name?: string
 } | null>(null)
 
@@ -64,12 +64,19 @@ function getQueryStringValue(value: unknown): string {
   return ''
 }
 
+function parseOptionalTimestamp(value: unknown): number | undefined {
+  const raw = getQueryStringValue(value)
+  if (!raw) return undefined
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 function handlePrefillFromRoute() {
   const sourceHeatId = getQueryStringValue(route.query.sourceHeatId)
   if (!sourceHeatId) return
 
-  const selectedStartTime = getQueryStringValue(route.query.selectedStartTime)
-  const selectedEndTime = getQueryStringValue(route.query.selectedEndTime)
+  const selectedStartTime = parseOptionalTimestamp(route.query.selectedStartTime)
+  const selectedEndTime = parseOptionalTimestamp(route.query.selectedEndTime)
   const name = getQueryStringValue(route.query.name)
 
   wizardPrefill.value = {
@@ -112,8 +119,8 @@ async function handleWizardSubmit(payload: {
   description: string
   definitionId: string
   sourceHeatId: string
-  selectedStartTime?: string
-  selectedEndTime?: string
+  selectedStartTime?: number
+  selectedEndTime?: number
   tolerancePercent: number
   mode: 'draft' | 'publish'
 }) {

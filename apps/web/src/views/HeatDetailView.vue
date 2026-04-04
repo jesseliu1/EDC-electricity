@@ -24,13 +24,19 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { ECharts, EChartsOption } from 'echarts'
-import dayjs from 'dayjs'
 import type { HeatDataSource } from '@/api/heat'
 import { taskApi } from '@/api/task'
 import { useHeatStore } from '@/stores/heat'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import {
+  formatTimestamp,
+  formatTimestampOrFallback,
+  pickerDateToPlantTimestamp,
+  plantDayRangeFromTimestamp,
+  timestampToPlantPickerDate,
+} from '@/utils/time'
 
 use([
   CanvasRenderer,
@@ -112,6 +118,8 @@ const manualAdjustVisible = ref(false)
 const manualAdjustFullscreen = ref(false)
 const manualAdjustStart = ref<number | null>(null)
 const manualAdjustEnd = ref<number | null>(null)
+const manualAdjustStartPicker = ref<Date | null>(null)
+const manualAdjustEndPicker = ref<Date | null>(null)
 const manualAdjustRange = ref<[number, number]>([0, 0])
 const manualAdjustChartRef = ref<InstanceType<typeof VChart> | null>(null)
 const manualAdjustZoomWindow = ref({ start: 0, end: 100 })
@@ -352,22 +360,23 @@ function clipCurveToWindow(
 
 const compareCoreWindow = computed(() => {
   if (!current.value) return null
-  const heatStart = dayjs(current.value.base.startTime)
   const heatEnd = isInProgress.value
-    ? dayjs(current.value.base.lastPointAt || dayjs())
-    : dayjs(current.value.base.endTime)
+    ? current.value.base.lastPointAt || Date.now()
+    : current.value.base.endTime
   return {
-    start: heatStart.valueOf(),
-    end: heatEnd.valueOf(),
+    start: current.value.base.startTime,
+    end: heatEnd,
   }
 })
 
 const endTimeDisplay = computed(() => {
   if (!current.value) return '--'
   if (current.value.base.completionStatus === 'in_progress') {
-    return current.value.base.lastPointAt || t('heat.inProgressNow')
+    return current.value.base.lastPointAt
+      ? formatTimestamp(current.value.base.lastPointAt, 'YYYY-MM-DD HH:mm')
+      : t('heat.inProgressNow')
   }
-  return current.value.base.endTime
+  return formatTimestamp(current.value.base.endTime, 'YYYY-MM-DD HH:mm')
 })
 
 const shouldShowSourceBanner = computed(() => {
@@ -450,7 +459,7 @@ const compareOption = computed<EChartsOption>(() => {
       min: compareCoreWindow.value?.start,
       max: compareCoreWindow.value?.end,
       axisLabel: {
-        formatter: (value: number) => dayjs(value).format('HH:mm'),
+        formatter: (value: number) => formatTimestamp(value, 'HH:mm'),
       },
     },
     yAxis: units.map((unit, index) => ({
@@ -520,8 +529,9 @@ const manualAdjustContext = computed(() => {
     comparisonMetricCurves.value.length > 0
       ? comparisonMetricCurves.value
       : [primaryComparisonMetric.value]
-  const contextStart = dayjs(current.value.base.startTime).startOf('day').valueOf()
-  const rawContextEnd = dayjs(current.value.base.startTime).endOf('day').valueOf()
+  const { start: contextStart, end: rawContextEnd } = plantDayRangeFromTimestamp(
+    current.value.base.startTime
+  )
   const stepMs = inferCurveStepMs(
     metricCurves.flatMap((metric) => [metric.current_curve, metric.baseline_curve])
   )
@@ -640,7 +650,7 @@ const manualAdjustOption = computed<EChartsOption>(() => {
     xAxis: {
       type: 'time',
       axisLabel: {
-        formatter: (value: number) => dayjs(value).format('HH:mm:ss'),
+        formatter: (value: number) => formatTimestamp(value, 'HH:mm:ss'),
       },
     },
     yAxis: units.map((unit, index) => ({
@@ -797,6 +807,14 @@ function syncRangeFromBounds() {
   if (manualAdjustRange.value[0] !== nextStart || manualAdjustRange.value[1] !== nextEnd) {
     manualAdjustRange.value = [nextStart, nextEnd]
   }
+  const nextStartPicker = timestampToPlantPickerDate(nextStart)
+  const nextEndPicker = timestampToPlantPickerDate(nextEnd)
+  if ((manualAdjustStartPicker.value?.getTime() ?? null) !== (nextStartPicker?.getTime() ?? null)) {
+    manualAdjustStartPicker.value = nextStartPicker
+  }
+  if ((manualAdjustEndPicker.value?.getTime() ?? null) !== (nextEndPicker?.getTime() ?? null)) {
+    manualAdjustEndPicker.value = nextEndPicker
+  }
   syncingManualAdjustState = false
 }
 
@@ -819,6 +837,21 @@ watch(manualAdjustRange, (value) => {
 
 watch([manualAdjustStart, manualAdjustEnd], () => {
   if (syncingManualAdjustState || !manualAdjustStart.value || !manualAdjustEnd.value) return
+  syncRangeFromBounds()
+})
+
+watch([manualAdjustStartPicker, manualAdjustEndPicker], ([startPicker, endPicker]) => {
+  if (syncingManualAdjustState || !startPicker || !endPicker) return
+
+  const nextStart = pickerDateToPlantTimestamp(startPicker)
+  const nextEnd = pickerDateToPlantTimestamp(endPicker)
+  if (nextStart === null || nextEnd === null) return
+  if (nextStart === manualAdjustStart.value && nextEnd === manualAdjustEnd.value) return
+
+  syncingManualAdjustState = true
+  manualAdjustStart.value = nextStart
+  manualAdjustEnd.value = nextEnd
+  syncingManualAdjustState = false
   syncRangeFromBounds()
 })
 
@@ -874,8 +907,8 @@ function openManualAdjust() {
     return
   }
   const endTime = current.value.base.lastPointAt || current.value.base.endTime
-  manualAdjustStart.value = dayjs(current.value.base.startTime).valueOf()
-  manualAdjustEnd.value = dayjs(endTime).valueOf()
+  manualAdjustStart.value = current.value.base.startTime
+  manualAdjustEnd.value = endTime
   syncRangeFromBounds()
   syncManualAdjustZoomToCurrentRange()
   manualAdjustVisible.value = true
@@ -899,8 +932,8 @@ async function saveManualAdjust() {
 
   await heatStore.updateTiming(
     heatId.value,
-    dayjs(manualAdjustStart.value).format('YYYY-MM-DD HH:mm:ss'),
-    dayjs(manualAdjustEnd.value).format('YYYY-MM-DD HH:mm:ss'),
+    manualAdjustStart.value,
+    manualAdjustEnd.value,
     adjustSubsequent
   )
   await heatStore.fetchDetail(heatId.value)
@@ -1073,7 +1106,7 @@ onBeforeUnmount(() => {
         {{ t('heat.snapshotStaleTitle') }}
       </div>
       <div class="mt-1 text-amber-700">
-        {{ t('heat.snapshotStaleBody', { time: current?.base.lastPointAt || '--' }) }}
+        {{ t('heat.snapshotStaleBody', { time: formatTimestampOrFallback(current?.base.lastPointAt, '--', 'YYYY-MM-DD HH:mm') }) }}
       </div>
     </div>
 
@@ -1101,7 +1134,9 @@ onBeforeUnmount(() => {
       <div class="mt-1 text-sky-700">
         {{
           t('heat.inProgressBody', {
-            time: current?.base.lastPointAt || t('heat.inProgressNow'),
+            time: current?.base.lastPointAt
+              ? formatTimestamp(current.base.lastPointAt, 'YYYY-MM-DD HH:mm')
+              : t('heat.inProgressNow'),
           })
         }}
       </div>
@@ -1225,9 +1260,9 @@ onBeforeUnmount(() => {
                   {{ idx + 1 }}
                 </span>
                 <span class="font-mono text-sm text-red-900">
-                  {{ dayjs(range.start).format('HH:mm:ss') }}
+                  {{ formatTimestamp(range.start, 'HH:mm:ss') }}
                   <span class="text-red-300 mx-2">to</span>
-                  {{ dayjs(range.end).format('HH:mm:ss') }}
+                  {{ formatTimestamp(range.end, 'HH:mm:ss') }}
                 </span>
               </div>
               <div class="flex items-center gap-2">
@@ -1299,7 +1334,7 @@ onBeforeUnmount(() => {
               <div class="mt-3 space-y-2 font-mono text-xs">
                 <div class="flex justify-between">
                   <span class="font-sans text-slate-400">{{ t('heat.startTime') }}</span>
-                  <span>{{ current.base.startTime }}</span>
+                  <span>{{ formatTimestamp(current.base.startTime, 'YYYY-MM-DD HH:mm:ss') }}</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="font-sans text-slate-400">{{ t('heat.endTime') }}</span>
@@ -1360,7 +1395,7 @@ onBeforeUnmount(() => {
             <el-timeline-item
               v-for="(item, index) in current.cuttingTimeline"
               :key="`${item.event_type}-${item.timestamp}`"
-              :timestamp="dayjs(item.timestamp).format('HH:mm:ss')"
+              :timestamp="formatTimestamp(item.timestamp, 'HH:mm:ss')"
               placement="top"
               :color="index === current.cuttingTimeline.length - 1 ? '#1152d4' : '#e2e8f0'"
             >
@@ -1487,7 +1522,7 @@ onBeforeUnmount(() => {
             :min="manualAdjustContext.min"
             :max="manualAdjustContext.max"
             :step="manualAdjustContext.stepMs"
-            :format-tooltip="(value: number) => dayjs(value).format('MM-DD HH:mm:ss')"
+            :format-tooltip="(value: number) => formatTimestamp(value, 'MM-DD HH:mm:ss')"
           />
         </div>
 
@@ -1497,9 +1532,8 @@ onBeforeUnmount(() => {
               {{ t('heat.startTime') }}
             </div>
             <el-date-picker
-              v-model="manualAdjustStart"
+              v-model="manualAdjustStartPicker"
               type="datetime"
-              value-format="x"
               format="YYYY-MM-DD HH:mm:ss"
               class="!w-full"
             />
@@ -1509,9 +1543,8 @@ onBeforeUnmount(() => {
               {{ t('heat.endTime') }}
             </div>
             <el-date-picker
-              v-model="manualAdjustEnd"
+              v-model="manualAdjustEndPicker"
               type="datetime"
-              value-format="x"
               format="YYYY-MM-DD HH:mm:ss"
               class="!w-full"
             />

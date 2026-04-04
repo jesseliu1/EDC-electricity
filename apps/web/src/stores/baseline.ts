@@ -21,12 +21,12 @@ export interface BaselineItem {
   status: BaselineStatus
   version: number
   tolerancePercent: number
-  createdAt: string
-  publishedAt: string | null
+  createdAt: number
+  publishedAt: number | null
   curveSource: BaselineCurveSource
   sourceHeatId: string
-  selectedStartTime: string | null
-  selectedEndTime: string | null
+  selectedStartTime: number | null
+  selectedEndTime: number | null
 }
 
 export interface BaselineDetail extends BaselineItem {
@@ -50,8 +50,8 @@ function mapBaseline(item: BaselineResponse): BaselineItem {
     publishedAt: item.published_at,
     curveSource: item.curve_source,
     sourceHeatId: item.source_heat_id,
-    selectedStartTime: item.selected_start_time || null,
-    selectedEndTime: item.selected_end_time || null
+    selectedStartTime: item.selected_start_time ?? null,
+    selectedEndTime: item.selected_end_time ?? null
   }
 }
 

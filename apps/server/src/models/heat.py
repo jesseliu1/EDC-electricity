@@ -3,10 +3,12 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, Index, String, Text
+from sqlalchemy import Float, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from ..db_types import TimestampMsType
 from ..database import Base
+from ..time_utils import utc_now
 
 if TYPE_CHECKING:
     from .task import Task
@@ -37,19 +39,19 @@ class Heat(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="炉次备注")
     furnace_id: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="炉号/设备ID")
     start_time: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, comment="炉次真实开始时间"
+        TimestampMsType(), nullable=False, comment="炉次真实开始时间"
     )
     end_time: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, comment="炉次真实结束时间"
+        TimestampMsType(), nullable=False, comment="炉次真实结束时间"
     )
     context_start_time: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, comment="上下文窗口开始时间"
+        TimestampMsType(), nullable=False, comment="上下文窗口开始时间"
     )
     context_end_time: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, comment="上下文窗口结束时间"
+        TimestampMsType(), nullable=False, comment="上下文窗口结束时间"
     )
     sealed_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, comment="固化入库时间"
+        TimestampMsType(), nullable=False, comment="固化入库时间"
     )
     source_kind: Mapped[str] = mapped_column(String(30), nullable=False, comment="来源类型")
     baseline_definition_id: Mapped[str | None] = mapped_column(
@@ -59,7 +61,7 @@ class Heat(Base):
         String(3), nullable=True, comment="绑定的基线版本项"
     )
     baseline_effective_from_snapshot: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True, comment="绑定时的基线生效时间快照"
+        TimestampMsType(), nullable=True, comment="绑定时的基线生效时间快照"
     )
     deviation_status: Mapped[str] = mapped_column(
         String(20), nullable=False, comment="偏离度状态"
@@ -85,12 +87,12 @@ class Heat(Base):
     created_by: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="创建人")
     updated_by: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="更新人")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False, comment="创建时间"
+        TimestampMsType(), default=utc_now, nullable=False, comment="创建时间"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        TimestampMsType(),
+        default=utc_now,
+        onupdate=utc_now,
         nullable=False,
         comment="更新时间",
     )

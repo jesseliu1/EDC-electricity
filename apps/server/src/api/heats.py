@@ -9,7 +9,6 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from time import perf_counter
 from typing import Any, Literal
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -36,6 +35,7 @@ from ..schemas import (
     HeatUpdate,
     HeatWithCurve,
     MetricCompareSeries,
+    OptionalTimestampMs,
 )
 from ..schemas.heat import BaselineWithCurveSimple
 from ..services import (
@@ -49,6 +49,14 @@ from ..services import (
     save_formal_heat_analysis,
     update_formal_heat_record,
 )
+from ..time_utils import (
+    from_timestamp_ms,
+    minutes_since_midnight,
+    normalize_utc_datetime,
+    to_plant_datetime,
+    to_timestamp_ms,
+    utc_now,
+)
 from .baseline_definitions import _DEFINITION_STORE, _reload_definition_store
 from .baselines import _BASELINE_STORE, _reload_baseline_store, _resolve_active_baseline_item
 from .settings import (
@@ -56,6 +64,7 @@ from .settings import (
     _HOST_CHANNEL_STORE,
     _SETTINGS_STORE,
     get_edc_connection_config,
+    get_plant_timezone,
 )
 
 router = APIRouter(prefix="/heats", tags=["Heats"])
@@ -88,9 +97,6 @@ _COMPARE_CHANNEL_CURVE_CACHE: dict[str, Any] = {
 
 _LIVE_HEAT_LEGACY_ID_PATTERN = re.compile(r"^live-heat-(\d+)-(\d+)$")
 _LIVE_HEAT_CANONICAL_ID_PATTERN = re.compile(r"^live-heat-([0-9a-f]{8})-(\d+)-(\d+)$")
-_LOCAL_RUNTIME_TZ = ZoneInfo("Asia/Shanghai")
-
-
 async def _ensure_formal_baseline_mirrors_loaded(
     *,
     definition_id: str | None = None,
@@ -112,9 +118,7 @@ def _as_cache_token(value: Any) -> str:
 def _normalize_filter_datetime(value: datetime | None) -> datetime | None:
     if value is None:
         return None
-    if value.tzinfo is None:
-        return value
-    return value.astimezone(_LOCAL_RUNTIME_TZ).replace(tzinfo=None)
+    return normalize_utc_datetime(value)
 
 
 def _build_heat_compare_cache_key(item: dict[str, Any], baseline_ids: list[str]) -> str:
@@ -156,7 +160,7 @@ def _get_cached_heat_compare(cache_key: str) -> HeatCompareResponse | None:
     response = entry.get("response")
     if (
         not isinstance(expires_at, datetime)
-        or expires_at <= datetime.now()
+        or expires_at <= utc_now()
         or not isinstance(response, HeatCompareResponse)
     ):
         entries.pop(cache_key, None)
@@ -177,7 +181,7 @@ def _set_cached_heat_compare(
 
     entries[cache_key] = {
         "heat_id": heat_id,
-        "expires_at": datetime.now() + timedelta(seconds=_HEAT_COMPARE_CACHE_TTL_SECONDS),
+        "expires_at": utc_now() + timedelta(seconds=_HEAT_COMPARE_CACHE_TTL_SECONDS),
         "response": deepcopy(response),
     }
 
@@ -239,7 +243,7 @@ def _get_cached_compare_baseline(cache_key: str) -> dict[str, Any] | None:
     payload = entry.get("payload")
     if (
         not isinstance(expires_at, datetime)
-        or expires_at <= datetime.now()
+        or expires_at <= utc_now()
         or not isinstance(payload, dict)
     ):
         entry["payload"] = None
@@ -300,7 +304,7 @@ def _get_cached_compare_channel_curves(
     payload = entry.get("payload")
     if (
         not isinstance(expires_at, datetime)
-        or expires_at <= datetime.now()
+        or expires_at <= utc_now()
         or not isinstance(payload, dict)
     ):
         entry["payload"] = None
@@ -358,7 +362,7 @@ def _to_minutes(value: str) -> int:
 
 def _schedule_tag_of(start_time: datetime, config: dict[str, Any]) -> str:
     """根据时间判断班次标签。"""
-    current = start_time.hour * 60 + start_time.minute
+    current = minutes_since_midnight(start_time, get_plant_timezone())
     work_start = _to_minutes(config["work_start"])
     work_end = _to_minutes(config["work_end"])
     if current < work_start or current > work_end:
@@ -379,7 +383,7 @@ def _curve_points(
 ) -> list[CurvePoint]:
     points: list[CurvePoint] = []
     for idx in range(minutes):
-        ts = int((start + timedelta(minutes=idx)).timestamp() * 1000)
+        ts = to_timestamp_ms(start + timedelta(minutes=idx))
         value = base + amp * ((idx + int(phase)) % 10) / 10
         points.append(CurvePoint(timestamp=ts, value=round(value, 3)))
     return points
@@ -416,7 +420,7 @@ def _curve_points_to_pairs(
 
 
 def _curve_window_ms(start_time: datetime, end_time: datetime) -> tuple[int, int]:
-    return int(start_time.timestamp() * 1000), int(end_time.timestamp() * 1000)
+    return to_timestamp_ms(start_time), to_timestamp_ms(end_time)
 
 
 def _resolve_compare_display_window(
@@ -676,8 +680,8 @@ def _build_live_heat_item(
     power_curve: list[CurvePoint],
     expected_duration_minutes: int,
 ) -> dict[str, Any]:
-    start_time = datetime.fromtimestamp(power_curve[0].timestamp / 1000)
-    end_time = datetime.fromtimestamp(power_curve[-1].timestamp / 1000)
+    start_time = from_timestamp_ms(power_curve[0].timestamp)
+    end_time = from_timestamp_ms(power_curve[-1].timestamp)
     duration_minutes = max((end_time - start_time).total_seconds() / 60, 1)
     schedule_tag = _schedule_tag_of(start_time, _get_cutting_config())
     duration_ratio = duration_minutes / max(expected_duration_minutes, 1)
@@ -694,9 +698,10 @@ def _build_live_heat_item(
         duration_bucket_minutes=duration_bucket_minutes,
     )
 
+    plant_start_time = to_plant_datetime(start_time, get_plant_timezone())
     return {
         "id": heat_id,
-        "heat_no": f"H{start_time.strftime('%Y%m%d')}-{start_time.strftime('%H%M')}",
+        "heat_no": f"H{plant_start_time.strftime('%Y%m%d')}-{plant_start_time.strftime('%H%M')}",
         "description": None,
         "start_time": start_time,
         "end_time": end_time,
@@ -928,7 +933,7 @@ async def _load_live_heat_inference_power_points(
     if not config["base_url"] or not config["username"] or not config["password"]:
         return []
 
-    end_time = datetime.now()
+    end_time = utc_now()
     start_time = end_time - timedelta(hours=_LIVE_HEAT_LOOKBACK_HOURS)
     try:
         async with EDCClient(**config) as client:
@@ -971,7 +976,7 @@ async def _get_live_inferred_heat_store(
     cached_items = cache_entry.get("items")
     if (
         isinstance(expires_at, datetime)
-        and expires_at > datetime.now()
+        and expires_at > utc_now()
         and isinstance(cached_items, dict)
     ):
         return cached_items
@@ -989,7 +994,7 @@ async def _get_live_inferred_heat_store(
             expected_duration_minutes=int(context["expected_duration_minutes"]),
         )
         cache_entry["items"] = inferred_items
-        cache_entry["expires_at"] = datetime.now() + timedelta(
+        cache_entry["expires_at"] = utc_now() + timedelta(
             seconds=_LIVE_HEAT_CACHE_TTL_SECONDS
         )
         return inferred_items
@@ -1098,7 +1103,7 @@ def _resolve_item_time_window_ms(item: dict[str, Any]) -> tuple[int, int] | None
     start_time = item.get("start_time")
     end_time = item.get("end_time")
     if isinstance(start_time, datetime) and isinstance(end_time, datetime):
-        return int(start_time.timestamp() * 1000), int(end_time.timestamp() * 1000)
+        return to_timestamp_ms(start_time), to_timestamp_ms(end_time)
     return None
 
 
@@ -1243,7 +1248,7 @@ async def refresh_heat_runtime_state(*, reason: str) -> dict[str, Any]:
 
     await _ensure_formal_baseline_mirrors_loaded()
 
-    started_at = datetime.now()
+    started_at = utc_now()
     _HEAT_RUNTIME_REFRESH_META.update(
         {
             "refresh_status": "running",
@@ -1855,7 +1860,7 @@ async def _load_channel_curves_from_edc(
             curves[channel_key] = result
 
         cache_entry["payload"] = deepcopy(curves)
-        cache_entry["expires_at"] = datetime.now() + timedelta(
+        cache_entry["expires_at"] = utc_now() + timedelta(
             seconds=_COMPARE_CHANNEL_CURVE_CACHE_TTL_SECONDS
         )
         return curves
@@ -2034,7 +2039,7 @@ async def _hydrate_compare_baselines(
         async def _refresh_baseline() -> dict[str, Any]:
             hydrated = await _hydrate_baseline_item(dict(baseline_item))
             cache_entry["payload"] = deepcopy(hydrated)
-            cache_entry["expires_at"] = datetime.now() + timedelta(
+            cache_entry["expires_at"] = utc_now() + timedelta(
                 seconds=_COMPARE_BASELINE_CACHE_TTL_SECONDS
             )
             return hydrated
@@ -2103,7 +2108,7 @@ def _select_metric_curve(
 
 
 def _seed_heats() -> dict[str, dict[str, Any]]:
-    now = datetime.now().replace(second=0, microsecond=0)
+    now = utc_now().replace(second=0, microsecond=0)
     config = _get_cutting_config()
     seeded: dict[str, dict[str, Any]] = {}
     major_issue_triggered = False
@@ -2167,9 +2172,10 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
         avg_dev = None if status == "pending" else round(2.1 + (idx % 7) * 1.1, 3)
 
         heat_id = f"heat-{idx + 1:03d}"
+        plant_start_time = to_plant_datetime(start_time, get_plant_timezone())
         seeded[heat_id] = {
             "id": heat_id,
-            "heat_no": f"H{now.strftime('%Y%m%d')}-{idx + 1:03d}",
+            "heat_no": f"H{plant_start_time.strftime('%Y%m%d')}-{idx + 1:03d}",
             "description": None,
             "start_time": start_time,
             "end_time": end_time,
@@ -2326,7 +2332,7 @@ def _mark_history_runtime(item: dict[str, Any]) -> dict[str, Any]:
     history_item["completion_status"] = "completed"
     history_item["last_point_at"] = history_item.get("end_time")
     history_item["record_source"] = "sealed_history"
-    history_item["sealed_at"] = datetime.now()
+    history_item["sealed_at"] = utc_now()
     return history_item
 
 
@@ -2400,7 +2406,7 @@ def _seal_runtime_candidates(
         normalized["completion_status"] = "completed"
         normalized["record_source"] = "sealed_history"
         normalized["last_point_at"] = normalized.get("last_point_at") or normalized.get("end_time")
-        normalized["sealed_at"] = normalized.get("sealed_at") or datetime.now()
+        normalized["sealed_at"] = normalized.get("sealed_at") or utc_now()
         sealed_history[heat_id] = normalized
     for candidate in candidates:
         existing = _find_overlapping_heat_record(candidate, sealed_history)
@@ -2456,12 +2462,12 @@ def _is_runtime_snapshot_fresh(*, now: datetime | None = None) -> bool:
     watermark = _runtime_snapshot_watermark()
     if watermark is None:
         return False
-    current_time = now or datetime.now()
+    current_time = now or utc_now()
     return (current_time - watermark) <= timedelta(seconds=_HEAT_RUNTIME_STALE_THRESHOLD_SECONDS)
 
 
 def _runtime_snapshot_status(*, now: datetime | None = None) -> str:
-    current_time = now or datetime.now()
+    current_time = now or utc_now()
     refresh_status = str(_HEAT_RUNTIME_REFRESH_META.get("refresh_status") or "idle")
     has_snapshot_data = _has_runtime_snapshot_data()
     if refresh_status == "running":
@@ -2480,7 +2486,7 @@ def _sync_heat_runtime_refresh_meta_status(*, now: datetime | None = None) -> No
 
 
 def _build_heat_runtime_refresh_meta_snapshot(*, now: datetime | None = None) -> dict[str, Any]:
-    current_time = now or datetime.now()
+    current_time = now or utc_now()
     snapshot = dict(_HEAT_RUNTIME_REFRESH_META)
     snapshot["refresh_failure_count"] = _refresh_failure_count()
     snapshot["snapshot_is_fresh"] = _is_runtime_snapshot_fresh(now=current_time)
@@ -2489,7 +2495,7 @@ def _build_heat_runtime_refresh_meta_snapshot(*, now: datetime | None = None) ->
 
 
 def _mark_heat_runtime_refresh_failure(*, error: str, completed_at: datetime | None = None) -> None:
-    finished_at = completed_at or datetime.now()
+    finished_at = completed_at or utc_now()
     _HEAT_RUNTIME_REFRESH_META.update(
         {
             "refresh_status": "idle",
@@ -2507,7 +2513,7 @@ def _mark_heat_runtime_refresh_success(
     snapshot_watermark: datetime | None,
     completed_at: datetime | None = None,
 ) -> None:
-    finished_at = completed_at or datetime.now()
+    finished_at = completed_at or utc_now()
     _HEAT_RUNTIME_REFRESH_META.update(
         {
             "refresh_reason": reason,
@@ -2522,7 +2528,7 @@ def _mark_heat_runtime_refresh_success(
 
 
 def _is_realtime_current_heat(item: dict[str, Any], *, now: datetime | None = None) -> bool:
-    current_time = now or datetime.now()
+    current_time = now or utc_now()
     return (
         str(item.get("record_source") or "") == "active_runtime"
         and str(item.get("completion_status") or "") == "in_progress"
@@ -2532,7 +2538,7 @@ def _is_realtime_current_heat(item: dict[str, Any], *, now: datetime | None = No
 
 
 def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
-    current_time = datetime.now()
+    current_time = utc_now()
     return HeatResponse(
         id=item["id"],
         heat_no=item["heat_no"],
@@ -2622,7 +2628,7 @@ def _build_ingested_heat() -> dict[str, Any]:
     start_time = (
         latest["start_time"] + timedelta(minutes=50)
         if latest
-        else datetime.now().replace(second=0, microsecond=0)
+        else utc_now().replace(second=0, microsecond=0)
     )
     end_time = start_time + timedelta(minutes=45)
 
@@ -2683,9 +2689,10 @@ def _build_ingested_heat() -> dict[str, Any]:
     avg_dev = None if status == "pending" else round(2.1 + (_NEXT_MOCK_HEAT_INDEX % 7) * 1.1, 3)
 
     heat_id = f"mock-heat-{_NEXT_MOCK_HEAT_INDEX:03d}"
+    plant_start_time = to_plant_datetime(start_time, get_plant_timezone())
     heat = {
         "id": heat_id,
-        "heat_no": f"M{start_time.strftime('%Y%m%d')}-{_NEXT_MOCK_HEAT_INDEX:03d}",
+        "heat_no": f"M{plant_start_time.strftime('%Y%m%d')}-{_NEXT_MOCK_HEAT_INDEX:03d}",
         "description": None,
         "start_time": start_time,
         "end_time": end_time,
@@ -2755,15 +2762,15 @@ async def list_heats(
     status: Literal["normal", "abnormal", "pending"] | None = Query(
         default=None, description="状态筛选"
     ),
-    start_date: datetime | None = Query(default=None, description="开始日期"),  # noqa: B008
-    end_date: datetime | None = Query(default=None, description="结束日期"),  # noqa: B008
+    start_date: OptionalTimestampMs = Query(default=None, description="开始日期"),  # noqa: B008
+    end_date: OptionalTimestampMs = Query(default=None, description="结束日期"),  # noqa: B008
     page: int = Query(default=1, ge=1, description="页码"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
 ) -> HeatListResponse:
     """获取炉次列表（支持状态和日期范围筛选）。"""
     await _ensure_formal_baseline_mirrors_loaded()
     started_at = perf_counter()
-    current_time = datetime.now()
+    current_time = utc_now()
     normalized_start_date = _normalize_filter_datetime(start_date)
     normalized_end_date = _normalize_filter_datetime(end_date)
     items = list((await _list_heat_store()).values())

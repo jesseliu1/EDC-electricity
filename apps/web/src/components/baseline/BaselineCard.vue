@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ElCard, ElTag, ElButton, ElDropdown, ElDropdownMenu, ElDropdownItem, ElIcon } from 'element-plus'
 import { MoreFilled, Edit, Delete, VideoPlay, VideoPause } from '@element-plus/icons-vue'
 import type { BaselineItem } from '@/stores/baseline'
-import dayjs from 'dayjs'
+import { formatTimestamp } from '@/utils/time'
 
 const { t } = useI18n()
 
@@ -52,7 +52,7 @@ const statusText = computed(() => {
 })
 
 const formattedDate = computed(() => {
-  return dayjs(props.baseline.createdAt).format('YYYY-MM-DD HH:mm')
+  return formatTimestamp(props.baseline.createdAt)
 })
 
 function handleCommand(command: string) {

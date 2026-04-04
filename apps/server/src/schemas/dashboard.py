@@ -1,10 +1,8 @@
 """仪表盘 Pydantic 模式"""
 
-from datetime import datetime
-
 from pydantic import BaseModel, Field
 
-from .common import CurvePoint
+from .common import CurvePoint, TimestampMs
 
 
 class DashboardStats(BaseModel):
@@ -20,7 +18,7 @@ class DashboardStats(BaseModel):
 class RealtimeCurveData(BaseModel):
     """实时曲线数据"""
 
-    timestamp: datetime = Field(..., description="数据时间")
+    timestamp: TimestampMs = Field(..., description="数据时间")
     power: list[CurvePoint] = Field(..., description="功率曲线")
     voltage: list[CurvePoint] = Field(..., description="电压曲线")
     baseline_power: list[CurvePoint] | None = Field(default=None, description="基线功率曲线")
@@ -32,8 +30,8 @@ class RecentHeat(BaseModel):
 
     id: str = Field(..., description="炉次ID")
     heat_no: str = Field(..., description="炉次编号")
-    start_time: datetime = Field(..., description="开始时间")
-    end_time: datetime = Field(..., description="结束时间")
+    start_time: TimestampMs = Field(..., description="开始时间")
+    end_time: TimestampMs = Field(..., description="结束时间")
     status: str = Field(..., description="状态")
     deviation_percent: float | None = Field(default=None, description="偏差百分比")
 

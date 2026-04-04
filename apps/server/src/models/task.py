@@ -3,10 +3,12 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, String, Text
+from sqlalchemy import Float, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from ..db_types import TimestampMsType
 from ..database import Base
+from ..time_utils import utc_now
 
 if TYPE_CHECKING:
     from .heat import Heat
@@ -45,17 +47,17 @@ class Task(Base):
     prevention: Mapped[str | None] = mapped_column(Text, nullable=True, comment="预防措施")
     status: Mapped[str] = mapped_column(String(20), nullable=False, comment="任务状态")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False, comment="创建时间"
+        TimestampMsType(), default=utc_now, nullable=False, comment="创建时间"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        TimestampMsType(),
+        default=utc_now,
+        onupdate=utc_now,
         nullable=False,
         comment="更新时间",
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True, comment="完成时间"
+        TimestampMsType(), nullable=True, comment="完成时间"
     )
 
     heat: Mapped["Heat"] = relationship("Heat", back_populates="tasks")

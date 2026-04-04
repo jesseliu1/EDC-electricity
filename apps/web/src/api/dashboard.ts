@@ -16,7 +16,7 @@ export interface DashboardStatsResponse {
 }
 
 export interface RealtimeResponse {
-  timestamp: string
+  timestamp: number
   baseline_id?: string | null
   baseline_name?: string | null
   power_source_label?: string | null
@@ -30,8 +30,8 @@ export interface RealtimeResponse {
 export interface RecentHeatResponseItem {
   id: string
   heat_no: string
-  start_time: string
-  end_time: string
+  start_time: number
+  end_time: number
   status: 'normal' | 'abnormal' | 'pending'
   deviation_percent: number | null
 }

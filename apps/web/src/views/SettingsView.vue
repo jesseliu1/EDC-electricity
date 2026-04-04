@@ -7,8 +7,10 @@ import {
   ElInput,
   ElInputNumber,
   ElMessage,
+  ElOption,
   ElRadioButton,
   ElRadioGroup,
+  ElSelect,
 } from 'element-plus'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
@@ -31,6 +33,14 @@ const sectionRefs: Record<SettingsSectionId, HTMLElement | null> = {
   tolerance: null,
   cutting: null,
 }
+const timezoneOptions = [
+  'Asia/Shanghai',
+  'UTC',
+  'Asia/Tokyo',
+  'Asia/Singapore',
+  'America/Los_Angeles',
+  'America/New_York',
+]
 const navigationItems = computed(() => [
   {
     id: 'hostConnectivity' as const,
@@ -403,6 +413,26 @@ onBeforeUnmount(() => {
                 :min="1"
                 :max="120"
               />
+            </el-form-item>
+            <el-form-item :label="t('settings.plantTimezone')">
+              <el-select
+                v-model="settingStore.data.plantTimezone"
+                filterable
+                allow-create
+                default-first-option
+                class="!w-full"
+                :placeholder="t('settings.plantTimezonePlaceholder')"
+              >
+                <el-option
+                  v-for="option in timezoneOptions"
+                  :key="option"
+                  :label="option"
+                  :value="option"
+                />
+              </el-select>
+              <div class="mt-1 text-xs text-slate-400">
+                {{ t('settings.plantTimezoneHint') }}
+              </div>
             </el-form-item>
             <el-form-item :label="t('settings.workStartTime')">
               <el-input

@@ -26,15 +26,15 @@ export interface HeatResponseItem {
   id: string
   heat_no: string
   description: string | null
-  start_time: string
-  end_time: string
+  start_time: number
+  end_time: number
   completion_status: HeatCompletionStatus
-  last_point_at: string | null
+  last_point_at: number | null
   runtime_snapshot_status: HeatRuntimeSnapshotStatus
   realtime_current: boolean
   baseline_id: string | null
   baseline_version_id: string | null
-  baseline_effective_from: string | null
+  baseline_effective_from: number | null
   deviation_percent: number | null
   avg_deviation_percent: number | null
   time_offset_percent: number | null
@@ -49,7 +49,7 @@ export interface HeatResponseItem {
   record_source: HeatDataSource
   current_curve_source: HeatDataSource
   baseline_curve_source: HeatDataSource
-  created_at: string
+  created_at: number
 }
 
 export interface HeatListResponse {
@@ -58,17 +58,17 @@ export interface HeatListResponse {
   page: number
   page_size: number
   snapshot_status: HeatRuntimeSnapshotStatus
-  snapshot_watermark: string | null
-  last_refresh_started_at: string | null
-  last_refresh_completed_at: string | null
+  snapshot_watermark: number | null
+  last_refresh_started_at: number | null
+  last_refresh_completed_at: number | null
   refresh_error: string | null
   refresh_failure_count: number
 }
 
 export interface HeatListQuery {
   status?: HeatStatus
-  start_date?: string
-  end_date?: string
+  start_date?: number
+  end_date?: number
   page?: number
   page_size?: number
 }
@@ -119,7 +119,7 @@ export interface HeatCompareResponse {
 }
 
 export interface CuttingTimelineEvent {
-  timestamp: string
+  timestamp: number
   event_type: string
   title: string
   detail: string
@@ -140,8 +140,8 @@ export interface BaselineCompareItem {
 
 export interface HeatUpdatePayload {
   description?: string | null
-  start_time?: string
-  end_time?: string
+  start_time?: number
+  end_time?: number
   adjust_subsequent?: boolean
 }
 

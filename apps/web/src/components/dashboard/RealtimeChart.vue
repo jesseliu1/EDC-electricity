@@ -11,7 +11,7 @@ import {
   LegendComponent,
 } from 'echarts/components'
 import type { EChartsOption } from 'echarts'
-import dayjs from 'dayjs'
+import { formatTimestamp } from '@/utils/time'
 
 use([
   CanvasRenderer,
@@ -31,7 +31,7 @@ interface CurvePoint {
 }
 
 interface Props {
-  timestamp?: string | null
+  timestamp?: number | null
   power: CurvePoint[]
   baselinePower: CurvePoint[]
   selectedRange: TimeRange
@@ -56,7 +56,7 @@ const timeRanges = [
 ]
 
 const xAxisLabels = computed(() =>
-  props.power.map((item) => dayjs(item.timestamp).format('HH:mm'))
+  props.power.map((item) => formatTimestamp(item.timestamp, 'HH:mm'))
 )
 
 const realtimeSubtitle = computed(() => {
@@ -65,7 +65,7 @@ const realtimeSubtitle = computed(() => {
   if (props.timestamp) {
     parts.push(
       t('dashboard.realtimeSubtitleTimestamp', {
-        timestamp: dayjs(props.timestamp).format('YYYY-MM-DD HH:mm'),
+        timestamp: formatTimestamp(props.timestamp, 'YYYY-MM-DD HH:mm'),
       })
     )
   }

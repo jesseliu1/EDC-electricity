@@ -180,6 +180,7 @@ class RuntimeFlagsSummary(BaseModel):
     showtime_enabled: bool = Field(..., description="当前请求是否处于 Showtime 模式")
     live_heat_inference_enabled: bool = Field(..., description="是否启用真实炉次推断")
     baseline_length_scope_mode: str = Field(..., description="基线等长校验范围")
+    plant_timezone: str = Field(..., description="工厂业务时区")
 
 
 class RuntimePipelineStatus(BaseModel):
@@ -259,6 +260,7 @@ class CuttingSettingRequest(BaseModel):
     major_issue_duration_minutes: int = Field(
         ..., ge=1, le=120, description="持续不一致判定重大事故的分钟数"
     )
+    plant_timezone: str = Field(..., min_length=1, description="工厂业务时区（IANA）")
     work_start_time: str = Field(..., description="上班时间，格式 HH:mm")
     work_end_time: str = Field(..., description="下班时间，格式 HH:mm")
     break_periods: list[str] = Field(default_factory=list, description="休息时段，格式 HH:mm-HH:mm")

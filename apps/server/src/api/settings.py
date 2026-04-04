@@ -47,6 +47,7 @@ from ..services.source_switch_service import (
     SourceConnectionPayload,
     apply_source_connection_change,
 )
+from ..time_utils import resolve_plant_timezone_name, utc_now
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
 _HOST_SYNC_HEADER = "x-asns-host-sync"
@@ -61,6 +62,7 @@ _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     "active_baseline_id": {"value": "baseline-001", "description": "当前激活的基线ID"},
     "time_tolerance_percent": {"value": "10.0", "description": "炉次切割时间偏移容忍率(%)"},
     "major_issue_duration_minutes": {"value": "8", "description": "持续不一致判定重大事故分钟数"},
+    "plant_timezone": {"value": "Asia/Shanghai", "description": "工厂业务时区"},
     "work_start_time": {"value": "08:00", "description": "上班时间"},
     "work_end_time": {"value": "18:00", "description": "下班时间"},
     "break_periods": {"value": "12:00-13:00", "description": "休息时间段，逗号分隔"},
@@ -92,6 +94,12 @@ _HOST_CONNECTIVITY_STATUS: dict[str, object] = {
     },
 }
 _HOST_SOURCE_REVISION = 1
+
+
+def get_plant_timezone() -> str:
+    """返回当前工厂业务时区。"""
+    raw_value = _SETTINGS_STORE.get("plant_timezone", {}).get("value")
+    return resolve_plant_timezone_name(str(raw_value) if raw_value is not None else None)
 
 
 def _stringify(value: object, default: str = "") -> str:
@@ -225,7 +233,7 @@ async def _sync_host_channel_catalog_from_edc(force: bool = False) -> list[dict[
 
     _HOST_CHANNEL_CATALOG_CACHE.clear()
     _HOST_CHANNEL_CATALOG_CACHE.extend(normalized)
-    _HOST_CHANNEL_LAST_SYNC_AT = datetime.now()
+    _HOST_CHANNEL_LAST_SYNC_AT = utc_now()
     return _HOST_CHANNEL_CATALOG_CACHE
 
 
@@ -477,6 +485,7 @@ def _build_runtime_status_response() -> RuntimeStatusResponse:
                 "baseline_length_scope_mode": str(
                     _SETTINGS_STORE.get("baseline_length_scope_mode", {}).get("value") or "definition"
                 ),
+                "plant_timezone": get_plant_timezone(),
             },
             "channel_roles": channel_role_summary,
             "pipelines": {
@@ -655,7 +664,7 @@ async def _sync_host_runtime_state(
     _HOST_CHANNEL_STORE.extend([item.model_dump() for item in host_channels])
     _HOST_CHANNEL_CATALOG_CACHE.clear()
     _HOST_CHANNEL_CATALOG_CACHE.extend([item.model_dump() for item in host_channel_catalog])
-    _HOST_CHANNEL_LAST_SYNC_AT = datetime.now() if host_channel_catalog else None
+    _HOST_CHANNEL_LAST_SYNC_AT = utc_now() if host_channel_catalog else None
     _HOST_CONNECTIVITY_STATUS.clear()
     _HOST_CONNECTIVITY_STATUS.update(connection.model_dump())
     _reconcile_channel_role_binding_store()
@@ -852,6 +861,7 @@ async def update_cutting_settings(data: CuttingSettingRequest) -> MessageRespons
     _SETTINGS_STORE["major_issue_duration_minutes"]["value"] = str(
         data.major_issue_duration_minutes
     )
+    _SETTINGS_STORE["plant_timezone"]["value"] = resolve_plant_timezone_name(data.plant_timezone)
     _SETTINGS_STORE["work_start_time"]["value"] = data.work_start_time
     _SETTINGS_STORE["work_end_time"]["value"] = data.work_end_time
     _SETTINGS_STORE["break_periods"]["value"] = ",".join(data.break_periods)

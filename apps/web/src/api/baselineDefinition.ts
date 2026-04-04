@@ -17,8 +17,8 @@ export interface BaselineDefinitionResponse {
   status: 'active' | 'disabled'
   metrics: MetricDefinition[]
   instance_count: number
-  created_at: string
-  updated_at: string
+  created_at: number
+  updated_at: number
 }
 
 export interface CurvePoint {
@@ -40,8 +40,8 @@ export interface PreviewCurveData {
 export interface BaselinePreviewResponse {
   definition_id: string
   source_heat_id: string
-  range_start: string
-  range_end: string
+  range_start: number
+  range_end: number
   curves_data: PreviewCurveData[]
 }
 
@@ -52,14 +52,14 @@ export interface BaselinePreviewJobResponse {
   definition_id: string
   source_heat_id: string
   status: BaselinePreviewJobStatus
-  range_start: string
-  range_end: string
+  range_start: number
+  range_end: number
   curves_data: PreviewCurveData[]
   last_error: string | null
-  created_at: string | null
-  started_at: string | null
-  updated_at: string | null
-  completed_at: string | null
+  created_at: number | null
+  started_at: number | null
+  updated_at: number | null
+  completed_at: number | null
 }
 
 export interface BaselineDefinitionListResponse {

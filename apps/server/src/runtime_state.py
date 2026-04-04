@@ -15,6 +15,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from .config import settings as app_settings
 from .database import async_session_maker
 from .models import Setting
+from .time_utils import from_timestamp_ms, to_timestamp_ms, utc_now
 
 _SECTION_TO_KEY = {
     "settings_store": "runtime_settings_store",
@@ -39,13 +40,15 @@ _SECTION_TO_KEY = {
 
 def _json_default(value: Any) -> Any:
     if isinstance(value, datetime):
-        return {"__type__": "datetime", "value": value.isoformat()}
+        return {"__type__": "timestamp_ms", "value": to_timestamp_ms(value)}
     if hasattr(value, "model_dump"):
         return value.model_dump()
     raise TypeError(f"Object of type {type(value)!r} is not JSON serializable")
 
 
 def _json_object_hook(value: dict[str, Any]) -> Any:
+    if value.get("__type__") == "timestamp_ms" and isinstance(value.get("value"), int):
+        return from_timestamp_ms(value["value"])
     if value.get("__type__") == "datetime" and isinstance(value.get("value"), str):
         return datetime.fromisoformat(value["value"])
     return value
@@ -103,7 +106,7 @@ async def persist_runtime_state(*sections: str) -> None:
                 continue
             key = _SECTION_TO_KEY[section]
             encoded = json.dumps(state_by_section[section], default=_json_default, ensure_ascii=False)
-            updated_at = datetime.now(UTC).replace(tzinfo=None)
+            updated_at = utc_now()
             statement = sqlite_insert(Setting).values(
                 key=key,
                 value=encoded,
@@ -157,8 +160,13 @@ async def load_runtime_state() -> None:
         await persist_runtime_state()
         return
 
+    default_settings_store = {
+        key: dict(payload) for key, payload in settings_api._SETTINGS_STORE.items()
+    }
+
     if isinstance(payloads.get("settings_store"), dict):
         settings_api._SETTINGS_STORE.clear()
+        settings_api._SETTINGS_STORE.update(default_settings_store)
         settings_api._SETTINGS_STORE.update(payloads["settings_store"])
 
     if isinstance(payloads.get("source_revision"), int):

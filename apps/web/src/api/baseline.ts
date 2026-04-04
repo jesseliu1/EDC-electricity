@@ -26,15 +26,16 @@ export interface BaselineResponse {
   definition_id: string
   definition_name: string
   source_heat_id: string
-  selected_start_time?: string | null
-  selected_end_time?: string | null
+  selected_start_time?: number | null
+  selected_end_time?: number | null
+  effective_from?: number | null
   tolerance_percent: number
   status: BaselineStatus
   version: number
   curve_source: BaselineCurveSource
-  created_at: string
-  updated_at: string
-  published_at: string | null
+  created_at: number
+  updated_at: number
+  published_at: number | null
   curves_data?: CurveData[]
   power_curve?: CurvePoint[]
   voltage_curve?: CurvePoint[]
@@ -58,16 +59,18 @@ export interface BaselineCreatePayload {
   description?: string
   definition_id: string
   source_heat_id: string
-  selected_start_time?: string
-  selected_end_time?: string
+  selected_start_time?: number
+  selected_end_time?: number
+  effective_from?: number
   tolerance_percent: number
 }
 
 export interface BaselineUpdatePayload {
   name?: string
   description?: string
-  selected_start_time?: string
-  selected_end_time?: string
+  selected_start_time?: number
+  selected_end_time?: number
+  effective_from?: number
   tolerance_percent?: number
 }
 

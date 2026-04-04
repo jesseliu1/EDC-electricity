@@ -2,13 +2,13 @@
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import dayjs from 'dayjs'
 import StatCard from '@/components/dashboard/StatCard.vue'
 import RealtimeChart from '@/components/dashboard/RealtimeChart.vue'
 import HeatList from '@/components/dashboard/HeatList.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import { useDashboardStore } from '@/stores/dashboard'
 import type { TaskStatus } from '@/api/task'
+import { formatTimestamp } from '@/utils/time'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -82,7 +82,7 @@ const stats = computed(() => [
         : dashboardStore.realtimeError
           ? t('dashboard.realtimeLoadFailedHint')
         : dashboardStore.realtime.timestamp
-          ? dayjs(dashboardStore.realtime.timestamp).format('YYYY-MM-DD HH:mm')
+          ? formatTimestamp(dashboardStore.realtime.timestamp)
           : '',
     icon: 'verified',
     accentColor: 'green' as const,
@@ -281,7 +281,7 @@ onMounted(() => {
                 >{{ item.status === 'abnormal' ? t('heat.statusAbnormal') : t('heat.statusPending') }}</span>
               </div>
               <p class="text-xs text-slate-500">
-                {{ item.startTime }}
+                {{ formatTimestamp(item.startTime) }}
               </p>
               <div
                 :class="[
@@ -330,7 +330,7 @@ onMounted(() => {
                 {{ t('task.relatedHeat') }}: {{ item.heatId }}
               </p>
               <div class="flex items-center justify-between mt-2">
-                <span class="text-xs text-slate-400">{{ item.updatedAt }}</span>
+                <span class="text-xs text-slate-400">{{ formatTimestamp(item.updatedAt) }}</span>
                 <span
                   :class="[
                     'text-xs px-2 py-0.5 rounded font-medium',

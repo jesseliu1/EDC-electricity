@@ -29,6 +29,7 @@ import { useBaselineDefinitionStore } from '@/stores/baselineDefinition'
 import type { MetricItem } from '@/stores/baselineDefinition'
 import type { MetricDefinitionCreate } from '@/api/baselineDefinition'
 import { settingApi, type HostChannelItemResponse } from '@/api/setting'
+import { formatTimestamp } from '@/utils/time'
 
 const { t } = useI18n()
 const store = useBaselineDefinitionStore()
@@ -529,7 +530,7 @@ onMounted(() => {
 
         <!-- 创建时间 -->
         <div class="mt-2 text-xs text-gray-400">
-          {{ t('baselineDefinition.createdAt') }}: {{ item.createdAt }}
+          {{ t('baselineDefinition.createdAt') }}: {{ formatTimestamp(item.createdAt) }}
         </div>
       </el-card>
     </div>

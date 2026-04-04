@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia'
-import dayjs from 'dayjs'
 import {
   baselineDefinitionApi,
   type BaselineDefinitionCreatePayload,
@@ -26,8 +25,8 @@ export interface DefinitionItem {
   status: 'active' | 'disabled'
   metrics: MetricItem[]
   instanceCount: number
-  createdAt: string
-  updatedAt: string
+  createdAt: number
+  updatedAt: number
 }
 
 function mapDefinition(item: BaselineDefinitionResponse): DefinitionItem {
@@ -46,8 +45,8 @@ function mapDefinition(item: BaselineDefinitionResponse): DefinitionItem {
       edcChannelId: m.edc_channel_id
     })),
     instanceCount: item.instance_count,
-    createdAt: dayjs(item.created_at).format('YYYY-MM-DD HH:mm'),
-    updatedAt: dayjs(item.updated_at).format('YYYY-MM-DD HH:mm')
+    createdAt: item.created_at,
+    updatedAt: item.updated_at
   }
 }
 

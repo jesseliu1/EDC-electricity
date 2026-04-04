@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import dayjs from 'dayjs'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ElDatePicker, ElMessage, ElPagination } from 'element-plus'
@@ -11,6 +10,7 @@ import { useHeatStore } from '@/stores/heat'
 import type { HeatStatus } from '@/api/heat'
 import type { HeatItem } from '@/stores/heat'
 import { isShowtimeMode } from '@/utils/showtime'
+import { formatTimestamp, formatTimestampOrFallback } from '@/utils/time'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -189,12 +189,12 @@ function getPeakPower(item: HeatItem) {
 }
 
 function getDurationMinutes(item: HeatItem) {
-  const start = dayjs(item.startTime)
+  const start = item.startTime
   const end =
     item.completionStatus === 'in_progress'
-      ? dayjs(item.lastPointAt || dayjs())
-      : dayjs(item.endTime)
-  return Math.max(end.diff(start, 'minute'), 0)
+      ? item.lastPointAt || Date.now()
+      : item.endTime
+  return Math.max(Math.floor((end - start) / (60 * 1000)), 0)
 }
 
 function handleStatusChange(value: StatusFilter) {
@@ -422,7 +422,7 @@ onBeforeUnmount(() => {
         <div class="mt-1 text-amber-700">
           {{
             t('heat.snapshotStaleBody', {
-              time: heatStore.snapshotWatermark || '--'
+              time: formatTimestampOrFallback(heatStore.snapshotWatermark, '--', 'YYYY-MM-DD HH:mm:ss')
             })
           }}
         </div>
@@ -509,7 +509,7 @@ onBeforeUnmount(() => {
                 </td>
                 <td class="px-4 py-4">
                   <div class="text-sm text-slate-700">
-                    {{ item.startTime }}
+                    {{ formatTimestamp(item.startTime) }}
                   </div>
                   <div class="text-xs text-slate-400">
                     {{ item.description || 'Furnace-A01' }}

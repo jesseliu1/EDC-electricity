@@ -36,6 +36,7 @@ from ..services import (
     set_baseline_status,
     update_baseline_record,
 )
+from ..time_utils import utc_now
 
 # 引用 definition store 以做关联校验
 from .baseline_definitions import _DEFINITION_STORE, _reload_definition_store
@@ -105,7 +106,25 @@ def _format_host_channel_label(channel: dict[str, str] | None) -> str | None:
 
 
 def _now() -> datetime:
-    return datetime.now()
+    return utc_now()
+
+
+def _validate_selection_window(
+    *,
+    source_heat: dict[str, Any],
+    selected_start_time: datetime,
+    selected_end_time: datetime,
+) -> None:
+    if selected_start_time > selected_end_time:
+        raise HTTPException(status_code=400, detail="基线选区开始时间不能晚于结束时间")
+
+    heat_start = source_heat.get("start_time")
+    heat_end = source_heat.get("end_time")
+    if not isinstance(heat_start, datetime) or not isinstance(heat_end, datetime):
+        raise HTTPException(status_code=400, detail="来源炉次时间窗口无效")
+
+    if selected_start_time < heat_start or selected_end_time > heat_end:
+        raise HTTPException(status_code=400, detail="基线选区必须落在来源炉次真实时间窗口内")
 
 
 def _resolve_curve_seed(item: dict[str, Any], fallback: int = 1) -> int:
@@ -283,7 +302,7 @@ async def _resolve_baseline_time_window(item: dict[str, Any]) -> tuple[datetime,
         if source_window:
             return source_window
 
-    end_time = datetime.now()
+    end_time = utc_now()
     return end_time - timedelta(hours=1), end_time
 
 
@@ -547,6 +566,11 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
 
     selected_start_time = data.selected_start_time or source_heat["start_time"]
     selected_end_time = data.selected_end_time or source_heat["end_time"]
+    _validate_selection_window(
+        source_heat=source_heat,
+        selected_start_time=selected_start_time,
+        selected_end_time=selected_end_time,
+    )
     item = await create_baseline_record(
         definition_id=data.definition_id,
         name=data.name,
@@ -602,6 +626,11 @@ async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineRes
         preferred_live_context=preferred_live_context,
     )
     if source_heat:
+        _validate_selection_window(
+            source_heat=source_heat,
+            selected_start_time=item["selected_start_time"],
+            selected_end_time=item["selected_end_time"],
+        )
         await replace_baseline_metric_series(
             definition_id=definition_id,
             item=item_no,

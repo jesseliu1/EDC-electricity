@@ -6,6 +6,44 @@
 
 ---
 
+### 2026-04-04（时间语义重构已切到 timestamp(ms) + plant_timezone，前后端编译链通过）
+
+**当前阶段**：时间契约重构实现
+
+**本轮完成**：
+
+- [x] 已把后端时间主契约切到“绝对时间统一用 `timestamp(ms)`，业务日期语义统一由 `settings.plant_timezone` 决定”
+  - [x] 新增 `apps/server/src/time_utils.py`
+  - [x] 新增 `apps/server/src/db_types.py`
+  - [x] 基线 / 炉次 / 任务 / 设置 / 指标序列模型的时间字段已从 `DateTime` 切到毫秒时间戳存储
+  - [x] schema 已统一按 `TimestampMs / OptionalTimestampMs` 对外输出
+  - [x] `dashboard / heats / baselines / baseline_definitions / tasks / reports / settings` 已开始按 `plant_timezone` 做自然日、班次和时间格式语义
+- [x] 已把前端时间主契约切到“API 收发 number(timestamp_ms)，页面显示统一按 plant timezone 格式化”
+  - [x] 新增 `apps/web/src/utils/time.ts`
+  - [x] `heat / baseline / dashboard / task / baselineDefinition` API 类型已切到 number 时间戳
+  - [x] store 层已开始保留原始 timestamp，不再把 API 时间先落成格式化字符串
+  - [x] 系统设置页已新增 `plant_timezone` 配置入口，默认 `Asia/Shanghai`
+- [x] 已针对本轮两个直接业务问题补主链修复
+  - [x] 炉次列表 / 基线候选 / 仪表盘等页面不再直接按浏览器本地时区读取 API 时间
+  - [x] 炉次详情页不再把时间先格式化成无时区字符串再参与 compare 裁窗，曲线裁窗改为全程按 timestamp 计算
+  - [x] 炉次详情手动调整 / 基线详情编辑的 datetime picker 已补“plant timezone wall-clock <-> 绝对时间戳”转换
+
+**验证结果**：
+
+- [x] `pnpm --dir apps/web lint`
+  - [x] 结果仅剩既有 Vue 样式 warning，无 blocking error
+- [x] `pnpm --dir apps/web build`
+- [x] `python3 -m compileall -q apps/server/src`
+- [x] `python3 -m py_compile apps/server/src/api/heats.py apps/server/src/api/baselines.py apps/server/src/api/baseline_definitions.py apps/server/src/api/dashboard.py apps/server/src/api/reports.py apps/server/src/api/settings.py apps/server/src/api/tasks.py apps/server/src/services/formal_baseline_service.py apps/server/src/services/formal_heat_service.py apps/server/src/time_utils.py apps/server/src/db_types.py`
+- [x] 已用脚本确认 `HeatResponse.model_dump()` 对时间字段输出为毫秒时间戳，而非 ISO 字符串
+
+**当前结论**：
+
+- [x] 时间契约已从“后端 naive datetime + 前端 dayjs 直读”收口到“后端 timestamp(ms) + plant_timezone / 前端最后一层格式化”
+- [ ] 本轮还没有做 blank reset 后的完整用户路径回归，不能声称已完成 UAT
+- [ ] 本轮还没有重新部署到公网，也不能把本地编译通过等同于线上已修复
+- [ ] 下一步应先做一次 `factory-reset + blank` 环境重置，再按用户路径复验炉次列表、热详情 compare、基线详情和设置页时区
+
 ### 2026-04-04（炉次详情曲线空白问题已按前后端分层收口）
 
 **当前阶段**：线上 issue 调查与分层归因

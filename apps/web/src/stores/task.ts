@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia'
-import dayjs from 'dayjs'
 import { taskApi } from '@/api/task'
 import type {
   TaskCompletePayload,
@@ -34,9 +33,9 @@ export interface TaskItem {
   heatId: string
   deviationPercent: number | null
   status: TaskStatus
-  createdAt: string
-  updatedAt: string
-  completedAt: string | null
+  createdAt: number
+  updatedAt: number
+  completedAt: number | null
 }
 
 export interface TaskDetail extends TaskItem {
@@ -74,9 +73,9 @@ function mapTask(item: TaskItemResponse): TaskItem {
     heatId: item.heat_id,
     deviationPercent: item.deviation_percent,
     status: item.status,
-    createdAt: dayjs(item.created_at).format('YYYY-MM-DD HH:mm'),
-    updatedAt: dayjs(item.updated_at).format('YYYY-MM-DD HH:mm'),
-    completedAt: item.completed_at ? dayjs(item.completed_at).format('YYYY-MM-DD HH:mm') : null
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
+    completedAt: item.completed_at
   }
 }
 

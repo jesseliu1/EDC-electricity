@@ -19,11 +19,15 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import type { EChartsOption } from 'echarts'
-import dayjs from 'dayjs'
 import { useBaselineStore } from '@/stores/baseline'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import {
+  formatTimestamp,
+  pickerDateToPlantTimestamp,
+  timestampToPlantPickerDate,
+} from '@/utils/time'
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
 
@@ -88,7 +92,7 @@ const curveOption = computed<EChartsOption>(() => {
   const current = baseline.value
   if (!current) return {}
   const firstCurve = current.curvesData[0]?.points || current.powerCurve
-  const labels = firstCurve.map((point) => dayjs(point.timestamp).format('HH:mm'))
+  const labels = firstCurve.map((point) => formatTimestamp(point.timestamp, 'HH:mm'))
   const series =
     current.curvesData.length > 0
       ? current.curvesData.map((item) => ({
@@ -194,10 +198,10 @@ function handleEdit() {
   editForm.description = baseline.value.description || ''
   editForm.tolerancePercent = baseline.value.tolerancePercent
   editForm.selectedStartTime = baseline.value.selectedStartTime
-    ? dayjs(baseline.value.selectedStartTime).toDate()
+    ? timestampToPlantPickerDate(baseline.value.selectedStartTime)
     : null
   editForm.selectedEndTime = baseline.value.selectedEndTime
-    ? dayjs(baseline.value.selectedEndTime).toDate()
+    ? timestampToPlantPickerDate(baseline.value.selectedEndTime)
     : null
   editVisible.value = true
 }
@@ -224,10 +228,10 @@ async function handleSaveEdit() {
     description: editForm.description.trim() || undefined,
     tolerance_percent: editForm.tolerancePercent,
     selected_start_time: editForm.selectedStartTime
-      ? dayjs(editForm.selectedStartTime).toISOString()
+      ? pickerDateToPlantTimestamp(editForm.selectedStartTime) || undefined
       : undefined,
     selected_end_time: editForm.selectedEndTime
-      ? dayjs(editForm.selectedEndTime).toISOString()
+      ? pickerDateToPlantTimestamp(editForm.selectedEndTime) || undefined
       : undefined,
   })
   if (!ok) {
@@ -421,13 +425,13 @@ onMounted(async () => {
               <span class="font-mono text-xs text-slate-600 bg-slate-50 p-2 rounded block">
                 {{
                   baseline.selectedStartTime
-                    ? dayjs(baseline.selectedStartTime).format('YYYY-MM-DD HH:mm:ss')
+                    ? formatTimestamp(baseline.selectedStartTime, 'YYYY-MM-DD HH:mm:ss')
                     : '--'
                 }}
                 <br /><span class="text-slate-400">to</span><br />
                 {{
                   baseline.selectedEndTime
-                    ? dayjs(baseline.selectedEndTime).format('YYYY-MM-DD HH:mm:ss')
+                    ? formatTimestamp(baseline.selectedEndTime, 'YYYY-MM-DD HH:mm:ss')
                     : '--'
                 }}
               </span>
@@ -496,7 +500,7 @@ onMounted(async () => {
             <el-timeline-item
               v-for="version in baselineStore.versionHistory"
               :key="version.id"
-              :timestamp="dayjs(version.createdAt).format('MM-DD HH:mm')"
+              :timestamp="formatTimestamp(version.createdAt, 'MM-DD HH:mm')"
               placement="top"
               :color="version.id === baseline.id ? '#1152d4' : '#e2e8f0'"
             >

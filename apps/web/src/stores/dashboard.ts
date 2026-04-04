@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia'
-import dayjs from 'dayjs'
 import { dashboardApi } from '@/api/dashboard'
 import { taskApi } from '@/api/task'
 import { resolveApiErrorMessage } from '@/utils/apiError'
@@ -22,7 +21,7 @@ interface DashboardStats {
 }
 
 interface RealtimeData {
-  timestamp: string
+  timestamp: number | null
   baselineId: string | null
   baselineName: string | null
   powerSourceLabel: string | null
@@ -36,8 +35,8 @@ interface RealtimeData {
 export interface RecentHeatItem {
   id: string
   heatNo: string
-  startTime: string
-  endTime: string
+  startTime: number
+  endTime: number
   status: 'normal' | 'abnormal' | 'pending'
   deviationPercent: number | null
 }
@@ -48,7 +47,7 @@ export interface DashboardTaskPreviewItem {
   heatId: string
   deviationPercent: number | null
   status: TaskStatus
-  updatedAt: string
+  updatedAt: number
 }
 
 const defaultStats: DashboardStats = {
@@ -60,7 +59,7 @@ const defaultStats: DashboardStats = {
 }
 
 const defaultRealtime: RealtimeData = {
-  timestamp: '',
+  timestamp: null,
   baselineId: null,
   baselineName: null,
   powerSourceLabel: null,
@@ -99,8 +98,8 @@ function mapRecentHeats(data: RecentHeatsResponse): RecentHeatItem[] {
   return data.items.map((item: RecentHeatResponseItem) => ({
     id: item.id,
     heatNo: item.heat_no,
-    startTime: dayjs(item.start_time).format('YYYY-MM-DD HH:mm'),
-    endTime: dayjs(item.end_time).format('YYYY-MM-DD HH:mm'),
+    startTime: item.start_time,
+    endTime: item.end_time,
     status: item.status,
     deviationPercent: item.deviation_percent
   }))
@@ -113,7 +112,7 @@ function mapTaskPreview(item: TaskItemResponse): DashboardTaskPreviewItem {
     heatId: item.heat_id,
     deviationPercent: item.deviation_percent,
     status: item.status,
-    updatedAt: dayjs(item.updated_at).format('YYYY-MM-DD HH:mm')
+    updatedAt: item.updated_at
   }
 }
 
@@ -175,7 +174,7 @@ export const useDashboardStore = defineStore('dashboard', {
           taskApi.list({ status: 'in_progress', page: 1, page_size: limit })
         ])
         const merged = [...pending.items, ...inProgress.items]
-          .sort((a, b) => dayjs(b.updated_at).valueOf() - dayjs(a.updated_at).valueOf())
+          .sort((a, b) => b.updated_at - a.updated_at)
           .slice(0, limit)
         this.pendingTaskPreview = merged.map(mapTaskPreview)
       } catch (error) {

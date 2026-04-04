@@ -1,8 +1,8 @@
 """任务 Pydantic 模式"""
 
-from datetime import datetime
-
 from pydantic import BaseModel, Field
+
+from .common import OptionalTimestampMs, TimestampMs
 
 
 class TaskCreate(BaseModel):
@@ -35,9 +35,9 @@ class TaskResponse(BaseModel):
     improvement: str | None = Field(default=None, description="改善方法")
     prevention: str | None = Field(default=None, description="预防对策")
     status: str = Field(..., description="状态: pending/in_progress/completed/cancelled")
-    created_at: datetime = Field(..., description="创建时间")
-    updated_at: datetime = Field(..., description="更新时间")
-    completed_at: datetime | None = Field(default=None, description="完成时间")
+    created_at: TimestampMs = Field(..., description="创建时间")
+    updated_at: TimestampMs = Field(..., description="更新时间")
+    completed_at: OptionalTimestampMs = Field(default=None, description="完成时间")
 
     model_config = {"from_attributes": True}
 
@@ -46,8 +46,8 @@ class TaskWithHeat(TaskResponse):
     """带炉次信息的任务响应"""
 
     heat_no: str = Field(..., description="炉次编号")
-    heat_start_time: datetime = Field(..., description="炉次开始时间")
-    heat_end_time: datetime = Field(..., description="炉次结束时间")
+    heat_start_time: TimestampMs = Field(..., description="炉次开始时间")
+    heat_end_time: TimestampMs = Field(..., description="炉次结束时间")
 
 
 class TaskListResponse(BaseModel):

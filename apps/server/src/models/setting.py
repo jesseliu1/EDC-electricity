@@ -2,10 +2,12 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from ..db_types import TimestampMsType
 from ..database import Base
+from ..time_utils import utc_now
 
 
 class Setting(Base):
@@ -27,7 +29,7 @@ class Setting(Base):
 
     # 时间戳
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment="更新时间"
+        TimestampMsType(), default=utc_now, onupdate=utc_now, comment="更新时间"
     )
 
     def __repr__(self) -> str:

@@ -18,6 +18,7 @@ from ..models import (
     MetricSeries,
 )
 from ..schemas.common import CurvePoint
+from ..time_utils import to_timestamp_ms, utc_now
 
 BASELINE_KEY_SEPARATOR = ":"
 
@@ -119,8 +120,8 @@ def _slice_curve_points(
     start_time: datetime,
     end_time: datetime,
 ) -> list[CurvePoint]:
-    start_ts = int(start_time.timestamp() * 1000)
-    end_ts = int(end_time.timestamp() * 1000)
+    start_ts = to_timestamp_ms(start_time)
+    end_ts = to_timestamp_ms(end_time)
     return [point for point in points if start_ts <= int(point.timestamp) <= end_ts]
 
 
@@ -313,7 +314,7 @@ async def create_definition_record(
     metrics: list[dict[str, Any]],
     actor: str,
 ) -> dict[str, Any]:
-    now = datetime.now()
+    now = utc_now()
     definition = BaselineDefinition(
         id=definition_id,
         definition_name=definition_name,
@@ -370,7 +371,7 @@ async def update_definition_record(
         if expected_duration_minutes is not None:
             definition.expected_duration_minutes = expected_duration_minutes
         definition.updated_by = actor
-        definition.updated_at = datetime.now()
+        definition.updated_at = utc_now()
         await session.commit()
     return await get_definition_record(definition_id)
 
@@ -387,7 +388,7 @@ async def set_definition_status(
             return None
         definition.status = status
         definition.updated_by = actor
-        definition.updated_at = datetime.now()
+        definition.updated_at = utc_now()
         await session.commit()
     return await get_definition_record(definition_id)
 
@@ -417,7 +418,7 @@ async def add_definition_metric(
     sort_order: int,
     edc_channel_id: str | None,
 ) -> dict[str, Any] | None:
-    now = datetime.now()
+    now = utc_now()
     async with async_session_maker() as session:
         definition = await session.get(BaselineDefinition, definition_id)
         if definition is None:
@@ -475,10 +476,10 @@ async def update_definition_metric(
             metric.sort_order = sort_order
         if edc_channel_id is not None:
             metric.edc_channel_id = edc_channel_id
-        metric.updated_at = datetime.now()
+        metric.updated_at = utc_now()
         definition = await session.get(BaselineDefinition, definition_id)
         if definition is not None:
-            definition.updated_at = datetime.now()
+            definition.updated_at = utc_now()
         await session.commit()
     return await get_definition_record(definition_id)
 
@@ -491,7 +492,7 @@ async def delete_definition_metric(definition_id: str, item: str) -> dict[str, A
         await session.delete(metric)
         definition = await session.get(BaselineDefinition, definition_id)
         if definition is not None:
-            definition.updated_at = datetime.now()
+            definition.updated_at = utc_now()
         await session.commit()
     return await get_definition_record(definition_id)
 
@@ -555,7 +556,7 @@ async def create_baseline_record(
     tolerance_percent: float,
     actor: str,
 ) -> dict[str, Any]:
-    now = datetime.now()
+    now = utc_now()
     async with async_session_maker() as session:
         next_item = (
             await session.execute(
@@ -612,7 +613,7 @@ async def replace_baseline_metric_series(
             "power": _normalize_curve_points(source_heat.get("power_curve")),
             "voltage": _normalize_curve_points(source_heat.get("voltage_curve")),
         }
-        now = datetime.now()
+        now = utc_now()
         rows: list[MetricSeries] = []
         for metric in metrics:
             metric_kind = infer_metric_kind(metric.metric_name, metric.unit or "")
@@ -676,7 +677,7 @@ async def update_baseline_record(
         if tolerance_percent is not None:
             baseline.tolerance_percent = tolerance_percent
         baseline.updated_by = actor
-        baseline.updated_at = datetime.now()
+        baseline.updated_at = utc_now()
         await session.commit()
     return await get_baseline_record(definition_id, item)
 
@@ -696,7 +697,7 @@ async def set_baseline_status(
             return None
         baseline.status = status
         baseline.updated_by = actor
-        baseline.updated_at = datetime.now()
+        baseline.updated_at = utc_now()
         if publish_time is not None:
             baseline.published_at = publish_time
         if effective_from is not None:

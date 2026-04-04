@@ -14,12 +14,14 @@ from ..observability import log_event
 from ..schemas import DashboardStats, RecentHeat, RecentHeatsResponse
 from ..schemas.common import CurvePoint
 from ..services import EDCClient, EDCClientError
+from ..time_utils import plant_date_of, to_timestamp_ms, utc_now
 from .baselines import _BASELINE_STORE
 from .settings import (
     _CHANNEL_ROLE_BINDING_STORE,
     _HOST_CHANNEL_STORE,
     _SETTINGS_STORE,
     get_edc_connection_config,
+    get_plant_timezone,
 )
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -152,8 +154,9 @@ async def get_dashboard_stats() -> DashboardStats:
 
     sources = _resolve_dashboard_realtime_context()
     heats = await _sorted_dashboard_heats()
-    today = datetime.now().date()
-    today_heats = [item for item in heats if item["start_time"].date() == today]
+    timezone_name = get_plant_timezone()
+    today = plant_date_of(utc_now(), timezone_name)
+    today_heats = [item for item in heats if plant_date_of(item["start_time"], timezone_name) == today]
     scoped_heats = today_heats or heats
     deviations = [
         float(item["deviation_percent"])
@@ -197,7 +200,7 @@ async def get_realtime_data(
         "24h": timedelta(hours=24),
     }
     delta = duration_map[duration]
-    end_time = datetime.now()
+    end_time = utc_now()
     start_time = end_time - delta
 
     sources = _resolve_dashboard_realtime_context()
@@ -244,7 +247,7 @@ async def get_realtime_data(
     baseline_voltage = [item.model_dump() for item in realtime_curves["baseline_voltage"]]
 
     response = {
-        "timestamp": end_time.isoformat(),
+        "timestamp": to_timestamp_ms(end_time),
         "baseline_id": sources["baseline_id"],
         "baseline_name": sources["baseline_name"],
         "power_source_label": sources["power_source_label"],

@@ -19,17 +19,20 @@ from ..schemas import (
     TaskResponse,
     TaskUpdate,
 )
+from ..time_utils import to_plant_datetime, utc_now
+from .settings import get_plant_timezone
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
 
 def _now() -> datetime:
-    return datetime.now()
+    return utc_now()
 
 
 def _seed_tasks() -> dict[str, dict[str, Any]]:
     seeded: dict[str, dict[str, Any]] = {}
     now = _now()
+    plant_now = to_plant_datetime(now, get_plant_timezone())
     status_cycle = ["pending", "in_progress", "completed", "cancelled"]
     for idx in range(36):
         task_id = f"task-{idx + 1:03d}"
@@ -39,9 +42,9 @@ def _seed_tasks() -> dict[str, dict[str, Any]]:
         completed_at = updated if status == "completed" else None
         seeded[task_id] = {
             "id": task_id,
-            "task_no": f"T{now.strftime('%Y%m%d')}-{idx + 1:03d}",
+            "task_no": f"T{plant_now.strftime('%Y%m%d')}-{idx + 1:03d}",
             "heat_id": f"heat-{idx + 1:03d}",
-            "heat_no": f"H{now.strftime('%Y%m%d')}-{idx + 1:03d}",
+            "heat_no": f"H{plant_now.strftime('%Y%m%d')}-{idx + 1:03d}",
             "deviation_percent": round(8 + (idx % 9) * 1.9, 3),
             "deviation_snapshot": {
                 "max_deviation": round(12 + (idx % 7) * 2.1, 3),
@@ -158,9 +161,10 @@ async def create_task(data: TaskCreate) -> TaskResponse:
     else:
         heat_item = _build_heat_list_view(await _get_heat_or_404(data.heat_id))
     task_id = f"task-{uuid4()}"
+    plant_now = to_plant_datetime(now, get_plant_timezone())
     item = {
         "id": task_id,
-        "task_no": f"T{now.strftime('%Y%m%d')}-{now.strftime('%H%M%S')}",
+        "task_no": f"T{plant_now.strftime('%Y%m%d')}-{plant_now.strftime('%H%M%S')}",
         "heat_id": data.heat_id,
         "heat_no": heat_item["heat_no"],
         "deviation_percent": heat_item.get("deviation_percent"),

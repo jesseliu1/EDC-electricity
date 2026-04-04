@@ -1,8 +1,8 @@
 """黄金基线定义 Pydantic 模式"""
 
-from datetime import datetime
-
 from pydantic import BaseModel, Field
+
+from .common import TimestampMs
 
 
 class MetricDefinitionResponse(BaseModel):
@@ -69,8 +69,8 @@ class BaselineDefinitionResponse(BaseModel):
         default_factory=list, description="指标通道列表"
     )
     instance_count: int = Field(default=0, description="关联的黄金基线实例数")
-    created_at: datetime = Field(..., description="创建时间")
-    updated_at: datetime = Field(..., description="更新时间")
+    created_at: TimestampMs = Field(..., description="创建时间")
+    updated_at: TimestampMs = Field(..., description="更新时间")
 
     model_config = {"from_attributes": True}
 
