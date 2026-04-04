@@ -266,7 +266,7 @@ async def test_refresh_runtime_source_state_rebuilds_catalog_and_rebinds_definit
     assert host_status["meta"]["source"] == "http://61.216.55.133"
     assert host_status["meta"]["channel_count"] == 4
     assert host_status["meta"]["enabled_channel_count"] == 4
-    assert last_sync["__type__"] == "datetime"
+    assert last_sync["__type__"] == "timestamp_ms"
     assert [
         metric["edc_channel_id"]
         for metric in definitions["def-001"]["metrics"]
@@ -387,6 +387,91 @@ async def test_refresh_runtime_source_state_replaces_zero_data_fundamental_chann
         metric["edc_channel_id"]
         for metric in definitions["def-001"]["metrics"]
     ] == ["2755-205", "2752-128", None]
+
+
+@pytest.mark.asyncio
+async def test_refresh_runtime_source_state_skips_flat_zero_power_channels(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "runtime-admin.db"
+    _init_settings_db(db_path)
+    _write_json_record(
+        db_path,
+        RUNTIME_SETTINGS_STORE_KEY,
+        {
+            "edc_base_url": {"value": "http://61.216.55.133"},
+            "edc_username": {"value": "admin"},
+            "edc_password": {"value": "admin"},
+        },
+    )
+
+    class _FakeZeroPowerEDCClient:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> _FakeZeroPowerEDCClient:
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        async def get_all_sensor_list(self) -> list[dict[str, object]]:
+            return [
+                {
+                    "uid": "2751",
+                    "sensorNickName": "推板式連續爐電力",
+                    "channelList": [
+                        {"cuid": "205", "chnName": "總有功功率", "chnDim": "kW", "status": "1"},
+                        {"cuid": "128", "chnName": "A相電壓 (或VAB)", "chnDim": "V", "status": "1"},
+                    ],
+                },
+                {
+                    "uid": "2702",
+                    "sensorNickName": "SSTW 高壓側總電力",
+                    "channelList": [
+                        {"cuid": "205", "chnName": "總有功功率", "chnDim": "kW", "status": "1"},
+                        {"cuid": "128", "chnName": "A相電壓 (或VAB)", "chnDim": "V", "status": "1"},
+                    ],
+                },
+            ]
+
+        async def get_local_datas(
+            self,
+            *,
+            suid: str,
+            cuid: str,
+            start_time: datetime,
+            end_time: datetime,
+        ) -> list[dict[str, float | int]]:
+            _ = (start_time, end_time)
+            if (suid, cuid) == ("2751", "205"):
+                return [
+                    {"timestamp": 1774878050195 + index * 60_000, "value": 0.0}
+                    for index in range(12)
+                ]
+            if (suid, cuid) == ("2702", "205"):
+                return [
+                    {"timestamp": 1774878050195 + index * 60_000, "value": 60.0 + index}
+                    for index in range(12)
+                ]
+            if cuid == "128":
+                return [{"timestamp": 1774878050195, "value": 220.0}]
+            return []
+
+    monkeypatch.setattr("src.runtime_state_admin.EDCClient", _FakeZeroPowerEDCClient)
+
+    await refresh_runtime_source_state(db_path)
+
+    selected_channels = _read_json_record(db_path, RUNTIME_HOST_CHANNELS_KEY)
+    role_bindings = _read_json_record(db_path, RUNTIME_CHANNEL_ROLE_BINDINGS_KEY)
+
+    assert [item["id"] for item in selected_channels[:2]] == ["2702-205", "2751-128"]
+    assert role_bindings == {
+        "dashboard_primary": "2702-205",
+        "dashboard_secondary": "2751-128",
+        "live_heat_inference": "2702-205",
+    }
 
 
 def test_factory_reset_runtime_state_deletes_all_runtime_rows(tmp_path) -> None:

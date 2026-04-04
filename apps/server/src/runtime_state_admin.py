@@ -361,6 +361,35 @@ def _metric_probe_score(metric_key: str, channel: dict[str, str]) -> int:
     return 0
 
 
+def _point_value(point: Any) -> float | None:
+    if isinstance(point, dict):
+        raw_value = point.get("value")
+    else:
+        raw_value = getattr(point, "value", None)
+    try:
+        return float(raw_value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _probe_usable_point_count(metric_key: str, points: list[Any]) -> int:
+    if not points:
+        return 0
+    if metric_key != "power":
+        return len(points)
+
+    values = [value for value in (_point_value(point) for point in points) if value is not None]
+    if not values:
+        return 0
+
+    non_zero_values = [value for value in values if abs(value) > 1e-6]
+    if not non_zero_values:
+        return 0
+    if len(non_zero_values) > 1 and max(non_zero_values) - min(non_zero_values) <= 1e-6:
+        return 0
+    return len(points)
+
+
 def _collect_bound_channels(
     definition_store: dict[str, Any] | None,
     catalog: list[dict[str, str]],
@@ -502,7 +531,7 @@ async def _pick_live_metric_channel(
                 start_time=start_time,
                 end_time=end_time,
             )
-            points_count = len(points)
+            points_count = _probe_usable_point_count(metric_key, points)
             probe_counts[channel_id] = points_count
         if points_count > 0:
             return channel

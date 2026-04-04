@@ -1155,6 +1155,49 @@ async def test_refresh_heat_runtime_populates_history_from_live_points(client, m
 
 
 @pytest.mark.asyncio
+async def test_refresh_heat_runtime_rejects_flat_zero_power_signal(client, monkeypatch) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    zero_points = [
+        CurvePoint(
+            timestamp=int((datetime(2026, 3, 19, 8, 0) + timedelta(minutes=index)).timestamp() * 1000),
+            value=0.0,
+        )
+        for index in range(90)
+    ]
+
+    async def fake_load_live_heat_inference_power_points(_channel):
+        return zero_points
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+    heats_module._HEAT_RUNTIME_REFRESH_META["refresh_failure_count"] = 0
+    heats_module._HEAT_RUNTIME_REFRESH_META["refresh_error"] = None
+
+    refresh_meta = await heats_module.refresh_heat_runtime_state(reason="test")
+
+    assert refresh_meta["refresh_error"] == "no_runtime_heats_inferred"
+    list_response = await client.get("/api/heats", params={"page_size": 20})
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert all(
+        item["record_source"] not in {"active_runtime", "previous_runtime"}
+        for item in payload["items"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_list_heats_does_not_alias_stale_live_record_into_all_current_rows(
     client, monkeypatch
 ) -> None:
@@ -1594,6 +1637,17 @@ async def test_baseline_time_window_skips_live_lookup_for_non_live_missing_sourc
 
     assert calls == ["heat-ref-999"]
     assert (window_end - window_start).total_seconds() == 3600
+
+
+def test_infer_live_activity_threshold_returns_none_for_flat_zero_signal() -> None:
+    import src.api.heats as heats_module
+
+    zero_points = [
+        CurvePoint(timestamp=1_775_308_000_000 + index * 60_000, value=0.0)
+        for index in range(30)
+    ]
+
+    assert heats_module._infer_live_activity_threshold(zero_points) is None
 
 
 @pytest.mark.asyncio

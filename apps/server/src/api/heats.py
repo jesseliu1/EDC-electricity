@@ -623,6 +623,14 @@ def _infer_live_activity_threshold(points: list[CurvePoint]) -> float | None:
         return None
 
     values = [float(point.value) for point in points]
+    if not values:
+        return None
+    non_zero_values = [value for value in values if abs(value) > 1e-6]
+    if not non_zero_values:
+        return None
+    if max(non_zero_values) - min(non_zero_values) <= 1e-6:
+        return None
+
     median = _percentile(values, 0.5)
     p75 = _percentile(values, 0.75)
     p90 = _percentile(values, 0.9)
