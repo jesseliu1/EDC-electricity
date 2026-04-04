@@ -22,6 +22,7 @@ from src.runtime_state_admin import (
     factory_reset_runtime_state,
     refresh_runtime_source_state,
 )
+from src.time_utils import utc_now_ms
 
 
 def _init_settings_db(db_path: Path) -> None:
@@ -33,7 +34,7 @@ def _init_settings_db(db_path: Path) -> None:
                 key text primary key,
                 value text not null,
                 description text,
-                updated_at text
+                updated_at integer
             )
             """
         )
@@ -99,9 +100,9 @@ def _write_json_record(db_path: Path, key: str, payload: Any) -> None:
         connection.execute(
             """
             insert into settings (key, value, description, updated_at)
-            values (?, ?, ?, CURRENT_TIMESTAMP)
+            values (?, ?, ?, ?)
             """,
-            (key, encoded, f"test:{key}"),
+            (key, encoded, f"test:{key}", utc_now_ms()),
         )
         connection.commit()
     finally:
@@ -276,6 +277,36 @@ async def test_refresh_runtime_source_state_rebuilds_catalog_and_rebinds_definit
         "300000000000000000001-128",
         "2755-128",
     ]
+    connection = sqlite3.connect(db_path)
+    try:
+        updated_at_types = dict(
+            connection.execute(
+                """
+                select key, typeof(updated_at)
+                from settings
+                where key in (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    RUNTIME_HOST_CHANNEL_CATALOG_KEY,
+                    RUNTIME_HOST_CHANNELS_KEY,
+                    RUNTIME_CHANNEL_ROLE_BINDINGS_KEY,
+                    RUNTIME_HOST_CONNECTIVITY_STATUS_KEY,
+                    RUNTIME_HOST_CHANNEL_LAST_SYNC_KEY,
+                    RUNTIME_BASELINE_DEFINITIONS_KEY,
+                ),
+            ).fetchall()
+        )
+    finally:
+        connection.close()
+
+    assert updated_at_types == {
+        RUNTIME_HOST_CHANNEL_CATALOG_KEY: "integer",
+        RUNTIME_HOST_CHANNELS_KEY: "integer",
+        RUNTIME_CHANNEL_ROLE_BINDINGS_KEY: "integer",
+        RUNTIME_HOST_CONNECTIVITY_STATUS_KEY: "integer",
+        RUNTIME_HOST_CHANNEL_LAST_SYNC_KEY: "integer",
+        RUNTIME_BASELINE_DEFINITIONS_KEY: "integer",
+    }
 
 
 @pytest.mark.asyncio

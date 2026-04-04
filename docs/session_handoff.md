@@ -6,6 +6,62 @@
 
 ---
 
+## 2026-04-04 公网部署刷新链时间类型 bug 已修，线上炉次时间/曲线症状已恢复（最新口径，优先于下面旧记录）
+
+- 当前工作区状态：
+  - 基线 SHA 仍是 `46dcd4d2ee6e726e72a5765f7b441a9a953eedd3`
+  - 当前额外存在未提交修复：
+    - `apps/server/src/runtime_state_admin.py`
+    - `apps/server/tests/test_runtime_state_admin.py`
+- 本轮关键发现：
+  - `runtime_state_admin.py` 仍在用 raw SQL `CURRENT_TIMESTAMP` 写 `settings.updated_at`
+  - `settings.updated_at` 已改为 `timestamp(ms)` 后，这会把 `runtime_host_channels / runtime_channel_role_bindings / runtime_host_connectivity_status` 等 runtime 记录写成 text 时间
+  - 一旦后端重启，`load_runtime_state()` 读取 `settings` 时会直接因 text/`timestamp_ms` 不匹配崩溃
+- 已完成修复：
+  - `_upsert_json_record(...)` 改为写 `utc_now_ms()`
+  - `apps/server/tests/test_runtime_state_admin.py` 已补 `updated_at` 为 `integer` 的回归断言
+  - `pytest -q apps/server/tests/test_runtime_state_admin.py` 已通过（`5 passed`）
+- 已完成部署：
+  - 执行 `./scripts/sync-edc-server.sh`
+  - 后端 runtime 目录：`/home/openclaw/edc-electricity-server`
+  - 这次同步会顺手用修复后的 `deploy-refresh` 重写先前那几条写坏的 runtime settings
+- 当前公网状态：
+  - `https://hopeofthepantheon.me/api/health` -> `{"status":"ok"}`
+  - `https://hopeofthepantheon.me/api/settings/runtime-status` -> `overall_code=ready`
+  - `https://hopeofthepantheon.me/api/heats?page=1&page_size=5` 已恢复晚间炉次，例如：
+    - `H20260404-2016`
+    - `H20260404-1930`
+    - `H20260404-1843`
+  - 最新炉次 `live-heat-c4019e8d-1775306400000-45` 的 `/curve`：
+    - `power_curve` 共 `2792` 点
+    - 非零点 `2792`
+    - `power_min=5.216327`
+    - `power_max=14.041406`
+  - `/edc/` 引用：
+    - `/edc/assets-github-20260404T143126Z/index-C4EzkwlH.js`
+    - `/edc/assets-github-20260404T143126Z/index-Dfe2v_0I.css`
+    - 上述资源均 `200`
+  - `/asns/` 引用：
+    - `/asns/assets/index-CPYSMy8j.js`
+    - `/asns/assets/index-xM4OlUIX.css`
+    - 上述资源均 `200`
+- 当前要点：
+  - 用户之前报的两个直接症状目前在公网都不再复现：
+    - “炉次像只到早上 9 点多”
+    - “炉次详情曲线空白”
+  - 但 auto-pick 当前仍选中：
+    - `dashboard_primary = 2347-199`
+    - `live_heat_inference = 2347-199`
+  - 该通道现在已非零并能正常产出 heats/curve，但与以下候选相比数值明显偏弱：
+    - `2349-199`
+    - `2702-205`
+  - 如果后续要继续提高“选中正确主功率通道”的把握，应继续改 live 通道 ranking / 设备元数据利用，不要回头再按时区问题误判
+- 补充口径：
+  - 当前公网 nginx 未暴露根路径 `/health`，所以 `https://hopeofthepantheon.me/health` 返回 `404`
+  - 后端本体健康检查仍可用：
+    - `http://127.0.0.1:8001/health`
+    - `https://hopeofthepantheon.me/api/health`
+
 ## 2026-04-04 旧 heats 测试重写 + factory-reset blank 部署已完成（最新口径，优先于下面旧记录）
 
 - 当前已完成：

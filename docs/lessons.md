@@ -21,6 +21,13 @@
 
 ## 记录
 
+### 2026-04-04 直接写 SQLite 的运维脚本必须同步遵守 `timestamp(ms)` 列契约
+
+- **错误模式**: 模型层已经把 `settings.updated_at` 切到 `TimestampMsType`，但 `runtime_state_admin.py` 仍通过原生 SQL 用 `CURRENT_TIMESTAMP` 写入 text 时间。结果 `deploy-refresh` 当场看似成功，下一次后端启动在 `load_runtime_state()` 读取 `settings` 表时就会因为 text/`timestamp_ms` 不匹配直接崩溃。
+- **正确做法**: 只要某张表的时间列已经切到 `timestamp(ms)`，所有绕过 SQLAlchemy 的脚本、CLI、raw sqlite upsert 也必须显式写整数毫秒时间戳，例如 `utc_now_ms()`。同时补回归测试，至少断言 `typeof(updated_at) = 'integer'`，不要只看 value 写进去了没有。
+- **适用场景**: `runtime_state_admin.py`、部署刷新脚本、`factory-reset` 相关工具、SQLite 运维脚本、任何“模型类型已改，但脚本还在手写 SQL”的重构场景。
+- **相关文档**: `apps/server/src/runtime_state_admin.py`, `apps/server/src/runtime_state.py`, `apps/server/src/db_types.py`, `docs/DEPLOYMENT.md`
+
 ### 2026-04-04 时间重构里必须分清“日期选择器 wall-clock”与“已存在绝对时间戳”
 
 - **错误模式**: 把同一个“按天取范围”的前端 helper 同时用于日期选择器返回的 `Date` 和后端已存在的绝对 `timestamp(ms)`。前者需要按用户选中的日历日期解释，后者需要先转成 `plant_timezone` 下的本地日期；两者混用时，会把浏览器本地时区偷偷带回业务语义。

@@ -6,6 +6,58 @@
 
 ---
 
+### 2026-04-04（公网部署刷新链时间类型已修复，线上炉次时间/曲线症状已恢复）
+
+**当前阶段**：公网运行态修复与定向验活
+
+**本轮完成**：
+
+- [x] 已定位并修复 `apps/server/src/runtime_state_admin.py` 一条部署链阻塞 bug
+  - [x] `settings.updated_at` 已切到 `timestamp(ms)` 后，`runtime_state_admin.py` 仍在用原生 SQL `CURRENT_TIMESTAMP`
+  - [x] `deploy-refresh` 会把 `runtime_host_channels / runtime_channel_role_bindings / runtime_host_connectivity_status` 等记录写成 text 时间
+  - [x] 后端下一次重启时会在 `load_runtime_state()` 读取 `settings` 表阶段崩溃
+- [x] 已补定向回归
+  - [x] `apps/server/tests/test_runtime_state_admin.py` 已改成 `updated_at integer`
+  - [x] 已新增断言，确保 `refresh_runtime_source_state(...)` 写回的 `settings.updated_at` 类型为 `integer`
+- [x] 已按现有脚本重新同步服务器后端 runtime
+  - [x] 执行 `./scripts/sync-edc-server.sh`
+  - [x] 运行目录 `/home/openclaw/edc-electricity-server` 已带上本轮修复
+  - [x] `deploy-refresh` 已成功重写之前写坏的 runtime settings 行
+- [x] 已完成公网定向验活
+  - [x] `https://hopeofthepantheon.me/api/settings/runtime-status` -> `overall_code=ready`
+  - [x] `https://hopeofthepantheon.me/api/heats?page=1&page_size=5` 已恢复晚间炉次，例如 `H20260404-2016 / H20260404-1930 / H20260404-1843`
+  - [x] 最新炉次 `/api/heats/{id}/curve` 已返回非零 `power_curve`
+  - [x] `/edc/` 与 `/asns/` 入口均可打开，且引用的 JS/CSS 资源均返回 `200`
+
+**验证结果**：
+
+- [x] `python3 -m py_compile apps/server/src/runtime_state_admin.py apps/server/tests/test_runtime_state_admin.py`
+- [x] `pytest -q apps/server/tests/test_runtime_state_admin.py`
+  - [x] `5 passed`
+- [x] `curl -fsS http://127.0.0.1:8001/api/settings/runtime-status`
+  - [x] `overall_code=ready`
+- [x] `curl -fsS https://hopeofthepantheon.me/api/settings/runtime-status`
+  - [x] `overall_code=ready`
+- [x] `curl -fsS https://hopeofthepantheon.me/api/health`
+  - [x] `{"status":"ok"}`
+- [x] `curl -fsS https://hopeofthepantheon.me/health`
+  - [x] 当前返回 `404`
+  - [x] 说明：公网 nginx 未暴露根路径 `/health`，当前可用健康口径为 `/api/health`；后端本体 `127.0.0.1:8001/health` 正常
+- [x] 公网最新炉次曲线定向检查
+  - [x] 最新炉次 `live-heat-c4019e8d-1775306400000-45`
+  - [x] `power_curve` 点数 `2792`
+  - [x] 非零点数 `2792`
+  - [x] `power_min=5.216327`
+  - [x] `power_max=14.041406`
+
+**当前结论**：
+
+- [x] 用户之前看到的“炉次像只到早上 9 点多”和“炉次详情曲线空白”两个直接症状，当前在公网已不再复现
+- [x] 本轮新增确认一条运维链问题：不是业务逻辑继续错误，而是 `deploy-refresh` 自己会写坏 `settings.updated_at`，进而造成“部署刷新后重启崩溃”
+- [ ] 当前 auto-pick 仍绑定到 `2347-199`
+  - [ ] 该通道现在已非零、可正常推断炉次并返回曲线
+  - [ ] 但与 `2349-199 / 2702-205` 相比，数值幅度明显更弱；若后续仍怀疑通道选错，下一步应继续改“live 通道排名逻辑”，不是回头再查时区链
+
 ### 2026-04-04（时间语义重构已切到 timestamp(ms) + plant_timezone，前后端编译链通过）
 
 **当前阶段**：时间契约重构实现

@@ -22,7 +22,7 @@ from .channel_roles import (
 from .config import settings as app_settings
 from .runtime_state import _SECTION_TO_KEY
 from .services import EDCClient, EDCClientError
-from .time_utils import to_timestamp_ms, utc_now
+from .time_utils import to_timestamp_ms, utc_now, utc_now_ms
 
 RUNTIME_SETTINGS_STORE_KEY = _SECTION_TO_KEY["settings_store"]
 RUNTIME_HOST_CHANNELS_KEY = _SECTION_TO_KEY["host_channels"]
@@ -64,23 +64,24 @@ def _upsert_json_record(
     description: str,
 ) -> None:
     encoded = json.dumps(payload, ensure_ascii=False)
+    updated_at_ms = utc_now_ms()
     row = connection.execute("select 1 from settings where key = ?", (key,)).fetchone()
     if row is None:
         connection.execute(
             """
             insert into settings (key, value, description, updated_at)
-            values (?, ?, ?, CURRENT_TIMESTAMP)
+            values (?, ?, ?, ?)
             """,
-            (key, encoded, description),
+            (key, encoded, description, updated_at_ms),
         )
     else:
         connection.execute(
             """
             update settings
-            set value = ?, description = ?, updated_at = CURRENT_TIMESTAMP
+            set value = ?, description = ?, updated_at = ?
             where key = ?
             """,
-            (encoded, description, key),
+            (encoded, description, updated_at_ms, key),
         )
 
 
