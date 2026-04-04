@@ -6,8 +6,9 @@ description: 对当前变更进行安全审查
 
 1. 获取当前变更的 diff：
 
+// turbo
 ```bash
-cd d:\project\EDC electricity && git diff
+cd 'd:\project\EDC electricity' && git diff
 ```
 
 2. 对 diff 做安全审查，检查以下维度：

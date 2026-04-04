@@ -9,12 +9,12 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from .config import settings as app_settings
 from .database import async_session_maker
 from .models import Setting
-from .config import settings as app_settings
 
 _SECTION_TO_KEY = {
     "settings_store": "runtime_settings_store",
@@ -28,6 +28,8 @@ _SECTION_TO_KEY = {
     "baselines": "runtime_baselines",
     "heats": "runtime_heats",
     "active_heat_runtime": "runtime_active_heat_runtime",
+    "previous_heat_runtime": "runtime_previous_heat_runtime",
+    "heat_id_aliases": "runtime_heat_id_aliases",
     "heat_runtime_refresh_meta": "runtime_heat_runtime_refresh_meta",
     "tasks": "runtime_tasks",
     "mock_heats": "runtime_mock_heats",
@@ -87,6 +89,8 @@ async def persist_runtime_state(*sections: str) -> None:
         "baselines": baselines_api._BASELINE_STORE,
         "heats": heats_api._HEAT_STORE,
         "active_heat_runtime": heats_api._ACTIVE_HEAT_RUNTIME,
+        "previous_heat_runtime": heats_api._PREVIOUS_HEAT_RUNTIME,
+        "heat_id_aliases": heats_api._HEAT_ID_ALIAS_STORE,
         "heat_runtime_refresh_meta": heats_api._HEAT_RUNTIME_REFRESH_META,
         "tasks": tasks_api._TASK_STORE,
         "mock_heats": heats_api._MOCK_HEAT_STREAM_STORE,
@@ -144,6 +148,8 @@ async def load_runtime_state() -> None:
             baselines_api._BASELINE_STORE.clear()
             heats_api._HEAT_STORE.clear()
             heats_api._ACTIVE_HEAT_RUNTIME.clear()
+            heats_api._PREVIOUS_HEAT_RUNTIME.clear()
+            heats_api._HEAT_ID_ALIAS_STORE.clear()
             heats_api._reset_heat_runtime_refresh_meta()
             tasks_api._TASK_STORE.clear()
             heats_api._MOCK_HEAT_STREAM_STORE.clear()
@@ -199,6 +205,20 @@ async def load_runtime_state() -> None:
     if isinstance(payloads.get("active_heat_runtime"), dict):
         heats_api._ACTIVE_HEAT_RUNTIME.clear()
         heats_api._ACTIVE_HEAT_RUNTIME.update(payloads["active_heat_runtime"])
+
+    if isinstance(payloads.get("previous_heat_runtime"), dict):
+        heats_api._PREVIOUS_HEAT_RUNTIME.clear()
+        heats_api._PREVIOUS_HEAT_RUNTIME.update(payloads["previous_heat_runtime"])
+
+    if isinstance(payloads.get("heat_id_aliases"), dict):
+        heats_api._HEAT_ID_ALIAS_STORE.clear()
+        heats_api._HEAT_ID_ALIAS_STORE.update(
+            {
+                str(source_id): str(target_id)
+                for source_id, target_id in payloads["heat_id_aliases"].items()
+                if source_id and target_id
+            }
+        )
 
     if isinstance(payloads.get("heat_runtime_refresh_meta"), dict):
         heats_api._HEAT_RUNTIME_REFRESH_META.clear()

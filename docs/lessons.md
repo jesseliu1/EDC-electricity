@@ -21,6 +21,27 @@
 
 ## 记录
 
+### 2026-04-04 factory-reset 语义必须跟着主数据真源一起升级，不能只停留在旧 runtime 表层
+
+- **错误模式**: 后端主链已经从 `settings.runtime_*` 迁到正式表 `baseline_definitions / baselines / heats / metric_series / tasks` 后，仍把 `factory-reset` 只实现成“删除 runtime settings 记录”。结果表面上运行态是空的，但正式业务表还残留旧样板数据，blank 部署会变成假空白态。
+- **正确做法**: 只要业务真源发生迁移，所有运维入口尤其是 `factory-reset / blank bootstrap / 本机重置脚本` 都必须同步升级，明确清理新的正式业务表，并补自动化回归覆盖“正式表也被清空”。
+- **适用场景**: 正式表重构、从缓存/JSON store 迁到业务表、交付新厂初始化、Windows 本机 `factory-reset + blank` 启动、任何需要保证“空白系统不带旧业务数据”的部署场景。
+- **相关文档**: `docs/DEPLOYMENT.md`, `docs/BACKEND_FORMAL_DATA_REBUILD_PLAN.md`, `apps/server/src/runtime_state_admin.py`, `apps/server/tests/test_runtime_state_admin.py`
+
+### 2026-04-03 计划文档主线：一次结构性任务必须有唯一主计划，临时文档要标生命周期
+
+- **错误模式**: 在一轮结构性任务里同时产生多份临时说明、阶段笔记、交接草稿、设计片段，但没有明确哪一份是“主线计划文档”，导致后续实现时口径分叉，压缩上下文或跨 session 交接后更容易丢主线；同时临时文档没有生命周期标记，时间一长就会污染仓库。
+- **正确做法**: 每次结构性任务都应明确一份唯一的主计划文档，后续实现、交接、测试都以它为主线推进；其余临时文档必须显式标注生命周期，例如“仅本轮有效 / 实现完成后可删除 / 仅交接用”，方便后续清理。
+- **适用场景**: 大型重构、表结构重建、架构调整、跨多 session 的连续开发、任何会产生多份设计/交接/临时说明文档的任务。
+- **相关文档**: `docs/BACKEND_FORMAL_DATA_REBUILD_PLAN.md`, `docs/session_handoff.md`, `docs/progress.md`
+
+### 2026-04-03 企业系统回退规则：任何未经确认的回退、补全、替换都不允许进入正式业务链路
+
+- **错误模式**: 在通道被删除、数据缺失、基线未命中、记录失效或运行态过旧时，系统通过“自动补全最像的通道”“自动回退到最新基线”“自动替换成旧快照”“自动跳到别的记录”等方式静默兜底，表面上让页面继续可用，实则破坏业务语义和审计可信度。
+- **正确做法**: 企业系统必须把这类状态显式标成 `missing / invalid / stale / unbound / failed`，保留明确告警和人工确认入口；除非用户显式确认或执行明确修订动作，否则不允许静默回退、自动补全、自动换绑或自动替换。
+- **适用场景**: 宿主通道绑定、基线选择、生效时间匹配、历史详情解析、运行态与历史态切换、偏离度计算、任何存在 fallback 或 auto-heal 诱惑的正式业务链路。
+- **相关文档**: `issue.md`, `docs/BACKEND_STRUCTURE.md`, `apps/server/src/channel_roles.py`, `apps/server/src/api/heats.py`, `apps/server/src/api/settings.py`
+
 ### 2026-04-02 Windows 本机联调验活：不要把 `Invoke-WebRequest` 对 Vite 的结果直接当成最终健康结论
 
 - **错误模式**: 在 Windows 本机恢复联调栈时，用 PowerShell `Invoke-WebRequest` 轮询 `http://localhost:3000/edc/` 与 `http://localhost:3000/api/health`，并把返回的 `503` 直接当成前端未启动。实际 Vite 已经 ready，`curl.exe` 访问同一地址返回 `200`，导致启动脚本等价实现被误判中断。
@@ -882,3 +903,10 @@
 - **正确做法**: 列表 API 必须先把查询时间统一归一到业务时区再过滤；UI 必须把 `warming/refreshing_history/ready` 当成不同状态机处理，只有 `ready + empty` 才能渲染真正空态，`warming` 应提示“准备中”并自动重试或触发刷新。
 - **适用场景**: 前端按日筛选、浏览器使用 `toISOString()`、后端内部存本地时间、以及任何“后台异步准备快照，前台同步读结果”的页面。
 - **相关文档**: apps/server/src/api/heats.py, apps/web/src/components/baseline/BaselineWizard.vue
+
+### 2026-04-03 炉次台账：不要把可重算运行态直接当成历史台账
+
+- **错误模式**: 后端每轮都从实时曲线整批重推最近炉次，然后把这些结果直接当历史列表返回。结果是“已经过去的炉次”时间和编号仍会漂移，详情页还会因为旧运行态 ID 在下一轮重算后失效而偶发 404。
+- **正确做法**: 运行态必须与历史固化分层。只保留 `当前炉次 + 前一个炉次` 作为动态运行态，其余一旦退出缓冲区就封口为稳定历史；同时保留旧运行态 ID 到当前有效记录的 alias，避免列表点击与后台重算窗口撞车。
+- **适用场景**: 任何通过实时曲线推断业务台账、且用户会把列表记录当成正式历史记录查看与追溯的工业监控系统。
+- **相关文档**: BACKEND_STRUCTURE.md, apps/server/src/api/heats.py, docs/testing.md

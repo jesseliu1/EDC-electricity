@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 from typing import Any, Literal
-from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -22,10 +21,24 @@ from ..schemas import (
     MessageResponse,
 )
 from ..schemas.common import CurvePoint
-from ..services import EDCClientError, get_shared_edc_client
+from ..services import (
+    EDCClientError,
+    create_baseline_record,
+    decode_baseline_id,
+    delete_baseline_record,
+    get_baseline_record,
+    get_definition_record,
+    get_shared_edc_client,
+    list_baseline_records,
+    load_baseline_metric_series,
+    load_baseline_store,
+    replace_baseline_metric_series,
+    set_baseline_status,
+    update_baseline_record,
+)
 
 # 引用 definition store 以做关联校验
-from .baseline_definitions import _DEFINITION_STORE
+from .baseline_definitions import _DEFINITION_STORE, _reload_definition_store
 from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE, get_edc_connection_config
 
 router = APIRouter(prefix="/baselines", tags=["Baselines"])
@@ -157,52 +170,13 @@ def _with_curve_payload(item: dict[str, Any], payload: dict[str, Any]) -> dict[s
     return hydrated
 
 
-_BASELINE_STORE: dict[str, dict[str, Any]] = {
-    "baseline-001": {
-        "id": "baseline-001",
-        "name": "标准基线 v2.1",
-        "description": "2024年优化后的标准生产基线",
-        "definition_id": "def-001",
-        "source_heat_id": "heat-ref-001",
-        "selected_start_time": None,
-        "selected_end_time": None,
-        "effective_from": _now(),
-        "tolerance_percent": 15.0,
-        "status": "published",
-        "version": 2,
-        "curve_seed": 1,
-        "created_at": _now(),
-        "updated_at": _now(),
-        "published_at": _now(),
-        "power_curve": [],
-        "voltage_curve": [],
-        "temperature": 1450.0,
-        "curve_source": "none",
-        "curves_data": [],
-    },
-    "baseline-002": {
-        "id": "baseline-002",
-        "name": "高功率基线",
-        "description": "高功率生产模式基线",
-        "definition_id": "def-002",
-        "source_heat_id": "heat-ref-002",
-        "selected_start_time": None,
-        "selected_end_time": None,
-        "effective_from": None,
-        "tolerance_percent": 12.0,
-        "status": "draft",
-        "version": 1,
-        "curve_seed": 5,
-        "created_at": _now(),
-        "updated_at": _now(),
-        "published_at": None,
-        "power_curve": [],
-        "voltage_curve": [],
-        "temperature": 1460.0,
-        "curve_source": "none",
-        "curves_data": [],
-    },
-}
+_BASELINE_STORE: dict[str, dict[str, Any]] = {}
+
+
+async def _reload_baseline_store() -> None:
+    store = await load_baseline_store()
+    _BASELINE_STORE.clear()
+    _BASELINE_STORE.update(store)
 
 
 def _published_baselines() -> list[dict[str, Any]]:
@@ -406,9 +380,12 @@ async def _load_baseline_curves_from_edc(
 
 async def _hydrate_baseline_item(item: dict[str, Any]) -> dict[str, Any]:
     """为当前请求解析基线曲线来源，不把 showtime 演示曲线污染回共享 store。"""
-    curves = await _load_baseline_curves_from_edc(item)
-    if curves:
-        return _with_curve_payload(item, curves)
+    stored_curves = await load_baseline_metric_series(
+        str(item.get("definition_id") or ""),
+        str(item.get("item") or ""),
+    )
+    if stored_curves.get("curves_data"):
+        return _with_curve_payload(item, stored_curves)
 
     if is_mock_dataset_enabled():
         return _with_curve_payload(item, _build_demo_curve_payload(item))
@@ -416,16 +393,24 @@ async def _hydrate_baseline_item(item: dict[str, Any]) -> dict[str, Any]:
     return _with_curve_payload(item, _empty_curve_payload())
 
 
-def _get_or_404(baseline_id: str) -> dict[str, Any]:
-    item = _BASELINE_STORE.get(baseline_id)
+async def _get_or_404(baseline_id: str) -> dict[str, Any]:
+    try:
+        definition_id, item = decode_baseline_id(baseline_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="基线不存在") from exc
+    record = await get_baseline_record(definition_id, item)
+    if record is None:
+        await _reload_baseline_store()
+        record = _BASELINE_STORE.get(baseline_id)
+    item = record
     if not item:
         raise HTTPException(status_code=404, detail="基线不存在")
     return item
 
 
-def _validate_definition(definition_id: str) -> dict[str, Any]:
+async def _validate_definition(definition_id: str) -> dict[str, Any]:
     """校验定义存在且为 active 状态。"""
-    definition = _DEFINITION_STORE.get(definition_id)
+    definition = await get_definition_record(definition_id)
     if not definition:
         raise HTTPException(status_code=400, detail="基线定义不存在")
     if definition["status"] != "active":
@@ -490,26 +475,22 @@ async def list_baselines(
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
 ) -> BaselineListResponse:
     """获取基线列表，支持状态筛选与分页。"""
-    items = list(_BASELINE_STORE.values())
-    items.sort(key=lambda x: x["updated_at"], reverse=True)
-
-    if status:
-        items = [item for item in items if item["status"] == status]
-
-    if definition_id:
-        items = [item for item in items if item["definition_id"] == definition_id]
-
-    total = len(items)
-    start = (page - 1) * page_size
-    end = start + page_size
-    paged = items[start:end]
-
-    return BaselineListResponse(items=[_to_baseline_response(x) for x in paged], total=total)
+    items, total = await list_baseline_records(
+        status=status,
+        definition_id=definition_id,
+        page=page,
+        page_size=page_size,
+    )
+    await _reload_definition_store()
+    await _reload_baseline_store()
+    return BaselineListResponse(items=[_to_baseline_response(x) for x in items], total=total)
 
 
 @router.get("/active", response_model=BaselineSummary | None)
 async def get_active_baseline() -> BaselineSummary | None:
     """获取当前激活基线。"""
+    await _reload_definition_store()
+    await _reload_baseline_store()
     active = _resolve_active_baseline_item()
     if not active:
         return None
@@ -525,7 +506,7 @@ async def get_active_baseline() -> BaselineSummary | None:
 @router.post("/{baseline_id}/activate", response_model=BaselineSummary)
 async def activate_baseline(baseline_id: str) -> BaselineSummary:
     """设置默认黄金基线。"""
-    item = _get_or_404(baseline_id)
+    item = await _get_or_404(baseline_id)
     if item["status"] != "published":
         raise HTTPException(status_code=400, detail="仅已发布基线可设为默认黄金基线")
 
@@ -543,7 +524,8 @@ async def activate_baseline(baseline_id: str) -> BaselineSummary:
 @router.get("/{baseline_id}", response_model=BaselineWithCurve)
 async def get_baseline(baseline_id: str) -> BaselineWithCurve:
     """获取基线详情（含曲线数据）。"""
-    item = _get_or_404(baseline_id)
+    await _reload_definition_store()
+    item = await _get_or_404(baseline_id)
     hydrated = await _hydrate_baseline_item(item)
     return _to_baseline_with_curve(hydrated)
 
@@ -551,7 +533,7 @@ async def get_baseline(baseline_id: str) -> BaselineWithCurve:
 @router.post("", response_model=BaselineResponse, status_code=201)
 async def create_baseline(data: BaselineCreate) -> BaselineResponse:
     """创建新基线实例，默认草稿状态。"""
-    _validate_definition(data.definition_id)
+    await _validate_definition(data.definition_id)
 
     from .heats import build_live_heat_lookup_context, resolve_heat_record
 
@@ -563,31 +545,29 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
     if not source_heat:
         raise HTTPException(status_code=400, detail="来源炉次不存在")
 
-    now = _now()
-    baseline_id = f"baseline-{uuid4()}"
-    item = {
-        "id": baseline_id,
-        "name": data.name,
-        "description": data.description,
-        "definition_id": data.definition_id,
-        "source_heat_id": str(source_heat["id"]),
-        "selected_start_time": data.selected_start_time,
-        "selected_end_time": data.selected_end_time,
-        "effective_from": data.effective_from,
-        "tolerance_percent": data.tolerance_percent,
-        "status": "draft",
-        "version": 1,
-        "curve_seed": sum(ord(char) for char in baseline_id) % 97 + 9,
-        "created_at": now,
-        "updated_at": now,
-        "published_at": None,
-        "power_curve": [],
-        "voltage_curve": [],
-        "temperature": 1455.0,
-        "curve_source": "none",
-        "curves_data": [],
-    }
-    _BASELINE_STORE[baseline_id] = item
+    selected_start_time = data.selected_start_time or source_heat["start_time"]
+    selected_end_time = data.selected_end_time or source_heat["end_time"]
+    item = await create_baseline_record(
+        definition_id=data.definition_id,
+        name=data.name,
+        description=data.description,
+        source_heat_id=str(source_heat["id"]),
+        selected_start_time=selected_start_time,
+        selected_end_time=selected_end_time,
+        effective_from=data.effective_from,
+        tolerance_percent=data.tolerance_percent,
+        actor="system",
+    )
+    await replace_baseline_metric_series(
+        definition_id=data.definition_id,
+        item=str(item["item"]),
+        source_heat=source_heat,
+        selected_start_time=selected_start_time,
+        selected_end_time=selected_end_time,
+    )
+    item = await get_baseline_record(data.definition_id, str(item["item"])) or item
+    await _reload_definition_store()
+    await _reload_baseline_store()
     _invalidate_compare_runtime_caches()
     await persist_runtime_state("baselines")
     return _to_baseline_response(item)
@@ -596,23 +576,42 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
 @router.patch("/{baseline_id}", response_model=BaselineResponse)
 async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineResponse:
     """更新基线，仅草稿状态允许更新。"""
-    item = _get_or_404(baseline_id)
+    item = await _get_or_404(baseline_id)
     if item["status"] != "draft":
         raise HTTPException(status_code=400, detail="仅草稿状态可编辑")
+    definition_id, item_no = decode_baseline_id(baseline_id)
 
-    if data.name is not None:
-        item["name"] = data.name
-    if data.description is not None:
-        item["description"] = data.description
-    if data.selected_start_time is not None:
-        item["selected_start_time"] = data.selected_start_time
-    if data.selected_end_time is not None:
-        item["selected_end_time"] = data.selected_end_time
-    if data.effective_from is not None:
-        item["effective_from"] = data.effective_from
-    if data.tolerance_percent is not None:
-        item["tolerance_percent"] = data.tolerance_percent
-    item["updated_at"] = _now()
+    item = await update_baseline_record(
+        definition_id=definition_id,
+        item=item_no,
+        name=data.name,
+        description=data.description,
+        selected_start_time=data.selected_start_time,
+        selected_end_time=data.selected_end_time,
+        effective_from=data.effective_from,
+        tolerance_percent=data.tolerance_percent,
+        actor="system",
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="基线不存在")
+    from .heats import build_live_heat_lookup_context, resolve_heat_record
+
+    preferred_live_context = build_live_heat_lookup_context(definition_id=definition_id)
+    source_heat = await resolve_heat_record(
+        str(item["source_heat_id"]),
+        preferred_live_context=preferred_live_context,
+    )
+    if source_heat:
+        await replace_baseline_metric_series(
+            definition_id=definition_id,
+            item=item_no,
+            source_heat=source_heat,
+            selected_start_time=item["selected_start_time"],
+            selected_end_time=item["selected_end_time"],
+        )
+        item = await get_baseline_record(definition_id, item_no) or item
+    await _reload_definition_store()
+    await _reload_baseline_store()
     _invalidate_compare_runtime_caches()
     await persist_runtime_state("baselines")
 
@@ -622,21 +621,29 @@ async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineRes
 @router.post("/{baseline_id}/publish", response_model=BaselineResponse)
 async def publish_baseline(baseline_id: str) -> BaselineResponse:
     """发布草稿基线。"""
-    item = _get_or_404(baseline_id)
+    item = await _get_or_404(baseline_id)
     if item["status"] != "draft":
         raise HTTPException(status_code=400, detail="仅草稿状态可发布")
 
     _validate_equal_length(item["definition_id"], current_id=baseline_id)
 
     now = _now()
-    item["status"] = "published"
-    item["published_at"] = now
-    if not isinstance(item.get("effective_from"), datetime):
-        item["effective_from"] = now
-    item["updated_at"] = now
+    definition_id, item_no = decode_baseline_id(baseline_id)
+    item = await set_baseline_status(
+        definition_id=definition_id,
+        item=item_no,
+        status="published",
+        actor="system",
+        publish_time=now,
+        effective_from=item.get("effective_from") if isinstance(item.get("effective_from"), datetime) else now,
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="基线不存在")
+    await _reload_definition_store()
     active_item = _resolve_active_baseline_item()
     if active_item is None:
         _SETTINGS_STORE["active_baseline_id"]["value"] = baseline_id
+    await _reload_baseline_store()
     _invalidate_compare_runtime_caches()
     await persist_runtime_state("baselines", "settings_store")
 
@@ -646,17 +653,26 @@ async def publish_baseline(baseline_id: str) -> BaselineResponse:
 @router.post("/{baseline_id}/disable", response_model=BaselineResponse)
 async def disable_baseline(baseline_id: str) -> BaselineResponse:
     """停用已发布基线。"""
-    item = _get_or_404(baseline_id)
+    item = await _get_or_404(baseline_id)
     if item["status"] != "published":
         raise HTTPException(status_code=400, detail="仅已发布基线可停用")
 
-    item["status"] = "disabled"
-    item["updated_at"] = _now()
+    definition_id, item_no = decode_baseline_id(baseline_id)
+    item = await set_baseline_status(
+        definition_id=definition_id,
+        item=item_no,
+        status="disabled",
+        actor="system",
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="基线不存在")
+    await _reload_definition_store()
     if _SETTINGS_STORE.get("active_baseline_id", {}).get("value") == baseline_id:
         next_active = _resolve_next_active_baseline_item(excluded_id=baseline_id)
         _SETTINGS_STORE["active_baseline_id"]["value"] = (
             str(next_active["id"]) if next_active else ""
         )
+    await _reload_baseline_store()
     _invalidate_compare_runtime_caches()
     await persist_runtime_state("baselines", "settings_store")
 
@@ -666,11 +682,15 @@ async def disable_baseline(baseline_id: str) -> BaselineResponse:
 @router.delete("/{baseline_id}", response_model=MessageResponse)
 async def delete_baseline(baseline_id: str) -> MessageResponse:
     """删除基线，仅草稿状态允许删除。"""
-    item = _get_or_404(baseline_id)
+    item = await _get_or_404(baseline_id)
     if item["status"] != "draft":
         raise HTTPException(status_code=400, detail="仅草稿状态可删除")
 
-    _BASELINE_STORE.pop(baseline_id, None)
+    definition_id, item_no = decode_baseline_id(baseline_id)
+    deleted = await delete_baseline_record(definition_id, item_no)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="基线不存在")
+    await _reload_baseline_store()
     _invalidate_compare_runtime_caches()
     await persist_runtime_state("baselines")
     return MessageResponse(message="基线已删除", success=True)

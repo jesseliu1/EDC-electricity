@@ -9,7 +9,7 @@ description: 构建前端项目并验证无错误
 1. 运行前端构建：
 
 ```bash
-cd d:\project\EDC electricity\apps\web && pnpm run build
+cd 'd:\project\EDC electricity\apps\web' && pnpm run build
 ```
 
 2. 检查构建输出中是否有 TypeScript 错误或警告

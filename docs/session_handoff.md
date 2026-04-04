@@ -6,6 +6,273 @@
 
 ---
 
+## 2026-04-04 旧 heats 测试重写 + factory-reset blank 部署已完成（最新口径，优先于下面旧记录）
+
+- 当前已完成：
+  - `apps/server/tests/test_heats_api.py` 已按正式表口径重写，不再补旧 runtime 兼容层
+  - `apps/server/src/api/heats.py` 已补 `_ensure_formal_baseline_mirrors_loaded(...)` 缺口，避免“正式表里有基线，但内存镜像没加载到”导致 `curve / compare / analyze` 读不到
+  - `apps/server/src/runtime_state_admin.py` 的 `factory-reset` 现会同时清空正式业务表：
+    - `baseline_definitions`
+    - `baseline_definition_metrics`
+    - `baselines`
+    - `heats`
+    - `metric_series`
+    - `tasks`
+  - `apps/server/tests/test_runtime_state_admin.py` 已新增回归，防止 factory-reset 只清 runtime 不清正式表
+- 当前已验证：
+  - `uv --directory apps/server run pytest tests/test_heats_api.py -q`
+  - `uv --directory apps/server run pytest tests/test_runtime_state_admin.py -q`
+  - `uv --directory apps/server run pytest tests/test_formal_baseline_api.py tests/test_formal_heat_api.py tests/test_api_edge_cases.py tests/test_tasks_reports_settings_api.py tests/test_baselines_dashboard_api.py tests/test_heats_api.py tests/test_runtime_state_admin.py -q`
+    - 结果：`103 passed, 1 warning`
+  - `uv run ruff check src/api/heats.py src/runtime_state_admin.py tests/test_heats_api.py tests/test_runtime_state_admin.py`（工作目录：`apps/server`）
+- 当前本机 blank 部署状态：
+  - 后端：`http://127.0.0.1:8000`
+  - 前端：`http://localhost:3000/edc/`
+  - 宿主：`http://localhost:3001/`
+  - 日志目录：`D:\project\EDC electricity\.tmp_run\local\`
+    - `backend.log / backend.err.log`
+    - `web.log / web.err.log`
+    - `asns.log / asns.err.log`
+- 当前 blank 验证结果：
+  - `curl.exe -I http://localhost:3000/edc/` -> `200`
+  - `curl.exe -I http://localhost:3001/` -> `200`
+  - `curl.exe -s http://127.0.0.1:8000/health` -> `{"status":"ok"}`
+  - `curl.exe -s http://localhost:3000/api/health` -> `{"status":"ok"}`
+  - `curl.exe -s http://localhost:3001/api/health` -> `{"status":"ok"}`
+  - `curl.exe -s http://localhost:3001/` 已确认包含 `window.__ASNS_EDC_APP_URL__ = "http://localhost:3000/edc/";`
+  - `GET /api/baseline-definitions` -> `{"items":[],"total":0}`
+  - `GET /api/baselines` -> `{"items":[],"total":0}`
+  - `GET /api/heats` -> 空列表，`snapshot_status="warming"`
+  - SQLite `settings.runtime_baseline_definitions = {}`
+  - SQLite `settings.runtime_baselines = {}`
+  - SQLite `settings.runtime_settings_store.active_baseline_id = ""`
+- 当前重要结论：
+  - 现在这台开发机已经不是“runtime 空但正式表残留样板数据”的假 blank
+  - 当前可以直接留给用户手动验证 blank 新系统
+- 下一步建议：
+  - 直接从 `3001` 宿主入口开始手测 blank 路径
+  - 若后续再改正式表主链，记得 `factory-reset` 已经属于“清正式表 + 清 runtime”的强清空入口，不要再手工补删库脚本
+
+## 2026-04-04 测试与本地 blank 部署交接提示词（优先于下面旧口径）
+
+- 已新增可直接给新 session 使用的交接提示词：
+  - `docs/TEST_DEPLOY_HANDOFF_PROMPT.md`
+- 使用方式：
+  - 新 session 先读 `AGENTS.md / progress.md / lessons.md / BACKEND_STRUCTURE.md / BACKEND_FORMAL_DATA_REBUILD_PLAN.md / testing.md / session_handoff.md`
+  - 然后按提示词继续做：
+    - 重写旧 `test_heats_api.py` 为正式表口径
+    - 串行完成后端回归
+    - 最后把本地切到 `factory-reset + blank` 可测状态
+- 关键提醒：
+  - 不补旧 runtime 兼容层
+  - 不恢复 `baseline-001` 旧 ID 语义
+  - 不并发跑多个 pytest 进程共享 SQLite
+  - 最终部署必须是 blank 空白态，等用户手测
+
+## 2026-04-04 heats 历史写路径继续切到正式表（优先于下面旧口径）
+
+- 当前已完成：
+  - `apps/server/src/services/formal_heat_service.py` 新增：
+    - `update_formal_heat_record(...)`
+    - `resume_formal_heat_cutting(...)`
+    - `save_formal_heat_analysis(...)`
+  - `apps/server/src/api/heats.py` 已进一步切正式历史写路径：
+    - `PATCH /api/heats/{id}` 对 `sealed_history` 直接写正式 `heats`
+    - `POST /api/heats/{id}/resume-cutting` 对 `sealed_history` 直接写正式 `heats`
+    - `POST /api/heats/{id}/analyze` 对 `sealed_history` 直接写正式 `heats`
+  - `POST /api/heats/{id}/analyze` 已去掉默认 `baseline-001` fallback；炉次未绑定基线时现在显式报错
+- 当前已补测试：
+  - `apps/server/tests/test_formal_heat_api.py`
+    - 历史修改写 DB
+    - 历史恢复切割写 DB
+    - 历史分析不再依赖实时 EDC
+- 当前已验证：
+  - `uv --directory apps/server run pytest tests/test_formal_baseline_api.py tests/test_formal_heat_api.py -q`
+  - `uv --directory apps/server run ruff check src/services/formal_baseline_service.py src/services/formal_heat_service.py src/services/__init__.py src/api/baselines.py src/api/heats.py tests/test_formal_baseline_api.py tests/test_formal_heat_api.py`
+  - `uv --directory apps/server run python -m py_compile src/services/formal_baseline_service.py src/services/formal_heat_service.py src/services/__init__.py src/api/baselines.py src/api/heats.py tests/test_formal_baseline_api.py tests/test_formal_heat_api.py`
+- 全量测试现状：
+  - 已执行 `uv --directory apps/server run pytest -q`
+  - 目前仍有 49 个失败
+  - 失败主因已确认：大量旧测试仍绑定旧样板 `def-001 / baseline-001 / heat-001`、旧 `_BASELINE_STORE / _HEAT_STORE` 和旧 baseline id 形态，不再代表当前正式链主回归
+- 下一步建议：
+  - 先决定是“补正式表测试 seed/兼容层”，还是“直接重写旧测试为正式表口径”
+  - 若继续改代码主链，优先保持 `heats` 历史主读写与正式表一致，不要再往 `_HEAT_STORE` 回写
+
+## 2026-04-04 heats 历史主读链已开始切到正式表（优先于下面旧口径）
+
+- 当前已完成：
+  - 新增 `apps/server/src/services/formal_heat_service.py`
+  - `apps/server/src/api/heats.py` 已开始改为：
+    - 历史列表优先读 `heats + metric_series`
+    - 历史详情优先读 `heats + metric_series`
+    - `GET /api/heats/{id}/curve` 对 `sealed_history` 直接读正式表曲线
+    - 运行态刷新时，`runtime_candidates[2:]` 开始正式写入 `heats`
+- 当前缓存边界：
+  - 只保留当前炉次和上一炉次运行态缓存
+  - `_HEAT_STORE` 已不再承担历史主读职责，只剩过渡残留
+- 本轮顺手已修：
+  - `_resolve_baseline_version_for_time()` 不再把未来基线 fallback 到过去炉次
+- 当前已补新测试：
+  - `apps/server/tests/test_formal_heat_api.py`
+  - 覆盖历史列表读 DB、历史曲线读 `metric_series`、未来基线不再反向作用过去炉次
+  - 覆盖运行态刷新后只缓存 `n-1 / n`，其余历史直接落正式表
+- 当前已验证：
+  - `uv --directory apps/server run pytest tests/test_formal_baseline_api.py tests/test_formal_heat_api.py -q`
+  - `uv --directory apps/server run ruff check src/services/formal_heat_service.py src/api/heats.py src/services/__init__.py tests/test_formal_baseline_api.py tests/test_formal_heat_api.py`
+  - `uv --directory apps/server run python -m py_compile src/services/formal_heat_service.py src/api/heats.py src/services/__init__.py tests/test_formal_baseline_api.py tests/test_formal_heat_api.py`
+- 当前未完成：
+  - `GET /api/heats/{id}/compare` 仍是过渡态：历史当前曲线已可读 DB，但基线曲线仍走旧 hydrate
+  - `tests/test_heats_api.py` 仍大量绑定旧 `_BASELINE_STORE / _HEAT_STORE` 样板假设，当前不能再作为正式主链回归依据，需要后续重写
+- 下一步建议：
+  - 继续切 `compare / cutting-timeline / update` 到正式表口径
+  - 再把旧 `test_heats_api.py` 改写为正式表测试集
+
+## 2026-04-03 基线正式表主链已切到 DB（优先于下面旧口径）
+
+- 当前已完成：
+  - 新增 `apps/server/src/services/formal_baseline_service.py`
+  - `apps/server/src/api/baseline_definitions.py` 已切到正式表
+  - `apps/server/src/api/baselines.py` 已切到正式表
+- 当前已经由 DB 承担主读写的能力：
+  - 基线定义列表 / 详情 / 创建 / 更新 / 删除 / 启停
+  - 定义指标项新增 / 更新 / 删除
+  - 基线版本列表 / 详情 / 创建 / 更新 / 发布 / 停用 / 删除 / 激活
+- 当前为了不提前打断 `heats` 旧链路，仍保留：
+  - `_DEFINITION_STORE`
+  - `_BASELINE_STORE`
+  作为过渡镜像；镜像内容由正式表回填，不再是源数据
+- 新增验证：
+  - `apps/server/tests/test_formal_baseline_api.py`
+  - `uv --directory apps/server run pytest tests/test_formal_baseline_api.py -q` 已通过
+- 测试基座已更新：
+  - `apps/server/tests/conftest.py` 每轮测试先重建 schema，避免旧 SQLite 表结构污染正式表验证
+- 当前下一步：
+  - 转入 `heats` 主链路重构
+  - 目标是让历史炉次、偏离度、详情主读逐步脱离 runtime JSON
+
+## 2026-04-03 后端正式表重构已进入实现（优先于下面旧口径）
+
+- 已按主线文档：
+  - `docs/BACKEND_FORMAL_DATA_REBUILD_PLAN.md`
+  开始真正落代码
+- 当前已完成的实现层内容：
+  - 重写 `apps/server/src/models/baseline.py`
+    - `BaselineDefinition`
+    - `BaselineDefinitionMetric`
+    - `Baseline`
+  - 新增 `apps/server/src/models/metric_series.py`
+  - 重写 `apps/server/src/models/heat.py`
+  - 重写 `apps/server/src/models/task.py`
+  - 更新 `apps/server/src/models/__init__.py`
+  - 重写 `apps/server/alembic/versions/26998facdffe_initial_schema.py`
+- 当前已落地的新正式表：
+  - `baseline_definitions`
+  - `baseline_definition_metrics`
+  - `baselines`
+  - `metric_series`
+  - `heats`
+  - `tasks`
+  - `settings`
+- 当前已验证：
+  - `uv --directory apps/server run python -m py_compile src/models/baseline.py src/models/heat.py src/models/metric_series.py src/models/task.py src/models/__init__.py alembic/versions/26998facdffe_initial_schema.py`
+  - `uv --directory apps/server run ruff check src/models/baseline.py src/models/heat.py src/models/metric_series.py src/models/task.py src/models/__init__.py alembic/versions/26998facdffe_initial_schema.py`
+- 当前未做：
+  - 尚未把 `apps/server/src/api/*.py` 的主读写链路切到正式表
+  - 尚未补正式表流转测试
+- 下一步建议：
+  - 先改 `baseline_definitions.py / heats.py` 的 service 与 API 主链路
+  - 再补 pytest
+  - 最后再接 UI
+
+## 2026-04-03 后端正式表结构定稿（优先于下面旧口径）
+
+- 本轮已把新的后端目标结构正式写入：
+  - `docs/BACKEND_STRUCTURE.md`
+- 当前定稿口径：
+  - 主数据主表：`baseline_definitions`
+  - 业务主表：`heats`
+  - 从表/外部表：
+    - `baseline_definition_metrics`
+    - `baselines`
+    - `metric_series`
+    - `tasks`
+    - `settings`
+- 关键结构约束已定死：
+  - `baseline_definition_metrics.item` 表示指标项号，如 `001 / 002 / 003`
+  - `baselines.item` 表示基线版本项，如 `001 / 002 / 003`
+  - `metric_series` 统一承载“基线指标值”和“炉次指标值”
+  - `heats` 除真实 `start_time / end_time` 外，还保留：
+    - `context_start_time`
+    - `context_end_time`
+  - `metric_series.series_json` 当前口径为：
+    - 前 30 分钟
+    - 当前炉次区间
+    - 后 30 分钟
+- 当前炉次运行态缓存口径也已定：
+  - 运行态缓存应尽量与 `heats + metric_series` 同构
+  - 不再鼓励单独发明一套运行态字段语义
+  - 当前炉次仍可在缓存层存在，但正式历史主读链路应逐步切到正式表
+- 当前阶段结论：
+  - 结构信息已经足够进入正式开发
+  - 不需要再继续扩展设计范围到 PostgreSQL/时序库/批量修订功能实现
+  - 下一步建议顺序：
+    - 先改 SQLAlchemy models
+    - 再改 Alembic migration
+    - 再切 baseline/heats 主读写链路
+    - 最后补测试与 UI 对接
+
+## 2026-04-03 晚间新增未修理问题（优先于下面旧口径）
+
+- 本轮用户明确要求“先记录不要修理”，因此以下问题当前只登记，不做代码修改：
+  - 新创建基线会作用到创建时间之前的历史炉次，违反“历史数据固定、生效时间之后才影响新数据”的业务要求
+  - 已固化历史炉次读取仍偏慢，用户预期固定态应直接读取
+  - 炉次浏览开始时间仍在变化，需核对是实现未完全生效还是本地未部署到最新版本
+  - 偏离度计算未稳定触发，多条炉次长期停留在“待计算”
+- 问题已同步登记到：
+  - `issue.md`
+  - `docs/ui_issues.md`
+  - `docs/progress.md`
+- 下一轮正确顺序：
+  - 先核对本地实际运行版本与 API 返回值
+  - 再判断是部署问题、读链路问题还是计算触发问题
+  - 最后才进入修复
+
+## 2026-04-03 炉次“当前 + 前一”运行态收口（优先于下面旧口径）
+
+- 炉次列表不再允许“最近几条全部是动态推断历史”
+- 后端现改为三层语义：
+  - `active_runtime`：当前炉次
+  - `previous_runtime`：前一个炉次，允许短暂待收口
+  - `sealed_history`：其余全部固化历史
+- 当前实现要点：
+  - 刷新时只允许前两条运行态变化
+  - 第三条及更早记录会封口进入历史，不再继续重切
+  - 旧运行态 ID 会通过 alias 映射到当前有效记录，详情 `/api/heats/{id}`、`/compare`、`/cutting-timeline` 不应再因 rollover 直接 404
+- 已同步更新：
+  - `apps/server/src/api/heats.py`
+  - `apps/server/src/runtime_state.py`
+  - `apps/server/src/schemas/heat.py`
+  - `apps/server/tests/conftest.py`
+  - `apps/server/tests/test_heats_api.py`
+  - `apps/web/src/api/heat.ts`
+  - `apps/web/src/views/HeatListView.vue`
+  - `apps/web/src/views/HeatDetailView.vue`
+  - `apps/web/src/locales/zh-CN.json`
+  - `apps/web/src/locales/en-US.json`
+  - `apps/web/src/locales/zh-TW.json`
+  - `apps/web/src/locales/ja-JP.json`
+- 本轮验证结论：
+  - 定向 pytest 已覆盖“仅两条运行态”“历史不重复”“旧运行态 ID rollover 后仍可打开详情”
+  - `ruff` 与前端 `build` 通过
+  - 仍缺一轮真实页面点击回归，尤其要回看：
+    - 历史炉次时间不再漂移
+    - 历史炉次首次点击详情不再偶发空态
+- 后续测试若需要先恢复宿主真实链路，默认测试源 A 已固定：
+  - endpoint：`http://60.251.229.32/`
+  - username：`volapu`
+  - password：`admin`
+  - 该口径已同步写入 `docs/UAT_CONTINUATION_PROMPT.md` 与正式 UAT 文档 PRE-04 / S01-TC02
+
 ## 2026-04-02 炉次 freshness 状态机（优先于下面旧口径）
 
 - 炉次运行态不再只在 `startup / manual refresh` 触发，后端已补后台定时刷新循环：

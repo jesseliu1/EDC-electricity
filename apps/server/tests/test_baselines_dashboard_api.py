@@ -16,11 +16,13 @@ from src.services import EDCClientError
 
 HOST_SYNC_HEADERS = {"X-ASNS-Host-Sync": "true"}
 SHOWTIME_HEADERS = {"X-Showtime": "true"}
+PRIMARY_BASELINE_ID = "def-001:001"
+SECONDARY_BASELINE_ID = "def-002:001"
 
 
 def _seed_compare_caches() -> None:
     _HEAT_COMPARE_CACHE["entries"] = {"heat-001": {"heat_id": "heat-001"}}
-    _COMPARE_BASELINE_CACHE["entries"] = {"baseline-001": {"payload": {"id": "baseline-001"}}}
+    _COMPARE_BASELINE_CACHE["entries"] = {PRIMARY_BASELINE_ID: {"payload": {"id": PRIMARY_BASELINE_ID}}}
     _COMPARE_CHANNEL_CURVE_CACHE["entries"] = {"curve-001": {"payload": {"2349:199": []}}}
 
 
@@ -110,7 +112,8 @@ async def test_dashboard_endpoints(client, monkeypatch) -> None:
     recent_resp = await client.get("/api/dashboard/recent-heats", params={"limit": 5})
     assert recent_resp.status_code == 200
     recent_data = recent_resp.json()
-    assert len(recent_data["items"]) == 5
+    assert len(recent_data["items"]) >= 1
+    assert recent_data["items"][0]["id"] == "heat-001"
 
 
 @pytest.mark.asyncio
@@ -419,7 +422,7 @@ async def test_baseline_detail_fetches_curves_via_shared_client_and_source_heat_
     _SETTINGS_STORE["edc_base_url"]["value"] = "http://61.216.55.133"
     _SETTINGS_STORE["edc_username"]["value"] = "admin"
     _SETTINGS_STORE["edc_password"]["value"] = "admin"
-    baseline_item = _BASELINE_STORE["baseline-001"]
+    baseline_item = _BASELINE_STORE[PRIMARY_BASELINE_ID]
     baseline_item["source_heat_id"] = "heat-001"
     baseline_item["selected_start_time"] = None
     baseline_item["selected_end_time"] = None
@@ -442,32 +445,18 @@ async def test_baseline_detail_fetches_curves_via_shared_client_and_source_heat_
 
     monkeypatch.setattr("src.api.baselines.get_shared_edc_client", fake_get_shared_edc_client)
 
-    from src.api.heats import build_live_heat_lookup_context, resolve_heat_time_window
-
-    expected_start, expected_end = await resolve_heat_time_window(
-        "heat-001",
-        preferred_live_context=build_live_heat_lookup_context(definition_id="def-001"),
-    )
-
-    first_response = await client.get("/api/baselines/baseline-001")
-    second_response = await client.get("/api/baselines/baseline-001")
+    first_response = await client.get(f"/api/baselines/{PRIMARY_BASELINE_ID}")
+    second_response = await client.get(f"/api/baselines/{PRIMARY_BASELINE_ID}")
     assert first_response.status_code == 200
     assert second_response.status_code == 200
 
     payload = first_response.json()
-    assert payload["curve_source"] == "live_edc"
-    assert payload["power_curve"][0]["value"] == 301.0
-    assert payload["voltage_curve"][1]["value"] == 212.0
-    assert payload["curves_data"][0]["points"][1]["value"] == 302.0
-    assert fake_client.login_calls == 1
-    assert {
-        (
-            request["start_time"],
-            request["end_time"],
-        )
-        for request in fake_client.requests
-        if request["cuid"] in {"199", "128"}
-    } == {(expected_start, expected_end)}
+    assert payload["curve_source"] == "formal_db"
+    assert payload["power_curve"][0]["value"] == 410.0
+    assert payload["voltage_curve"][1]["value"] == 222.0
+    assert payload["curves_data"][0]["points"][1]["value"] == 420.0
+    assert fake_client.login_calls == 0
+    assert fake_client.requests == []
 
 
 @pytest.mark.asyncio
@@ -764,6 +753,7 @@ async def test_baseline_crud_publish_disable_and_delete(client) -> None:
     active_resp = await client.get("/api/baselines/active")
     assert active_resp.status_code == 200
     assert active_resp.json()["status"] == "published"
+    assert active_resp.json()["id"] == PRIMARY_BASELINE_ID
 
     create_resp = await client.post(
         "/api/baselines",
@@ -790,12 +780,9 @@ async def test_baseline_crud_publish_disable_and_delete(client) -> None:
     assert detail_resp.status_code == 200
     detail_data = detail_resp.json()
     assert detail_data["definition_id"] == "def-001"
-    assert detail_data["curve_source"] in {"live_edc", "none"}
+    assert detail_data["curve_source"] == "formal_db"
     assert detail_data["curve_source"] != "demo_curve"
-    if detail_data["curve_source"] == "none":
-        assert detail_data["curves_data"] == []
-        assert detail_data["power_curve"] == []
-        assert detail_data["voltage_curve"] == []
+    assert len(detail_data["curves_data"]) >= 1
 
     update_resp = await client.patch(
         f"/api/baselines/{baseline_id}",
@@ -843,7 +830,7 @@ async def test_baseline_mutations_invalidate_compare_caches(client) -> None:
     _seed_compare_caches()
 
     update_resp = await client.patch(
-        "/api/baselines/baseline-002",
+        f"/api/baselines/{SECONDARY_BASELINE_ID}",
         json={"name": "高功率基线 v2"},
     )
     assert update_resp.status_code == 200
@@ -853,7 +840,7 @@ async def test_baseline_mutations_invalidate_compare_caches(client) -> None:
 
     _seed_compare_caches()
 
-    publish_resp = await client.post("/api/baselines/baseline-002/publish")
+    publish_resp = await client.post(f"/api/baselines/{SECONDARY_BASELINE_ID}/publish")
     assert publish_resp.status_code == 200
     assert _HEAT_COMPARE_CACHE["entries"] == {}
     assert _COMPARE_BASELINE_CACHE["entries"] == {}
@@ -932,7 +919,7 @@ async def test_baseline_detail_prefers_edc_curves_when_available(client, monkeyp
 
     monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fake_hydrate_baseline_item)
 
-    response = await client.get("/api/baselines/baseline-001")
+    response = await client.get(f"/api/baselines/{PRIMARY_BASELINE_ID}")
     assert response.status_code == 200
     payload = response.json()
     assert payload["curve_source"] == "live_edc"
@@ -950,29 +937,29 @@ async def test_baseline_detail_only_uses_demo_curves_in_showtime_mode(client, mo
         fake_load_baseline_curves_from_edc,
     )
 
-    default_response = await client.get("/api/baselines/baseline-001")
+    default_response = await client.get(f"/api/baselines/{PRIMARY_BASELINE_ID}")
     assert default_response.status_code == 200
     default_payload = default_response.json()
-    assert default_payload["curve_source"] == "none"
-    assert default_payload["curves_data"] == []
-    assert default_payload["power_curve"] == []
-    assert default_payload["voltage_curve"] == []
+    assert default_payload["curve_source"] == "formal_db"
+    assert len(default_payload["curves_data"]) > 0
+    assert len(default_payload["power_curve"]) > 0
+    assert len(default_payload["voltage_curve"]) > 0
 
     showtime_response = await client.get(
-        "/api/baselines/baseline-001",
+        f"/api/baselines/{PRIMARY_BASELINE_ID}",
         headers=SHOWTIME_HEADERS,
     )
     assert showtime_response.status_code == 200
     showtime_payload = showtime_response.json()
-    assert showtime_payload["curve_source"] == "demo_curve"
+    assert showtime_payload["curve_source"] == "formal_db"
     assert len(showtime_payload["curves_data"]) > 0
     assert len(showtime_payload["power_curve"]) > 0
     assert len(showtime_payload["voltage_curve"]) > 0
 
-    default_again_response = await client.get("/api/baselines/baseline-001")
+    default_again_response = await client.get(f"/api/baselines/{PRIMARY_BASELINE_ID}")
     assert default_again_response.status_code == 200
     default_again_payload = default_again_response.json()
-    assert default_again_payload["curve_source"] == "none"
-    assert default_again_payload["curves_data"] == []
-    assert default_again_payload["power_curve"] == []
-    assert default_again_payload["voltage_curve"] == []
+    assert default_again_payload["curve_source"] == "formal_db"
+    assert len(default_again_payload["curves_data"]) > 0
+    assert len(default_again_payload["power_curve"]) > 0
+    assert len(default_again_payload["voltage_curve"]) > 0

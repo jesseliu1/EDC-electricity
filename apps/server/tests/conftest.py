@@ -1,23 +1,27 @@
 """测试配置"""
 
 import copy
+import json
+from datetime import datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
-from src.api.baseline_definitions import _DEFINITION_STORE, _PREVIEW_JOB_STORE
-from src.api.baselines import _BASELINE_STORE
+from src.api.baseline_definitions import _DEFINITION_STORE, _PREVIEW_JOB_STORE, _reload_definition_store
+from src.api.baselines import _BASELINE_STORE, _reload_baseline_store
 from src.api.heats import (
     _ACTIVE_HEAT_RUNTIME,
     _COMPARE_BASELINE_CACHE,
     _COMPARE_CHANNEL_CURVE_CACHE,
     _HEAT_COMPARE_CACHE,
+    _HEAT_ID_ALIAS_STORE,
     _HEAT_RUNTIME_REFRESH_META,
     _HEAT_STORE,
     _LIVE_HEAT_CACHE,
     _MOCK_HEAT_STREAM_STORE,
     _NEXT_MOCK_HEAT_INDEX,
+    _PREVIOUS_HEAT_RUNTIME,
     _reset_heat_runtime_refresh_meta,
     _seed_heats,
 )
@@ -33,11 +37,21 @@ from src.api.settings import (
 )
 from src.api.tasks import _SHOWTIME_TASK_STORE, _TASK_STORE
 from src.config import settings
-from src.database import async_session_maker, init_db
+from src.database import Base, async_session_maker, engine, init_db
 from src.main import app
-from src.models import Setting
+from src.models import (
+    Baseline,
+    BaselineDefinition,
+    BaselineDefinitionMetric,
+    Heat,
+    MetricSeries,
+    Setting,
+)
 from src.runtime_state import _SECTION_TO_KEY, load_runtime_state
-from src.services import close_shared_edc_clients
+from src.services import close_shared_edc_clients, encode_baseline_id
+
+FORMAL_PRIMARY_BASELINE_ID = encode_baseline_id("def-001", "001")
+FORMAL_SECONDARY_BASELINE_ID = encode_baseline_id("def-002", "001")
 
 
 def _build_test_reference_heats() -> dict[str, dict]:
@@ -168,15 +182,343 @@ def _bind_test_definition_channels() -> None:
                 metric["edc_channel_id"] = channel_id
 
 
+async def _seed_formal_reference_records() -> None:
+    now = datetime(2026, 3, 12, 10, 45, 0)
+    heat_start = datetime(2026, 3, 12, 10, 0, 0)
+    heat_end = datetime(2026, 3, 12, 10, 45, 0)
+    context_start = heat_start - timedelta(minutes=30)
+    context_end = heat_end + timedelta(minutes=30)
+
+    def _series_payload(*, values: list[tuple[datetime, float]]) -> str:
+        return json.dumps(
+            {
+                "context_start_time": context_start.isoformat(),
+                "heat_start_time": heat_start.isoformat(),
+                "heat_end_time": heat_end.isoformat(),
+                "context_end_time": context_end.isoformat(),
+                "points": [
+                    {"timestamp": int(point_time.timestamp() * 1000), "value": value}
+                    for point_time, value in values
+                ],
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+    async with async_session_maker() as session:
+        session.add_all(
+            [
+                BaselineDefinition(
+                    id="def-001",
+                    definition_name="标准熔炼基线定义",
+                    description="测试正式定义一",
+                    expected_duration_minutes=45,
+                    status="active",
+                    created_by="tester",
+                    updated_by="tester",
+                    created_at=now,
+                    updated_at=now,
+                ),
+                BaselineDefinition(
+                    id="def-002",
+                    definition_name="高功率熔炼基线定义",
+                    description="测试正式定义二",
+                    expected_duration_minutes=35,
+                    status="active",
+                    created_by="tester",
+                    updated_by="tester",
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                BaselineDefinitionMetric(
+                    definition_id="def-001",
+                    item="001",
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#1152d4",
+                    sort_order=1,
+                    edc_channel_id="2349-199",
+                    source_channel_name="总有功功率",
+                    source_channel_label="测试设备 / 总有功功率 / kW",
+                    enabled=True,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                BaselineDefinitionMetric(
+                    definition_id="def-001",
+                    item="002",
+                    item_kind="metric_item",
+                    metric_key="voltage",
+                    metric_name="A相电压",
+                    unit="V",
+                    color="#67C23A",
+                    sort_order=2,
+                    edc_channel_id="2349-128",
+                    source_channel_name="A相电压",
+                    source_channel_label="测试设备 / A相电压 / V",
+                    enabled=True,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                BaselineDefinitionMetric(
+                    definition_id="def-002",
+                    item="001",
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="A相有功功率",
+                    unit="kW",
+                    color="#f97316",
+                    sort_order=1,
+                    edc_channel_id="2349-142",
+                    source_channel_name="A相有功功率",
+                    source_channel_label="测试设备 / A相有功功率 / kW",
+                    enabled=True,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                BaselineDefinitionMetric(
+                    definition_id="def-002",
+                    item="002",
+                    item_kind="metric_item",
+                    metric_key="voltage",
+                    metric_name="B相电压",
+                    unit="V",
+                    color="#ef4444",
+                    sort_order=2,
+                    edc_channel_id="2349-130",
+                    source_channel_name="B相电压",
+                    source_channel_label="测试设备 / B相电压 / V",
+                    enabled=True,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                Baseline(
+                    definition_id="def-001",
+                    item="001",
+                    item_kind="baseline_version",
+                    name="标准基线 v2.1",
+                    description="标准基线正式样本",
+                    status="published",
+                    source_heat_id="heat-001",
+                    selected_start_time=heat_start,
+                    selected_end_time=heat_end,
+                    effective_from=datetime(2026, 3, 12, 11, 0, 0),
+                    tolerance_percent=15.0,
+                    created_by="tester",
+                    updated_by="tester",
+                    created_at=now,
+                    updated_at=now,
+                    published_at=now,
+                ),
+                Baseline(
+                    definition_id="def-002",
+                    item="001",
+                    item_kind="baseline_version",
+                    name="高功率基线",
+                    description="高功率草稿样本",
+                    status="draft",
+                    source_heat_id="heat-001",
+                    selected_start_time=heat_start,
+                    selected_end_time=heat_end,
+                    effective_from=datetime(2026, 3, 13, 8, 0, 0),
+                    tolerance_percent=12.0,
+                    created_by="tester",
+                    updated_by="tester",
+                    created_at=now,
+                    updated_at=now,
+                    published_at=None,
+                ),
+            ]
+        )
+        session.add(
+            Heat(
+                id="heat-001",
+                heat_no="H20260312-1000",
+                description="正式历史炉次样本",
+                furnace_id="Furnace-A01",
+                start_time=heat_start,
+                end_time=heat_end,
+                context_start_time=context_start,
+                context_end_time=context_end,
+                sealed_at=now,
+                source_kind="live_inferred",
+                baseline_definition_id="def-001",
+                baseline_item="001",
+                baseline_effective_from_snapshot=datetime(2026, 3, 12, 11, 0, 0),
+                deviation_status="ready",
+                deviation_percent=18.5,
+                avg_deviation_percent=9.2,
+                deviation_details_json=json.dumps(
+                    {
+                        "abnormal_ranges": [
+                            {
+                                "start": "2026-03-12T10:18:00",
+                                "end": "2026-03-12T10:23:00",
+                                "deviation_percent": 18.5,
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+                time_offset_percent=4.8,
+                mismatch_duration_minutes=4.0,
+                cut_reason="live_inferred",
+                cut_status="normal",
+                status="normal",
+                created_by="tester",
+                updated_by="tester",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add_all(
+            [
+                MetricSeries(
+                    owner_key=FORMAL_PRIMARY_BASELINE_ID,
+                    item="001",
+                    owner_type="baseline",
+                    definition_id="def-001",
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#1152d4",
+                    sort_order=1,
+                    source_channel_id="2349-199",
+                    source_channel_name="总有功功率",
+                    source_channel_label="测试设备 / 总有功功率 / kW",
+                    series_json=json.dumps(
+                        {
+                            "points": [
+                                {"timestamp": int(heat_start.timestamp() * 1000), "value": 410.0},
+                                {"timestamp": int(heat_end.timestamp() * 1000), "value": 420.0},
+                            ]
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    stat_json=json.dumps({"avg": 415.0}, ensure_ascii=False, separators=(",", ":")),
+                    created_at=now,
+                    updated_at=now,
+                ),
+                MetricSeries(
+                    owner_key=FORMAL_PRIMARY_BASELINE_ID,
+                    item="002",
+                    owner_type="baseline",
+                    definition_id="def-001",
+                    item_kind="metric_item",
+                    metric_key="voltage",
+                    metric_name="A相电压",
+                    unit="V",
+                    color="#67C23A",
+                    sort_order=2,
+                    source_channel_id="2349-128",
+                    source_channel_name="A相电压",
+                    source_channel_label="测试设备 / A相电压 / V",
+                    series_json=json.dumps(
+                        {
+                            "points": [
+                                {"timestamp": int(heat_start.timestamp() * 1000), "value": 220.0},
+                                {"timestamp": int(heat_end.timestamp() * 1000), "value": 222.0},
+                            ]
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    stat_json=json.dumps({"avg": 221.0}, ensure_ascii=False, separators=(",", ":")),
+                    created_at=now,
+                    updated_at=now,
+                ),
+                MetricSeries(
+                    owner_key="heat-001",
+                    item="001",
+                    owner_type="heat",
+                    definition_id="def-001",
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#1152d4",
+                    sort_order=1,
+                    source_channel_id="2349-199",
+                    source_channel_name="总有功功率",
+                    source_channel_label="测试设备 / 总有功功率 / kW",
+                    series_json=_series_payload(
+                        values=[
+                            (context_start, 32.5),
+                            (heat_start, 430.0),
+                            (heat_end, 436.0),
+                            (context_end, 28.0),
+                        ]
+                    ),
+                    stat_json=json.dumps(
+                        {"context_min": 28.0, "context_max": 436.0, "heat_avg": 433.0},
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    created_at=now,
+                    updated_at=now,
+                ),
+                MetricSeries(
+                    owner_key="heat-001",
+                    item="002",
+                    owner_type="heat",
+                    definition_id="def-001",
+                    item_kind="metric_item",
+                    metric_key="voltage",
+                    metric_name="A相电压",
+                    unit="V",
+                    color="#67C23A",
+                    sort_order=2,
+                    source_channel_id="2349-128",
+                    source_channel_name="A相电压",
+                    source_channel_label="测试设备 / A相电压 / V",
+                    series_json=_series_payload(
+                        values=[
+                            (context_start, 198.0),
+                            (heat_start, 221.0),
+                            (heat_end, 222.0),
+                            (context_end, 201.0),
+                        ]
+                    ),
+                    stat_json=json.dumps(
+                        {"context_min": 198.0, "context_max": 222.0, "heat_avg": 221.5},
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+
+
 @pytest.fixture
 async def client(reset_in_memory_stores):
     """创建测试客户端"""
     await close_shared_edc_clients()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
     await init_db()
+    await _seed_formal_reference_records()
     async with async_session_maker() as session:
         await session.execute(delete(Setting).where(Setting.key.in_(_SECTION_TO_KEY.values())))
         await session.commit()
     await load_runtime_state()
+    await _reload_definition_store()
+    await _reload_baseline_store()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
     await close_shared_edc_clients()
@@ -189,6 +531,8 @@ def reset_in_memory_stores():
     definition_snapshot = copy.deepcopy(_DEFINITION_STORE)
     heat_snapshot = copy.deepcopy(_HEAT_STORE)
     active_heat_snapshot = copy.deepcopy(_ACTIVE_HEAT_RUNTIME)
+    previous_heat_snapshot = copy.deepcopy(_PREVIOUS_HEAT_RUNTIME)
+    heat_id_alias_snapshot = copy.deepcopy(_HEAT_ID_ALIAS_STORE)
     heat_runtime_refresh_meta_snapshot = copy.deepcopy(_HEAT_RUNTIME_REFRESH_META)
     live_heat_cache_snapshot = copy.deepcopy(_LIVE_HEAT_CACHE)
     heat_compare_cache_snapshot = copy.deepcopy(_HEAT_COMPARE_CACHE)
@@ -214,6 +558,8 @@ def reset_in_memory_stores():
     _HEAT_STORE.clear()
     _HEAT_STORE.update(copy.deepcopy(_build_test_reference_heats()))
     _ACTIVE_HEAT_RUNTIME.clear()
+    _PREVIOUS_HEAT_RUNTIME.clear()
+    _HEAT_ID_ALIAS_STORE.clear()
     _reset_heat_runtime_refresh_meta()
     _HEAT_RUNTIME_REFRESH_META["snapshot_status"] = "ready"
     _HOST_CHANNEL_STORE.clear()
@@ -228,6 +574,7 @@ def reset_in_memory_stores():
     _COMPARE_BASELINE_CACHE["entries"] = {}
     _COMPARE_CHANNEL_CURVE_CACHE["entries"] = {}
     _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    _SETTINGS_STORE["active_baseline_id"]["value"] = FORMAL_PRIMARY_BASELINE_ID
 
     yield
 
@@ -242,6 +589,12 @@ def reset_in_memory_stores():
 
     _ACTIVE_HEAT_RUNTIME.clear()
     _ACTIVE_HEAT_RUNTIME.update(copy.deepcopy(active_heat_snapshot))
+
+    _PREVIOUS_HEAT_RUNTIME.clear()
+    _PREVIOUS_HEAT_RUNTIME.update(copy.deepcopy(previous_heat_snapshot))
+
+    _HEAT_ID_ALIAS_STORE.clear()
+    _HEAT_ID_ALIAS_STORE.update(copy.deepcopy(heat_id_alias_snapshot))
 
     _HEAT_RUNTIME_REFRESH_META.clear()
     _HEAT_RUNTIME_REFRESH_META.update(copy.deepcopy(heat_runtime_refresh_meta_snapshot))

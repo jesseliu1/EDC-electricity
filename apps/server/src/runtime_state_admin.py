@@ -32,6 +32,14 @@ RUNTIME_HOST_CONNECTIVITY_STATUS_KEY = _SECTION_TO_KEY["host_connectivity_status
 RUNTIME_BASELINE_DEFINITIONS_KEY = _SECTION_TO_KEY["baseline_definitions"]
 REALTIME_PROBE_WINDOW = timedelta(minutes=5)
 MAX_LIVE_PROBE_CANDIDATES = 12
+FORMAL_RESET_TABLES = (
+    "tasks",
+    "metric_series",
+    "heats",
+    "baselines",
+    "baseline_definition_metrics",
+    "baseline_definitions",
+)
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -750,6 +758,8 @@ async def refresh_runtime_source_state(
 def factory_reset_runtime_state(db_path: Path) -> None:
     connection = _connect(db_path)
     try:
+        for table_name in FORMAL_RESET_TABLES:
+            connection.execute(f"delete from {table_name}")
         for key in _SECTION_TO_KEY.values():
             _delete_record(connection, key)
         connection.commit()

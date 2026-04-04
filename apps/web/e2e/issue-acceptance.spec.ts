@@ -712,6 +712,28 @@ test.describe('EDC issue acceptance checks', () => {
       .not.toBe(endBeforeFullscreenPick)
   })
 
+  test('baseline wizard keeps minute duration stable when end boundary shifts by one second', async ({
+    page,
+  }) => {
+    await mockBaselineWizardAcceptance(page)
+    await page.goto('baselines')
+    await page.getByTestId('baseline-create-button').click()
+    await page.getByTestId('baseline-wizard-name-input').fill('分钟时长稳定性')
+    await page.getByTestId('baseline-wizard-next').click()
+    const heatCandidate = page.getByTestId('baseline-wizard-heat-candidate-list').getByText('H20260319-001')
+    await expect(heatCandidate).toBeVisible()
+    await heatCandidate.click()
+
+    const durationValue = page.getByTestId('baseline-wizard-selected-duration-value')
+    await expect(durationValue).toHaveText('0天 0小时 40分钟 0秒', { timeout: 15000 })
+
+    await page.getByTestId('baseline-wizard-range-end-plus-second').click()
+    await expect(durationValue).toHaveText('0天 0小时 40分钟 0秒')
+
+    await page.getByTestId('baseline-wizard-range-end-minus-second').click()
+    await expect(durationValue).toHaveText('0天 0小时 40分钟 0秒')
+  })
+
   test('baseline wizard does not fallback to local preview when real data is unavailable', async ({
     page,
   }) => {

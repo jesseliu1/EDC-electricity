@@ -269,6 +269,8 @@ function dataSourceText(source: HeatDataSource, realtimeCurrent = true) {
       ? t('heat.dataSource.activeRuntime')
       : t('heat.dataSource.activeRuntimeSnapshot')
   }
+  if (source === 'previous_runtime') return t('heat.dataSource.previousRuntime')
+  if (source === 'sealed_history') return t('heat.dataSource.sealedHistory')
   if (source === 'demo_seed') return t('heat.dataSource.demoSeed')
   if (source === 'mock_curve') return t('heat.dataSource.demoCurve')
   if (source === 'mock_stream') return t('heat.dataSource.demoSeed')

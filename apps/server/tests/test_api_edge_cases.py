@@ -2,6 +2,9 @@
 
 import pytest
 
+PRIMARY_BASELINE_ID = "def-001:001"
+SECONDARY_BASELINE_ID = "def-002:001"
+
 
 @pytest.mark.asyncio
 async def test_dashboard_invalid_duration_returns_422(client) -> None:
@@ -34,10 +37,10 @@ async def test_baseline_definition_invalid_state_transitions_and_missing_metric(
 
 @pytest.mark.asyncio
 async def test_baseline_invalid_state_transitions_and_validation(client) -> None:
-    publish_published_resp = await client.post("/api/baselines/baseline-001/publish")
+    publish_published_resp = await client.post(f"/api/baselines/{PRIMARY_BASELINE_ID}/publish")
     assert publish_published_resp.status_code == 400
 
-    disable_draft_resp = await client.post("/api/baselines/baseline-002/disable")
+    disable_draft_resp = await client.post(f"/api/baselines/{SECONDARY_BASELINE_ID}/disable")
     assert disable_draft_resp.status_code == 400
 
     invalid_definition_resp = await client.post(
@@ -65,24 +68,33 @@ async def test_baseline_invalid_state_transitions_and_validation(client) -> None
 
 @pytest.mark.asyncio
 async def test_task_invalid_state_transitions_and_validation(client) -> None:
-    complete_cancelled_resp = await client.post("/api/tasks/task-004/complete", json={
-        "cause_analysis": "原因",
-        "improvement": "改善",
-        "prevention": "预防",
-    })
+    complete_cancelled_resp = await client.post(
+        "/api/tasks/task-004/complete",
+        params={"showtime": "true"},
+        json={
+            "cause_analysis": "原因",
+            "improvement": "改善",
+            "prevention": "预防",
+        },
+    )
     assert complete_cancelled_resp.status_code == 400
 
-    cancel_completed_resp = await client.post("/api/tasks/task-003/cancel")
+    cancel_completed_resp = await client.post(
+        "/api/tasks/task-003/cancel",
+        params={"showtime": "true"},
+    )
     assert cancel_completed_resp.status_code == 400
 
     update_completed_resp = await client.patch(
         "/api/tasks/task-003",
+        params={"showtime": "true"},
         json={"cause_analysis": "不应更新"},
     )
     assert update_completed_resp.status_code == 400
 
     complete_empty_text_resp = await client.post(
         "/api/tasks/task-001/complete",
+        params={"showtime": "true"},
         json={"cause_analysis": "", "improvement": "改善", "prevention": "预防"},
     )
     assert complete_empty_text_resp.status_code == 422

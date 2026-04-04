@@ -106,6 +106,8 @@ function dataSourceText(source: HeatItem['recordSource'], realtimeCurrent = true
       ? t('heat.dataSource.activeRuntime')
       : t('heat.dataSource.activeRuntimeSnapshot')
   }
+  if (source === 'previous_runtime') return t('heat.dataSource.previousRuntime')
+  if (source === 'sealed_history') return t('heat.dataSource.sealedHistory')
   if (source === 'demo_seed') return t('heat.dataSource.demoSeed')
   if (source === 'mock_curve') return t('heat.dataSource.demoCurve')
   if (source === 'mock_stream') return t('heat.dataSource.demoSeed')
@@ -476,7 +478,7 @@ onBeforeUnmount(() => {
                 {{ t('heat.heatNo') }}
               </th>
               <th class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">
-                时间 / 设备
+                开始时间 / 设备
               </th>
               <th class="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3">
                 黄金基线偏离度

@@ -647,6 +647,35 @@ function adjustBoundary(boundary: 'start' | 'end', deltaSecond: number) {
   normalizeRange()
 }
 
+function inferCurveCadenceSeconds(points: Array<{ timestamp: number; value: number }>) {
+  const diffs: number[] = []
+  for (let index = 1; index < points.length; index += 1) {
+    const previousPoint = points[index - 1]
+    const currentPoint = points[index]
+    if (!previousPoint || !currentPoint) {
+      continue
+    }
+    const diffSeconds = Math.round((currentPoint.timestamp - previousPoint.timestamp) / 1000)
+    if (diffSeconds > 0) {
+      diffs.push(diffSeconds)
+    }
+  }
+  if (diffs.length === 0) return null
+  const sorted = [...diffs].sort((left, right) => left - right)
+  return sorted[Math.floor(sorted.length / 2)] || null
+}
+
+function normalizeDurationSeconds(durationSecond: number, cadenceSecond: number | null) {
+  const total = Math.max(durationSecond, 0)
+  if (!cadenceSecond || cadenceSecond <= 1) {
+    return total
+  }
+
+  const snapped = Math.round(total / cadenceSecond) * cadenceSecond
+  // 曲线为离散点时，边界多/少 1 秒不应把整段分钟数抖成 29:59 或 30:01。
+  return Math.abs(total - snapped) <= 1 ? snapped : total
+}
+
 function formatDuration(durationSecond: number) {
   const total = Math.max(durationSecond, 0)
   const days = Math.floor(total / 86400)
@@ -778,11 +807,15 @@ const summaryStats = computed(() => {
   }
 
   const selectedPoints =
-    primaryPreviewCurve.value?.points
-      .filter((point) => point.timestamp >= rangeStart && point.timestamp <= rangeEnd)
-      .map((point) => point.value) || []
+    primaryPreviewCurve.value?.points.filter(
+      (point) => point.timestamp >= rangeStart && point.timestamp <= rangeEnd
+    ) || []
+  const selectedValues = selectedPoints.map((point) => point.value)
+  const cadenceSecond = inferCurveCadenceSeconds(
+    selectedPoints.length >= 2 ? selectedPoints : primaryPreviewCurve.value?.points || []
+  )
 
-  if (selectedPoints.length === 0) {
+  if (selectedValues.length === 0) {
     return {
       label: `${primaryMetric.name} (${primaryMetric.unit})`,
       avg: 0,
@@ -792,13 +825,16 @@ const summaryStats = computed(() => {
     }
   }
 
-  const avg = selectedPoints.reduce((sum, value) => sum + value, 0) / selectedPoints.length
+  const avg = selectedValues.reduce((sum, value) => sum + value, 0) / selectedValues.length
 
   return {
     label: `${primaryMetric.name} (${primaryMetric.unit})`,
     avg: Number(avg.toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)),
-    peak: Number(Math.max(...selectedPoints).toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)),
-    durationSecond: Math.floor((rangeEnd - rangeStart) / 1000),
+    peak: Number(Math.max(...selectedValues).toFixed(primaryMetric.unit === 'MPa' ? 2 : 1)),
+    durationSecond: normalizeDurationSeconds(
+      Math.floor((rangeEnd - rangeStart) / 1000),
+      cadenceSecond
+    ),
     unit: primaryMetric.unit,
   }
 })
@@ -1233,8 +1269,18 @@ onBeforeUnmount(() => {
                     class="w-full"
                     data-testid="baseline-wizard-range-start"
                   />
-                  <el-button @click="adjustBoundary('start', -1)"> -1s </el-button>
-                  <el-button @click="adjustBoundary('start', 1)"> +1s </el-button>
+                  <el-button
+                    data-testid="baseline-wizard-range-start-minus-second"
+                    @click="adjustBoundary('start', -1)"
+                  >
+                    -1s
+                  </el-button>
+                  <el-button
+                    data-testid="baseline-wizard-range-start-plus-second"
+                    @click="adjustBoundary('start', 1)"
+                  >
+                    +1s
+                  </el-button>
                 </div>
               </el-form-item>
               <el-form-item
@@ -1250,8 +1296,18 @@ onBeforeUnmount(() => {
                     class="w-full"
                     data-testid="baseline-wizard-range-end"
                   />
-                  <el-button @click="adjustBoundary('end', -1)"> -1s </el-button>
-                  <el-button @click="adjustBoundary('end', 1)"> +1s </el-button>
+                  <el-button
+                    data-testid="baseline-wizard-range-end-minus-second"
+                    @click="adjustBoundary('end', -1)"
+                  >
+                    -1s
+                  </el-button>
+                  <el-button
+                    data-testid="baseline-wizard-range-end-plus-second"
+                    @click="adjustBoundary('end', 1)"
+                  >
+                    +1s
+                  </el-button>
                 </div>
               </el-form-item>
             </div>
@@ -1289,11 +1345,11 @@ onBeforeUnmount(() => {
               {{ summaryStats.peak }}{{ summaryStats.unit ? ` ${summaryStats.unit}` : '' }}
             </div>
           </div>
-          <div class="rounded-lg bg-gray-50 p-3">
+          <div class="rounded-lg bg-gray-50 p-3" data-testid="baseline-wizard-selected-duration-card">
             <div class="text-gray-500">
               {{ t('baseline.wizard.selectedDuration') }}
             </div>
-            <div class="mt-1 text-lg font-semibold">
+            <div class="mt-1 text-lg font-semibold" data-testid="baseline-wizard-selected-duration-value">
               {{ formatDuration(summaryStats.durationSecond) }}
             </div>
           </div>

@@ -351,6 +351,8 @@
       "liveInferred": "ライブ EDC 推定ヒート",
       "activeRuntime": "アクティブ実行ヒート",
       "activeRuntimeSnapshot": "実行状態ヒートのスナップショット",
+      "previousRuntime": "直前ヒート（収束待ち）",
+      "sealedHistory": "確定済み履歴ヒート",
       "demoSeed": "デモヒート台帳",
       "demoCurve": "デモ曲線",
       "none": "曲線なし"

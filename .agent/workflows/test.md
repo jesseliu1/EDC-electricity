@@ -9,13 +9,13 @@ description: 运行项目测试（前端+后端）
 1. 运行后端测试：
 
 ```bash
-cd d:\project\EDC electricity\apps\server && uv run pytest -q
+cd 'd:\project\EDC electricity\apps\server' && uv run pytest -q
 ```
 
 2. 如果前端有测试脚本，运行前端测试：
 
 ```bash
-cd d:\project\EDC electricity\apps\web && pnpm run test
+cd 'd:\project\EDC electricity\apps\web' && pnpm run test
 ```
 
 3. 如果测试失败：

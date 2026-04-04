@@ -351,6 +351,8 @@
       "liveInferred": "Live EDC inferred heat",
       "activeRuntime": "Active runtime heat",
       "activeRuntimeSnapshot": "Runtime heat snapshot",
+      "previousRuntime": "Previous runtime heat",
+      "sealedHistory": "Sealed historical heat",
       "demoSeed": "Demo heat ledger",
       "demoCurve": "Demo curve",
       "none": "No curve"

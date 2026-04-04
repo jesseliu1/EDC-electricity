@@ -9,13 +9,13 @@ description: 运行代码格式化与静态检查
 1. 运行后端 linting（ruff）：
 
 ```bash
-cd d:\project\EDC electricity\apps\server && uv run ruff check . && uv run ruff format --check .
+cd 'd:\project\EDC electricity\apps\server' && uv run ruff check . && uv run ruff format --check .
 ```
 
 2. 运行前端 linting（eslint + prettier）：
 
 ```bash
-cd d:\project\EDC electricity\apps\web && pnpm run lint
+cd 'd:\project\EDC electricity\apps\web' && pnpm run lint
 ```
 
 3. 仅做**无语义变更**的格式化修复

@@ -19,7 +19,27 @@ from ..schemas.baseline_definition import (
     MetricDefinitionUpdate,
 )
 from ..schemas.common import MessageResponse
-from ..services import EDCClientError, get_shared_edc_client
+from ..services import (
+    EDCClientError,
+    create_definition_record,
+    delete_definition_record,
+    get_definition_record,
+    get_shared_edc_client,
+    list_baseline_records,
+    list_definition_records,
+    load_definition_store,
+    set_definition_status,
+    update_definition_record,
+)
+from ..services import (
+    add_definition_metric as add_definition_metric_record,
+)
+from ..services import (
+    delete_definition_metric as delete_definition_metric_record,
+)
+from ..services import (
+    update_definition_metric as update_definition_metric_record,
+)
 from .settings import _HOST_CHANNEL_STORE, get_edc_connection_config
 
 router = APIRouter(prefix="/baseline-definitions", tags=["BaselineDefinitions"])
@@ -34,87 +54,13 @@ def _now() -> datetime:
     return datetime.now()
 
 
-# Mock 指标数据
-_DEFINITION_STORE: dict[str, dict[str, Any]] = {
-    "def-001": {
-        "id": "def-001",
-        "definition_name": "标准熔炼基线",
-        "description": "中频炉标准熔炼过程，适用于常规铸铁生产",
-        "expected_duration_minutes": 30,
-        "status": "active",
-        "metrics": [
-            {
-                "id": "metric-001",
-                "name": "功率",
-                "unit": "kW",
-                "color": "#409EFF",
-                "sort_order": 1,
-                "edc_channel_id": None,
-            },
-            {
-                "id": "metric-002",
-                "name": "电压",
-                "unit": "V",
-                "color": "#67C23A",
-                "sort_order": 2,
-                "edc_channel_id": None,
-            },
-            {
-                "id": "metric-003",
-                "name": "炉温",
-                "unit": "°C",
-                "color": "#E6A23C",
-                "sort_order": 3,
-                "edc_channel_id": None,
-            },
-        ],
-        "created_at": _now(),
-        "updated_at": _now(),
-    },
-    "def-002": {
-        "id": "def-002",
-        "definition_name": "高功率熔炼基线",
-        "description": "高强度钢生产专用，包含压力监控",
-        "expected_duration_minutes": 45,
-        "status": "active",
-        "metrics": [
-            {
-                "id": "metric-004",
-                "name": "功率",
-                "unit": "kW",
-                "color": "#409EFF",
-                "sort_order": 1,
-                "edc_channel_id": None,
-            },
-            {
-                "id": "metric-005",
-                "name": "电压",
-                "unit": "V",
-                "color": "#67C23A",
-                "sort_order": 2,
-                "edc_channel_id": None,
-            },
-            {
-                "id": "metric-006",
-                "name": "炉温",
-                "unit": "°C",
-                "color": "#E6A23C",
-                "sort_order": 3,
-                "edc_channel_id": None,
-            },
-            {
-                "id": "metric-007",
-                "name": "炉压",
-                "unit": "MPa",
-                "color": "#F56C6C",
-                "sort_order": 4,
-                "edc_channel_id": None,
-            },
-        ],
-        "created_at": _now(),
-        "updated_at": _now(),
-    },
-}
+_DEFINITION_STORE: dict[str, dict[str, Any]] = {}
+
+
+async def _reload_definition_store() -> None:
+    store = await load_definition_store()
+    _DEFINITION_STORE.clear()
+    _DEFINITION_STORE.update(store)
 
 
 def _to_response(
@@ -122,7 +68,7 @@ def _to_response(
     *,
     instance_count_map: dict[str, int] | None = None,
 ) -> BaselineDefinitionResponse:
-    counts = instance_count_map or _build_instance_count_map()
+    counts = instance_count_map or {}
     metrics = [
         MetricDefinitionResponse(
             id=m["id"],
@@ -147,20 +93,8 @@ def _to_response(
     )
 
 
-def _build_instance_count_map() -> dict[str, int]:
-    from .baselines import _BASELINE_STORE
-
-    counts: dict[str, int] = {}
-    for item in _BASELINE_STORE.values():
-        definition_id = str(item.get("definition_id") or "").strip()
-        if not definition_id:
-            continue
-        counts[definition_id] = counts.get(definition_id, 0) + 1
-    return counts
-
-
-def _get_or_404(definition_id: str) -> dict[str, Any]:
-    item = _DEFINITION_STORE.get(definition_id)
+async def _get_or_404(definition_id: str) -> dict[str, Any]:
+    item = await get_definition_record(definition_id)
     if not item:
         raise HTTPException(status_code=404, detail="黄金基线定义不存在")
     return item
@@ -319,7 +253,7 @@ async def _run_preview_job(job_key: str) -> None:
         range_end = entry["range_end"]
 
     try:
-        definition = _get_or_404(definition_id)
+        definition = await _get_or_404(definition_id)
         curves = await _build_preview_curves(
             definition=definition,
             range_start=range_start,
@@ -435,29 +369,21 @@ async def list_definitions(
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
 ) -> BaselineDefinitionListResponse:
     """获取黄金基线定义列表。"""
-    items = list(_DEFINITION_STORE.values())
-    items.sort(key=lambda x: x["updated_at"], reverse=True)
-
-    if status:
-        items = [item for item in items if item["status"] == status]
-
-    total = len(items)
-    start = (page - 1) * page_size
-    end = start + page_size
-    paged = items[start:end]
-    instance_count_map = _build_instance_count_map()
-
-    return BaselineDefinitionListResponse(
-        items=[_to_response(x, instance_count_map=instance_count_map) for x in paged],
-        total=total,
+    items, total, instance_count_map = await list_definition_records(
+        status=status,
+        page=page,
+        page_size=page_size,
     )
+    await _reload_definition_store()
+    return BaselineDefinitionListResponse(items=[_to_response(x, instance_count_map=instance_count_map) for x in items], total=total)
 
 
 @router.get("/{definition_id}", response_model=BaselineDefinitionResponse)
 async def get_definition(definition_id: str) -> BaselineDefinitionResponse:
     """获取黄金基线定义详情。"""
-    item = _get_or_404(definition_id)
-    return _to_response(item)
+    item = await _get_or_404(definition_id)
+    _, total = await list_baseline_records(status=None, definition_id=definition_id, page=1, page_size=1)
+    return _to_response(item, instance_count_map={definition_id: total})
 
 
 @router.get("/{definition_id}/preview-curves", response_model=BaselinePreviewResponse)
@@ -466,7 +392,7 @@ async def get_definition_preview_curves(
     heat_id: str = Query(..., description="来源炉次ID"),
 ) -> BaselinePreviewResponse:
     """按定义与炉次返回基线向导候选曲线预览。"""
-    definition = _get_or_404(definition_id)
+    definition = await _get_or_404(definition_id)
     range_start, range_end = await _resolve_preview_window(heat_id, definition_id=definition_id)
     curves = await _build_preview_curves(
         definition=definition,
@@ -496,7 +422,7 @@ async def start_definition_preview_job(
     heat_id: str = Query(..., description="来源炉次ID"),
 ) -> BaselinePreviewJobResponse:
     """启动或复用整天预览任务。"""
-    _get_or_404(definition_id)
+    await _get_or_404(definition_id)
     return await _ensure_preview_job(definition_id=definition_id, heat_id=heat_id)
 
 
@@ -506,40 +432,41 @@ async def get_definition_preview_job(
     heat_id: str = Query(..., description="来源炉次ID"),
 ) -> BaselinePreviewJobResponse:
     """查询整天预览任务状态。"""
-    _get_or_404(definition_id)
+    await _get_or_404(definition_id)
     return await _get_preview_job(definition_id=definition_id, heat_id=heat_id)
 
 
 @router.post("", response_model=BaselineDefinitionResponse, status_code=201)
 async def create_definition(data: BaselineDefinitionCreate) -> BaselineDefinitionResponse:
     """创建黄金基线定义。"""
-    now = _now()
     definition_id = f"def-{uuid4()}"
 
     metrics = []
-    for idx, m in enumerate(data.metrics):
+    for idx, metric in enumerate(data.metrics, start=1):
+        channel = _resolve_host_channel(metric.edc_channel_id)
         metrics.append(
             {
-                "id": f"metric-{uuid4()}",
-                "name": m.name,
-                "unit": m.unit,
-                "color": m.color,
-                "sort_order": m.sort_order if m.sort_order else idx + 1,
-                "edc_channel_id": m.edc_channel_id,
+                "metric_key": f"metric_{idx:03d}",
+                "name": metric.name,
+                "unit": metric.unit,
+                "color": metric.color,
+                "sort_order": metric.sort_order if metric.sort_order else idx,
+                "edc_channel_id": metric.edc_channel_id,
+                "source_channel_name": channel["channel_name"] if channel else None,
+                "source_channel_label": _format_host_channel_label(channel),
+                "enabled": True,
             }
         )
 
-    item: dict[str, Any] = {
-        "id": definition_id,
-        "definition_name": data.definition_name,
-        "description": data.description,
-        "expected_duration_minutes": data.expected_duration_minutes,
-        "status": "active",
-        "metrics": metrics,
-        "created_at": now,
-        "updated_at": now,
-    }
-    _DEFINITION_STORE[definition_id] = item
+    item = await create_definition_record(
+        definition_id=definition_id,
+        definition_name=data.definition_name,
+        description=data.description,
+        expected_duration_minutes=data.expected_duration_minutes,
+        metrics=metrics,
+        actor="system",
+    )
+    await _reload_definition_store()
     await persist_runtime_state("baseline_definitions")
     return _to_response(item)
 
@@ -549,26 +476,27 @@ async def update_definition(
     definition_id: str, data: BaselineDefinitionUpdate
 ) -> BaselineDefinitionResponse:
     """更新黄金基线定义。"""
-    item = _get_or_404(definition_id)
-
-    if data.definition_name is not None:
-        item["definition_name"] = data.definition_name
-    if data.description is not None:
-        item["description"] = data.description
-    if data.expected_duration_minutes is not None:
-        item["expected_duration_minutes"] = data.expected_duration_minutes
-    item["updated_at"] = _now()
+    item = await update_definition_record(
+        definition_id=definition_id,
+        definition_name=data.definition_name,
+        description=data.description,
+        expected_duration_minutes=data.expected_duration_minutes,
+        actor="system",
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="黄金基线定义不存在")
+    await _reload_definition_store()
     await persist_runtime_state("baseline_definitions")
-
     return _to_response(item)
 
 
 @router.delete("/{definition_id}", response_model=MessageResponse)
 async def delete_definition(definition_id: str) -> MessageResponse:
     """删除黄金基线定义（无关联实例时）。"""
-    _get_or_404(definition_id)
-    # TODO: 后续检查是否有关联的黄金基线实例
-    _DEFINITION_STORE.pop(definition_id, None)
+    deleted = await delete_definition_record(definition_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="黄金基线定义不存在")
+    await _reload_definition_store()
     await persist_runtime_state("baseline_definitions")
     return MessageResponse(message="黄金基线定义已删除", success=True)
 
@@ -576,11 +504,13 @@ async def delete_definition(definition_id: str) -> MessageResponse:
 @router.post("/{definition_id}/disable", response_model=BaselineDefinitionResponse)
 async def disable_definition(definition_id: str) -> BaselineDefinitionResponse:
     """停用黄金基线定义。"""
-    item = _get_or_404(definition_id)
+    item = await _get_or_404(definition_id)
     if item["status"] != "active":
         raise HTTPException(status_code=400, detail="仅激活状态可停用")
-    item["status"] = "disabled"
-    item["updated_at"] = _now()
+    item = await set_definition_status(definition_id=definition_id, status="disabled", actor="system")
+    if not item:
+        raise HTTPException(status_code=404, detail="黄金基线定义不存在")
+    await _reload_definition_store()
     await persist_runtime_state("baseline_definitions")
     return _to_response(item)
 
@@ -588,11 +518,13 @@ async def disable_definition(definition_id: str) -> BaselineDefinitionResponse:
 @router.post("/{definition_id}/enable", response_model=BaselineDefinitionResponse)
 async def enable_definition(definition_id: str) -> BaselineDefinitionResponse:
     """启用黄金基线定义。"""
-    item = _get_or_404(definition_id)
+    item = await _get_or_404(definition_id)
     if item["status"] != "disabled":
         raise HTTPException(status_code=400, detail="仅停用状态可启用")
-    item["status"] = "active"
-    item["updated_at"] = _now()
+    item = await set_definition_status(definition_id=definition_id, status="active", actor="system")
+    if not item:
+        raise HTTPException(status_code=404, detail="黄金基线定义不存在")
+    await _reload_definition_store()
     await persist_runtime_state("baseline_definitions")
     return _to_response(item)
 
@@ -609,17 +541,18 @@ async def add_metric(
     definition_id: str, data: MetricDefinitionCreate
 ) -> BaselineDefinitionResponse:
     """向定义添加指标通道。"""
-    item = _get_or_404(definition_id)
-    metric = {
-        "id": f"metric-{uuid4()}",
-        "name": data.name,
-        "unit": data.unit,
-        "color": data.color,
-        "sort_order": data.sort_order if data.sort_order else len(item["metrics"]) + 1,
-        "edc_channel_id": data.edc_channel_id,
-    }
-    item["metrics"].append(metric)
-    item["updated_at"] = _now()
+    item = await add_definition_metric_record(
+        definition_id=definition_id,
+        metric_key=f"metric_{uuid4().hex[:8]}",
+        name=data.name,
+        unit=data.unit,
+        color=data.color,
+        sort_order=data.sort_order,
+        edc_channel_id=data.edc_channel_id,
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="黄金基线定义不存在")
+    await _reload_definition_store()
     await persist_runtime_state("baseline_definitions")
     return _to_response(item)
 
@@ -632,22 +565,18 @@ async def update_metric(
     definition_id: str, metric_id: str, data: MetricDefinitionUpdate
 ) -> BaselineDefinitionResponse:
     """更新指标通道。"""
-    item = _get_or_404(definition_id)
-    metric = next((m for m in item["metrics"] if m["id"] == metric_id), None)
-    if not metric:
+    item = await update_definition_metric_record(
+        definition_id=definition_id,
+        item=metric_id,
+        name=data.name,
+        unit=data.unit,
+        color=data.color,
+        sort_order=data.sort_order,
+        edc_channel_id=data.edc_channel_id,
+    )
+    if not item:
         raise HTTPException(status_code=404, detail="指标通道不存在")
-
-    if data.name is not None:
-        metric["name"] = data.name
-    if data.unit is not None:
-        metric["unit"] = data.unit
-    if data.color is not None:
-        metric["color"] = data.color
-    if data.sort_order is not None:
-        metric["sort_order"] = data.sort_order
-    if data.edc_channel_id is not None:
-        metric["edc_channel_id"] = data.edc_channel_id
-    item["updated_at"] = _now()
+    await _reload_definition_store()
     await persist_runtime_state("baseline_definitions")
     return _to_response(item)
 
@@ -658,11 +587,9 @@ async def update_metric(
 )
 async def delete_metric(definition_id: str, metric_id: str) -> BaselineDefinitionResponse:
     """删除指标通道。"""
-    item = _get_or_404(definition_id)
-    original_len = len(item["metrics"])
-    item["metrics"] = [m for m in item["metrics"] if m["id"] != metric_id]
-    if len(item["metrics"]) == original_len:
+    item = await delete_definition_metric_record(definition_id, metric_id)
+    if not item:
         raise HTTPException(status_code=404, detail="指标通道不存在")
-    item["updated_at"] = _now()
+    await _reload_definition_store()
     await persist_runtime_state("baseline_definitions")
     return _to_response(item)

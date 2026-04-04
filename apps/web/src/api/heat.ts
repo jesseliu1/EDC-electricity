@@ -14,6 +14,8 @@ export type HeatDataSource =
   | 'live_edc'
   | 'live_inferred'
   | 'active_runtime'
+  | 'previous_runtime'
+  | 'sealed_history'
   | 'demo_seed'
   | 'demo_curve'
   | 'mock_stream'

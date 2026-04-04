@@ -14,9 +14,9 @@ from src.runtime_state import _SECTION_TO_KEY
 from src.runtime_state_admin import (
     RUNTIME_BASELINE_DEFINITIONS_KEY,
     RUNTIME_CHANNEL_ROLE_BINDINGS_KEY,
-    RUNTIME_HOST_CHANNELS_KEY,
     RUNTIME_HOST_CHANNEL_CATALOG_KEY,
     RUNTIME_HOST_CHANNEL_LAST_SYNC_KEY,
+    RUNTIME_HOST_CHANNELS_KEY,
     RUNTIME_HOST_CONNECTIVITY_STATUS_KEY,
     RUNTIME_SETTINGS_STORE_KEY,
     factory_reset_runtime_state,
@@ -34,6 +34,56 @@ def _init_settings_db(db_path: Path) -> None:
                 value text not null,
                 description text,
                 updated_at text
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table baseline_definitions (
+                id text primary key
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table baseline_definition_metrics (
+                definition_id text not null,
+                item text not null,
+                primary key (definition_id, item)
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table baselines (
+                definition_id text not null,
+                item text not null,
+                primary key (definition_id, item)
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table heats (
+                id text primary key,
+                heat_no text
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table metric_series (
+                owner_key text not null,
+                item text not null,
+                primary key (owner_key, item)
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table tasks (
+                id text primary key,
+                heat_id text
             )
             """
         )
@@ -73,7 +123,7 @@ class _FakeEDCClient:
     def __init__(self, **_kwargs: object) -> None:
         pass
 
-    async def __aenter__(self) -> "_FakeEDCClient":
+    async def __aenter__(self) -> _FakeEDCClient:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> bool:
@@ -281,7 +331,7 @@ async def test_refresh_runtime_source_state_replaces_zero_data_fundamental_chann
         def __init__(self, **_kwargs: object) -> None:
             pass
 
-        async def __aenter__(self) -> "_FakeLivePreferEDCClient":
+        async def __aenter__(self) -> _FakeLivePreferEDCClient:
             return self
 
         async def __aexit__(self, exc_type, exc, tb) -> bool:
@@ -354,3 +404,51 @@ def test_factory_reset_runtime_state_deletes_all_runtime_rows(tmp_path) -> None:
         connection.close()
 
     assert remaining == []
+
+
+def test_factory_reset_runtime_state_deletes_formal_tables(tmp_path) -> None:
+    db_path = tmp_path / "runtime-admin.db"
+    _init_settings_db(db_path)
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute("insert into baseline_definitions (id) values ('def-001')")
+        connection.execute(
+            "insert into baseline_definition_metrics (definition_id, item) values ('def-001', '001')"
+        )
+        connection.execute("insert into baselines (definition_id, item) values ('def-001', '001')")
+        connection.execute("insert into heats (id, heat_no) values ('heat-001', 'H001')")
+        connection.execute(
+            "insert into metric_series (owner_key, item) values ('def-001:001', '001')"
+        )
+        connection.execute("insert into tasks (id, heat_id) values ('task-001', 'heat-001')")
+        connection.commit()
+    finally:
+        connection.close()
+
+    factory_reset_runtime_state(db_path)
+
+    connection = sqlite3.connect(db_path)
+    try:
+        remaining_counts = {
+            table_name: connection.execute(f"select count(*) from {table_name}").fetchone()[0]
+            for table_name in (
+                "baseline_definitions",
+                "baseline_definition_metrics",
+                "baselines",
+                "heats",
+                "metric_series",
+                "tasks",
+            )
+        }
+    finally:
+        connection.close()
+
+    assert remaining_counts == {
+        "baseline_definitions": 0,
+        "baseline_definition_metrics": 0,
+        "baselines": 0,
+        "heats": 0,
+        "metric_series": 0,
+        "tasks": 0,
+    }

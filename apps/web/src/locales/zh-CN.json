@@ -351,6 +351,8 @@
       "liveInferred": "真实 EDC 推断炉次",
       "activeRuntime": "当前炉次实时态",
       "activeRuntimeSnapshot": "运行态炉次快照",
+      "previousRuntime": "前一炉次待收口",
+      "sealedHistory": "已固化历史炉次",
       "demoSeed": "演示炉次台账",
       "demoCurve": "演示曲线",
       "none": "暂无曲线"

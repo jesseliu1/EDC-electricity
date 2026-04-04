@@ -38,9 +38,19 @@ from ..schemas import (
     MetricCompareSeries,
 )
 from ..schemas.heat import BaselineWithCurveSimple
-from ..services import DeviationService, EDCClient, EDCClientError
-from .baseline_definitions import _DEFINITION_STORE
-from .baselines import _BASELINE_STORE, _resolve_active_baseline_item
+from ..services import (
+    DeviationService,
+    EDCClient,
+    EDCClientError,
+    get_formal_heat_record,
+    list_formal_heat_records,
+    persist_sealed_heat_candidates,
+    resume_formal_heat_cutting,
+    save_formal_heat_analysis,
+    update_formal_heat_record,
+)
+from .baseline_definitions import _DEFINITION_STORE, _reload_definition_store
+from .baselines import _BASELINE_STORE, _reload_baseline_store, _resolve_active_baseline_item
 from .settings import (
     _CHANNEL_ROLE_BINDING_STORE,
     _HOST_CHANNEL_STORE,
@@ -79,6 +89,18 @@ _COMPARE_CHANNEL_CURVE_CACHE: dict[str, Any] = {
 _LIVE_HEAT_LEGACY_ID_PATTERN = re.compile(r"^live-heat-(\d+)-(\d+)$")
 _LIVE_HEAT_CANONICAL_ID_PATTERN = re.compile(r"^live-heat-([0-9a-f]{8})-(\d+)-(\d+)$")
 _LOCAL_RUNTIME_TZ = ZoneInfo("Asia/Shanghai")
+
+
+async def _ensure_formal_baseline_mirrors_loaded(
+    *,
+    definition_id: str | None = None,
+    baseline_id: str | None = None,
+) -> None:
+    """按需把正式表里的基线定义/版本回填到过渡镜像。"""
+    if not _DEFINITION_STORE or (definition_id and definition_id not in _DEFINITION_STORE):
+        await _reload_definition_store()
+    if not _BASELINE_STORE or (baseline_id and baseline_id not in _BASELINE_STORE):
+        await _reload_baseline_store()
 
 
 def _as_cache_token(value: Any) -> str:
@@ -583,9 +605,6 @@ def _resolve_primary_baseline_id(item: dict[str, Any]) -> str | None:
         first = baseline_ids[0]
         if isinstance(first, str) and first:
             return first
-    active_baseline = _resolve_active_baseline_item()
-    if active_baseline and active_baseline.get("id"):
-        return str(active_baseline["id"])
     return None
 
 
@@ -1153,13 +1172,35 @@ async def resolve_heat_record(
     if is_mock_dataset_enabled():
         return _MOCK_HEAT_STREAM_STORE.get(heat_id)
 
+    resolved_heat_id = _resolve_heat_alias_id(heat_id)
+
     active_item = _ACTIVE_HEAT_RUNTIME.get(heat_id)
     if active_item and _is_real_heat_record(active_item):
         return active_item
+    active_item = _ACTIVE_HEAT_RUNTIME.get(resolved_heat_id)
+    if active_item and _is_real_heat_record(active_item):
+        return active_item
+
+    previous_item = _PREVIOUS_HEAT_RUNTIME.get(heat_id)
+    if previous_item and _is_real_heat_record(previous_item):
+        return previous_item
+    previous_item = _PREVIOUS_HEAT_RUNTIME.get(resolved_heat_id)
+    if previous_item and _is_real_heat_record(previous_item):
+        return previous_item
 
     stored_item = _HEAT_STORE.get(heat_id)
     if stored_item and _is_real_heat_record(stored_item):
         return stored_item
+    stored_item = _HEAT_STORE.get(resolved_heat_id)
+    if stored_item and _is_real_heat_record(stored_item):
+        return stored_item
+    formal_item = await get_formal_heat_record(heat_id)
+    if formal_item and _is_real_heat_record(formal_item):
+        return formal_item
+    if resolved_heat_id != heat_id:
+        formal_item = await get_formal_heat_record(resolved_heat_id)
+        if formal_item and _is_real_heat_record(formal_item):
+            return formal_item
     return None
 
 
@@ -1178,7 +1219,11 @@ async def _list_heat_store() -> dict[str, dict[str, Any]]:
     if is_mock_dataset_enabled():
         return dict(_MOCK_HEAT_STREAM_STORE)
 
-    merged = dict(_HEAT_STORE)
+    merged = {
+        str(item["id"]): item
+        for item in await list_formal_heat_records()
+    }
+    merged.update(_PREVIOUS_HEAT_RUNTIME)
     merged.update(_ACTIVE_HEAT_RUNTIME)
     return merged
 
@@ -1195,6 +1240,8 @@ async def refresh_heat_runtime_state(*, reason: str) -> dict[str, Any]:
         )
         _sync_heat_runtime_refresh_meta_status()
         return _build_heat_runtime_refresh_meta_snapshot()
+
+    await _ensure_formal_baseline_mirrors_loaded()
 
     started_at = datetime.now()
     _HEAT_RUNTIME_REFRESH_META.update(
@@ -1225,32 +1272,45 @@ async def refresh_heat_runtime_state(*, reason: str) -> dict[str, Any]:
         await persist_runtime_state(*_runtime_heat_sections())
         return _build_heat_runtime_refresh_meta_snapshot()
 
-    now = datetime.now()
-    history_items: dict[str, dict[str, Any]] = {}
-    active_candidates: list[dict[str, Any]] = []
-    for raw_item in inferred_items.values():
-        runtime_item = _bind_runtime_baseline(raw_item)
-        if _is_active_runtime_candidate(runtime_item, now=now):
-            active_candidates.append(_mark_active_runtime(runtime_item))
-            continue
-        history_items[str(runtime_item["id"])] = _mark_history_runtime(runtime_item)
+    runtime_candidates = [_bind_runtime_baseline(raw_item) for raw_item in inferred_items.values()]
+    runtime_candidates.sort(key=lambda item: item["start_time"], reverse=True)
 
-    active_candidates.sort(key=lambda item: item["start_time"], reverse=True)
+    next_active_runtime: dict[str, dict[str, Any]] = {}
+    next_previous_runtime: dict[str, dict[str, Any]] = {}
+    if runtime_candidates:
+        active_item = _mark_active_runtime(runtime_candidates[0])
+        next_active_runtime[str(active_item["id"])] = active_item
+    if len(runtime_candidates) > 1:
+        previous_item = _mark_previous_runtime(runtime_candidates[1])
+        next_previous_runtime[str(previous_item["id"])] = previous_item
+
+    sealed_candidates = runtime_candidates[2:]
+    next_history_items = await persist_sealed_heat_candidates(sealed_candidates)
+
+    previous_runtime_items = [
+        *list(_ACTIVE_HEAT_RUNTIME.values()),
+        *list(_PREVIOUS_HEAT_RUNTIME.values()),
+    ]
+    next_runtime_lookup = dict(next_history_items)
+    next_runtime_lookup.update(next_previous_runtime)
+    next_runtime_lookup.update(next_active_runtime)
+    _register_runtime_aliases(previous_runtime_items, next_runtime_lookup)
+
     _HEAT_STORE.clear()
-    _HEAT_STORE.update(history_items)
+    _PREVIOUS_HEAT_RUNTIME.clear()
+    _PREVIOUS_HEAT_RUNTIME.update(next_previous_runtime)
     _ACTIVE_HEAT_RUNTIME.clear()
-    if active_candidates:
-        active_item = active_candidates[0]
-        _ACTIVE_HEAT_RUNTIME[str(active_item["id"])] = active_item
+    _ACTIVE_HEAT_RUNTIME.update(next_active_runtime)
 
     watermark_candidates = [
         item.get("last_point_at") or item.get("end_time")
-        for item in history_items.values()
+        for item in next_history_items.values()
         if isinstance(item.get("last_point_at") or item.get("end_time"), datetime)
     ]
-    active_item = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
-    if active_item and isinstance(active_item.get("last_point_at"), datetime):
-        watermark_candidates.append(active_item["last_point_at"])
+    for runtime_store in (_PREVIOUS_HEAT_RUNTIME, _ACTIVE_HEAT_RUNTIME):
+        runtime_item = next(iter(runtime_store.values()), None)
+        if runtime_item and isinstance(runtime_item.get("last_point_at"), datetime):
+            watermark_candidates.append(runtime_item["last_point_at"])
 
     _mark_heat_runtime_refresh_success(
         reason=reason,
@@ -2161,11 +2221,15 @@ def _is_real_heat_record(item: dict[str, Any]) -> bool:
         "live_inferred",
         "live_edc",
         "active_runtime",
+        "previous_runtime",
+        "sealed_history",
     }
 
 
 _HEAT_STORE: dict[str, dict[str, Any]] = {}
 _ACTIVE_HEAT_RUNTIME: dict[str, dict[str, Any]] = {}
+_PREVIOUS_HEAT_RUNTIME: dict[str, dict[str, Any]] = {}
+_HEAT_ID_ALIAS_STORE: dict[str, str] = {}
 _MOCK_HEAT_STREAM_STORE: dict[str, dict[str, Any]] = _seed_mock_stream_heats()
 _NEXT_MOCK_HEAT_INDEX = len(_MOCK_HEAT_STREAM_STORE) + 1
 _HEAT_RUNTIME_REFRESH_META: dict[str, Any] = {}
@@ -2223,9 +2287,8 @@ def _resolve_baseline_version_for_time(at_time: datetime) -> dict[str, Any] | No
         if eligible:
             eligible.sort(key=lambda item: _baseline_effective_from(item), reverse=True)
             return eligible[0]
-        published.sort(key=lambda item: _baseline_effective_from(item), reverse=True)
-        return published[0]
-    return _resolve_active_baseline_item()
+        return None
+    return None
 
 
 def _bind_runtime_baseline(item: dict[str, Any]) -> dict[str, Any]:
@@ -2249,12 +2312,119 @@ def _mark_active_runtime(item: dict[str, Any]) -> dict[str, Any]:
     return active_item
 
 
+def _mark_previous_runtime(item: dict[str, Any]) -> dict[str, Any]:
+    previous_item = dict(item)
+    previous_item["completion_status"] = "completed"
+    previous_item["last_point_at"] = previous_item.get("end_time")
+    previous_item["record_source"] = "previous_runtime"
+    previous_item["sealed_at"] = None
+    return previous_item
+
+
 def _mark_history_runtime(item: dict[str, Any]) -> dict[str, Any]:
     history_item = dict(item)
     history_item["completion_status"] = "completed"
     history_item["last_point_at"] = history_item.get("end_time")
+    history_item["record_source"] = "sealed_history"
     history_item["sealed_at"] = datetime.now()
     return history_item
+
+
+def _build_runtime_lookup_store() -> dict[str, dict[str, Any]]:
+    lookup = dict(_HEAT_STORE)
+    lookup.update(_PREVIOUS_HEAT_RUNTIME)
+    lookup.update(_ACTIVE_HEAT_RUNTIME)
+    return lookup
+
+
+def _resolve_heat_alias_id(heat_id: str) -> str:
+    current_id = heat_id
+    visited = {current_id}
+    while True:
+        target_id = _HEAT_ID_ALIAS_STORE.get(current_id)
+        if not target_id or target_id in visited:
+            return current_id
+        visited.add(target_id)
+        current_id = target_id
+
+
+def _link_heat_alias(source_id: str | None, target_id: str | None) -> None:
+    if not source_id or not target_id or source_id == target_id:
+        return
+    _HEAT_ID_ALIAS_STORE[str(source_id)] = str(target_id)
+
+
+def _find_overlapping_heat_record(
+    item: dict[str, Any], candidates: dict[str, dict[str, Any]]
+) -> dict[str, Any] | None:
+    overlapping = [
+        candidate
+        for candidate in candidates.values()
+        if _has_overlapping_time_window(item, candidate)
+    ]
+    if not overlapping:
+        return None
+
+    item_window = _resolve_item_time_window_ms(item)
+    if not item_window:
+        return overlapping[0]
+    item_start, item_end = item_window
+    return min(
+        overlapping,
+        key=lambda candidate: (
+            abs((_resolve_item_time_window_ms(candidate) or (0, 0))[0] - item_start),
+            abs((_resolve_item_time_window_ms(candidate) or (0, 0))[1] - item_end),
+        ),
+    )
+
+
+def _seal_runtime_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    existing_history: dict[str, dict[str, Any]],
+    runtime_items: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    runtime_lookup = {
+        str(item.get("id") or ""): item for item in (runtime_items or []) if item.get("id")
+    }
+    sealed_history: dict[str, dict[str, Any]] = {}
+    for heat_id, existing_item in existing_history.items():
+        runtime_target = _find_overlapping_heat_record(existing_item, runtime_lookup)
+        if runtime_target:
+            _link_heat_alias(
+                str(existing_item.get("id") or ""),
+                str(runtime_target.get("id") or ""),
+            )
+            continue
+        normalized = dict(existing_item)
+        normalized["completion_status"] = "completed"
+        normalized["record_source"] = "sealed_history"
+        normalized["last_point_at"] = normalized.get("last_point_at") or normalized.get("end_time")
+        normalized["sealed_at"] = normalized.get("sealed_at") or datetime.now()
+        sealed_history[heat_id] = normalized
+    for candidate in candidates:
+        existing = _find_overlapping_heat_record(candidate, sealed_history)
+        if existing:
+            _link_heat_alias(str(candidate.get("id") or ""), str(existing.get("id") or ""))
+            continue
+        sealed_item = _mark_history_runtime(candidate)
+        sealed_history[str(sealed_item["id"])] = sealed_item
+    return sealed_history
+
+
+def _register_runtime_aliases(
+    previous_runtime_items: list[dict[str, Any]],
+    next_runtime_lookup: dict[str, dict[str, Any]],
+) -> None:
+    for previous_item in previous_runtime_items:
+        previous_id = str(previous_item.get("id") or "")
+        if not previous_id:
+            continue
+        if previous_id in next_runtime_lookup:
+            continue
+        target = _find_overlapping_heat_record(previous_item, next_runtime_lookup)
+        if target:
+            _link_heat_alias(previous_id, str(target.get("id") or ""))
 
 
 def _is_active_runtime_candidate(item: dict[str, Any], *, now: datetime) -> bool:
@@ -2277,7 +2447,9 @@ def _runtime_snapshot_watermark() -> datetime | None:
 
 
 def _has_runtime_snapshot_data() -> bool:
-    return bool(_HEAT_STORE or _ACTIVE_HEAT_RUNTIME or _runtime_snapshot_watermark())
+    return bool(
+        _HEAT_STORE or _PREVIOUS_HEAT_RUNTIME or _ACTIVE_HEAT_RUNTIME or _runtime_snapshot_watermark()
+    )
 
 
 def _is_runtime_snapshot_fresh(*, now: datetime | None = None) -> bool:
@@ -2419,7 +2591,13 @@ def _mutable_heat_store() -> dict[str, dict[str, Any]]:
 def _runtime_heat_sections() -> tuple[str, ...]:
     if is_mock_dataset_enabled():
         return ("mock_heats", "next_heat_index")
-    return ("heats", "active_heat_runtime", "heat_runtime_refresh_meta")
+    return (
+        "heats",
+        "active_heat_runtime",
+        "previous_heat_runtime",
+        "heat_id_aliases",
+        "heat_runtime_refresh_meta",
+    )
 
 
 async def _get_or_404(heat_id: str) -> dict[str, Any]:
@@ -2583,16 +2761,14 @@ async def list_heats(
     page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
 ) -> HeatListResponse:
     """获取炉次列表（支持状态和日期范围筛选）。"""
+    await _ensure_formal_baseline_mirrors_loaded()
     started_at = perf_counter()
     current_time = datetime.now()
     normalized_start_date = _normalize_filter_datetime(start_date)
     normalized_end_date = _normalize_filter_datetime(end_date)
     items = list((await _list_heat_store()).values())
     items.sort(key=lambda x: x["start_time"], reverse=True)
-    prepared_items = await _build_heat_list_views(
-        items,
-        recompute_live_inferred_deviation=status is not None,
-    )
+    prepared_items = [dict(item) for item in items]
 
     if status:
         prepared_items = [item for item in prepared_items if item["status"] == status]
@@ -2651,14 +2827,41 @@ async def refresh_heat_runtime() -> dict[str, Any]:
 @router.get("/{heat_id}", response_model=HeatResponse)
 async def get_heat(heat_id: str) -> HeatResponse:
     """获取炉次详情。"""
+    await _ensure_formal_baseline_mirrors_loaded()
     item = await _get_or_404(heat_id)
-    return _to_heat_response(_build_heat_list_view(item))
+    return _to_heat_response(item)
 
 
 @router.patch("/{heat_id}", response_model=HeatResponse)
 async def update_heat(heat_id: str, data: HeatUpdate) -> HeatResponse:
     """更新炉次信息（描述、起止时间）。"""
-    item = _ensure_persisted_heat(await _get_or_404(heat_id))
+    item = await _get_or_404(heat_id)
+    if str(item.get("record_source") or "") == "sealed_history":
+        if data.adjust_subsequent:
+            raise HTTPException(
+                status_code=400,
+                detail="正式历史炉次的联动批量调整尚未实现，请先关闭联动调整。",
+            )
+        try:
+            updated_item = await update_formal_heat_record(
+                str(item["id"]),
+                description=data.description,
+                start_time=data.start_time,
+                end_time=data.end_time,
+            )
+        except ValueError as exc:
+            detail = "更新失败"
+            if str(exc) == "start_time_after_end_time":
+                detail = "开始时间不能晚于结束时间。"
+            elif str(exc) == "outside_context_window":
+                detail = "调整后的时间超出当前炉次已保存的上下文窗口，需走批量修订流程。"
+            raise HTTPException(status_code=400, detail=detail) from exc
+        if updated_item is None:
+            raise HTTPException(status_code=404, detail="炉次不存在")
+        invalidate_compare_runtime_caches(str(item["id"]))
+        return _to_heat_response(updated_item)
+
+    item = _ensure_persisted_heat(item)
     canonical_heat_id = str(item["id"])
     original_start = item["start_time"]
 
@@ -2688,7 +2891,23 @@ async def update_heat(heat_id: str, data: HeatUpdate) -> HeatResponse:
 @router.post("/{heat_id}/resume-cutting", response_model=HeatResponse)
 async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatResponse:
     """恢复重大事故后的炉次切割。"""
-    item = _ensure_persisted_heat(await _get_or_404(heat_id))
+    item = await _get_or_404(heat_id)
+    if str(item.get("record_source") or "") == "sealed_history":
+        if data.adjust_subsequent:
+            raise HTTPException(
+                status_code=400,
+                detail="正式历史炉次的联动恢复尚未实现，请先关闭联动恢复。",
+            )
+        updated_item = await resume_formal_heat_cutting(
+            str(item["id"]),
+            note=data.note,
+        )
+        if updated_item is None:
+            raise HTTPException(status_code=404, detail="炉次不存在")
+        invalidate_compare_runtime_caches(str(item["id"]))
+        return _to_heat_response(updated_item)
+
+    item = _ensure_persisted_heat(item)
     canonical_heat_id = str(item["id"])
 
     item["cut_status"] = "normal"
@@ -2798,7 +3017,14 @@ async def get_cutting_timeline(heat_id: str) -> CuttingTimelineResponse:
 @router.get("/{heat_id}/curve", response_model=HeatWithCurve)
 async def get_heat_curve(heat_id: str) -> HeatWithCurve:
     """获取炉次曲线数据。"""
+    await _ensure_formal_baseline_mirrors_loaded()
     item = await _get_or_404(heat_id)
+    await _ensure_formal_baseline_mirrors_loaded(
+        definition_id=str(item.get("baseline_definition_id") or "") or None,
+        baseline_id=_resolve_primary_baseline_id(item),
+    )
+    if str(item.get("record_source") or "") == "sealed_history":
+        return _to_heat_with_curve(item)
     await _hydrate_heat_item(item)
     prepared_item = await _build_heat_response_view(item)
     return _to_heat_with_curve(prepared_item)
@@ -2807,8 +3033,13 @@ async def get_heat_curve(heat_id: str) -> HeatWithCurve:
 @router.get("/{heat_id}/compare", response_model=HeatCompareResponse)
 async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     """获取炉次与基线对比数据。"""
+    await _ensure_formal_baseline_mirrors_loaded()
     started_at = perf_counter()
     item = await _get_or_404(heat_id)
+    await _ensure_formal_baseline_mirrors_loaded(
+        definition_id=str(item.get("baseline_definition_id") or "") or None,
+        baseline_id=_resolve_primary_baseline_id(item),
+    )
     canonical_heat_id = str(item["id"])
     baseline_id = _resolve_primary_baseline_id(item)
     baseline_ids = _resolve_compare_baseline_ids(item)
@@ -2829,21 +3060,31 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         item["end_time"],
     )
     compare_channels = _collect_compare_metric_channels(baseline_ids)
-    hydrated_baselines, shared_current_curves, display_current_curves = await asyncio.gather(
-        _hydrate_compare_baselines(baseline_ids),
-        _load_channel_curves_from_edc(
-            channels=compare_channels,
-            start_time=item["start_time"],
-            end_time=item["end_time"],
-        ),
-        _load_channel_curves_from_edc(
-            channels=compare_channels,
-            start_time=compare_display_start,
-            end_time=compare_display_end,
-        ),
-    )
-    live_curves = _resolve_heat_curves_from_shared_channels(item, shared_current_curves)
-    display_live_curves = _resolve_heat_curves_from_shared_channels(item, display_current_curves)
+    if str(item.get("record_source") or "") == "sealed_history":
+        hydrated_baselines = await _hydrate_compare_baselines(baseline_ids)
+        shared_current_curves = {}
+        display_current_curves = {}
+        live_curves = {
+            "power": _coerce_curve_points(item.get("power_curve")),
+            "voltage": _coerce_curve_points(item.get("voltage_curve")),
+        }
+        display_live_curves = dict(live_curves)
+    else:
+        hydrated_baselines, shared_current_curves, display_current_curves = await asyncio.gather(
+            _hydrate_compare_baselines(baseline_ids),
+            _load_channel_curves_from_edc(
+                channels=compare_channels,
+                start_time=item["start_time"],
+                end_time=item["end_time"],
+            ),
+            _load_channel_curves_from_edc(
+                channels=compare_channels,
+                start_time=compare_display_start,
+                end_time=compare_display_end,
+            ),
+        )
+        live_curves = _resolve_heat_curves_from_shared_channels(item, shared_current_curves)
+        display_live_curves = _resolve_heat_curves_from_shared_channels(item, display_current_curves)
     direct_live_fallback_keys: set[str] = set()
     if not live_curves.get("power") or not live_curves.get("voltage"):
         direct_live_curves = await _load_heat_curves_from_edc(item) or {}
@@ -2985,10 +3226,67 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
 @router.post("/{heat_id}/analyze", response_model=HeatAnalyzeResponse)
 async def analyze_heat(heat_id: str, data: HeatAnalyzeRequest) -> HeatAnalyzeResponse:
     """触发炉次偏差分析。"""
-    item = _ensure_persisted_heat(await _get_or_404(heat_id))
+    await _ensure_formal_baseline_mirrors_loaded()
+    item = await _get_or_404(heat_id)
+    await _ensure_formal_baseline_mirrors_loaded(
+        definition_id=str(item.get("baseline_definition_id") or "") or None,
+        baseline_id=_resolve_primary_baseline_id(item),
+    )
     canonical_heat_id = str(item["id"])
+    baseline_id = data.baseline_id or _resolve_primary_baseline_id(item)
+    if not baseline_id:
+        raise HTTPException(status_code=400, detail="炉次未绑定基线，无法执行偏差分析。")
+
+    if str(item.get("record_source") or "") == "sealed_history":
+        hydrated_baselines = await _hydrate_compare_baselines([baseline_id])
+        baseline_item = hydrated_baselines.get(baseline_id) or _BASELINE_STORE.get(baseline_id)
+        if not baseline_item:
+            raise HTTPException(status_code=400, detail="指定基线不存在或尚未准备完成。")
+        baseline_curve_points = _rebase_curve_points_to_window(
+            baseline_item.get("power_curve"),
+            target_start_time=item["start_time"],
+            target_end_time=item["end_time"],
+        )
+        current_curve_points = _coerce_curve_points(item.get("power_curve"))
+        if not baseline_curve_points or not current_curve_points:
+            raise HTTPException(status_code=400, detail="当前炉次或基线曲线数据不足，无法执行偏差分析。")
+        result = deviation_service.calculate_deviation(
+            baseline_curve=[
+                (float(point.timestamp), float(point.value)) for point in baseline_curve_points
+            ],
+            current_curve=[
+                (float(point.timestamp), float(point.value)) for point in current_curve_points
+            ],
+            tolerance=float(baseline_item.get("tolerance_percent") or 15.0),
+        )
+        if await save_formal_heat_analysis(
+            canonical_heat_id,
+            baseline_id=baseline_id,
+            max_deviation=result["max_deviation"],
+            avg_deviation=result["avg_deviation"],
+            status=result["status"],
+            abnormal_ranges=result["abnormal_ranges"],
+        ) is None:
+            raise HTTPException(status_code=404, detail="炉次不存在")
+        invalidate_compare_runtime_caches(canonical_heat_id)
+        return HeatAnalyzeResponse(
+            heat_id=canonical_heat_id,
+            baseline_id=baseline_id,
+            max_deviation=result["max_deviation"],
+            avg_deviation=result["avg_deviation"],
+            status=result["status"],
+            deviation_ranges=[
+                DeviationRange(
+                    start=int(item_range["start"]),
+                    end=int(item_range["end"]),
+                    deviation=float(item_range["deviation"]),
+                )
+                for item_range in result["abnormal_ranges"]
+            ],
+        )
+
+    item = _ensure_persisted_heat(item)
     await _hydrate_heat_item(item)
-    baseline_id = data.baseline_id or _resolve_primary_baseline_id(item) or "baseline-001"
 
     baseline_curve = [
         (float(point.timestamp), float(point.value)) for point in item["baseline_power_curve"]
