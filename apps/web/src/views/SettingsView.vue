@@ -124,6 +124,13 @@ async function saveReport() {
 }
 
 async function saveCutting() {
+  if (
+    settingStore.data.cuttingMode === 'fixed_interval' &&
+    (settingStore.data.fixedIntervalMinutes === null || settingStore.data.fixedIntervalMinutes <= 0)
+  ) {
+    ElMessage.warning(t('settings.fixedIntervalRequired'))
+    return
+  }
   await settingStore.saveCutting()
   ElMessage.success(t('common.success'))
 }
@@ -400,6 +407,42 @@ onBeforeUnmount(() => {
             label-position="top"
             class="grid grid-cols-1 gap-4 md:grid-cols-2"
           >
+            <el-form-item
+              :label="t('settings.cuttingMode')"
+              class="md:col-span-2"
+            >
+              <el-radio-group
+                v-model="settingStore.data.cuttingMode"
+                data-testid="settings-cutting-mode-group"
+              >
+                <el-radio-button
+                  value="signal_inference"
+                  data-testid="settings-cutting-mode-signal"
+                >
+                  {{ t('settings.cuttingModeSignalInference') }}
+                </el-radio-button>
+                <el-radio-button
+                  value="fixed_interval"
+                  data-testid="settings-cutting-mode-fixed"
+                >
+                  {{ t('settings.cuttingModeFixedInterval') }}
+                </el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item
+              v-if="settingStore.data.cuttingMode === 'fixed_interval'"
+              :label="t('settings.fixedIntervalMinutes')"
+            >
+              <el-input-number
+                v-model="settingStore.data.fixedIntervalMinutes"
+                :min="1"
+                :max="1440"
+                data-testid="settings-fixed-interval-input"
+              />
+              <div class="mt-1 text-xs text-slate-400">
+                {{ t('settings.fixedIntervalHint') }}
+              </div>
+            </el-form-item>
             <el-form-item :label="t('settings.timeTolerancePercent')">
               <el-input-number
                 v-model="settingStore.data.timeTolerancePercent"

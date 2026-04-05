@@ -1,6 +1,8 @@
 """设置 Pydantic 模式"""
 
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class SettingItem(BaseModel):
@@ -181,6 +183,14 @@ class RuntimeFlagsSummary(BaseModel):
     live_heat_inference_enabled: bool = Field(..., description="是否启用真实炉次推断")
     baseline_length_scope_mode: str = Field(..., description="基线等长校验范围")
     plant_timezone: str = Field(..., description="工厂业务时区")
+    cutting_mode: Literal["signal_inference", "fixed_interval"] = Field(
+        ...,
+        description="当前炉次切割模式",
+    )
+    fixed_interval_minutes: int | None = Field(
+        default=None,
+        description="固定间隔硬切割时长（分钟）",
+    )
 
 
 class RuntimePipelineStatus(BaseModel):
@@ -256,6 +266,16 @@ class ReportSettingRequest(BaseModel):
 class CuttingSettingRequest(BaseModel):
     """炉次切割设置请求"""
 
+    cutting_mode: Literal["signal_inference", "fixed_interval"] = Field(
+        ...,
+        description="炉次切割模式",
+    )
+    fixed_interval_minutes: int | None = Field(
+        default=None,
+        ge=1,
+        le=1440,
+        description="固定间隔硬切割时长（分钟）",
+    )
     time_tolerance_percent: float = Field(..., ge=0, le=100, description="时间偏移容忍率")
     major_issue_duration_minutes: int = Field(
         ..., ge=1, le=120, description="持续不一致判定重大事故的分钟数"
@@ -264,6 +284,12 @@ class CuttingSettingRequest(BaseModel):
     work_start_time: str = Field(..., description="上班时间，格式 HH:mm")
     work_end_time: str = Field(..., description="下班时间，格式 HH:mm")
     break_periods: list[str] = Field(default_factory=list, description="休息时段，格式 HH:mm-HH:mm")
+
+    @model_validator(mode="after")
+    def validate_fixed_interval_minutes(self) -> "CuttingSettingRequest":
+        if self.cutting_mode == "fixed_interval" and self.fixed_interval_minutes is None:
+            raise ValueError("fixed_interval_minutes_required")
+        return self
 
 
 class BaselineLengthScopeSettingRequest(BaseModel):

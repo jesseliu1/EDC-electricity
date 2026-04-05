@@ -21,6 +21,13 @@
 
 ## 记录
 
+### 2026-04-05 正式表与旧内存样板并存时，详情解析必须优先 formal record
+
+- **错误模式**: 炉次列表已经切到正式表，但详情/compare/analyze/task 仍在 `resolve_heat_record()` 里先命中旧 `_HEAT_STORE`。一旦 legacy 样板和正式炉次共用同一个 `heat_id`，就会出现“列表看起来有基线，详情点进去却变成旧 demo/pending/block 状态”的混搭。
+- **正确做法**: 在正式表成为主真源后，记录解析顺序必须明确为：`active_runtime / previous_runtime / formal_db / legacy_store`。旧内存样板只能作为兜底，不能覆盖同 ID 的正式记录。
+- **适用场景**: 正式表重构过渡期、runtime + formal 并存、旧 `_HEAT_STORE` 或 demo seed 仍保留在代码里、任何“列表和详情来源不同”风险场景。
+- **相关文档**: `apps/server/src/api/heats.py`, `apps/server/src/services/formal_heat_service.py`, `docs/progress.md`
+
 ### 2026-04-04 直接写 SQLite 的运维脚本必须同步遵守 `timestamp(ms)` 列契约
 
 - **错误模式**: 模型层已经把 `settings.updated_at` 切到 `TimestampMsType`，但 `runtime_state_admin.py` 仍通过原生 SQL 用 `CURRENT_TIMESTAMP` 写入 text 时间。结果 `deploy-refresh` 当场看似成功，下一次后端启动在 `load_runtime_state()` 读取 `settings` 表时就会因为 text/`timestamp_ms` 不匹配直接崩溃。

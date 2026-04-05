@@ -6,6 +6,44 @@
 
 ---
 
+### 2026-04-05（炉次切割策略重构回归已收口，fixed_interval 与正式详情链恢复一致）
+
+**当前阶段**：炉次切割工业化改造后的后端回归收口
+
+**本轮完成**：
+
+- [x] 已修正正式炉次详情链的记录解析优先级
+  - [x] `apps/server/src/api/heats.py` 的 `resolve_heat_record(...)` 现在优先返回 `active_runtime / previous_runtime / formal_db`
+  - [x] 旧 `_HEAT_STORE` 不再覆盖同 ID 的正式表记录
+  - [x] 已收口此前“列表读到正式 `heat-001`，但详情/compare/analyze/task 又被旧内存影子记录劫持”的混搭
+- [x] 已继续收口炉次切割策略层
+  - [x] `apps/server/src/services/heat_cutting_service.py` 新策略层继续承接 `signal_inference / fixed_interval`
+  - [x] `fixed_interval` 已补“活跃核心裁剪”，不再把 gap padding 切成伪尾段
+  - [x] `fixed_interval` 已补自身阈值口径，不再沿用过于激进的 `signal_inference` 活跃阈值，避免 `124` 平台被错判成非活跃
+  - [x] `fixed_interval` live heat ID 的 duration bucket 已改为直接使用配置值，不再把 15 分钟模式下的尾段 ID 误落成 `-10`
+- [x] 已确认本轮回归覆盖面恢复
+  - [x] `compare` 返回的 `heat.baseline_id` 恢复正确
+  - [x] `analyze` 对正式历史炉次恢复 `200`
+  - [x] `tasks` 从 `heat-001` 建单时 `deviation_percent` 恢复非空
+  - [x] `cutting-timeline` 对正式历史异常炉次恢复按正式状态输出
+  - [x] `fixed_interval=15` 时运行态可稳定切出 4 段 live heats
+
+**验证结果**：
+
+- [x] `python3 -m py_compile apps/server/src/api/heats.py apps/server/src/services/heat_cutting_service.py`
+- [x] `pytest -q apps/server/tests/test_heats_api.py::test_refresh_heat_runtime_supports_fixed_interval_cutting_mode apps/server/tests/test_heats_api.py::test_get_heat_curve_and_compare apps/server/tests/test_heats_api.py::test_cutting_timeline_uses_abnormal_outcome_for_abnormal_heat apps/server/tests/test_heats_api.py::test_analyze_heat_updates_status apps/server/tests/test_tasks_reports_settings_api.py::test_tasks_crud_and_pdf`
+  - [x] `5 passed`
+- [x] `pytest -q apps/server/tests/test_api_edge_cases.py apps/server/tests/test_heats_api.py apps/server/tests/test_tasks_reports_settings_api.py`
+  - [x] `69 passed`
+
+**当前结论**：
+
+- [x] 本轮切割工业化改造后的主要后端回归已收口
+- [x] 当前已满足“后续增加新的切割方法时，不用再改整体 orchestrator，只在策略层扩展”的目标方向
+- [ ] 本轮只完成后端定向回归，未执行正式前端截图型 UAT
+- [ ] `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md` 本轮未改
+  - [ ] 原因：本轮未改变正式 UAT 页面步骤与证据口径，只修正后端读取优先级和切割策略边界；后续若进入炉次详情/基线向导正式回归，再按 UAT 脚本补截图留存
+
 ### 2026-04-04（公网部署刷新链时间类型已修复，线上炉次时间/曲线症状已恢复）
 
 **当前阶段**：公网运行态修复与定向验活
@@ -5918,3 +5956,32 @@ EDC 前端（apps/web，/edc/）
   - [x] `pnpm --dir apps/web test:i18n` 通过
   - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "can create and publish a baseline from the wizard"` -> `1 passed`
   - [x] `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "baseline wizard"` -> `3 passed`
+
+### 2026-04-05（公网 factory-reset + blank 重部署到本地提交 9b2c048）
+
+- [x] 公网后端 runtime 已重新同步到工作区当前提交 `9b2c048`
+  - [x] 执行 `EDC_SERVER_SKIP_SOURCE_REFRESH=1 ./scripts/sync-edc-server.sh`
+  - [x] 跳过 `deploy-refresh`，避免重新灌入真实 EDC source-bound 状态
+- [x] 公网 SQLite 已执行真正的 `factory-reset`
+  - [x] 执行 `/home/openclaw/edc-electricity-server/venv/bin/python -m src.runtime_state_admin --db /home/openclaw/edc-electricity-server/data/asns.db --mode factory-reset`
+  - [x] `baseline_definitions / baseline_definition_metrics / baselines / heats / metric_series / tasks` 均为 `0`
+  - [x] `runtime_baseline_definitions = {}`
+  - [x] `runtime_baselines = {}`
+  - [x] `runtime_settings_store.active_baseline_id = ""`
+  - [x] `runtime_settings_store.edc_base_url = ""`
+- [x] blank 启动已生效
+  - [x] `edc-backend.service` 仍带 `blank-bootstrap.conf`
+  - [x] 后端重启后 `runtime-status.overall_code = host_disconnected`
+  - [x] `/api/heats?page=1&page_size=5` 返回空列表，`snapshot_status = warming`，`refresh_error = live_heat_inference_unavailable`
+- [x] 公网静态资源已切到本次新构建
+  - [x] `/edc/` -> `assets-github-20260405T110742Z`
+  - [x] `/asns/` -> `/asns/assets/index-CPYSMy8j.js` / `/asns/assets/index-xM4OlUIX.css`
+- [x] 验活结果
+  - [x] 本地后端 `http://127.0.0.1:8001/health` -> `{"status":"ok"}`
+  - [x] 公网 `https://hopeofthepantheon.me/api/health` -> `{"status":"ok"}`
+  - [x] 公网 `/edc/` -> `200`
+  - [x] 公网 `/asns/` -> `200`
+- [!] 当前差异说明
+  - [!] 本地 `master` 当前为 `9b2c048`，相对 `origin/master` 仍 `ahead 1`
+  - [!] 也就是说公网现已运行本地提交 `9b2c048`，但 GitHub `origin/master` 还没包含这次提交
+  - [!] 公网根路径 `/health` 仍由 nginx 返回 `404`；后端真实健康检查入口仍是本机 `8001/health` 与公网 `/api/health`

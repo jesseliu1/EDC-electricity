@@ -49,7 +49,10 @@ async function mockRuntimeStatus(page: Page, body?: Record<string, unknown>) {
       runtime: {
         showtime_enabled: false,
         live_heat_inference_enabled: true,
-        baseline_length_scope_mode: 'definition'
+        baseline_length_scope_mode: 'definition',
+        plant_timezone: 'Asia/Shanghai',
+        cutting_mode: 'signal_inference',
+        fixed_interval_minutes: null
       },
       pipelines: {
         dashboard: { code: 'ready', ready: true },
@@ -628,8 +631,11 @@ async function mockSettingsWorkflow(page: Page) {
         { key: 'edc_base_url', value: 'http://localhost:8080', description: null },
         { key: 'edc_api_key', value: '', description: null },
         { key: 'report_generation_hour', value: '2', description: null },
+        { key: 'cutting_mode', value: 'signal_inference', description: null },
+        { key: 'fixed_interval_minutes', value: '', description: null },
         { key: 'time_tolerance_percent', value: '10', description: null },
         { key: 'major_issue_duration_minutes', value: '8', description: null },
+        { key: 'plant_timezone', value: 'Asia/Shanghai', description: null },
         { key: 'work_start_time', value: '08:00', description: null },
         { key: 'work_end_time', value: '18:00', description: null },
         { key: 'break_periods', value: '12:00-13:00', description: null },
@@ -659,6 +665,14 @@ async function mockSettingsWorkflow(page: Page) {
       return
     }
     await route.fallback()
+  })
+
+  await page.route('**/api/heats/runtime/refresh', async route => {
+    await fulfillJson(route, {
+      success: true,
+      refresh_status: 'running',
+      snapshot_status: 'warming'
+    })
   })
 }
 
@@ -1279,6 +1293,8 @@ test.describe('EDC web extended coverage', () => {
     await page.getByTestId('settings-save-tolerance').click()
     await expect(latestSuccessMessage(page)).toBeVisible()
 
+    await page.getByTestId('settings-cutting-mode-fixed').click()
+    await page.getByTestId('settings-fixed-interval-input').locator('input').fill('20')
     await page.getByText('按系统全局', { exact: true }).click()
     await page.getByText('按生产线（预留）', { exact: true }).click()
     await page.getByText('按基线定义', { exact: true }).click()

@@ -1,10 +1,13 @@
 import { defineStore } from 'pinia'
+import { heatApi } from '@/api/heat'
 import { settingApi } from '@/api/setting'
 import { normalizeTimezone, setPlantTimezone } from '@/utils/time'
 
 export interface SystemSettings {
   defaultTolerancePercent: number
   reportGenerationHour: number
+  cuttingMode: 'signal_inference' | 'fixed_interval'
+  fixedIntervalMinutes: number | null
   timeTolerancePercent: number
   majorIssueDurationMinutes: number
   plantTimezone: string
@@ -17,6 +20,8 @@ export interface SystemSettings {
 const defaultSettings: SystemSettings = {
   defaultTolerancePercent: 15,
   reportGenerationHour: 2,
+  cuttingMode: 'signal_inference',
+  fixedIntervalMinutes: null,
   timeTolerancePercent: 10,
   majorIssueDurationMinutes: 8,
   plantTimezone: 'Asia/Shanghai',
@@ -43,9 +48,13 @@ export const useSettingStore = defineStore('setting', {
         const settingsResult = await settingApi.getAll()
 
         const map = Object.fromEntries(settingsResult.items.map(item => [item.key, item.value]))
+        const cuttingMode = map.cutting_mode === 'fixed_interval' ? 'fixed_interval' : 'signal_inference'
+        const fixedIntervalText = map.fixed_interval_minutes?.trim() || ''
         const nextData: SystemSettings = {
           defaultTolerancePercent: Number(map.default_tolerance_percent || 15),
           reportGenerationHour: Number(map.report_generation_hour || 2),
+          cuttingMode,
+          fixedIntervalMinutes: fixedIntervalText ? Number(fixedIntervalText) : null,
           timeTolerancePercent: Number(map.time_tolerance_percent || 10),
           majorIssueDurationMinutes: Number(map.major_issue_duration_minutes || 8),
           plantTimezone: normalizeTimezone(map.plant_timezone || 'Asia/Shanghai'),
@@ -76,6 +85,9 @@ export const useSettingStore = defineStore('setting', {
     },
     async saveCutting() {
       await settingApi.updateCutting({
+        cutting_mode: this.data.cuttingMode,
+        fixed_interval_minutes:
+          this.data.cuttingMode === 'fixed_interval' ? this.data.fixedIntervalMinutes : null,
         time_tolerance_percent: this.data.timeTolerancePercent,
         major_issue_duration_minutes: this.data.majorIssueDurationMinutes,
         plant_timezone: this.data.plantTimezone,
@@ -87,6 +99,13 @@ export const useSettingStore = defineStore('setting', {
           .filter(Boolean)
       })
       await settingApi.updateBaselineLengthScope(this.data.baselineLengthScopeMode)
+      try {
+        await heatApi.refreshRuntime()
+      } catch (error) {
+        console.warn('Heat runtime refresh after cutting save failed.', error)
+      }
+      this.savedData.cuttingMode = this.data.cuttingMode
+      this.savedData.fixedIntervalMinutes = this.data.fixedIntervalMinutes
       this.savedData.timeTolerancePercent = this.data.timeTolerancePercent
       this.savedData.majorIssueDurationMinutes = this.data.majorIssueDurationMinutes
       this.savedData.plantTimezone = this.data.plantTimezone

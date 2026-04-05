@@ -1114,6 +1114,43 @@ def test_build_live_heat_lookup_context_uses_explicit_role_binding_instead_of_de
     assert context["baseline_id"] == FORMAL_PRIMARY_BASELINE_ID
 
 
+def test_live_heat_context_cache_key_changes_with_cutting_mode_and_fixed_interval() -> None:
+    import src.api.heats as heats_module
+
+    _SETTINGS_STORE["cutting_mode"]["value"] = "signal_inference"
+    _SETTINGS_STORE["fixed_interval_minutes"]["value"] = ""
+    signal_context = heats_module._build_live_heat_context(
+        channel={
+            "id": "2349-199",
+            "suid": "2349",
+            "cuid": "199",
+            "device_name": "测试设备",
+            "channel_name": "功率",
+            "unit": "kW",
+        },
+        baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+        expected_duration_minutes=30,
+    )
+
+    _SETTINGS_STORE["cutting_mode"]["value"] = "fixed_interval"
+    _SETTINGS_STORE["fixed_interval_minutes"]["value"] = "20"
+    fixed_context = heats_module._build_live_heat_context(
+        channel={
+            "id": "2349-199",
+            "suid": "2349",
+            "cuid": "199",
+            "device_name": "测试设备",
+            "channel_name": "功率",
+            "unit": "kW",
+        },
+        baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+        expected_duration_minutes=30,
+    )
+
+    assert signal_context["cache_key"] != fixed_context["cache_key"]
+    assert "fixed_interval" in fixed_context["cache_key"]
+
+
 @pytest.mark.asyncio
 async def test_cutting_timeline_uses_abnormal_outcome_for_abnormal_heat(client) -> None:
     from src.database import async_session_maker
@@ -1193,6 +1230,42 @@ async def test_refresh_heat_runtime_populates_history_from_live_points(client, m
     assert runtime_items[0]["id"].startswith("live-heat-")
     assert any(item["id"] == "heat-001" for item in payload["items"])
     assert payload["snapshot_status"] == "stale"
+
+
+@pytest.mark.asyncio
+async def test_refresh_heat_runtime_supports_fixed_interval_cutting_mode(client, monkeypatch) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    _SETTINGS_STORE["cutting_mode"]["value"] = "fixed_interval"
+    _SETTINGS_STORE["fixed_interval_minutes"]["value"] = "15"
+    live_points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
+
+    async def fake_load_live_heat_inference_power_points(_channel):
+        return live_points
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+
+    await heats_module.refresh_heat_runtime_state(reason="test")
+
+    response = await client.get("/api/heats", params={"page_size": 20})
+    assert response.status_code == 200
+    payload = response.json()
+    live_items = [item for item in payload["items"] if item["id"].startswith("live-heat-")]
+
+    assert len(live_items) == 4
+    assert all(item["id"].endswith("-15") for item in live_items)
 
 
 @pytest.mark.asyncio

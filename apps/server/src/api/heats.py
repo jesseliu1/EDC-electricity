@@ -49,6 +49,12 @@ from ..services import (
     save_formal_heat_analysis,
     update_formal_heat_record,
 )
+from ..services.heat_cutting_service import (
+    HeatCuttingContext,
+    build_live_heat_cache_key,
+    infer_live_activity_threshold,
+    infer_live_heat_segments,
+)
 from ..time_utils import (
     from_timestamp_ms,
     minutes_since_midnight,
@@ -63,6 +69,7 @@ from .settings import (
     _CHANNEL_ROLE_BINDING_STORE,
     _HOST_CHANNEL_STORE,
     _SETTINGS_STORE,
+    get_cutting_config,
     get_edc_connection_config,
     get_plant_timezone,
 )
@@ -224,6 +231,14 @@ def invalidate_compare_runtime_caches(*heat_ids: str, include_shared: bool = Fal
     _invalidate_heat_compare_cache(*heat_ids)
 
 
+def invalidate_live_heat_runtime_cache() -> None:
+    contexts = _LIVE_HEAT_CACHE.get("contexts")
+    if isinstance(contexts, dict):
+        contexts.clear()
+        return
+    _LIVE_HEAT_CACHE["contexts"] = {}
+
+
 def _get_compare_baseline_cache_entry(cache_key: str) -> dict[str, Any]:
     entries = _COMPARE_BASELINE_CACHE.setdefault("entries", {})
     if not isinstance(entries, dict):
@@ -329,25 +344,6 @@ def _build_compare_channel_curve_cache_key(
     )
 
 
-def _get_cutting_config() -> dict[str, Any]:
-    """读取切割配置。"""
-    tolerance = float(_SETTINGS_STORE.get("time_tolerance_percent", {}).get("value") or 10.0)
-    major_issue_minutes = int(
-        _SETTINGS_STORE.get("major_issue_duration_minutes", {}).get("value") or 8
-    )
-    work_start = str(_SETTINGS_STORE.get("work_start_time", {}).get("value") or "08:00")
-    work_end = str(_SETTINGS_STORE.get("work_end_time", {}).get("value") or "18:00")
-    break_raw = str(_SETTINGS_STORE.get("break_periods", {}).get("value") or "12:00-13:00")
-    break_periods = [item.strip() for item in break_raw.split(",") if item.strip()]
-    return {
-        "tolerance": tolerance,
-        "major_issue_minutes": major_issue_minutes,
-        "work_start": work_start,
-        "work_end": work_end,
-        "break_periods": break_periods,
-    }
-
-
 def _is_live_heat_inference_enabled() -> bool:
     raw_value = _SETTINGS_STORE.get("live_heat_inference_enabled", {}).get("value")
     if raw_value is None:
@@ -360,15 +356,15 @@ def _to_minutes(value: str) -> int:
     return int(hour) * 60 + int(minute)
 
 
-def _schedule_tag_of(start_time: datetime, config: dict[str, Any]) -> str:
+def _schedule_tag_of(start_time: datetime, config: Any) -> str:
     """根据时间判断班次标签。"""
     current = minutes_since_midnight(start_time, get_plant_timezone())
-    work_start = _to_minutes(config["work_start"])
-    work_end = _to_minutes(config["work_end"])
+    work_start = _to_minutes(config.work_start_time)
+    work_end = _to_minutes(config.work_end_time)
     if current < work_start or current > work_end:
         return "off_shift"
 
-    for period in config["break_periods"]:
+    for period in config.break_periods:
         try:
             start_str, end_str = period.split("-", 1)
             if _to_minutes(start_str) <= current <= _to_minutes(end_str):
@@ -499,11 +495,16 @@ def _build_live_heat_context(
     expected_duration_minutes: int,
 ) -> dict[str, Any]:
     channel_key = _live_heat_channel_key(channel)
+    cutting_config = get_cutting_config()
     return {
         "channel": channel,
         "channel_key": channel_key,
         "context_hash": _live_heat_context_hash(channel_key),
-        "cache_key": f"{channel_key}|{expected_duration_minutes}",
+        "cache_key": build_live_heat_cache_key(
+            channel_key=channel_key,
+            expected_duration_minutes=expected_duration_minutes,
+            config=cutting_config,
+        ),
         "baseline_id": baseline_id,
         "expected_duration_minutes": expected_duration_minutes,
     }
@@ -612,36 +613,16 @@ def _resolve_primary_baseline_id(item: dict[str, Any]) -> str | None:
     return None
 
 
-def _percentile(values: list[float], ratio: float) -> float:
-    ordered = sorted(values)
-    index = min(max(int((len(ordered) - 1) * ratio), 0), len(ordered) - 1)
-    return float(ordered[index])
-
-
-def _infer_live_activity_threshold(points: list[CurvePoint]) -> float | None:
-    if len(points) < 10:
-        return None
-
-    values = [float(point.value) for point in points]
-    if not values:
-        return None
-    non_zero_values = [value for value in values if abs(value) > 1e-6]
-    if not non_zero_values:
-        return None
-    if max(non_zero_values) - min(non_zero_values) <= 1e-6:
-        return None
-
-    median = _percentile(values, 0.5)
-    p75 = _percentile(values, 0.75)
-    p90 = _percentile(values, 0.9)
-    threshold = max(median + (p90 - median) * 0.35, p75 * 0.95)
-    return round(threshold, 3)
-
-
 def _slice_curve_points(
     points: list[CurvePoint], start_ts: int, end_ts: int
 ) -> list[CurvePoint]:
     return [point for point in points if start_ts <= point.timestamp <= end_ts]
+
+
+def _infer_live_activity_threshold(points: list[CurvePoint]) -> float | None:
+    """保留本地包装，兼容调试与既有测试入口。"""
+
+    return infer_live_activity_threshold(points)
 
 
 def _clip_curves_to_time_window(
@@ -657,42 +638,6 @@ def _clip_curves_to_time_window(
     return clipped
 
 
-def _split_live_segment(
-    points: list[CurvePoint],
-    *,
-    expected_duration_minutes: int,
-    min_duration_minutes: int,
-) -> list[list[CurvePoint]]:
-    if not points:
-        return []
-
-    start_ts = int(points[0].timestamp)
-    end_ts = int(points[-1].timestamp)
-    duration_minutes = (end_ts - start_ts) / 60000
-    if duration_minutes <= expected_duration_minutes * 1.6:
-        return [points]
-
-    split_count = max(int(round(duration_minutes / expected_duration_minutes)), 1)
-    if split_count <= 1:
-        return [points]
-
-    total_span = max(end_ts - start_ts, 1)
-    slices: list[list[CurvePoint]] = []
-    for index in range(split_count):
-        window_start = start_ts + int(total_span * index / split_count)
-        window_end = end_ts if index == split_count - 1 else start_ts + int(
-            total_span * (index + 1) / split_count
-        )
-        window_points = _slice_curve_points(points, window_start, window_end)
-        if not window_points:
-            continue
-        window_duration = (window_points[-1].timestamp - window_points[0].timestamp) / 60000
-        if window_duration >= min_duration_minutes:
-            slices.append(window_points)
-
-    return slices or [points]
-
-
 def _build_live_heat_item(
     *,
     index: int,
@@ -704,7 +649,8 @@ def _build_live_heat_item(
     start_time = from_timestamp_ms(power_curve[0].timestamp)
     end_time = from_timestamp_ms(power_curve[-1].timestamp)
     duration_minutes = max((end_time - start_time).total_seconds() / 60, 1)
-    schedule_tag = _schedule_tag_of(start_time, _get_cutting_config())
+    cutting_config = get_cutting_config()
+    schedule_tag = _schedule_tag_of(start_time, cutting_config)
     duration_ratio = duration_minutes / max(expected_duration_minutes, 1)
     status = "abnormal" if duration_ratio < 0.6 or duration_ratio > 1.5 else "normal"
     original_start_ts = int(power_curve[0].timestamp)
@@ -712,7 +658,12 @@ def _build_live_heat_item(
     anchor_ms = _round_timestamp_to_live_bucket(
         original_start_ts + (original_end_ts - original_start_ts) // 2
     )
-    duration_bucket_minutes = _round_duration_to_live_bucket_minutes(duration_minutes)
+    duration_bucket_minutes = (
+        int(cutting_config.fixed_interval_minutes)
+        if cutting_config.cutting_mode == "fixed_interval"
+        and cutting_config.fixed_interval_minutes is not None
+        else _round_duration_to_live_bucket_minutes(duration_minutes)
+    )
     heat_id = _build_live_heat_canonical_id(
         context_hash=str(context["context_hash"]),
         anchor_ms=anchor_ms,
@@ -768,69 +719,30 @@ def _infer_live_heat_items(
     baseline_id: str | None,
     expected_duration_minutes: int,
 ) -> dict[str, dict[str, Any]]:
-    threshold = _infer_live_activity_threshold(points)
-    if threshold is None:
+    activity_threshold = _infer_live_activity_threshold(points)
+    if activity_threshold is None:
         return {}
 
-    gap_ms = _LIVE_HEAT_GAP_MINUTES * 60_000
-    min_duration_minutes = max(int(round(expected_duration_minutes * 0.45)), 15)
-    grouped_segments: list[list[CurvePoint]] = []
-    current_segment: list[CurvePoint] = []
-    last_active_timestamp: int | None = None
-
-    for point in points:
-        is_active = float(point.value) >= threshold
-        point_timestamp = int(point.timestamp)
-        if is_active:
-            if (
-                current_segment
-                and last_active_timestamp is not None
-                and point_timestamp - last_active_timestamp > gap_ms
-            ):
-                grouped_segments.append(current_segment)
-                current_segment = []
-            current_segment.append(point)
-            last_active_timestamp = point_timestamp
-            continue
-
-        if (
-            current_segment
-            and last_active_timestamp is not None
-            and point_timestamp - last_active_timestamp <= gap_ms
-        ):
-            current_segment.append(point)
-            continue
-
-        if current_segment:
-            grouped_segments.append(current_segment)
-            current_segment = []
-            last_active_timestamp = None
-
-    if current_segment:
-        grouped_segments.append(current_segment)
+    split_segments = infer_live_heat_segments(
+        points,
+        context=HeatCuttingContext(expected_duration_minutes=expected_duration_minutes),
+        config=get_cutting_config(),
+        activity_threshold=activity_threshold,
+    )
 
     inferred: list[dict[str, Any]] = []
-    for segment in grouped_segments:
-        duration_minutes = (segment[-1].timestamp - segment[0].timestamp) / 60000
-        if duration_minutes < min_duration_minutes:
+    for split_segment in split_segments:
+        if not split_segment:
             continue
-        for split_segment in _split_live_segment(
-            segment,
-            expected_duration_minutes=expected_duration_minutes,
-            min_duration_minutes=min_duration_minutes,
-        ):
-            split_duration = (split_segment[-1].timestamp - split_segment[0].timestamp) / 60000
-            if split_duration < min_duration_minutes:
-                continue
-            inferred.append(
-                _build_live_heat_item(
-                    index=len(inferred) + 1,
-                    context=context,
-                    baseline_id=baseline_id,
-                    power_curve=split_segment,
-                    expected_duration_minutes=expected_duration_minutes,
-                )
+        inferred.append(
+            _build_live_heat_item(
+                index=len(inferred) + 1,
+                context=context,
+                baseline_id=baseline_id,
+                power_curve=split_segment,
+                expected_duration_minutes=expected_duration_minutes,
             )
+        )
 
     inferred.sort(key=lambda item: item["start_time"], reverse=True)
     return {str(item["id"]): item for item in inferred}
@@ -1214,12 +1126,6 @@ async def resolve_heat_record(
     if previous_item and _is_real_heat_record(previous_item):
         return previous_item
 
-    stored_item = _HEAT_STORE.get(heat_id)
-    if stored_item and _is_real_heat_record(stored_item):
-        return stored_item
-    stored_item = _HEAT_STORE.get(resolved_heat_id)
-    if stored_item and _is_real_heat_record(stored_item):
-        return stored_item
     formal_item = await get_formal_heat_record(heat_id)
     if formal_item and _is_real_heat_record(formal_item):
         return formal_item
@@ -1227,6 +1133,13 @@ async def resolve_heat_record(
         formal_item = await get_formal_heat_record(resolved_heat_id)
         if formal_item and _is_real_heat_record(formal_item):
             return formal_item
+
+    stored_item = _HEAT_STORE.get(heat_id)
+    if stored_item and _is_real_heat_record(stored_item):
+        return stored_item
+    stored_item = _HEAT_STORE.get(resolved_heat_id)
+    if stored_item and _is_real_heat_record(stored_item):
+        return stored_item
     return None
 
 
@@ -2130,7 +2043,7 @@ def _select_metric_curve(
 
 def _seed_heats() -> dict[str, dict[str, Any]]:
     now = utc_now().replace(second=0, microsecond=0)
-    config = _get_cutting_config()
+    config = get_cutting_config()
     seeded: dict[str, dict[str, Any]] = {}
     major_issue_triggered = False
     for idx in range(60):
@@ -2158,7 +2071,7 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
         else:
             mismatch_minutes = 6 + (idx % 7)
             if idx == 34:
-                mismatch_minutes = max(config["major_issue_minutes"] + 2, mismatch_minutes)
+                mismatch_minutes = max(config.major_issue_duration_minutes + 2, mismatch_minutes)
 
         if schedule_tag in {"break", "off_shift"}:
             cut_status = "blocked"
@@ -2172,13 +2085,13 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
             status = "pending"
             cut_reason = "major_issue_lock"
             time_offset_percent = None
-        elif mismatch_minutes >= config["major_issue_minutes"]:
+        elif mismatch_minutes >= config.major_issue_duration_minutes:
             cut_status = "major_issue"
             major_issue = True
             status = "abnormal"
             cut_reason = "continuous_mismatch"
             major_issue_triggered = True
-        elif time_offset_percent > config["tolerance"]:
+        elif time_offset_percent > config.time_tolerance_percent:
             status = "abnormal"
             cut_reason = "time_offset_exceed"
         else:
@@ -2644,7 +2557,7 @@ def _build_ingested_heat() -> dict[str, Any]:
     """构造一条实时流入的模拟炉次。"""
     global _NEXT_MOCK_HEAT_INDEX
 
-    config = _get_cutting_config()
+    config = get_cutting_config()
     latest = _latest_heat()
     start_time = (
         latest["start_time"] + timedelta(minutes=50)
@@ -2680,12 +2593,12 @@ def _build_ingested_heat() -> dict[str, Any]:
         blocked_by_issue = True
         cut_reason = "major_issue_lock"
         time_offset_percent = None
-    elif mismatch_minutes >= config["major_issue_minutes"]:
+    elif mismatch_minutes >= config.major_issue_duration_minutes:
         cut_status = "major_issue"
         status = "abnormal"
         major_issue = True
         cut_reason = "continuous_mismatch"
-    elif time_offset_percent > config["tolerance"]:
+    elif time_offset_percent > config.time_tolerance_percent:
         status = "abnormal"
         cut_reason = "time_offset_exceed"
 
@@ -2974,7 +2887,7 @@ async def get_cutting_timeline(heat_id: str) -> CuttingTimelineResponse:
     """获取炉次切割判定时间轴。"""
     item = await _get_or_404(heat_id)
     canonical_heat_id = str(item["id"])
-    config = _get_cutting_config()
+    config = get_cutting_config()
 
     start_time: datetime = item["start_time"]
     events: list[CuttingTimelineEvent] = [
@@ -2990,7 +2903,7 @@ async def get_cutting_timeline(heat_id: str) -> CuttingTimelineResponse:
             title="窗口判定",
             detail=(
                 f"连续不一致 {item.get('mismatch_duration_minutes') or 0} 分钟，"
-                f"阈值 {config['major_issue_minutes']} 分钟"
+                f"阈值 {config.major_issue_duration_minutes} 分钟"
             ),
         ),
         CuttingTimelineEvent(

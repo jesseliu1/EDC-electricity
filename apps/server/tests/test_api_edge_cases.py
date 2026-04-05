@@ -125,14 +125,32 @@ async def test_settings_invalid_payloads(client) -> None:
     invalid_cutting_resp = await client.put(
         "/api/settings/cutting",
         json={
+            "cutting_mode": "signal_inference",
+            "fixed_interval_minutes": None,
             "time_tolerance_percent": 10,
             "major_issue_duration_minutes": 0,
+            "plant_timezone": "Asia/Shanghai",
             "work_start_time": "08:00",
             "work_end_time": "18:00",
             "break_periods": [],
         },
     )
     assert invalid_cutting_resp.status_code == 422
+
+    missing_interval_resp = await client.put(
+        "/api/settings/cutting",
+        json={
+            "cutting_mode": "fixed_interval",
+            "fixed_interval_minutes": None,
+            "time_tolerance_percent": 10,
+            "major_issue_duration_minutes": 8,
+            "plant_timezone": "Asia/Shanghai",
+            "work_start_time": "08:00",
+            "work_end_time": "18:00",
+            "break_periods": [],
+        },
+    )
+    assert missing_interval_resp.status_code == 422
 
     invalid_scope_resp = await client.put(
         "/api/settings/baseline-length-scope",

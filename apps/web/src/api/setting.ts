@@ -61,6 +61,8 @@ export interface RuntimeFlagsSummaryResponse {
   live_heat_inference_enabled: boolean
   baseline_length_scope_mode: 'definition' | 'system' | 'production_line'
   plant_timezone: string
+  cutting_mode: 'signal_inference' | 'fixed_interval'
+  fixed_interval_minutes: number | null
 }
 
 export interface RuntimePipelineStatusResponse {
@@ -96,6 +98,8 @@ export const settingApi = {
     client.put('/settings/tolerance', { tolerance_percent }),
   updateReport: (generation_hour: number) => client.put('/settings/report', { generation_hour }),
   updateCutting: (payload: {
+    cutting_mode: 'signal_inference' | 'fixed_interval'
+    fixed_interval_minutes: number | null
     time_tolerance_percent: number
     major_issue_duration_minutes: number
     plant_timezone: string

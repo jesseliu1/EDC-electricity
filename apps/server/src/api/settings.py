@@ -43,6 +43,7 @@ from ..schemas import (
     ToleranceSettingRequest,
 )
 from ..services import EDCClient, EDCClientError
+from ..services.heat_cutting_service import HeatCuttingConfig, normalize_cutting_mode
 from ..services.source_switch_service import (
     SourceConnectionPayload,
     apply_source_connection_change,
@@ -66,6 +67,8 @@ _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     "work_start_time": {"value": "08:00", "description": "上班时间"},
     "work_end_time": {"value": "18:00", "description": "下班时间"},
     "break_periods": {"value": "12:00-13:00", "description": "休息时间段，逗号分隔"},
+    "cutting_mode": {"value": "signal_inference", "description": "炉次切割模式"},
+    "fixed_interval_minutes": {"value": "", "description": "固定间隔硬切割时长（分钟）"},
     "live_heat_inference_enabled": {
         "value": "true",
         "description": "是否启用基于真实功率曲线推断炉次台账",
@@ -100,6 +103,39 @@ def get_plant_timezone() -> str:
     """返回当前工厂业务时区。"""
     raw_value = _SETTINGS_STORE.get("plant_timezone", {}).get("value")
     return resolve_plant_timezone_name(str(raw_value) if raw_value is not None else None)
+
+
+def _parse_optional_int(raw_value: object) -> int | None:
+    text = str(raw_value or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def get_cutting_config() -> HeatCuttingConfig:
+    """返回当前炉次切割配置。"""
+
+    break_raw = str(_SETTINGS_STORE.get("break_periods", {}).get("value") or "12:00-13:00")
+    break_periods = tuple(item.strip() for item in break_raw.split(",") if item.strip())
+    return HeatCuttingConfig(
+        cutting_mode=normalize_cutting_mode(_SETTINGS_STORE.get("cutting_mode", {}).get("value")),
+        fixed_interval_minutes=_parse_optional_int(
+            _SETTINGS_STORE.get("fixed_interval_minutes", {}).get("value")
+        ),
+        time_tolerance_percent=float(
+            _SETTINGS_STORE.get("time_tolerance_percent", {}).get("value") or 10.0
+        ),
+        major_issue_duration_minutes=int(
+            _SETTINGS_STORE.get("major_issue_duration_minutes", {}).get("value") or 8
+        ),
+        plant_timezone=get_plant_timezone(),
+        work_start_time=str(_SETTINGS_STORE.get("work_start_time", {}).get("value") or "08:00"),
+        work_end_time=str(_SETTINGS_STORE.get("work_end_time", {}).get("value") or "18:00"),
+        break_periods=break_periods,
+    )
 
 
 def _stringify(value: object, default: str = "") -> str:
@@ -431,6 +467,7 @@ def _build_runtime_status_response() -> RuntimeStatusResponse:
     showtime_enabled = is_showtime_mode()
     active_baseline_id = str(_SETTINGS_STORE.get("active_baseline_id", {}).get("value") or "").strip()
     active_baseline_item = _BASELINE_STORE.get(active_baseline_id) if active_baseline_id else None
+    cutting_config = get_cutting_config()
 
     def _pipeline_code(section: str) -> str:
         if showtime_enabled:
@@ -486,6 +523,8 @@ def _build_runtime_status_response() -> RuntimeStatusResponse:
                     _SETTINGS_STORE.get("baseline_length_scope_mode", {}).get("value") or "definition"
                 ),
                 "plant_timezone": get_plant_timezone(),
+                "cutting_mode": cutting_config.cutting_mode,
+                "fixed_interval_minutes": cutting_config.fixed_interval_minutes,
             },
             "channel_roles": channel_role_summary,
             "pipelines": {
@@ -561,6 +600,19 @@ def _invalidate_compare_runtime_caches() -> None:
     from .heats import invalidate_compare_runtime_caches
 
     invalidate_compare_runtime_caches(include_shared=True)
+
+
+def _invalidate_heat_cutting_runtime_caches() -> None:
+    from .heats import invalidate_live_heat_runtime_cache
+
+    _invalidate_compare_runtime_caches()
+    invalidate_live_heat_runtime_cache()
+
+
+def _schedule_heat_runtime_refresh() -> None:
+    from .heats import schedule_heat_runtime_refresh
+
+    schedule_heat_runtime_refresh(reason="settings_changed")
 
 
 def _build_source_connection_payload(
@@ -857,6 +909,10 @@ async def update_report_settings(data: ReportSettingRequest) -> MessageResponse:
 @router.put("/cutting", response_model=MessageResponse)
 async def update_cutting_settings(data: CuttingSettingRequest) -> MessageResponse:
     """更新炉次切割设置。"""
+    _SETTINGS_STORE["cutting_mode"]["value"] = data.cutting_mode
+    _SETTINGS_STORE["fixed_interval_minutes"]["value"] = (
+        str(data.fixed_interval_minutes) if data.fixed_interval_minutes is not None else ""
+    )
     _SETTINGS_STORE["time_tolerance_percent"]["value"] = str(data.time_tolerance_percent)
     _SETTINGS_STORE["major_issue_duration_minutes"]["value"] = str(
         data.major_issue_duration_minutes
@@ -866,6 +922,8 @@ async def update_cutting_settings(data: CuttingSettingRequest) -> MessageRespons
     _SETTINGS_STORE["work_end_time"]["value"] = data.work_end_time
     _SETTINGS_STORE["break_periods"]["value"] = ",".join(data.break_periods)
     await persist_runtime_state("settings_store")
+    _invalidate_heat_cutting_runtime_caches()
+    _schedule_heat_runtime_refresh()
     return MessageResponse(message="炉次切割设置已更新", success=True)
 
 
