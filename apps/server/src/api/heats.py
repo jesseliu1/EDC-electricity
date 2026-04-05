@@ -644,6 +644,19 @@ def _slice_curve_points(
     return [point for point in points if start_ts <= point.timestamp <= end_ts]
 
 
+def _clip_curves_to_time_window(
+    curves_by_metric: dict[str, list[CurvePoint]],
+    *,
+    start_time: datetime,
+    end_time: datetime,
+) -> dict[str, list[CurvePoint]]:
+    start_ts, end_ts = _curve_window_ms(start_time, end_time)
+    clipped: dict[str, list[CurvePoint]] = {}
+    for metric_key, points in curves_by_metric.items():
+        clipped[metric_key] = _slice_curve_points(points, start_ts, end_ts)
+    return clipped
+
+
 def _split_live_segment(
     points: list[CurvePoint],
     *,
@@ -3075,15 +3088,21 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         item["end_time"],
     )
     compare_channels = _collect_compare_metric_channels(baseline_ids)
-    if str(item.get("record_source") or "") == "sealed_history":
+    is_sealed_history = str(item.get("record_source") or "") == "sealed_history"
+    if is_sealed_history:
         hydrated_baselines = await _hydrate_compare_baselines(baseline_ids)
         shared_current_curves = {}
         display_current_curves = {}
-        live_curves = {
+        historical_context_curves = {
             "power": _coerce_curve_points(item.get("power_curve")),
             "voltage": _coerce_curve_points(item.get("voltage_curve")),
         }
-        display_live_curves = dict(live_curves)
+        live_curves = _clip_curves_to_time_window(
+            historical_context_curves,
+            start_time=item["start_time"],
+            end_time=item["end_time"],
+        )
+        display_live_curves = dict(historical_context_curves)
     else:
         hydrated_baselines, shared_current_curves, display_current_curves = await asyncio.gather(
             _hydrate_compare_baselines(baseline_ids),
@@ -3100,46 +3119,51 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         )
         live_curves = _resolve_heat_curves_from_shared_channels(item, shared_current_curves)
         display_live_curves = _resolve_heat_curves_from_shared_channels(item, display_current_curves)
-    direct_live_fallback_keys: set[str] = set()
-    if not live_curves.get("power") or not live_curves.get("voltage"):
-        direct_live_curves = await _load_heat_curves_from_edc(item) or {}
-        if not live_curves.get("power") and direct_live_curves.get("power"):
-            live_curves["power"] = _coerce_curve_points(direct_live_curves["power"])
-            direct_live_fallback_keys.add("power")
-        if not live_curves.get("voltage") and direct_live_curves.get("voltage"):
-            live_curves["voltage"] = _coerce_curve_points(direct_live_curves["voltage"])
-            direct_live_fallback_keys.add("voltage")
-    needs_display_window_live_curves = (
-        (not display_live_curves.get("power") and "power" not in direct_live_fallback_keys)
-        or (
-            not display_live_curves.get("voltage")
-            and "voltage" not in direct_live_fallback_keys
+    if not is_sealed_history:
+        direct_live_fallback_keys: set[str] = set()
+        if not live_curves.get("power") or not live_curves.get("voltage"):
+            direct_live_curves = await _load_heat_curves_from_edc(item) or {}
+            if not live_curves.get("power") and direct_live_curves.get("power"):
+                live_curves["power"] = _coerce_curve_points(direct_live_curves["power"])
+                direct_live_fallback_keys.add("power")
+            if not live_curves.get("voltage") and direct_live_curves.get("voltage"):
+                live_curves["voltage"] = _coerce_curve_points(direct_live_curves["voltage"])
+                direct_live_fallback_keys.add("voltage")
+        needs_display_window_live_curves = (
+            (not display_live_curves.get("power") and "power" not in direct_live_fallback_keys)
+            or (
+                not display_live_curves.get("voltage")
+                and "voltage" not in direct_live_fallback_keys
+            )
         )
-    )
-    if needs_display_window_live_curves:
-        direct_display_live_curves = await _load_heat_curves_from_edc_window(
-            item,
-            start_time=compare_display_start,
-            end_time=compare_display_end,
-        ) or {}
-        if not display_live_curves.get("power") and direct_display_live_curves.get("power"):
-            display_live_curves["power"] = direct_display_live_curves["power"]
-        if (
-            not display_live_curves.get("voltage")
-            and direct_display_live_curves.get("voltage")
-        ):
-            display_live_curves["voltage"] = direct_display_live_curves["voltage"]
-    if not display_live_curves.get("power") and live_curves.get("power"):
-        display_live_curves["power"] = _coerce_curve_points(live_curves["power"])
-    if not display_live_curves.get("voltage") and live_curves.get("voltage"):
-        display_live_curves["voltage"] = _coerce_curve_points(live_curves["voltage"])
+        if needs_display_window_live_curves:
+            direct_display_live_curves = await _load_heat_curves_from_edc_window(
+                item,
+                start_time=compare_display_start,
+                end_time=compare_display_end,
+            ) or {}
+            if not display_live_curves.get("power") and direct_display_live_curves.get("power"):
+                display_live_curves["power"] = direct_display_live_curves["power"]
+            if (
+                not display_live_curves.get("voltage")
+                and direct_display_live_curves.get("voltage")
+            ):
+                display_live_curves["voltage"] = direct_display_live_curves["voltage"]
+        if not display_live_curves.get("power") and live_curves.get("power"):
+            display_live_curves["power"] = _coerce_curve_points(live_curves["power"])
+        if not display_live_curves.get("voltage") and live_curves.get("voltage"):
+            display_live_curves["voltage"] = _coerce_curve_points(live_curves["voltage"])
 
+    if live_curves.get("power"):
+        item["power_curve"] = _coerce_curve_points(live_curves["power"])
+    if live_curves.get("voltage"):
+        item["voltage_curve"] = _coerce_curve_points(live_curves["voltage"])
     if live_curves:
-        if live_curves.get("power"):
-            item["power_curve"] = _coerce_curve_points(live_curves["power"])
-        if live_curves.get("voltage"):
-            item["voltage_curve"] = _coerce_curve_points(live_curves["voltage"])
-        item["current_curve_source"] = "live_edc"
+        item["current_curve_source"] = (
+            str(item.get("current_curve_source") or "formal_db")
+            if is_sealed_history
+            else "live_edc"
+        )
 
     if baseline_id:
         baseline_item = hydrated_baselines.get(baseline_id) or _BASELINE_STORE.get(baseline_id)

@@ -7,9 +7,14 @@ import pytest
 
 from src.api.baseline_definitions import _resolve_preview_window
 from src.api.baselines import _BASELINE_STORE, _resolve_baseline_time_window
-from src.api.settings import _CHANNEL_ROLE_BINDING_STORE, _SETTINGS_STORE
+from src.api.settings import (
+    _CHANNEL_ROLE_BINDING_STORE,
+    _SETTINGS_STORE,
+    get_plant_timezone,
+)
 from src.runtime_state import load_runtime_state, persist_runtime_state
 from src.schemas.common import CurvePoint
+from src.time_utils import from_timestamp_ms, plant_date_of
 
 FORMAL_PRIMARY_BASELINE_ID = "def-001:001"
 FORMAL_SECONDARY_BASELINE_ID = "def-002:001"
@@ -530,8 +535,42 @@ async def test_get_heat_curve_and_compare(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_heat_list_and_compare_follow_active_default_baseline(client) -> None:
+async def test_heat_list_and_compare_follow_active_default_baseline(client, monkeypatch) -> None:
+    async def fake_load_preview_curves_for_selection(
+        *, definition_id, selected_start_time, selected_end_time
+    ):
+        return [
+            {
+                "metric_id": "001",
+                "metric_name": "总有功功率",
+                "unit": "kW",
+                "color": "#409EFF",
+                "points": [
+                    {"timestamp": int(selected_start_time.timestamp() * 1000), "value": 410.0},
+                    {"timestamp": int(selected_end_time.timestamp() * 1000), "value": 420.0},
+                ],
+            },
+            {
+                "metric_id": "002",
+                "metric_name": "A相电压",
+                "unit": "V",
+                "color": "#67C23A",
+                "points": [
+                    {"timestamp": int(selected_start_time.timestamp() * 1000), "value": 220.0},
+                    {"timestamp": int(selected_end_time.timestamp() * 1000), "value": 222.0},
+                ],
+            },
+        ]
+
+    monkeypatch.setattr(
+        "src.api.baselines._load_preview_curves_for_selection",
+        fake_load_preview_curves_for_selection,
+    )
+
     source_heat_id = await _pick_heat_id(client)
+    source_heat_resp = await client.get(f"/api/heats/{source_heat_id}")
+    assert source_heat_resp.status_code == 200
+    source_heat = source_heat_resp.json()
 
     create_resp = await client.post(
         "/api/baselines",
@@ -540,6 +579,8 @@ async def test_heat_list_and_compare_follow_active_default_baseline(client) -> N
             "description": "用于验证炉次默认基线口径",
             "definition_id": "def-001",
             "source_heat_id": source_heat_id,
+            "selected_start_time": source_heat["start_time"],
+            "selected_end_time": source_heat["end_time"],
             "tolerance_percent": 9.5,
         },
     )
@@ -886,8 +927,8 @@ async def test_heat_compare_rebases_baseline_curve_timestamps_into_current_heat_
     compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert compare_resp.status_code == 200
     payload = compare_resp.json()
-    heat_start_ms = int(datetime.fromisoformat(payload["heat"]["start_time"]).timestamp() * 1000)
-    heat_end_ms = int(datetime.fromisoformat(payload["heat"]["end_time"]).timestamp() * 1000)
+    heat_start_ms = int(payload["heat"]["start_time"])
+    heat_end_ms = int(payload["heat"]["end_time"])
     baseline_curve = payload["baselines"][0]["metric_curves"][0]["baseline_curve"]
     assert baseline_curve[0]["timestamp"] == heat_start_ms
     assert baseline_curve[-1]["timestamp"] == heat_end_ms
@@ -1246,7 +1287,7 @@ async def test_list_heats_does_not_alias_stale_live_record_into_all_current_rows
     ]
     history_items = [item for item in payload["items"] if item["record_source"] == "sealed_history"]
     assert len(runtime_items) == 2
-    assert all(item["start_time"].startswith("2026-03-23T") for item in runtime_items)
+    assert all(from_timestamp_ms(item["start_time"]).date() == datetime(2026, 3, 23).date() for item in runtime_items)
     assert history_items
     assert all(item["deviation_percent"] is None for item in runtime_items)
     assert all(item["avg_deviation_percent"] is None for item in runtime_items)
@@ -1335,8 +1376,10 @@ async def test_runtime_heat_ids_can_resolve_preview_and_baseline_windows(
     baseline_window = await _resolve_baseline_time_window({"source_heat_id": heat_id})
     preview_window = await _resolve_preview_window(heat_id, definition_id="def-001")
     assert (baseline_window[1] - baseline_window[0]).total_seconds() >= 20 * 60
-    assert preview_window[0].hour == 0
-    assert preview_window[0].date() == baseline_window[0].date()
+    assert plant_date_of(preview_window[0], get_plant_timezone()) == plant_date_of(
+        baseline_window[0],
+        get_plant_timezone(),
+    )
 
 
 @pytest.mark.asyncio
@@ -1533,6 +1576,37 @@ async def test_previous_runtime_id_stays_resolvable_after_rollover(
 async def test_create_baseline_from_runtime_heat_id_keeps_same_source_heat_id(
     client, monkeypatch
 ) -> None:
+    async def fake_load_preview_curves_for_selection(
+        *, definition_id, selected_start_time, selected_end_time
+    ):
+        return [
+            {
+                "metric_id": "001",
+                "metric_name": "总有功功率",
+                "unit": "kW",
+                "color": "#409EFF",
+                "points": [
+                    {"timestamp": int(selected_start_time.timestamp() * 1000), "value": 410.0},
+                    {"timestamp": int(selected_end_time.timestamp() * 1000), "value": 420.0},
+                ],
+            },
+            {
+                "metric_id": "002",
+                "metric_name": "A相电压",
+                "unit": "V",
+                "color": "#67C23A",
+                "points": [
+                    {"timestamp": int(selected_start_time.timestamp() * 1000), "value": 220.0},
+                    {"timestamp": int(selected_end_time.timestamp() * 1000), "value": 222.0},
+                ],
+            },
+        ]
+
+    monkeypatch.setattr(
+        "src.api.baselines._load_preview_curves_for_selection",
+        fake_load_preview_curves_for_selection,
+    )
+
     _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
     live_points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
 
@@ -1567,6 +1641,8 @@ async def test_create_baseline_from_runtime_heat_id_keeps_same_source_heat_id(
             "description": "验证运行态炉次 ID 会直接落库",
             "definition_id": "def-001",
             "source_heat_id": runtime_item["id"],
+            "selected_start_time": runtime_item["start_time"],
+            "selected_end_time": runtime_item["end_time"],
             "tolerance_percent": 12.0,
         },
     )
@@ -1612,7 +1688,10 @@ async def test_preview_and_baseline_time_window_use_runtime_heat_id_even_after_a
     baseline_window = await _resolve_baseline_time_window(
         {"definition_id": "def-001", "source_heat_id": runtime_item["id"]}
     )
-    assert preview_window[0].date() == baseline_window[0].date()
+    assert plant_date_of(preview_window[0], get_plant_timezone()) == plant_date_of(
+        baseline_window[0],
+        get_plant_timezone(),
+    )
     assert baseline_window[0].hour == 8
 
 

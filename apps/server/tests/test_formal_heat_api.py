@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import delete
 
 from src.api.heats import (
     _ACTIVE_HEAT_RUNTIME,
@@ -22,6 +23,7 @@ from src.models import (
     MetricSeries,
 )
 from src.schemas.common import CurvePoint
+from src.time_utils import from_timestamp_ms, to_timestamp_ms
 
 
 async def _insert_formal_heat_fixture() -> str:
@@ -284,8 +286,47 @@ async def test_get_heat_compare_for_history_avoids_live_edc(client, monkeypatch)
     response = await client.get(f"/api/heats/{heat_id}/compare")
     assert response.status_code == 200
     payload = response.json()
+    assert payload["heat"]["current_curve_source"] == "formal_db"
     assert payload["heat"]["baseline_curve_source"] == "formal_db"
-    assert len(payload["heat"]["power_curve"]) == 3
+    assert len(payload["heat"]["power_curve"]) == 2
+    assert len(payload["baselines"][0]["metric_curves"][0]["current_curve"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_get_heat_compare_for_history_with_missing_metric_still_never_falls_back_to_edc(
+    client, monkeypatch
+) -> None:
+    heat_id = await _insert_formal_heat_fixture()
+
+    async with async_session_maker() as session:
+        await session.execute(
+            delete(MetricSeries).where(
+                MetricSeries.owner_key == heat_id,
+                MetricSeries.item == "002",
+            )
+        )
+        await session.commit()
+
+    async def fail_channel_curves(**_kwargs):
+        raise AssertionError("历史 compare 缺指标时也不应请求实时通道曲线")
+
+    async def fail_heat_curves(_item):
+        raise AssertionError("历史 compare 缺指标时也不应回退请求热炉实时曲线")
+
+    monkeypatch.setattr("src.api.heats._load_channel_curves_from_edc", fail_channel_curves)
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fail_heat_curves)
+
+    response = await client.get(f"/api/heats/{heat_id}/compare")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["heat"]["current_curve_source"] == "formal_db"
+    assert payload["heat"]["voltage_curve"] == []
+    voltage_metric = next(
+        item
+        for item in payload["baselines"][0]["metric_curves"]
+        if item["metric_key"] == "voltage"
+    )
+    assert voltage_metric["current_curve"] == []
 
 
 @pytest.mark.asyncio
@@ -294,8 +335,8 @@ async def test_update_history_heat_writes_formal_tables(client) -> None:
     before = await client.get(f"/api/heats/{heat_id}")
     assert before.status_code == 200
     before_payload = before.json()
-    original_start = datetime.fromisoformat(before_payload["start_time"])
-    original_end = datetime.fromisoformat(before_payload["end_time"])
+    original_start = from_timestamp_ms(before_payload["start_time"])
+    original_end = from_timestamp_ms(before_payload["end_time"])
     new_start = (original_start - timedelta(minutes=2)).replace(microsecond=0)
     new_end = (original_end - timedelta(minutes=1)).replace(microsecond=0)
 
@@ -303,23 +344,23 @@ async def test_update_history_heat_writes_formal_tables(client) -> None:
         f"/api/heats/{heat_id}",
         json={
             "description": "手工修订后的历史炉次",
-            "start_time": new_start.isoformat(),
-            "end_time": new_end.isoformat(),
+            "start_time": to_timestamp_ms(new_start),
+            "end_time": to_timestamp_ms(new_end),
             "adjust_subsequent": False,
         },
     )
     assert response.status_code == 200
     payload = response.json()
     assert payload["description"] == "手工修订后的历史炉次"
-    updated_start = datetime.fromisoformat(payload["start_time"])
-    updated_end = datetime.fromisoformat(payload["end_time"])
+    updated_start = from_timestamp_ms(payload["start_time"])
+    updated_end = from_timestamp_ms(payload["end_time"])
     assert updated_start == new_start
     assert updated_end == new_end
 
     detail = await client.get(f"/api/heats/{heat_id}")
     assert detail.status_code == 200
     assert detail.json()["description"] == "手工修订后的历史炉次"
-    detail_start = datetime.fromisoformat(detail.json()["start_time"])
+    detail_start = from_timestamp_ms(detail.json()["start_time"])
     assert detail_start == new_start
 
 
@@ -328,12 +369,14 @@ async def test_update_history_heat_rejects_adjust_subsequent(client) -> None:
     heat_id = await _insert_formal_heat_fixture()
     before = await client.get(f"/api/heats/{heat_id}")
     assert before.status_code == 200
-    original_start = datetime.fromisoformat(before.json()["start_time"])
+    original_start = from_timestamp_ms(before.json()["start_time"])
 
     response = await client.patch(
         f"/api/heats/{heat_id}",
         json={
-            "start_time": (original_start - timedelta(minutes=1)).replace(microsecond=0).isoformat(),
+            "start_time": to_timestamp_ms(
+                (original_start - timedelta(minutes=1)).replace(microsecond=0)
+            ),
             "adjust_subsequent": True,
         },
     )

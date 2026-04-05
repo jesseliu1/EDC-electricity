@@ -39,7 +39,7 @@ export interface PreviewCurveData {
 
 export interface BaselinePreviewResponse {
   definition_id: string
-  source_heat_id: string
+  source_heat_id: string | null
   range_start: number
   range_end: number
   curves_data: PreviewCurveData[]
@@ -50,7 +50,7 @@ export type BaselinePreviewJobStatus = 'idle' | 'running' | 'succeeded' | 'faile
 export interface BaselinePreviewJobResponse {
   job_key: string
   definition_id: string
-  source_heat_id: string
+  source_heat_id: string | null
   status: BaselinePreviewJobStatus
   range_start: number
   range_end: number
@@ -65,6 +65,12 @@ export interface BaselinePreviewJobResponse {
 export interface BaselineDefinitionListResponse {
   items: BaselineDefinitionResponse[]
   total: number
+}
+
+export interface BaselinePreviewRequestParams {
+  heat_id?: string
+  range_start?: number
+  range_end?: number
 }
 
 export interface MetricDefinitionCreate {
@@ -101,17 +107,17 @@ export const baselineDefinitionApi = {
     client.get<BaselineDefinitionListResponse>('/baseline-definitions', { params }),
   get: (id: string) =>
     client.get<BaselineDefinitionResponse>(`/baseline-definitions/${id}`),
-  getPreviewJob: (id: string, heatId: string) =>
+  getPreviewJob: (id: string, params: BaselinePreviewRequestParams) =>
     client.get<BaselinePreviewJobResponse>(`/baseline-definitions/${id}/preview-jobs`, {
-      params: { heat_id: heatId }
+      params
     }),
-  startPreviewJob: (id: string, heatId: string) =>
+  startPreviewJob: (id: string, params: BaselinePreviewRequestParams) =>
     client.post<BaselinePreviewJobResponse>(`/baseline-definitions/${id}/preview-jobs`, undefined, {
-      params: { heat_id: heatId }
+      params
     }),
-  previewCurves: (id: string, heatId: string) =>
+  previewCurves: (id: string, params: BaselinePreviewRequestParams) =>
     client.get<BaselinePreviewResponse>(`/baseline-definitions/${id}/preview-curves`, {
-      params: { heat_id: heatId }
+      params
     }),
   create: (payload: BaselineDefinitionCreatePayload) =>
     client.post<BaselineDefinitionResponse>('/baseline-definitions', payload),

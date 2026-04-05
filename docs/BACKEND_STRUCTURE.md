@@ -203,7 +203,7 @@ apps/server/
 | 4 | `name` | `string(100)` | 否 | 是 | 基线名称 |
 | 5 | `description` | `text` | 否 | 否 | 基线描述 |
 | 6 | `status` | `string(20)` | 否 | 否 | 基线状态，允许为空 |
-| 7 | `source_heat_id` | `string(36)` | 否 | 是 | 生成该基线的来源炉次 |
+| 7 | `source_heat_id` | `string(36)` | 否 | 否 | 可选的来源炉次定位 ID；允许为空 |
 | 8 | `selected_start_time` | `int64(timestamp_ms)` | 否 | 是 | 选区开始时间 |
 | 9 | `selected_end_time` | `int64(timestamp_ms)` | 否 | 是 | 选区结束时间 |
 | 10 | `effective_from` | `int64(timestamp_ms)` | 否 | 是 | 生效时间 |
@@ -224,7 +224,7 @@ apps/server/
   "name": "标准基线 v1",
   "description": "2026-04 第一版",
   "status": "published",
-  "source_heat_id": "heat-1740",
+  "source_heat_id": null,
   "selected_start_time": 1775218800000,
   "selected_end_time": 1775220540000,
   "effective_from": 1775222160000,
@@ -236,6 +236,13 @@ apps/server/
   "published_at": 1775222220000
 }
 ```
+
+补充约束：
+
+- 基线创建的真源是 `selected_start_time + selected_end_time`，两者必须同时存在
+- `selected_start_time / selected_end_time` 必须落在同一个 `settings.plant_timezone` 业务日内
+- 基线曲线写入 `metric_series` 时，统一从该业务日的整天 preview 曲线按指标切片，不再要求必须绑定某个来源炉次
+- `source_heat_id` 仅作为 UI 定位/回看辅助信息，可为空；为空时不影响基线创建、发布与 compare
 
 ### 2.5 `metric_series`
 
@@ -546,6 +553,11 @@ erDiagram
 | POST | /api/baselines/{id}/disable | 停用基线 |
 | DELETE | /api/baselines/{id} | 删除基线（仅草稿） |
 
+补充约束：
+
+- `POST /api/baselines` 必须显式传入 `selected_start_time / selected_end_time`
+- `source_heat_id` 为可选字段；未传时按“当天全天 preview + 手动选区”创建基线
+
 ### 3.2 炉次 API
 
 | 方法 | 路径 | 说明 |
@@ -605,6 +617,8 @@ erDiagram
 - 历史炉次一旦进入 `sealed_history`，其 `id / heat_no / start_time / end_time` 不应再变化
 - 详情接口必须优先保证历史稳定可读，不能因运行态重算导致旧列表记录第一次点击直接 404
 - 若运行态 ID 在切割边界变化后失效，后端应通过 alias 或等效映射把旧 ID 解析到当前有效记录
+- `GET /api/heats/{id}/compare` 对 `sealed_history` 必须优先读取正式表/固化曲线，不得再回退到 EDC 直接取全天曲线污染历史窗口
+- 历史 compare 的 `live_curves` 应裁切到炉次真实起止时间；若前端需要上下文展示，可通过单独的 display window 曲线保留扩展窗口
 
 ### 3.8 API 读写映射
 
@@ -613,10 +627,20 @@ erDiagram
 - 读：
   - `GET /api/baseline-definitions`
   - `GET /api/baseline-definitions/{id}`
+  - `GET /api/baseline-definitions/{id}/preview-curves`
+  - `GET /api/baseline-definitions/{id}/preview-jobs`
 - 写：
   - `POST /api/baseline-definitions`
   - `PATCH /api/baseline-definitions/{id}`
   - `DELETE /api/baseline-definitions/{id}`
+  - `POST /api/baseline-definitions/{id}/preview-jobs`
+
+补充约束：
+
+- preview 接口支持两种取数方式：
+  - 传 `heat_id`，按炉次所在业务日推导整天 preview
+  - 直接传 `range_start / range_end`，按显式业务日窗口加载整天 preview
+- 基线向导主路径应优先使用 `range_start / range_end`，避免把“先选炉次”变成创建前置条件
 
 `baseline_definition_metrics`
 
@@ -704,7 +728,10 @@ class CurvePoint(BaseModel):
 class BaselineCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = None
-    source_heat_id: str
+    definition_id: str
+    source_heat_id: Optional[str] = None
+    selected_start_time: int
+    selected_end_time: int
     tolerance_percent: float = Field(default=15.0, ge=0, le=100)
 
 class BaselineUpdate(BaseModel):
@@ -716,13 +743,16 @@ class BaselineResponse(BaseModel):
     id: str
     name: str
     description: Optional[str]
-    source_heat_id: str
+    definition_id: str
+    source_heat_id: Optional[str]
+    selected_start_time: int
+    selected_end_time: int
     tolerance_percent: float
     status: str
     version: int
-    created_at: datetime
-    updated_at: datetime
-    published_at: Optional[datetime]
+    created_at: int
+    updated_at: int
+    published_at: Optional[int]
 
     class Config:
         from_attributes = True

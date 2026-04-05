@@ -24,7 +24,7 @@ export interface BaselineItem {
   createdAt: number
   publishedAt: number | null
   curveSource: BaselineCurveSource
-  sourceHeatId: string
+  sourceHeatId: string | null
   selectedStartTime: number | null
   selectedEndTime: number | null
 }

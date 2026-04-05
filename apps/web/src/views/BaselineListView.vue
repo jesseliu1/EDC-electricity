@@ -118,7 +118,7 @@ async function handleWizardSubmit(payload: {
   name: string
   description: string
   definitionId: string
-  sourceHeatId: string
+  sourceHeatId?: string
   selectedStartTime?: number
   selectedEndTime?: number
   tolerancePercent: number
@@ -133,7 +133,7 @@ async function handleWizardSubmit(payload: {
         name: payload.name,
         description: payload.description,
         definition_id: payload.definitionId,
-        source_heat_id: payload.sourceHeatId,
+        ...(payload.sourceHeatId ? { source_heat_id: payload.sourceHeatId } : {}),
         selected_start_time: payload.selectedStartTime,
         selected_end_time: payload.selectedEndTime,
         tolerance_percent: payload.tolerancePercent,

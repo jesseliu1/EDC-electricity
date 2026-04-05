@@ -121,8 +121,8 @@ class Baseline(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="基线名称")
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="基线描述")
     status: Mapped[str | None] = mapped_column(String(20), nullable=True, comment="基线状态")
-    source_heat_id: Mapped[str] = mapped_column(
-        String(100), nullable=False, comment="生成该基线的来源炉次"
+    source_heat_id: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="生成该基线的来源炉次，可为空"
     )
     selected_start_time: Mapped[datetime] = mapped_column(
         TimestampMsType(), nullable=False, comment="选区开始时间"

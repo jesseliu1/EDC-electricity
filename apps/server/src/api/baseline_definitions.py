@@ -40,7 +40,7 @@ from ..services import (
 from ..services import (
     update_definition_metric as update_definition_metric_record,
 )
-from ..time_utils import plant_date_of, plant_day_bounds_datetime, utc_now
+from ..time_utils import parse_timestamp_ms, plant_date_of, plant_day_bounds_datetime, utc_now
 from .settings import _HOST_CHANNEL_STORE, get_edc_connection_config, get_plant_timezone
 
 router = APIRouter(prefix="/baseline-definitions", tags=["BaselineDefinitions"])
@@ -118,10 +118,22 @@ def _format_host_channel_label(channel: dict[str, str] | None) -> str | None:
 
 
 async def _resolve_preview_window(
-    heat_id: str,
+    heat_id: str | None = None,
     *,
     definition_id: str | None = None,
+    range_start: datetime | int | float | None = None,
+    range_end: datetime | int | float | None = None,
 ) -> tuple[datetime, datetime]:
+    if range_start is not None and range_end is not None:
+        normalized_start = parse_timestamp_ms(range_start)
+        normalized_end = parse_timestamp_ms(range_end)
+        if normalized_start >= normalized_end:
+            raise HTTPException(status_code=400, detail="预览时间范围无效")
+        return normalized_start, normalized_end
+
+    if not heat_id:
+        raise HTTPException(status_code=400, detail="缺少预览日期范围")
+
     from .heats import build_live_heat_lookup_context, resolve_heat_record
 
     preferred_live_context = build_live_heat_lookup_context(definition_id=definition_id)
@@ -201,7 +213,10 @@ def _preview_job_key(*, definition_id: str, range_start: datetime) -> str:
 
 
 def _preview_job_has_points(entry: dict[str, Any]) -> bool:
-    curves = entry.get("curves_data") or []
+    return _preview_curves_have_points(entry.get("curves_data") or [])
+
+
+def _preview_curves_have_points(curves: list[Any]) -> bool:
     return any(
         curve.points if hasattr(curve, "points") else curve.get("points", [])
         for curve in curves
@@ -211,7 +226,7 @@ def _preview_job_has_points(entry: dict[str, Any]) -> bool:
 def _serialize_preview_job(
     entry: dict[str, Any],
     *,
-    source_heat_id: str,
+    source_heat_id: str | None,
 ) -> BaselinePreviewJobResponse:
     return BaselinePreviewJobResponse(
         job_key=str(entry["job_key"]),
@@ -307,9 +322,16 @@ async def _run_preview_job(job_key: str) -> None:
 async def _ensure_preview_job(
     *,
     definition_id: str,
-    heat_id: str,
+    heat_id: str | None = None,
+    range_start: datetime | int | float | None = None,
+    range_end: datetime | int | float | None = None,
 ) -> BaselinePreviewJobResponse:
-    range_start, range_end = await _resolve_preview_window(heat_id, definition_id=definition_id)
+    range_start, range_end = await _resolve_preview_window(
+        heat_id,
+        definition_id=definition_id,
+        range_start=range_start,
+        range_end=range_end,
+    )
     job_key = _preview_job_key(definition_id=definition_id, range_start=range_start)
     now = _now()
 
@@ -352,9 +374,16 @@ async def _ensure_preview_job(
 async def _get_preview_job(
     *,
     definition_id: str,
-    heat_id: str,
+    heat_id: str | None = None,
+    range_start: datetime | int | float | None = None,
+    range_end: datetime | int | float | None = None,
 ) -> BaselinePreviewJobResponse:
-    range_start, _range_end = await _resolve_preview_window(heat_id, definition_id=definition_id)
+    range_start, _range_end = await _resolve_preview_window(
+        heat_id,
+        definition_id=definition_id,
+        range_start=range_start,
+        range_end=range_end,
+    )
     job_key = _preview_job_key(definition_id=definition_id, range_start=range_start)
     async with _PREVIEW_JOB_LOCK:
         entry = _PREVIEW_JOB_STORE.get(job_key)
@@ -390,20 +419,24 @@ async def get_definition(definition_id: str) -> BaselineDefinitionResponse:
 @router.get("/{definition_id}/preview-curves", response_model=BaselinePreviewResponse)
 async def get_definition_preview_curves(
     definition_id: str,
-    heat_id: str = Query(..., description="来源炉次ID"),
+    heat_id: str | None = Query(default=None, description="来源炉次ID，可选"),
+    range_start: int | None = Query(default=None, description="预览开始时间戳(ms)"),
+    range_end: int | None = Query(default=None, description="预览结束时间戳(ms)"),
 ) -> BaselinePreviewResponse:
     """按定义与炉次返回基线向导候选曲线预览。"""
     definition = await _get_or_404(definition_id)
-    range_start, range_end = await _resolve_preview_window(heat_id, definition_id=definition_id)
+    range_start, range_end = await _resolve_preview_window(
+        heat_id,
+        definition_id=definition_id,
+        range_start=range_start,
+        range_end=range_end,
+    )
     curves = await _build_preview_curves(
         definition=definition,
         range_start=range_start,
         range_end=range_end,
     )
-    if not any(
-        curve.points if hasattr(curve, "points") else curve.get("points", [])
-        for curve in curves
-    ):
+    if not _preview_curves_have_points(curves):
         raise HTTPException(
             status_code=503,
             detail="未获取到真实预览数据，请检查宿主连接和通道绑定",
@@ -420,21 +453,35 @@ async def get_definition_preview_curves(
 @router.post("/{definition_id}/preview-jobs", response_model=BaselinePreviewJobResponse)
 async def start_definition_preview_job(
     definition_id: str,
-    heat_id: str = Query(..., description="来源炉次ID"),
+    heat_id: str | None = Query(default=None, description="来源炉次ID，可选"),
+    range_start: int | None = Query(default=None, description="预览开始时间戳(ms)"),
+    range_end: int | None = Query(default=None, description="预览结束时间戳(ms)"),
 ) -> BaselinePreviewJobResponse:
     """启动或复用整天预览任务。"""
     await _get_or_404(definition_id)
-    return await _ensure_preview_job(definition_id=definition_id, heat_id=heat_id)
+    return await _ensure_preview_job(
+        definition_id=definition_id,
+        heat_id=heat_id,
+        range_start=range_start,
+        range_end=range_end,
+    )
 
 
 @router.get("/{definition_id}/preview-jobs", response_model=BaselinePreviewJobResponse)
 async def get_definition_preview_job(
     definition_id: str,
-    heat_id: str = Query(..., description="来源炉次ID"),
+    heat_id: str | None = Query(default=None, description="来源炉次ID，可选"),
+    range_start: int | None = Query(default=None, description="预览开始时间戳(ms)"),
+    range_end: int | None = Query(default=None, description="预览结束时间戳(ms)"),
 ) -> BaselinePreviewJobResponse:
     """查询整天预览任务状态。"""
     await _get_or_404(definition_id)
-    return await _get_preview_job(definition_id=definition_id, heat_id=heat_id)
+    return await _get_preview_job(
+        definition_id=definition_id,
+        heat_id=heat_id,
+        range_start=range_start,
+        range_end=range_end,
+    )
 
 
 @router.post("", response_model=BaselineDefinitionResponse, status_code=201)

@@ -8,6 +8,10 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   })
 }
 
+function toTimestampMs(iso: string) {
+  return new Date(iso).getTime()
+}
+
 function buildCurvePoints(
   startIso: string,
   count: number,
@@ -129,10 +133,10 @@ async function mockBaselineWizardAcceptance(
   const buildPreviewJobPayload = (status: 'running' | 'succeeded' | 'failed') => ({
     job_key: 'def-real:2026-03-19',
     definition_id: 'def-real',
-    source_heat_id: 'heat-real-001',
+    source_heat_id: null,
     status,
-    range_start: '2026-03-19T00:00:00Z',
-    range_end: '2026-03-20T00:00:00Z',
+    range_start: toTimestampMs('2026-03-19T00:00:00Z'),
+    range_end: toTimestampMs('2026-03-20T00:00:00Z'),
     curves_data:
       status === 'succeeded'
         ? [
@@ -159,14 +163,17 @@ async function mockBaselineWizardAcceptance(
           ]
         : [],
     last_error: status === 'failed' ? '未获取到真实预览数据，请检查宿主连接和通道绑定' : null,
-    created_at: '2026-03-19T08:00:00Z',
-    started_at: '2026-03-19T08:00:01Z',
-    updated_at: status === 'succeeded' ? '2026-03-19T08:00:05Z' : '2026-03-19T08:00:02Z',
+    created_at: toTimestampMs('2026-03-19T08:00:00Z'),
+    started_at: toTimestampMs('2026-03-19T08:00:01Z'),
+    updated_at:
+      status === 'succeeded'
+        ? toTimestampMs('2026-03-19T08:00:05Z')
+        : toTimestampMs('2026-03-19T08:00:02Z'),
     completed_at:
       status === 'succeeded'
-        ? '2026-03-19T08:00:05Z'
+        ? toTimestampMs('2026-03-19T08:00:05Z')
         : status === 'failed'
-          ? '2026-03-19T08:00:03Z'
+          ? toTimestampMs('2026-03-19T08:00:03Z')
           : null,
   })
 
@@ -208,8 +215,8 @@ async function mockBaselineWizardAcceptance(
             },
           ],
           instance_count: 0,
-          created_at: '2026-03-19T00:00:00Z',
-          updated_at: '2026-03-19T00:00:00Z',
+          created_at: toTimestampMs('2026-03-19T00:00:00Z'),
+          updated_at: toTimestampMs('2026-03-19T00:00:00Z'),
         },
       ],
       total: 1,
@@ -222,10 +229,10 @@ async function mockBaselineWizardAcceptance(
           id: 'heat-real-001',
           heat_no: 'H20260319-001',
           description: null,
-          start_time: '2026-03-19T08:00:00Z',
-          end_time: '2026-03-19T08:40:00Z',
+          start_time: toTimestampMs('2026-03-19T08:00:00Z'),
+          end_time: toTimestampMs('2026-03-19T08:40:00Z'),
           completion_status: 'completed',
-          last_point_at: '2026-03-19T08:40:00Z',
+          last_point_at: toTimestampMs('2026-03-19T08:40:00Z'),
           baseline_version_id: null,
           baseline_effective_from: null,
           baseline_id: null,
@@ -240,7 +247,7 @@ async function mockBaselineWizardAcceptance(
           blocked_by_issue: false,
           status: 'normal',
           temperature: 1458,
-          created_at: '2026-03-19T08:00:00Z',
+          created_at: toTimestampMs('2026-03-19T08:00:00Z'),
         },
       ],
       total: 1,
@@ -649,10 +656,12 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(page.getByText(/整天真实曲线最近一次成功更新时间/)).toBeVisible()
 
     await expect(page.getByText(/峰值功率/)).toBeVisible()
-    await expect(page.getByText(/\d+\s?kW/).first()).toBeVisible()
-    await expect(page.getByText(/天 .*小时 .*分钟 .*秒/)).toBeVisible()
-
     const selectionState = page.getByTestId('baseline-wizard-selection-state')
+    await expect(selectionState).toHaveAttribute('data-start', '')
+    await expect(selectionState).toHaveAttribute('data-end', '')
+    await expect(page.getByTestId('baseline-wizard-selected-duration-value')).toHaveText(
+      '0天 0小时 0分钟 0秒'
+    )
     const originalStart = await selectionState.getAttribute('data-start')
     const originalEnd = await selectionState.getAttribute('data-end')
 
@@ -669,6 +678,9 @@ test.describe('EDC issue acceptance checks', () => {
     await expect
       .poll(async () => await selectionState.getAttribute('data-end'))
       .not.toBe(originalEnd)
+    await expect(page.getByTestId('baseline-wizard-selected-duration-value')).not.toHaveText(
+      '0天 0小时 0分钟 0秒'
+    )
 
     const startAfterPick = await selectionState.getAttribute('data-start')
     const endAfterPick = await selectionState.getAttribute('data-end')

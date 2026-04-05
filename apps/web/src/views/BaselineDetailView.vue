@@ -392,6 +392,7 @@ onMounted(async () => {
             <div class="flex justify-between items-center">
               <span class="text-slate-500">{{ t('baseline.detail.sourceHeat') }}</span>
               <button
+                v-if="baseline.sourceHeatId"
                 type="button"
                 class="font-semibold text-primary transition-colors hover:underline focus:outline-none focus:ring-2 focus:ring-primary/20"
                 data-testid="baseline-detail-source-heat-button"
@@ -399,6 +400,7 @@ onMounted(async () => {
               >
                 {{ baseline.sourceHeatId }}
               </button>
+              <span v-else class="font-semibold text-slate-400">--</span>
             </div>
             <div class="flex justify-between items-center">
               <span class="text-slate-500">{{ t('baseline.detail.bindingStatus') }}</span>

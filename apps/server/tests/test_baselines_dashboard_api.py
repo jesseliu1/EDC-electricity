@@ -744,7 +744,38 @@ async def test_baseline_definition_crud_and_metric_workflow(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_baseline_crud_publish_disable_and_delete(client) -> None:
+async def test_baseline_crud_publish_disable_and_delete(client, monkeypatch) -> None:
+    async def fake_load_preview_curves_for_selection(
+        *, definition_id, selected_start_time, selected_end_time
+    ):
+        return [
+            {
+                "metric_id": "001",
+                "metric_name": "总有功功率",
+                "unit": "kW",
+                "color": "#1152d4",
+                "points": [
+                    {"timestamp": int(selected_start_time.timestamp() * 1000), "value": 410.0},
+                    {"timestamp": int(selected_end_time.timestamp() * 1000), "value": 420.0},
+                ],
+            },
+            {
+                "metric_id": "002",
+                "metric_name": "A相电压",
+                "unit": "V",
+                "color": "#67C23A",
+                "points": [
+                    {"timestamp": int(selected_start_time.timestamp() * 1000), "value": 220.0},
+                    {"timestamp": int(selected_end_time.timestamp() * 1000), "value": 222.0},
+                ],
+            },
+        ]
+
+    monkeypatch.setattr(
+        "src.api.baselines._load_preview_curves_for_selection",
+        fake_load_preview_curves_for_selection,
+    )
+
     list_resp = await client.get("/api/baselines", params={"page_size": 10})
     assert list_resp.status_code == 200
     data = list_resp.json()
@@ -848,7 +879,38 @@ async def test_baseline_mutations_invalidate_compare_caches(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_baseline_delete_draft_and_reject_disabled_definition(client) -> None:
+async def test_baseline_delete_draft_and_reject_disabled_definition(client, monkeypatch) -> None:
+    async def fake_load_preview_curves_for_selection(
+        *, definition_id, selected_start_time, selected_end_time
+    ):
+        return [
+            {
+                "metric_id": "001",
+                "metric_name": "总有功功率",
+                "unit": "kW",
+                "color": "#1152d4",
+                "points": [
+                    {"timestamp": int(selected_start_time.timestamp() * 1000), "value": 410.0},
+                    {"timestamp": int(selected_end_time.timestamp() * 1000), "value": 420.0},
+                ],
+            },
+            {
+                "metric_id": "002",
+                "metric_name": "A相电压",
+                "unit": "V",
+                "color": "#67C23A",
+                "points": [
+                    {"timestamp": int(selected_start_time.timestamp() * 1000), "value": 220.0},
+                    {"timestamp": int(selected_end_time.timestamp() * 1000), "value": 222.0},
+                ],
+            },
+        ]
+
+    monkeypatch.setattr(
+        "src.api.baselines._load_preview_curves_for_selection",
+        fake_load_preview_curves_for_selection,
+    )
+
     disable_definition_resp = await client.post("/api/baseline-definitions/def-001/disable")
     assert disable_definition_resp.status_code == 200
 
@@ -858,6 +920,8 @@ async def test_baseline_delete_draft_and_reject_disabled_definition(client) -> N
             "name": "无效基线",
             "definition_id": "def-001",
             "source_heat_id": "heat-001",
+            "selected_start_time": "2026-03-12T10:00:00Z",
+            "selected_end_time": "2026-03-12T10:45:00Z",
             "tolerance_percent": 10,
         },
     )
@@ -871,6 +935,8 @@ async def test_baseline_delete_draft_and_reject_disabled_definition(client) -> N
             "name": "草稿基线",
             "definition_id": "def-001",
             "source_heat_id": "heat-001",
+            "selected_start_time": "2026-03-12T10:00:00Z",
+            "selected_end_time": "2026-03-12T10:45:00Z",
             "tolerance_percent": 10,
         },
     )

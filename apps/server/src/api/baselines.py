@@ -36,11 +36,16 @@ from ..services import (
     set_baseline_status,
     update_baseline_record,
 )
-from ..time_utils import utc_now
+from ..time_utils import plant_date_of, plant_day_bounds_datetime, utc_now
 
 # 引用 definition store 以做关联校验
-from .baseline_definitions import _DEFINITION_STORE, _reload_definition_store
-from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE, get_edc_connection_config
+from .baseline_definitions import (
+    _DEFINITION_STORE,
+    _build_preview_curves,
+    _preview_curves_have_points,
+    _reload_definition_store,
+)
+from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE, get_edc_connection_config, get_plant_timezone
 
 router = APIRouter(prefix="/baselines", tags=["Baselines"])
 
@@ -111,20 +116,16 @@ def _now() -> datetime:
 
 def _validate_selection_window(
     *,
-    source_heat: dict[str, Any],
     selected_start_time: datetime,
     selected_end_time: datetime,
 ) -> None:
     if selected_start_time > selected_end_time:
         raise HTTPException(status_code=400, detail="基线选区开始时间不能晚于结束时间")
-
-    heat_start = source_heat.get("start_time")
-    heat_end = source_heat.get("end_time")
-    if not isinstance(heat_start, datetime) or not isinstance(heat_end, datetime):
-        raise HTTPException(status_code=400, detail="来源炉次时间窗口无效")
-
-    if selected_start_time < heat_start or selected_end_time > heat_end:
-        raise HTTPException(status_code=400, detail="基线选区必须落在来源炉次真实时间窗口内")
+    if plant_date_of(selected_start_time, get_plant_timezone()) != plant_date_of(
+        selected_end_time,
+        get_plant_timezone(),
+    ):
+        raise HTTPException(status_code=400, detail="基线选区必须位于同一个业务日内")
 
 
 def _resolve_curve_seed(item: dict[str, Any], fallback: int = 1) -> int:
@@ -427,11 +428,16 @@ async def _get_or_404(baseline_id: str) -> dict[str, Any]:
     return item
 
 
-async def _validate_definition(definition_id: str) -> dict[str, Any]:
-    """校验定义存在且为 active 状态。"""
+async def _get_definition_or_400(definition_id: str) -> dict[str, Any]:
     definition = await get_definition_record(definition_id)
     if not definition:
         raise HTTPException(status_code=400, detail="基线定义不存在")
+    return definition
+
+
+async def _validate_definition(definition_id: str) -> dict[str, Any]:
+    """校验定义存在且为 active 状态。"""
+    definition = await _get_definition_or_400(definition_id)
     if definition["status"] != "active":
         raise HTTPException(status_code=400, detail="基线定义已停用，无法创建实例")
     return definition
@@ -482,6 +488,39 @@ def _invalidate_compare_runtime_caches() -> None:
     from .heats import invalidate_compare_runtime_caches
 
     invalidate_compare_runtime_caches(include_shared=True)
+
+
+def _normalize_source_heat_id(value: str | None) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
+def _serialize_preview_curves(curves: list[CurveData]) -> list[dict[str, Any]]:
+    return [curve.model_dump() for curve in curves]
+
+
+async def _load_preview_curves_for_selection(
+    *,
+    definition_id: str,
+    selected_start_time: datetime,
+    selected_end_time: datetime,
+) -> list[dict[str, Any]]:
+    definition = await _get_definition_or_400(definition_id)
+    range_start, range_end = plant_day_bounds_datetime(
+        selected_start_time,
+        get_plant_timezone(),
+    )
+    preview_curves = await _build_preview_curves(
+        definition=definition,
+        range_start=range_start,
+        range_end=range_end,
+    )
+    if not _preview_curves_have_points(preview_curves):
+        raise HTTPException(
+            status_code=503,
+            detail="未获取到真实预览数据，请检查宿主连接和通道绑定",
+        )
+    return _serialize_preview_curves(preview_curves)
 
 
 @router.get("", response_model=BaselineListResponse)
@@ -553,29 +592,36 @@ async def get_baseline(baseline_id: str) -> BaselineWithCurve:
 async def create_baseline(data: BaselineCreate) -> BaselineResponse:
     """创建新基线实例，默认草稿状态。"""
     await _validate_definition(data.definition_id)
-
-    from .heats import build_live_heat_lookup_context, resolve_heat_record
-
-    preferred_live_context = build_live_heat_lookup_context(definition_id=data.definition_id)
-    source_heat = await resolve_heat_record(
-        data.source_heat_id,
-        preferred_live_context=preferred_live_context,
-    )
-    if not source_heat:
-        raise HTTPException(status_code=400, detail="来源炉次不存在")
-
-    selected_start_time = data.selected_start_time or source_heat["start_time"]
-    selected_end_time = data.selected_end_time or source_heat["end_time"]
+    selected_start_time = data.selected_start_time
+    selected_end_time = data.selected_end_time
     _validate_selection_window(
-        source_heat=source_heat,
         selected_start_time=selected_start_time,
         selected_end_time=selected_end_time,
     )
+    preview_curves = await _load_preview_curves_for_selection(
+        definition_id=data.definition_id,
+        selected_start_time=selected_start_time,
+        selected_end_time=selected_end_time,
+    )
+
+    source_heat_id = _normalize_source_heat_id(data.source_heat_id)
+    if source_heat_id:
+        from .heats import build_live_heat_lookup_context, resolve_heat_record
+
+        preferred_live_context = build_live_heat_lookup_context(definition_id=data.definition_id)
+        source_heat = await resolve_heat_record(
+            source_heat_id,
+            preferred_live_context=preferred_live_context,
+        )
+        if not source_heat:
+            raise HTTPException(status_code=400, detail="来源炉次不存在")
+        source_heat_id = str(source_heat["id"])
+
     item = await create_baseline_record(
         definition_id=data.definition_id,
         name=data.name,
         description=data.description,
-        source_heat_id=str(source_heat["id"]),
+        source_heat_id=source_heat_id,
         selected_start_time=selected_start_time,
         selected_end_time=selected_end_time,
         effective_from=data.effective_from,
@@ -585,7 +631,7 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
     await replace_baseline_metric_series(
         definition_id=data.definition_id,
         item=str(item["item"]),
-        source_heat=source_heat,
+        source_curves_data=preview_curves,
         selected_start_time=selected_start_time,
         selected_end_time=selected_end_time,
     )
@@ -605,6 +651,32 @@ async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineRes
         raise HTTPException(status_code=400, detail="仅草稿状态可编辑")
     definition_id, item_no = decode_baseline_id(baseline_id)
 
+    next_selected_start_time = data.selected_start_time or item.get("selected_start_time")
+    next_selected_end_time = data.selected_end_time or item.get("selected_end_time")
+    if not isinstance(next_selected_start_time, datetime) or not isinstance(
+        next_selected_end_time, datetime
+    ):
+        raise HTTPException(status_code=400, detail="基线选区时间不能为空")
+
+    _validate_selection_window(
+        selected_start_time=next_selected_start_time,
+        selected_end_time=next_selected_end_time,
+    )
+
+    selection_changed = (
+        data.selected_start_time is not None or data.selected_end_time is not None
+    ) and (
+        next_selected_start_time != item.get("selected_start_time")
+        or next_selected_end_time != item.get("selected_end_time")
+    )
+    preview_curves: list[dict[str, Any]] | None = None
+    if selection_changed:
+        preview_curves = await _load_preview_curves_for_selection(
+            definition_id=definition_id,
+            selected_start_time=next_selected_start_time,
+            selected_end_time=next_selected_end_time,
+        )
+
     item = await update_baseline_record(
         definition_id=definition_id,
         item=item_no,
@@ -618,23 +690,11 @@ async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineRes
     )
     if not item:
         raise HTTPException(status_code=404, detail="基线不存在")
-    from .heats import build_live_heat_lookup_context, resolve_heat_record
-
-    preferred_live_context = build_live_heat_lookup_context(definition_id=definition_id)
-    source_heat = await resolve_heat_record(
-        str(item["source_heat_id"]),
-        preferred_live_context=preferred_live_context,
-    )
-    if source_heat:
-        _validate_selection_window(
-            source_heat=source_heat,
-            selected_start_time=item["selected_start_time"],
-            selected_end_time=item["selected_end_time"],
-        )
+    if selection_changed and preview_curves is not None:
         await replace_baseline_metric_series(
             definition_id=definition_id,
             item=item_no,
-            source_heat=source_heat,
+            source_curves_data=preview_curves,
             selected_start_time=item["selected_start_time"],
             selected_end_time=item["selected_end_time"],
         )

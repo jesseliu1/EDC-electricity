@@ -3,6 +3,7 @@
 import pytest
 
 from src.api.heats import _HEAT_STORE
+from src.time_utils import to_timestamp_ms
 
 
 @pytest.mark.asyncio
@@ -54,7 +55,28 @@ async def test_definition_crud_flows_through_formal_tables(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_baseline_version_crud_flows_through_formal_tables(client) -> None:
+async def test_baseline_version_crud_flows_through_formal_tables(client, monkeypatch) -> None:
+    async def fake_load_preview_curves_for_selection(
+        *, definition_id, selected_start_time, selected_end_time
+    ):
+        return [
+            {
+                "metric_id": "001",
+                "metric_name": "总有功功率",
+                "unit": "kW",
+                "color": "#409EFF",
+                "points": [
+                    {"timestamp": to_timestamp_ms(selected_start_time), "value": 401.0},
+                    {"timestamp": to_timestamp_ms(selected_end_time), "value": 402.0},
+                ],
+            }
+        ]
+
+    monkeypatch.setattr(
+        "src.api.baselines._load_preview_curves_for_selection",
+        fake_load_preview_curves_for_selection,
+    )
+
     definition_resp = await client.post(
         "/api/baseline-definitions",
         json={
@@ -76,6 +98,7 @@ async def test_baseline_version_crud_flows_through_formal_tables(client) -> None
     definition_id = definition_resp.json()["id"]
 
     heat_id = next(iter(_HEAT_STORE.keys()))
+    heat_item = _HEAT_STORE[heat_id]
     create_resp = await client.post(
         "/api/baselines",
         json={
@@ -83,6 +106,8 @@ async def test_baseline_version_crud_flows_through_formal_tables(client) -> None
             "description": "版本测试",
             "definition_id": definition_id,
             "source_heat_id": heat_id,
+            "selected_start_time": to_timestamp_ms(heat_item["start_time"]),
+            "selected_end_time": to_timestamp_ms(heat_item["end_time"]),
             "tolerance_percent": 15.0,
         },
     )
@@ -112,7 +137,84 @@ async def test_baseline_version_crud_flows_through_formal_tables(client) -> None
 
 
 @pytest.mark.asyncio
-async def test_created_baseline_persists_metric_series_and_reads_from_formal_db(client) -> None:
+async def test_baseline_create_allows_blank_source_heat_id(client, monkeypatch) -> None:
+    async def fake_load_preview_curves_for_selection(
+        *, definition_id, selected_start_time, selected_end_time
+    ):
+        return [
+            {
+                "metric_id": "001",
+                "metric_name": "总有功功率",
+                "unit": "kW",
+                "color": "#409EFF",
+                "points": [
+                    {"timestamp": to_timestamp_ms(selected_start_time), "value": 401.0},
+                    {"timestamp": to_timestamp_ms(selected_end_time), "value": 402.0},
+                ],
+            }
+        ]
+
+    monkeypatch.setattr(
+        "src.api.baselines._load_preview_curves_for_selection",
+        fake_load_preview_curves_for_selection,
+    )
+
+    heat_item = _HEAT_STORE["heat-001"]
+    create_resp = await client.post(
+        "/api/baselines",
+        json={
+            "name": "全天选点基线",
+            "description": "不绑定来源炉次",
+            "definition_id": "def-001",
+            "selected_start_time": to_timestamp_ms(heat_item["start_time"]),
+            "selected_end_time": to_timestamp_ms(heat_item["end_time"]),
+            "tolerance_percent": 15.0,
+        },
+    )
+    assert create_resp.status_code == 201
+    created = create_resp.json()
+    assert created["source_heat_id"] is None
+
+    detail_resp = await client.get(f"/api/baselines/{created['id']}")
+    assert detail_resp.status_code == 200
+    assert detail_resp.json()["source_heat_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_created_baseline_persists_metric_series_and_reads_from_formal_db(
+    client, monkeypatch
+) -> None:
+    async def fake_load_preview_curves_for_selection(
+        *, definition_id, selected_start_time, selected_end_time
+    ):
+        return [
+            {
+                "metric_id": "001",
+                "metric_name": "总有功功率",
+                "unit": "kW",
+                "color": "#409EFF",
+                "points": [
+                    {"timestamp": to_timestamp_ms(selected_start_time), "value": 401.0},
+                    {"timestamp": to_timestamp_ms(selected_end_time), "value": 402.0},
+                ],
+            },
+            {
+                "metric_id": "002",
+                "metric_name": "A相电压",
+                "unit": "V",
+                "color": "#67C23A",
+                "points": [
+                    {"timestamp": to_timestamp_ms(selected_start_time), "value": 221.0},
+                    {"timestamp": to_timestamp_ms(selected_end_time), "value": 222.0},
+                ],
+            },
+        ]
+
+    monkeypatch.setattr(
+        "src.api.baselines._load_preview_curves_for_selection",
+        fake_load_preview_curves_for_selection,
+    )
+
     definition_resp = await client.post(
         "/api/baseline-definitions",
         json={
@@ -141,6 +243,7 @@ async def test_created_baseline_persists_metric_series_and_reads_from_formal_db(
     definition_id = definition_resp.json()["id"]
 
     heat_id = next(iter(_HEAT_STORE.keys()))
+    heat_item = _HEAT_STORE[heat_id]
     create_resp = await client.post(
         "/api/baselines",
         json={
@@ -148,6 +251,8 @@ async def test_created_baseline_persists_metric_series_and_reads_from_formal_db(
             "description": "版本测试",
             "definition_id": definition_id,
             "source_heat_id": heat_id,
+            "selected_start_time": to_timestamp_ms(heat_item["start_time"]),
+            "selected_end_time": to_timestamp_ms(heat_item["end_time"]),
             "tolerance_percent": 15.0,
         },
     )

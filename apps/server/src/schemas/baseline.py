@@ -25,9 +25,9 @@ class BaselineCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="实例名称")
     description: str | None = Field(default=None, description="基线描述")
     definition_id: str = Field(..., description="所属基线定义ID")
-    source_heat_id: str = Field(..., description="来源炉次ID")
-    selected_start_time: OptionalTimestampMs = Field(default=None, description="图上选点开始时间")
-    selected_end_time: OptionalTimestampMs = Field(default=None, description="图上选点结束时间")
+    source_heat_id: str | None = Field(default=None, description="来源炉次ID，可为空")
+    selected_start_time: TimestampMs = Field(..., description="图上选点开始时间")
+    selected_end_time: TimestampMs = Field(..., description="图上选点结束时间")
     effective_from: OptionalTimestampMs = Field(default=None, description="生效时间")
     tolerance_percent: float = Field(default=15.0, ge=0, le=100, description="容许误差百分比")
 
@@ -53,7 +53,7 @@ class BaselineResponse(BaseModel):
     description: str | None = Field(default=None, description="基线描述")
     definition_id: str = Field(..., description="所属基线定义ID")
     definition_name: str = Field(default="", description="所属基线定义名称")
-    source_heat_id: str = Field(..., description="来源炉次ID")
+    source_heat_id: str | None = Field(default=None, description="来源炉次ID，可为空")
     selected_start_time: OptionalTimestampMs = Field(default=None, description="图上选点开始时间")
     selected_end_time: OptionalTimestampMs = Field(default=None, description="图上选点结束时间")
     effective_from: OptionalTimestampMs = Field(default=None, description="生效时间")
@@ -83,7 +83,7 @@ class BaselinePreviewResponse(BaseModel):
     """基线向导候选曲线预览响应"""
 
     definition_id: str = Field(..., description="所属定义ID")
-    source_heat_id: str = Field(..., description="来源炉次ID")
+    source_heat_id: str | None = Field(default=None, description="来源炉次ID，可为空")
     range_start: TimestampMs = Field(..., description="预览开始时间")
     range_end: TimestampMs = Field(..., description="预览结束时间")
     curves_data: list[CurveData] = Field(default_factory=list, description="候选曲线数据")
@@ -94,7 +94,7 @@ class BaselinePreviewJobResponse(BaseModel):
 
     job_key: str = Field(..., description="预览任务键")
     definition_id: str = Field(..., description="所属定义ID")
-    source_heat_id: str = Field(..., description="来源炉次ID")
+    source_heat_id: str | None = Field(default=None, description="来源炉次ID，可为空")
     status: Literal["idle", "running", "succeeded", "failed"] = Field(
         ..., description="任务状态"
     )

@@ -549,7 +549,7 @@ async def create_baseline_record(
     definition_id: str,
     name: str,
     description: str | None,
-    source_heat_id: str,
+    source_heat_id: str | None,
     selected_start_time: datetime,
     selected_end_time: datetime,
     effective_from: datetime | None,
@@ -571,7 +571,7 @@ async def create_baseline_record(
             name=name,
             description=description,
             status="draft",
-            source_heat_id=source_heat_id,
+            source_heat_id=source_heat_id or None,
             selected_start_time=selected_start_time,
             selected_end_time=selected_end_time,
             effective_from=effective_from or now,
@@ -591,7 +591,7 @@ async def replace_baseline_metric_series(
     *,
     definition_id: str,
     item: str,
-    source_heat: dict[str, Any],
+    source_curves_data: list[dict[str, Any]],
     selected_start_time: datetime,
     selected_end_time: datetime,
 ) -> None:
@@ -609,15 +609,33 @@ async def replace_baseline_metric_series(
         )
         await session.execute(delete(MetricSeries).where(MetricSeries.owner_key == owner_key))
 
-        current_by_kind = {
-            "power": _normalize_curve_points(source_heat.get("power_curve")),
-            "voltage": _normalize_curve_points(source_heat.get("voltage_curve")),
-        }
+        points_by_metric_id: dict[str, list[CurvePoint]] = {}
+        points_by_metric_key: dict[str, list[CurvePoint]] = {}
+        points_by_metric_kind: dict[str, list[CurvePoint]] = {}
+        for curve in source_curves_data:
+            metric_id = str(curve.get("metric_id") or curve.get("item") or "")
+            metric_key = str(curve.get("metric_key") or "").strip().lower()
+            metric_name = str(curve.get("metric_name") or "")
+            unit = str(curve.get("unit") or "")
+            points = _normalize_curve_points(curve.get("points"))
+            if metric_id:
+                points_by_metric_id[metric_id] = points
+            if metric_key and metric_key not in points_by_metric_key:
+                points_by_metric_key[metric_key] = points
+            metric_kind = infer_metric_kind(metric_name, unit)
+            if metric_kind and metric_kind not in points_by_metric_kind:
+                points_by_metric_kind[metric_kind] = points
+
         now = utc_now()
         rows: list[MetricSeries] = []
         for metric in metrics:
             metric_kind = infer_metric_kind(metric.metric_name, metric.unit or "")
-            source_points = current_by_kind.get(metric_kind, [])
+            metric_key = str(metric.metric_key or "").strip().lower()
+            source_points = (
+                points_by_metric_id.get(metric.item)
+                or points_by_metric_key.get(metric_key)
+                or points_by_metric_kind.get(metric_kind, [])
+            )
             selected_points = _slice_curve_points(
                 source_points,
                 start_time=selected_start_time,

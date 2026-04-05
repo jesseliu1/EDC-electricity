@@ -25,7 +25,7 @@ export interface BaselineResponse {
   description: string | null
   definition_id: string
   definition_name: string
-  source_heat_id: string
+  source_heat_id: string | null
   selected_start_time?: number | null
   selected_end_time?: number | null
   effective_from?: number | null
@@ -58,7 +58,7 @@ export interface BaselineCreatePayload {
   name: string
   description?: string
   definition_id: string
-  source_heat_id: string
+  source_heat_id?: string
   selected_start_time?: number
   selected_end_time?: number
   effective_from?: number

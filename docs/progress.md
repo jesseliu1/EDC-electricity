@@ -5884,3 +5884,37 @@ EDC 前端（apps/web，/edc/）
   - `pnpm --dir apps/web build` 通过
 - [ ] 待补页面级回归：本地浏览器路径 `http://localhost:3000/edc/heats` 当时无法在 10s 内完成 HTML 拉取，尚未完成真实页面点击验证
 - [x] 更新 [docs/UAT_CONTINUATION_PROMPT.md](D:\project\EDC electricity\docs\UAT_CONTINUATION_PROMPT.md) 与 [docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md](D:\project\EDC electricity\docs\test-reports\UAT-EDC-ASNS-commercial-acceptance.md)：明确宿主神经网络/连线设置默认测试源 A 为 `http://60.251.229.32/` / `volapu` / `admin`
+
+### 2026-04-05（黄金基线向导改成“按天预览 + 手动选区”，历史 compare 固定走正式表）
+
+- [x] 修复 [heats.py](D:\project\EDC electricity\apps\server\src\api\heats.py)：`/api/heats/{id}/compare` 对 `sealed_history` 不再回退到 `_load_heat_curves_from_edc*`
+  - [x] 历史炉次 `live_curves` 改为从正式表固化曲线裁切到真实炉次窗口
+  - [x] `display_live_curves` 仍保留上下文窗口，兼容详情页放大查看
+  - [x] 历史 compare 的 `current_curve_source` 保持 `formal_db`，避免把历史详情误标成实时直连
+- [x] 修复 [baselines.py](D:\project\EDC electricity\apps\server\src\api\baselines.py)、[baseline_definitions.py](D:\project\EDC electricity\apps\server\src\api\baseline_definitions.py)、[formal_baseline_service.py](D:\project\EDC electricity\apps\server\src\services\formal_baseline_service.py)
+  - [x] 黄金基线创建真源改为 `selected_start_time / selected_end_time`
+  - [x] 选区必须位于同一 `plant_timezone` 业务日，不再强制落在某个来源炉次真实窗口
+  - [x] preview API 支持直接传 `range_start / range_end`，向导主路径不再依赖“先选炉次”
+  - [x] `source_heat_id` 改为可空，仅保留为 UI 定位辅助信息
+  - [x] 基线曲线入库改为从当天整天 preview 曲线按指标切片，不再从单个来源炉次主曲线硬拷贝
+- [x] 更新 [BaselineWizard.vue](D:\project\EDC electricity\apps\web\src\components\baseline\BaselineWizard.vue) 及相关前端 API/store
+  - [x] Step 2 默认按日期直接加载当天整天 preview
+  - [x] 不再自动选第一个 heat；不选 heat 也能直接选点并创建/发布
+  - [x] 选中 heat 仅用于图表定位、预填时间窗和缩放辅助
+  - [x] 基线详情在无 `source_heat_id` 时显示 `--`
+- [x] 同步文档口径
+  - [x] 更新 `docs/BACKEND_STRUCTURE.md`：补齐 `source_heat_id` 可空、`selected_start_time / selected_end_time` 为真源、preview day-first 契约、历史 compare 正式表约束
+  - [x] 更新 `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`：`S06-TC02` 改成“按天加载全天 preview + 不选炉次也可选区”，`S06-TC03` 明确历史 compare 不得被全天曲线污染
+- [x] 同步回归与验收脚本
+  - [x] 更新后端测试：`test_formal_heat_api.py`、`test_formal_baseline_api.py`、`test_api_edge_cases.py`、`test_baselines_dashboard_api.py`、`test_heats_api.py`
+  - [x] 更新 Playwright：`apps/web/e2e/app.spec.ts`、`apps/web/e2e/issue-acceptance.spec.ts`
+- [x] 已验证：
+  - [x] `pytest -q tests/test_baselines_dashboard_api.py -k "preview_curves or preview_job or baseline_crud_publish_disable_and_delete or baseline_delete_draft_and_reject_disabled_definition"` -> `8 passed`
+  - [x] `pytest -q tests/test_formal_baseline_api.py tests/test_api_edge_cases.py` -> `10 passed`
+  - [x] `pytest -q tests/test_heats_api.py -k "default_baseline or runtime_heat_id_keeps_same_source_heat_id or preview_and_baseline_time_window or runtime_heat_ids_can_resolve_preview_and_baseline_windows"` -> `4 passed`
+  - [x] `pytest -q tests/test_formal_heat_api.py tests/test_formal_baseline_api.py tests/test_api_edge_cases.py tests/test_baselines_dashboard_api.py tests/test_heats_api.py` -> `86 passed`
+  - [x] `pnpm --dir apps/web lint` -> 仅既有 warning，无 error
+  - [x] `pnpm --dir apps/web build` 通过
+  - [x] `pnpm --dir apps/web test:i18n` 通过
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "can create and publish a baseline from the wizard"` -> `1 passed`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "baseline wizard"` -> `3 passed`

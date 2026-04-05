@@ -8,6 +8,10 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   })
 }
 
+function toTimestampMs(iso: string) {
+  return new Date(iso).getTime()
+}
+
 function buildCurvePoints(
   startIso: string,
   count: number,
@@ -22,16 +26,29 @@ function buildCurvePoints(
   }))
 }
 
+async function clickChartAt(page: Page, testId: string, xRatio: number, yRatio: number) {
+  const canvas = page.getByTestId(testId).locator('canvas').first()
+  const box = await canvas.boundingBox()
+  expect(box).not.toBeNull()
+
+  await page.mouse.click(
+    (box?.x || 0) + (box?.width || 0) * xRatio,
+    (box?.y || 0) + (box?.height || 0) * yRatio
+  )
+}
+
 async function mockBaselineWizardSmoke(page: Page) {
   const powerCurve = buildCurvePoints('2026-03-19T08:00:00Z', 40, 1, 438, 6)
   const voltageCurve = buildCurvePoints('2026-03-19T08:00:00Z', 40, 1, 386, 1.5)
+  const previewRangeStart = toTimestampMs('2026-03-19T00:00:00Z')
+  const previewRangeEnd = toTimestampMs('2026-03-20T00:00:00Z')
   const previewJobPayload = {
     job_key: 'def-real:2026-03-19',
     definition_id: 'def-real',
-    source_heat_id: 'heat-real-001',
+    source_heat_id: null,
     status: 'succeeded',
-    range_start: '2026-03-19T00:00:00Z',
-    range_end: '2026-03-20T00:00:00Z',
+    range_start: previewRangeStart,
+    range_end: previewRangeEnd,
     curves_data: [
       {
         metric_id: 'metric-power',
@@ -55,10 +72,10 @@ async function mockBaselineWizardSmoke(page: Page) {
       },
     ],
     last_error: null,
-    created_at: '2026-03-19T08:00:00Z',
-    started_at: '2026-03-19T08:00:01Z',
-    updated_at: '2026-03-19T08:00:02Z',
-    completed_at: '2026-03-19T08:00:02Z',
+    created_at: toTimestampMs('2026-03-19T08:00:00Z'),
+    started_at: toTimestampMs('2026-03-19T08:00:01Z'),
+    updated_at: toTimestampMs('2026-03-19T08:00:02Z'),
+    completed_at: toTimestampMs('2026-03-19T08:00:02Z'),
   }
 
   await page.route('**/api/baselines/active', async (route) => {
@@ -80,11 +97,11 @@ async function mockBaselineWizardSmoke(page: Page) {
         status: 'draft',
         version: 1,
         tolerance_percent: 15,
-        source_heat_id: 'heat-real-001',
-        selected_start_time: '2026-03-19T08:05:00Z',
-        selected_end_time: '2026-03-19T08:35:00Z',
-        created_at: '2026-03-19T08:45:00Z',
-        updated_at: '2026-03-19T08:45:00Z',
+        source_heat_id: null,
+        selected_start_time: toTimestampMs('2026-03-19T08:05:00Z'),
+        selected_end_time: toTimestampMs('2026-03-19T08:35:00Z'),
+        created_at: toTimestampMs('2026-03-19T08:45:00Z'),
+        updated_at: toTimestampMs('2026-03-19T08:45:00Z'),
         published_at: null,
         curves_data: [],
         power_curve: [],
@@ -104,12 +121,12 @@ async function mockBaselineWizardSmoke(page: Page) {
       status: 'published',
       version: 1,
       tolerance_percent: 15,
-      source_heat_id: 'heat-real-001',
-      selected_start_time: '2026-03-19T08:05:00Z',
-      selected_end_time: '2026-03-19T08:35:00Z',
-      created_at: '2026-03-19T08:45:00Z',
-      updated_at: '2026-03-19T08:46:00Z',
-      published_at: '2026-03-19T08:46:00Z',
+      source_heat_id: null,
+      selected_start_time: toTimestampMs('2026-03-19T08:05:00Z'),
+      selected_end_time: toTimestampMs('2026-03-19T08:35:00Z'),
+      created_at: toTimestampMs('2026-03-19T08:45:00Z'),
+      updated_at: toTimestampMs('2026-03-19T08:46:00Z'),
+      published_at: toTimestampMs('2026-03-19T08:46:00Z'),
       curves_data: [],
       power_curve: [],
       voltage_curve: [],
@@ -144,8 +161,8 @@ async function mockBaselineWizardSmoke(page: Page) {
             },
           ],
           instance_count: 0,
-          created_at: '2026-03-19T00:00:00Z',
-          updated_at: '2026-03-19T00:00:00Z',
+          created_at: toTimestampMs('2026-03-19T00:00:00Z'),
+          updated_at: toTimestampMs('2026-03-19T00:00:00Z'),
         },
       ],
       total: 1,
@@ -158,10 +175,10 @@ async function mockBaselineWizardSmoke(page: Page) {
           id: 'heat-real-001',
           heat_no: 'H20260319-001',
           description: null,
-          start_time: '2026-03-19T08:00:00Z',
-          end_time: '2026-03-19T08:40:00Z',
+          start_time: toTimestampMs('2026-03-19T08:00:00Z'),
+          end_time: toTimestampMs('2026-03-19T08:40:00Z'),
           completion_status: 'completed',
-          last_point_at: '2026-03-19T08:40:00Z',
+          last_point_at: toTimestampMs('2026-03-19T08:40:00Z'),
           baseline_version_id: null,
           baseline_effective_from: null,
           baseline_id: null,
@@ -176,7 +193,7 @@ async function mockBaselineWizardSmoke(page: Page) {
           blocked_by_issue: false,
           status: 'normal',
           temperature: 1458,
-          created_at: '2026-03-19T08:00:00Z',
+          created_at: toTimestampMs('2026-03-19T08:00:00Z'),
         },
       ],
       total: 1,
@@ -635,14 +652,29 @@ test.describe('EDC web smoke flows', () => {
     await page.getByTestId('baseline-wizard-name-input').fill('E2E 基线回归样例')
     await page.getByTestId('baseline-wizard-next').click()
     await expect(page.getByTestId('baseline-wizard-point-range-panel')).toBeVisible()
+    await expect(page.getByText(/可选：选择炉次只用于定位和放大/)).toBeVisible()
+    await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute(
+      'data-start',
+      ''
+    )
+    await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute(
+      'data-end',
+      ''
+    )
+
+    await page.getByTestId('baseline-wizard-pick-start').click()
+    await clickChartAt(page, 'baseline-wizard-chart', 0.2, 0.35)
     await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute(
       'data-start',
       /.+/
     )
+    await page.getByTestId('baseline-wizard-pick-end').click()
+    await clickChartAt(page, 'baseline-wizard-chart', 0.72, 0.35)
     await expect(page.getByTestId('baseline-wizard-selection-state')).toHaveAttribute(
       'data-end',
       /.+/
     )
+
     await page.getByTestId('baseline-wizard-next').click()
     await expect(page.getByTestId('baseline-wizard-publish')).toBeVisible()
     await page.getByTestId('baseline-wizard-publish').click()

@@ -1,9 +1,13 @@
 """API 错误分支与边界场景测试。"""
 
+from datetime import datetime
+
 import pytest
 
 PRIMARY_BASELINE_ID = "def-001:001"
 SECONDARY_BASELINE_ID = "def-002:001"
+BASELINE_SELECTION_START = int(datetime(2026, 3, 12, 10, 0, 0).timestamp() * 1000)
+BASELINE_SELECTION_END = int(datetime(2026, 3, 12, 10, 45, 0).timestamp() * 1000)
 
 
 @pytest.mark.asyncio
@@ -49,6 +53,8 @@ async def test_baseline_invalid_state_transitions_and_validation(client) -> None
             "name": "bad definition",
             "definition_id": "def-not-exists",
             "source_heat_id": "heat-001",
+            "selected_start_time": BASELINE_SELECTION_START,
+            "selected_end_time": BASELINE_SELECTION_END,
             "tolerance_percent": 10,
         },
     )
@@ -60,6 +66,8 @@ async def test_baseline_invalid_state_transitions_and_validation(client) -> None
             "name": "bad tolerance",
             "definition_id": "def-001",
             "source_heat_id": "heat-001",
+            "selected_start_time": BASELINE_SELECTION_START,
+            "selected_end_time": BASELINE_SELECTION_END,
             "tolerance_percent": 120,
         },
     )

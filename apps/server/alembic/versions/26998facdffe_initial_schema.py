@@ -102,7 +102,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=100), nullable=False, comment="基线名称"),
         sa.Column("description", sa.Text(), nullable=True, comment="基线描述"),
         sa.Column("status", sa.String(length=20), nullable=True, comment="基线状态"),
-        sa.Column("source_heat_id", sa.String(length=100), nullable=False, comment="生成该基线的来源炉次"),
+        sa.Column("source_heat_id", sa.String(length=100), nullable=True, comment="生成该基线的来源炉次，可为空"),
         sa.Column("selected_start_time", sa.BigInteger(), nullable=False, comment="选区开始时间"),
         sa.Column("selected_end_time", sa.BigInteger(), nullable=False, comment="选区结束时间"),
         sa.Column("effective_from", sa.BigInteger(), nullable=False, comment="生效时间"),

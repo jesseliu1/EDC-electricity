@@ -35,7 +35,7 @@ import { baselineDefinitionApi } from '@/api/baselineDefinition'
 import type { BaselinePreviewJobResponse, BaselinePreviewJobStatus } from '@/api/baselineDefinition'
 import { heatApi } from '@/api/heat'
 import type { HeatRuntimeSnapshotStatus } from '@/api/heat'
-import { formatTimestamp, plantDayRangeFromDate } from '@/utils/time'
+import { formatTimestamp, plantDayRangeFromDate, timestampToPlantPickerDate } from '@/utils/time'
 
 use([
   CanvasRenderer,
@@ -66,7 +66,7 @@ interface WizardSubmitPayload {
   name: string
   description: string
   definitionId: string
-  sourceHeatId: string
+  sourceHeatId?: string
   selectedStartTime?: number
   selectedEndTime?: number
   tolerancePercent: number
@@ -147,6 +147,7 @@ const heatCandidatesLoading = ref(false)
 const stepTwoActivated = ref(false)
 const stepTwoBootstrapping = ref(false)
 const previewWindowLabel = ref('')
+const currentPreviewRange = ref<{ start: number; end: number } | null>(null)
 const heatCandidatesDate = ref<Date | null>(new Date())
 const currentPreviewRequestKey = ref('')
 let previewRequestToken = 0
@@ -218,6 +219,56 @@ function mapPreviewCurves(
   }))
 }
 
+function resolvePreviewRange() {
+  if (!heatCandidatesDate.value) return null
+  return plantDayRangeFromDate(heatCandidatesDate.value)
+}
+
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, value))
+}
+
+function buildPreviewZoomWindow(
+  previewStart: number,
+  previewEnd: number,
+  focusStart?: number | null,
+  focusEnd?: number | null
+) {
+  if (
+    focusStart === null ||
+    focusStart === undefined ||
+    focusEnd === null ||
+    focusEnd === undefined ||
+    focusEnd <= focusStart
+  ) {
+    return { start: 0, end: 100 }
+  }
+
+  const total = Math.max(previewEnd - previewStart, 1)
+  const rawStart = ((Math.max(focusStart, previewStart) - previewStart) / total) * 100
+  const rawEnd = ((Math.min(focusEnd, previewEnd) - previewStart) / total) * 100
+  const padding = Math.max((rawEnd - rawStart) * 0.15, 2)
+  return {
+    start: clampPercent(rawStart - padding),
+    end: clampPercent(rawEnd + padding),
+  }
+}
+
+function syncPreviewZoomWindow() {
+  const previewRange = currentPreviewRange.value
+  if (!previewRange) {
+    zoomWindow.value = { start: 0, end: 100 }
+    return
+  }
+
+  zoomWindow.value = buildPreviewZoomWindow(
+    previewRange.start,
+    previewRange.end,
+    selectedHeat.value?.startTime,
+    selectedHeat.value?.endTime
+  )
+}
+
 async function loadHeatCandidates() {
   clearHeatCandidatesRetry()
   heatCandidatesError.value = ''
@@ -225,9 +276,7 @@ async function loadHeatCandidates() {
   heatCandidatesLoading.value = true
   const previousCandidates = [...heatCandidates.value]
   try {
-    const dateRange = heatCandidatesDate.value
-      ? plantDayRangeFromDate(heatCandidatesDate.value)
-      : null
+    const dateRange = resolvePreviewRange()
     const data = await heatApi.list({
       page: 1,
       page_size: 50,
@@ -291,8 +340,7 @@ async function loadHeatCandidates() {
     selectedHeatId.value &&
     !heatCandidates.value.some((item) => item.id === selectedHeatId.value)
   ) {
-    const fallbackHeat = heatCandidates.value[0]
-    selectedHeatId.value = fallbackHeat?.id || ''
+    selectedHeatId.value = ''
   }
 }
 
@@ -300,13 +348,10 @@ async function loadPreviewCurves() {
   if (!stepTwoActivated.value) return
   if (!formData.value.definitionId) return
 
-  const targetHeatId = selectedHeatId.value || heatCandidates.value[0]?.id
-  if (!targetHeatId) return
+  const dateRange = resolvePreviewRange()
+  if (!dateRange) return
 
-  const selectedHeatItem = heatCandidates.value.find((item) => item.id === targetHeatId)
-  const nextPreviewRequestKey = selectedHeatItem
-    ? `${formData.value.definitionId}:${formatTimestamp(selectedHeatItem.startTime, 'YYYY-MM-DD')}`
-    : `${formData.value.definitionId}:${targetHeatId}`
+  const nextPreviewRequestKey = `${formData.value.definitionId}:${dateRange.start}:${dateRange.end}`
   const isSamePreviewRequest = currentPreviewRequestKey.value === nextPreviewRequestKey
   currentPreviewRequestKey.value = nextPreviewRequestKey
 
@@ -316,20 +361,21 @@ async function loadPreviewCurves() {
     previewError.value = ''
     previewWindowLabel.value = ''
     previewJobUpdatedAt.value = ''
+    currentPreviewRange.value = null
     previewJobStatus.value = 'idle'
   }
 
   const requestToken = ++previewRequestToken
   try {
     previewLoading.value = true
-    const preview = await baselineDefinitionApi.startPreviewJob(
-      formData.value.definitionId,
-      targetHeatId
-    )
+    const preview = await baselineDefinitionApi.startPreviewJob(formData.value.definitionId, {
+      range_start: dateRange.start,
+      range_end: dateRange.end,
+    })
     if (requestToken !== previewRequestToken) return
     applyPreviewJobState(preview)
     if (preview.status === 'running') {
-      schedulePreviewPoll(targetHeatId)
+      schedulePreviewPoll(dateRange.start, dateRange.end)
     } else {
       clearPreviewPoll()
     }
@@ -354,6 +400,10 @@ function clearPreviewPoll() {
 
 function applyPreviewJobState(previewJob: BaselinePreviewJobResponse) {
   previewJobStatus.value = previewJob.status
+  currentPreviewRange.value = {
+    start: previewJob.range_start,
+    end: previewJob.range_end,
+  }
   previewWindowLabel.value = `${formatTimestamp(previewJob.range_start, 'MM-DD HH:mm:ss')} ~ ${formatTimestamp(
     previewJob.range_end,
     'MM-DD HH:mm:ss'
@@ -365,7 +415,7 @@ function applyPreviewJobState(previewJob: BaselinePreviewJobResponse) {
   const mappedCurves = mapPreviewCurves(previewJob.curves_data)
   if (mappedCurves.some((curve) => curve.points.length > 0)) {
     previewCurves.value = mappedCurves
-    zoomWindow.value = { start: 0, end: 100 }
+    syncPreviewZoomWindow()
   }
 
   if (previewJob.status === 'failed') {
@@ -380,16 +430,19 @@ function applyPreviewJobState(previewJob: BaselinePreviewJobResponse) {
   }
 }
 
-function schedulePreviewPoll(heatId: string) {
+function schedulePreviewPoll(rangeStart: number, rangeEnd: number) {
   clearPreviewPoll()
   previewPollTimer = window.setTimeout(async () => {
     const requestToken = ++previewRequestToken
     try {
-      const preview = await baselineDefinitionApi.getPreviewJob(formData.value.definitionId, heatId)
+      const preview = await baselineDefinitionApi.getPreviewJob(formData.value.definitionId, {
+        range_start: rangeStart,
+        range_end: rangeEnd,
+      })
       if (requestToken !== previewRequestToken) return
       applyPreviewJobState(preview)
       if (preview.status === 'running') {
-        schedulePreviewPoll(heatId)
+        schedulePreviewPoll(rangeStart, rangeEnd)
       } else {
         clearPreviewPoll()
       }
@@ -412,15 +465,13 @@ async function ensureStepTwoData() {
 
     if (props.initialSourceHeatId) {
       selectedHeatId.value = props.initialSourceHeatId
-    } else if (!selectedHeatId.value && heatCandidates.value[0]) {
-      selectedHeatId.value = heatCandidates.value[0].id
     }
 
     if (props.initialSelectedStartTime !== null && props.initialSelectedEndTime !== null) {
       selectedStart.value = props.initialSelectedStartTime
       selectedEnd.value = props.initialSelectedEndTime
       normalizeRange()
-    } else if (!selectedStart.value || !selectedEnd.value) {
+    } else if (selectedHeat.value && (!selectedStart.value || !selectedEnd.value)) {
       resetRangeByHeat()
     }
   } finally {
@@ -449,16 +500,10 @@ async function handleRefreshHeatCandidates() {
   if (!stepTwoActivated.value || stepTwoBootstrapping.value) {
     return
   }
-  if (!selectedHeatId.value && heatCandidates.value[0]) {
-    selectedHeatId.value = heatCandidates.value[0].id
-    return
-  }
-  if (selectedHeatId.value) {
-    await loadPreviewCurves()
-  }
+  await loadPreviewCurves()
 }
 
-function handleCandidateDateChange(value: Date | null) {
+async function handleCandidateDateChange(value: Date | null) {
   heatCandidatesDate.value = value
   selectedHeatId.value = ''
   selectedStart.value = null
@@ -469,10 +514,14 @@ function handleCandidateDateChange(value: Date | null) {
   previewJobStatus.value = 'idle'
   previewJobUpdatedAt.value = ''
   previewWindowLabel.value = ''
+  currentPreviewRange.value = null
   currentPreviewRequestKey.value = ''
   heatCandidatesEmpty.value = false
   heatCandidatesSnapshotStatus.value = 'warming'
-  void loadHeatCandidates()
+  await loadHeatCandidates()
+  if (stepTwoActivated.value && !stepTwoBootstrapping.value) {
+    await loadPreviewCurves()
+  }
 }
 
 const heatCandidatesPreparing = computed(
@@ -524,13 +573,13 @@ function normalizeRange() {
 
 function resetRangeByHeat() {
   if (!selectedHeat.value) {
-    selectedStart.value = null
-    selectedEnd.value = null
+    syncPreviewZoomWindow()
     return
   }
 
   selectedStart.value = selectedHeat.value.startTime
   selectedEnd.value = selectedHeat.value.endTime
+  syncPreviewZoomWindow()
 }
 
 function handleSelectHeat(id: string) {
@@ -839,7 +888,7 @@ const summaryStats = computed(() => {
 })
 
 const previewHeatSummary = computed(() => {
-  if (!selectedHeat.value) return '--'
+  if (!selectedHeat.value) return t('baseline.wizard.previewHeatWindowEmpty')
   return `${selectedHeat.value.heatNo} · ${formatTimestamp(
     selectedHeat.value.startTime,
     'MM-DD HH:mm:ss'
@@ -856,10 +905,6 @@ async function nextStep() {
   }
   if (activeStep.value === 0 && !formData.value.definitionId) {
     ElMessage.warning(t('baseline.wizard.definitionRequired'))
-    return
-  }
-  if (activeStep.value === 1 && !selectedHeatId.value) {
-    ElMessage.warning(t('baseline.wizard.selectHeatRequired'))
     return
   }
   if (activeStep.value === 1 && previewRunning.value) {
@@ -900,7 +945,7 @@ function submit(mode: 'draft' | 'publish') {
   if (props.submitting) {
     return
   }
-  if (!selectedHeatId.value || !formData.value.name.trim() || !formData.value.definitionId) {
+  if (!formData.value.name.trim() || !formData.value.definitionId) {
     ElMessage.warning(t('baseline.wizard.incompleteForm'))
     return
   }
@@ -912,7 +957,7 @@ function submit(mode: 'draft' | 'publish') {
     name: formData.value.name.trim(),
     description: formData.value.description.trim(),
     definitionId: formData.value.definitionId,
-    sourceHeatId: selectedHeatId.value,
+    sourceHeatId: selectedHeatId.value || undefined,
     selectedStartTime: rangeStart !== null ? rangeStart : undefined,
     selectedEndTime: rangeEnd !== null ? rangeEnd : undefined,
     tolerancePercent: formData.value.tolerancePercent,
@@ -926,28 +971,26 @@ watch(
     if (!stepTwoActivated.value || stepTwoBootstrapping.value) {
       return
     }
-    if (!selectedHeatId.value && heatCandidates.value[0]) {
-      selectedHeatId.value = heatCandidates.value[0].id
-    }
     if (props.initialSelectedStartTime !== null && props.initialSelectedEndTime !== null) {
       selectedStart.value = props.initialSelectedStartTime
       selectedEnd.value = props.initialSelectedEndTime
       normalizeRange()
-    } else if (!selectedStart.value || !selectedEnd.value) {
+    } else if (selectedHeat.value && (!selectedStart.value || !selectedEnd.value)) {
       resetRangeByHeat()
     }
     await loadPreviewCurves()
   }
 )
 
-watch(selectedHeatId, async () => {
+watch(selectedHeatId, () => {
   if (!stepTwoActivated.value || stepTwoBootstrapping.value) {
     return
   }
-  if (activeStep.value === 1 || !selectedStart.value || !selectedEnd.value) {
+  if (selectedHeat.value && (activeStep.value === 1 || !selectedStart.value || !selectedEnd.value)) {
     resetRangeByHeat()
+    return
   }
-  await loadPreviewCurves()
+  syncPreviewZoomWindow()
 })
 
 onMounted(async () => {
@@ -959,6 +1002,13 @@ onMounted(async () => {
   }
 
   formData.value.name = props.initialName || ''
+
+  const initialPreviewDate =
+    timestampToPlantPickerDate(props.initialSelectedStartTime) ||
+    timestampToPlantPickerDate(props.initialSelectedEndTime)
+  if (initialPreviewDate) {
+    heatCandidatesDate.value = initialPreviewDate
+  }
 
   if (props.initialSourceHeatId) {
     selectedHeatId.value = props.initialSourceHeatId
@@ -1127,6 +1177,11 @@ onBeforeUnmount(() => {
           class="max-h-[520px] overflow-y-auto pr-2 md:max-h-[360px]"
           data-testid="baseline-wizard-heat-candidate-list"
         >
+          <div
+            class="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
+          >
+            {{ t('baseline.wizard.heatCandidatesOptionalHint') }}
+          </div>
           <div
             v-if="heatCandidatesPreparing && !heatCandidatesLoading && heatCandidates.length === 0"
             class="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700"
