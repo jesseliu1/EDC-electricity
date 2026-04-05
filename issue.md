@@ -137,6 +137,7 @@
 ### ISSUE-2026-04-05-002
 
 - **状态**: 未修理
+- **GitHub Issue**: `#5` <https://github.com/jesseliu1/EDC-electricity/issues/5>
 - **问题简述**: 演示模式虽然已统一为请求级 `showtime=true`，但代码中仍残留 `demo_* / mock_*` 双套命名与演示分支，正式部署语义还不够干净
 - **影响范围**: 炉次来源标签、基线曲线来源标签、排障判断、部署验收口径、后续重构清理成本
 - **复现步骤**:
@@ -164,6 +165,7 @@
 ### ISSUE-2026-04-05-003
 
 - **状态**: 未修理
+- **GitHub Issue**: `#6` <https://github.com/jesseliu1/EDC-electricity/issues/6>
 - **问题简述**: fallback 口径仍分散在多层，真实链路、showtime 演示链路与保底回退链路还存在混杂，后续仍需系统性收口
 - **影响范围**: 炉次列表/详情、基线详情、compare、历史详情排障、来源标签可信度、企业系统审计语义
 - **复现步骤**:
