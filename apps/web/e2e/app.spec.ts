@@ -873,6 +873,7 @@ test.describe('EDC web smoke flows', () => {
 
     expect(createPayload).toEqual({
       heat_id: 'issue-heat',
+      baseline_id: 'baseline-001',
       heat_no: 'H20260313-001',
       deviation_percent: 18.5,
       avg_deviation_percent: 9.2,

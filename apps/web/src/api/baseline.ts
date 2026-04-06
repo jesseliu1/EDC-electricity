@@ -25,6 +25,7 @@ export interface BaselineResponse {
   description: string | null
   definition_id: string
   definition_name: string
+  is_default: boolean
   source_heat_id: string | null
   selected_start_time?: number | null
   selected_end_time?: number | null
@@ -52,6 +53,7 @@ export interface BaselineSummary {
   name: string
   status: BaselineStatus
   version: number
+  is_default: boolean
 }
 
 export interface BaselineCreatePayload {
@@ -63,6 +65,7 @@ export interface BaselineCreatePayload {
   selected_end_time?: number
   effective_from?: number
   tolerance_percent: number
+  is_default?: boolean
 }
 
 export interface BaselineUpdatePayload {
@@ -72,6 +75,7 @@ export interface BaselineUpdatePayload {
   selected_end_time?: number
   effective_from?: number
   tolerance_percent?: number
+  is_default?: boolean
 }
 
 export const baselineApi = {

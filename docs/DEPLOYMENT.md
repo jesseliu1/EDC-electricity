@@ -20,6 +20,9 @@
 - 在非交互 shell / agent / CI 中执行时，会自动补 `XDG_RUNTIME_DIR=/run/user/$(id -u)` 与 `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus`
 - 当前后端部署刷新不只会修 `runtime_host_channels`，还会同步 reconcile `runtime_channel_role_bindings` 与 `runtime_baseline_definitions`
 - 如果旧环境里还残留“目录里仍合法、但当前 5 分钟读空”的基波类角色绑定，`deploy-refresh` 会优先替换成当前源下真实可读的 live 通道
+- 当前 `python -m src.runtime_state_admin --mode factory-reset` 已升级为“删除目标 SQLite 及其 `-wal/-shm/-journal`，再按当前代码 schema 重建空库”
+- 因此 `factory-reset + ASNS_BOOTSTRAP_MODE=blank` 的当前语义已经不是“只清表数据”，而是“删旧库、重建当前 schema、再以 blank 空白运行态启动”
+- 只要用户口头要求“公网部署 / 公网重部署”，且没有明确要求保留旧业务数据，默认按上述“彻底删除干净并重建”的口径执行
 
 ## 1. 部署范围
 
@@ -94,6 +97,20 @@ ASNS_DEBUG=false
 - 如需持久化，部署时请保证 `data/` 目录可写
 - `ASNS_BOOTSTRAP_MODE=demo` 是当前默认值
 - 如果是新服务器首次部署，且希望启动后就是空白系统，不要写入 demo 基线/炉次/宿主绑定，应显式设置 `ASNS_BOOTSTRAP_MODE=blank`
+- 如果目标是 blank 重部署，不要复用旧 `asns.db`；应先执行 `factory-reset`，让脚本删除旧库并按当前代码重建
+- 如果目标是“公网 blank 重部署”，推荐先用 `EDC_SERVER_SKIP_START=1` 同步 runtime，避免后端在删库前先带着旧 SQLite 短暂启动一次：
+
+```bash
+EDC_SERVER_SKIP_SOURCE_REFRESH=1 EDC_SERVER_SKIP_START=1 ./scripts/sync-edc-server.sh
+systemctl --user stop edc-backend.service
+/home/openclaw/edc-electricity-server/venv/bin/python -m src.runtime_state_admin \
+  --db /home/openclaw/edc-electricity-server/data/asns.db \
+  --mode factory-reset
+systemctl --user start edc-backend.service
+./scripts/publish-edc-web-and-asns.sh
+```
+
+- 上述顺序的目标是：先把代码同步到 runtime，但在 SQLite 仍是旧库时不让后端先起来；真正的第一次启动应发生在 `factory-reset` 之后
 - 当前仓库部署口径已不再要求保留旧 `venv/`，而是每次同步后从源码重建运行环境
 - 当前项目没有额外的 Redis、MQ、对象存储前置要求
 
@@ -223,6 +240,20 @@ PORT=3001
 ./scripts/sync-edc-server.sh
 ./scripts/publish-edc-web-and-asns.sh
 ```
+
+如果这次是公网 blank 重部署，标准顺序改为：
+
+```bash
+./scripts/sync-edc-server.sh
+systemctl --user stop edc-backend.service
+/home/openclaw/edc-electricity-server/venv/bin/python -m src.runtime_state_admin \
+  --db /home/openclaw/edc-electricity-server/data/asns.db \
+  --mode factory-reset
+systemctl --user start edc-backend.service
+./scripts/publish-edc-web-and-asns.sh
+```
+
+其中第 3 步当前会直接删除旧 SQLite 并按最新 schema 重建空库，所以这是“真正重建”，不是“保留旧库后清空数据”。
 
 其中 `scripts/sync-edc-server.sh` 当前还会在同步完成后自动执行：
 

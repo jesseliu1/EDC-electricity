@@ -21,6 +21,20 @@
 
 ## 记录
 
+### 2026-04-06 blank 重部署时，代码同步和删库重建之间不能让后端先带旧库启动
+
+- **错误模式**: 先执行 `sync-edc-server.sh`，脚本会在 runtime 同步完成后自动拉起 `edc-backend.service`。如果这时旧 SQLite 里仍保留真实 EDC 配置，后端会在 `factory-reset` 前短暂按旧配置启动，和“先 blank 再启动”的语义冲突。
+- **正确做法**: blank 重部署要把“同步代码”和“第一次启动后端”拆开。同步 runtime 时使用 `EDC_SERVER_SKIP_START=1`，让后端在旧库阶段保持停止；完成 `factory-reset` 删库重建后，再手动 `systemctl --user start edc-backend.service`。这样后端第一次启动就是对着新空库的 blank 态。
+- **适用场景**: 公网 blank 重部署、要求“不接真实 EDC”“不带旧业务数据”“彻底空白启动”的服务器重建场景。
+- **相关文档**: `scripts/sync-edc-server.sh`, `docs/DEPLOYMENT.md`, `docs/progress.md`
+
+### 2026-04-06 公网 blank 重部署不能把“清数据”误当成“重建数据库”
+
+- **错误模式**: 看到 `factory-reset + blank` 已执行，就默认认为线上 SQLite 已经和当前代码 schema 对齐，实际上旧库文件只是被清空了数据，表结构仍可能停留在旧版本，最终出现“代码允许、线上 DB 不允许”的漂移，例如 `baselines.source_heat_id` 代码已可空，但线上列仍是 `NOT NULL`。
+- **正确做法**: 只要任务目标是“公网部署 / 公网重部署 / blank 重建”，默认必须把 SQLite 也纳入重建范围。`factory-reset` 应直接删除旧 `asns.db` 及 `-wal/-shm/-journal`，再按当前代码 schema 重建空库；随后再用 `ASNS_BOOTSTRAP_MODE=blank` 启动。不能再把“删表数据”当成“数据库已重建”。
+- **适用场景**: 公网部署、服务器重部署、blank 环境重建、跨 schema 重构后的上线、任何用户明确要求“彻底删除干净、结果与当前代码一致”的场景。
+- **相关文档**: `docs/DEPLOYMENT.md`, `apps/server/src/runtime_state_admin.py`, `apps/server/tests/test_runtime_state_admin.py`
+
 ### 2026-04-05 正式表与旧内存样板并存时，详情解析必须优先 formal record
 
 - **错误模式**: 炉次列表已经切到正式表，但详情/compare/analyze/task 仍在 `resolve_heat_record()` 里先命中旧 `_HEAT_STORE`。一旦 legacy 样板和正式炉次共用同一个 `heat_id`，就会出现“列表看起来有基线，详情点进去却变成旧 demo/pending/block 状态”的混搭。

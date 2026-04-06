@@ -2,6 +2,7 @@
 
 from .baseline import Baseline, BaselineDefinition, BaselineDefinitionMetric
 from .heat import Heat
+from .heat_baseline_binding import HeatBaselineBinding
 from .metric_series import MetricSeries
 from .setting import Setting, SettingKeys
 from .task import Task
@@ -12,6 +13,7 @@ __all__ = [
     "Baseline",
     "MetricSeries",
     "Heat",
+    "HeatBaselineBinding",
     "Task",
     "Setting",
     "SettingKeys",

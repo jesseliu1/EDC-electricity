@@ -102,6 +102,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=100), nullable=False, comment="基线名称"),
         sa.Column("description", sa.Text(), nullable=True, comment="基线描述"),
         sa.Column("status", sa.String(length=20), nullable=True, comment="基线状态"),
+        sa.Column("is_default", sa.Boolean(), nullable=False, comment="是否默认黄金基线"),
         sa.Column("source_heat_id", sa.String(length=100), nullable=True, comment="生成该基线的来源炉次，可为空"),
         sa.Column("selected_start_time", sa.BigInteger(), nullable=False, comment="选区开始时间"),
         sa.Column("selected_end_time", sa.BigInteger(), nullable=False, comment="选区结束时间"),
@@ -127,6 +128,7 @@ def upgrade() -> None:
         ["effective_from"],
         unique=False,
     )
+    op.create_index("idx_baselines_is_default", "baselines", ["is_default"], unique=False)
     op.create_index(
         "idx_baselines_source_heat",
         "baselines",
@@ -152,15 +154,6 @@ def upgrade() -> None:
         sa.Column("context_end_time", sa.BigInteger(), nullable=False, comment="上下文窗口结束时间"),
         sa.Column("sealed_at", sa.BigInteger(), nullable=False, comment="固化入库时间"),
         sa.Column("source_kind", sa.String(length=30), nullable=False, comment="来源类型"),
-        sa.Column("baseline_definition_id", sa.String(length=36), nullable=True, comment="绑定的基线定义ID"),
-        sa.Column("baseline_item", sa.String(length=3), nullable=True, comment="绑定的基线版本项"),
-        sa.Column("baseline_effective_from_snapshot", sa.BigInteger(), nullable=True, comment="绑定时的基线生效时间快照"),
-        sa.Column("deviation_status", sa.String(length=20), nullable=False, comment="偏离度状态"),
-        sa.Column("deviation_percent", sa.Float(), nullable=True, comment="最大偏离度"),
-        sa.Column("avg_deviation_percent", sa.Float(), nullable=True, comment="平均偏离度"),
-        sa.Column("deviation_details_json", sa.Text(), nullable=True, comment="偏离详情JSON"),
-        sa.Column("time_offset_percent", sa.Float(), nullable=True, comment="时间偏移比例"),
-        sa.Column("mismatch_duration_minutes", sa.Float(), nullable=True, comment="连续不一致时长"),
         sa.Column("cut_reason", sa.String(length=100), nullable=True, comment="切割原因"),
         sa.Column("cut_status", sa.String(length=30), nullable=False, comment="切割状态"),
         sa.Column("status", sa.String(length=20), nullable=False, comment="炉次状态"),
@@ -171,17 +164,52 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("heat_no", name="uq_heats_heat_no"),
     )
-    op.create_index(
-        "idx_heats_baseline_binding",
-        "heats",
-        ["baseline_definition_id", "baseline_item", "start_time"],
-        unique=False,
-    )
-    op.create_index("idx_heats_deviation_status", "heats", ["deviation_status", "start_time"], unique=False)
     op.create_index("idx_heats_end_time", "heats", ["end_time"], unique=False)
     op.create_index("idx_heats_furnace_time", "heats", ["furnace_id", "start_time"], unique=False)
     op.create_index("idx_heats_start_time", "heats", ["start_time"], unique=False)
     op.create_index("idx_heats_status", "heats", ["status", "start_time"], unique=False)
+
+    op.create_table(
+        "heat_baseline_bindings",
+        sa.Column("heat_id", sa.String(length=36), nullable=False, comment="炉次ID"),
+        sa.Column("baseline_definition_id", sa.String(length=36), nullable=False, comment="基线定义ID"),
+        sa.Column("baseline_item", sa.String(length=3), nullable=False, comment="基线版本项"),
+        sa.Column("is_primary", sa.Boolean(), nullable=False, comment="是否主黄金基线"),
+        sa.Column("effective_from_snapshot", sa.BigInteger(), nullable=True, comment="绑定时的基线生效时间快照"),
+        sa.Column("tolerance_percent_snapshot", sa.Float(), nullable=True, comment="绑定时的基线容许误差快照"),
+        sa.Column("analysis_status", sa.String(length=20), nullable=False, comment="分析状态"),
+        sa.Column("deviation_percent", sa.Float(), nullable=True, comment="最大偏离度"),
+        sa.Column("avg_deviation_percent", sa.Float(), nullable=True, comment="平均偏离度"),
+        sa.Column("deviation_details_json", sa.Text(), nullable=True, comment="偏离详情JSON"),
+        sa.Column("time_offset_percent", sa.Float(), nullable=True, comment="时间偏移比例"),
+        sa.Column("mismatch_duration_minutes", sa.Float(), nullable=True, comment="连续不一致时长"),
+        sa.Column("created_at", sa.BigInteger(), nullable=False, comment="创建时间"),
+        sa.Column("updated_at", sa.BigInteger(), nullable=False, comment="更新时间"),
+        sa.ForeignKeyConstraint(["heat_id"], ["heats.id"]),
+        sa.ForeignKeyConstraint(
+            ["baseline_definition_id", "baseline_item"],
+            ["baselines.definition_id", "baselines.item"],
+        ),
+        sa.PrimaryKeyConstraint("heat_id", "baseline_definition_id", "baseline_item"),
+    )
+    op.create_index(
+        "idx_heat_baseline_bindings_analysis_status",
+        "heat_baseline_bindings",
+        ["analysis_status", "updated_at"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_heat_baseline_bindings_baseline",
+        "heat_baseline_bindings",
+        ["baseline_definition_id", "baseline_item", "effective_from_snapshot"],
+        unique=False,
+    )
+    op.create_index(
+        "idx_heat_baseline_bindings_primary",
+        "heat_baseline_bindings",
+        ["heat_id", "is_primary"],
+        unique=False,
+    )
 
     op.create_table(
         "metric_series",
@@ -256,15 +284,18 @@ def downgrade() -> None:
     op.drop_index("idx_metric_series_metric_key", table_name="metric_series")
     op.drop_index("idx_metric_series_definition", table_name="metric_series")
     op.drop_table("metric_series")
+    op.drop_index("idx_heat_baseline_bindings_primary", table_name="heat_baseline_bindings")
+    op.drop_index("idx_heat_baseline_bindings_baseline", table_name="heat_baseline_bindings")
+    op.drop_index("idx_heat_baseline_bindings_analysis_status", table_name="heat_baseline_bindings")
+    op.drop_table("heat_baseline_bindings")
     op.drop_index("idx_heats_status", table_name="heats")
     op.drop_index("idx_heats_start_time", table_name="heats")
     op.drop_index("idx_heats_furnace_time", table_name="heats")
     op.drop_index("idx_heats_end_time", table_name="heats")
-    op.drop_index("idx_heats_deviation_status", table_name="heats")
-    op.drop_index("idx_heats_baseline_binding", table_name="heats")
     op.drop_table("heats")
     op.drop_index("idx_baselines_status", table_name="baselines")
     op.drop_index("idx_baselines_source_heat", table_name="baselines")
+    op.drop_index("idx_baselines_is_default", table_name="baselines")
     op.drop_index("idx_baselines_effective_from", table_name="baselines")
     op.drop_index("idx_baselines_definition_published", table_name="baselines")
     op.drop_table("baselines")

@@ -42,6 +42,7 @@ export interface TaskCompletePayload {
 
 export interface TaskCreatePayload {
   heat_id: string
+  baseline_id?: string
   heat_no?: string
   deviation_percent?: number | null
   avg_deviation_percent?: number | null

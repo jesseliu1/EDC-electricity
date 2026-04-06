@@ -878,6 +878,7 @@ async function handleCreateTask() {
     const heatSnapshot = current.value?.base
     const createdTask = await taskApi.create({
       heat_id: heatId.value,
+      baseline_id: selectedComparison.value?.baseline.id,
       heat_no: heatSnapshot?.heatNo,
       deviation_percent: heatSnapshot?.deviationPercent ?? null,
       avg_deviation_percent: heatSnapshot?.avgDeviationPercent ?? null,

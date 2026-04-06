@@ -275,11 +275,10 @@ async def _sync_host_channel_catalog_from_edc(force: bool = False) -> list[dict[
 
 def _derive_legacy_channel_role_preferences() -> dict[str, str]:
     from .baseline_definitions import _DEFINITION_STORE
-    from .baselines import _BASELINE_STORE
+    from .baselines import _resolve_active_baseline_item
 
     preferred: dict[str, str] = {}
-    active_baseline_id = str(_SETTINGS_STORE.get("active_baseline_id", {}).get("value") or "").strip()
-    baseline = _BASELINE_STORE.get(active_baseline_id) if active_baseline_id else None
+    baseline = _resolve_active_baseline_item()
     if not baseline:
         return preferred
 
@@ -433,7 +432,7 @@ def apply_app_edc_connection_override() -> bool:
 def _build_runtime_status_response() -> RuntimeStatusResponse:
     """构建业务页统一消费的运行态摘要。"""
     from .heats import _resolve_live_heat_inference_context
-    from .baselines import _BASELINE_STORE
+    from .baselines import _resolve_active_baseline_item
 
     _reconcile_channel_role_binding_store()
     host_response = _host_connectivity_response()
@@ -465,8 +464,7 @@ def _build_runtime_status_response() -> RuntimeStatusResponse:
         in {"1", "true", "yes", "on"}
     )
     showtime_enabled = is_showtime_mode()
-    active_baseline_id = str(_SETTINGS_STORE.get("active_baseline_id", {}).get("value") or "").strip()
-    active_baseline_item = _BASELINE_STORE.get(active_baseline_id) if active_baseline_id else None
+    active_baseline_item = _resolve_active_baseline_item()
     cutting_config = get_cutting_config()
 
     def _pipeline_code(section: str) -> str:

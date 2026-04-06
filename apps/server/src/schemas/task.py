@@ -9,6 +9,7 @@ class TaskCreate(BaseModel):
     """创建任务请求"""
 
     heat_id: str = Field(..., description="关联炉次ID")
+    baseline_id: str | None = Field(default=None, description="所选基线ID")
     heat_no: str | None = Field(default=None, description="关联炉次编号快照")
     deviation_percent: float | None = Field(default=None, description="偏差百分比快照")
     avg_deviation_percent: float | None = Field(default=None, description="平均偏差百分比快照")

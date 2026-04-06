@@ -1,0 +1,50 @@
+{
+  "issue": "2026-04-05-public-blank-cutting-uat",
+  "environment": "public",
+  "deployed_commit": "84cafe93f1ca769cf796a5432a9270ce8c348176",
+  "review_status": "PASS",
+  "screenshots": [
+    {
+      "file": "01-asns-home.png",
+      "step": "打开 ASNS 宿主页",
+      "action": "goto",
+      "note": "宿主页已可访问，准备验证 blank 空态。",
+      "review": "PASS"
+    },
+    {
+      "file": "02-asns-settings-empty.png",
+      "step": "打开宿主连线设置",
+      "action": "click",
+      "note": "blank 重置后宿主已添加通道清单为空，未残留旧通道。",
+      "review": "PASS"
+    },
+    {
+      "file": "03-edc-dashboard-blank.png",
+      "step": "打开 EDC Dashboard",
+      "action": "goto",
+      "note": "Dashboard 正常打开，并显示 blank / host_disconnected 提示。",
+      "review": "PASS"
+    },
+    {
+      "file": "04-edc-settings-before-save.png",
+      "step": "进入系统设置页",
+      "action": "navigate",
+      "note": "切割模式默认为 signal_inference，准备验证保存链。",
+      "review": "PASS"
+    },
+    {
+      "file": "05-edc-settings-fixed-saved.png",
+      "step": "切换到 fixed_interval 并保存",
+      "action": "save",
+      "note": "保存成功后，后端 runtime-status 已反映 fixed_interval=20。",
+      "review": "PASS"
+    },
+    {
+      "file": "06-edc-settings-restored.png",
+      "step": "恢复 signal_inference 并保存",
+      "action": "save",
+      "note": "保存成功后，后端 runtime-status 已恢复默认切割模式。",
+      "review": "PASS"
+    }
+  ]
+}

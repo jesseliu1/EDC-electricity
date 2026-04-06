@@ -120,6 +120,15 @@ def _read_json_record(db_path: Path, key: str) -> Any:
         connection.close()
 
 
+def _table_info(db_path: Path, table_name: str) -> list[sqlite3.Row]:
+    connection = sqlite3.connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        return connection.execute(f"pragma table_info({table_name})").fetchall()
+    finally:
+        connection.close()
+
+
 class _FakeEDCClient:
     def __init__(self, **_kwargs: object) -> None:
         pass
@@ -568,3 +577,48 @@ def test_factory_reset_runtime_state_deletes_formal_tables(tmp_path) -> None:
         "metric_series": 0,
         "tasks": 0,
     }
+
+
+def test_factory_reset_runtime_state_recreates_current_schema_from_stale_db(tmp_path) -> None:
+    db_path = tmp_path / "runtime-admin.db"
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute(
+            """
+            create table settings (
+                key text primary key,
+                value text not null,
+                description text,
+                updated_at text
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table baselines (
+                definition_id text not null,
+                item text not null,
+                source_heat_id text not null,
+                primary key (definition_id, item)
+            )
+            """
+        )
+        connection.execute(
+            """
+            insert into baselines (definition_id, item, source_heat_id)
+            values ('def-001', '001', 'heat-001')
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    factory_reset_runtime_state(db_path)
+
+    settings_columns = {row["name"]: row for row in _table_info(db_path, "settings")}
+    baselines_columns = {row["name"]: row for row in _table_info(db_path, "baselines")}
+
+    assert settings_columns["updated_at"]["type"] == "BIGINT"
+    assert "selected_start_time" in baselines_columns
+    assert "selected_end_time" in baselines_columns
+    assert baselines_columns["source_heat_id"]["notnull"] == 0

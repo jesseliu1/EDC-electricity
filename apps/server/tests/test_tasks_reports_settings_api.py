@@ -291,7 +291,7 @@ async def test_settings_get_and_update(client, monkeypatch) -> None:
     assert runtime_resp.json()["pipelines"]["reports"]["code"] == "ready"
     assert runtime_resp.json()["pipelines"]["baselines"]["code"] == "ready"
     assert runtime_resp.json()["pipelines"]["settings"]["code"] == "ready"
-    assert runtime_resp.json()["active_baseline"]["id"] is None
+    assert runtime_resp.json()["active_baseline"]["id"] == "def-001:001"
 
     runtime_showtime_resp = await client.get("/api/settings/runtime-status", params={"showtime": "true"})
     assert runtime_showtime_resp.status_code == 200

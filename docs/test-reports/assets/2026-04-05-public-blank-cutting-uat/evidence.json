@@ -1,0 +1,414 @@
+{
+  "issue": "2026-04-05-public-blank-cutting-uat",
+  "environment": "public",
+  "deployed_commit": "84cafe93f1ca769cf796a5432a9270ce8c348176",
+  "script_path": "apps/web/e2e/public-blank-cutting-uat.spec.ts",
+  "screenshot_dir": "docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/public",
+  "screenshots": [
+    {
+      "file": "01-asns-home.png",
+      "step": "打开 ASNS 宿主页",
+      "action": "goto",
+      "note": "宿主页已可访问，准备验证 blank 空态。"
+    },
+    {
+      "file": "02-asns-settings-empty.png",
+      "step": "打开宿主连线设置",
+      "action": "click",
+      "note": "blank 重置后宿主已添加通道清单为空，未残留旧通道。"
+    },
+    {
+      "file": "03-edc-dashboard-blank.png",
+      "step": "打开 EDC Dashboard",
+      "action": "goto",
+      "note": "Dashboard 正常打开，并显示 blank / host_disconnected 提示。"
+    },
+    {
+      "file": "04-edc-settings-before-save.png",
+      "step": "进入系统设置页",
+      "action": "navigate",
+      "note": "切割模式默认为 signal_inference，准备验证保存链。"
+    },
+    {
+      "file": "05-edc-settings-fixed-saved.png",
+      "step": "切换到 fixed_interval 并保存",
+      "action": "save",
+      "note": "保存成功后，后端 runtime-status 已反映 fixed_interval=20。"
+    },
+    {
+      "file": "06-edc-settings-restored.png",
+      "step": "恢复 signal_inference 并保存",
+      "action": "save",
+      "note": "保存成功后，后端 runtime-status 已恢复默认切割模式。"
+    }
+  ],
+  "api_checks": {
+    "runtime_before": {
+      "overall_code": "host_disconnected",
+      "host": {
+        "is_connected": false,
+        "machine_name": "--",
+        "last_sync_label": "--",
+        "meta": {
+          "source": "--",
+          "sensor_count": 0,
+          "channel_count": 0,
+          "enabled_channel_count": 0
+        }
+      },
+      "edc": {
+        "configured": false,
+        "base_url": "",
+        "username_present": false,
+        "host_channel_total": 0,
+        "enabled_channel_count": 0
+      },
+      "active_baseline": {
+        "id": null,
+        "name": null,
+        "status": null
+      },
+      "runtime": {
+        "showtime_enabled": false,
+        "live_heat_inference_enabled": true,
+        "baseline_length_scope_mode": "definition",
+        "plant_timezone": "Asia/Shanghai",
+        "cutting_mode": "signal_inference",
+        "fixed_interval_minutes": null
+      },
+      "channel_roles": {
+        "configured_count": 0,
+        "missing_required_role_keys": [
+          "dashboard_primary",
+          "live_heat_inference"
+        ],
+        "items": [
+          {
+            "role_key": "dashboard_primary",
+            "label": "Dashboard 主曲线",
+            "description": "Dashboard 实时主曲线绑定",
+            "metric_kind": "power",
+            "required": true,
+            "channel_id": null,
+            "configured": false,
+            "source_channel_name": null,
+            "source_channel_label": null
+          },
+          {
+            "role_key": "dashboard_secondary",
+            "label": "Dashboard 辅曲线",
+            "description": "Dashboard 实时辅曲线绑定",
+            "metric_kind": "voltage",
+            "required": false,
+            "channel_id": null,
+            "configured": false,
+            "source_channel_name": null,
+            "source_channel_label": null
+          },
+          {
+            "role_key": "live_heat_inference",
+            "label": "炉次推断主信号",
+            "description": "真实炉次推断主信号绑定",
+            "metric_kind": "power",
+            "required": true,
+            "channel_id": null,
+            "configured": false,
+            "source_channel_name": null,
+            "source_channel_label": null
+          }
+        ]
+      },
+      "pipelines": {
+        "dashboard": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "heats": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "inbox": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "tasks": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "reports": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "baselines": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "settings": {
+          "code": "host_disconnected",
+          "ready": false
+        }
+      }
+    },
+    "baseline_definitions_before": {
+      "items": [],
+      "total": 0
+    },
+    "baselines_before": {
+      "items": [],
+      "total": 0
+    },
+    "heats_before": {
+      "items": [],
+      "total": 0,
+      "page": 1,
+      "page_size": 5,
+      "snapshot_status": "error",
+      "snapshot_watermark": null,
+      "last_refresh_started_at": 1775483365468,
+      "last_refresh_completed_at": 1775483365468,
+      "refresh_error": "live_heat_inference_unavailable",
+      "refresh_failure_count": 3
+    },
+    "runtime_after_fixed": {
+      "overall_code": "host_disconnected",
+      "host": {
+        "is_connected": false,
+        "machine_name": "--",
+        "last_sync_label": "--",
+        "meta": {
+          "source": "--",
+          "sensor_count": 0,
+          "channel_count": 0,
+          "enabled_channel_count": 0
+        }
+      },
+      "edc": {
+        "configured": false,
+        "base_url": "",
+        "username_present": false,
+        "host_channel_total": 0,
+        "enabled_channel_count": 0
+      },
+      "active_baseline": {
+        "id": null,
+        "name": null,
+        "status": null
+      },
+      "runtime": {
+        "showtime_enabled": false,
+        "live_heat_inference_enabled": true,
+        "baseline_length_scope_mode": "definition",
+        "plant_timezone": "Asia/Shanghai",
+        "cutting_mode": "fixed_interval",
+        "fixed_interval_minutes": 20
+      },
+      "channel_roles": {
+        "configured_count": 0,
+        "missing_required_role_keys": [
+          "dashboard_primary",
+          "live_heat_inference"
+        ],
+        "items": [
+          {
+            "role_key": "dashboard_primary",
+            "label": "Dashboard 主曲线",
+            "description": "Dashboard 实时主曲线绑定",
+            "metric_kind": "power",
+            "required": true,
+            "channel_id": null,
+            "configured": false,
+            "source_channel_name": null,
+            "source_channel_label": null
+          },
+          {
+            "role_key": "dashboard_secondary",
+            "label": "Dashboard 辅曲线",
+            "description": "Dashboard 实时辅曲线绑定",
+            "metric_kind": "voltage",
+            "required": false,
+            "channel_id": null,
+            "configured": false,
+            "source_channel_name": null,
+            "source_channel_label": null
+          },
+          {
+            "role_key": "live_heat_inference",
+            "label": "炉次推断主信号",
+            "description": "真实炉次推断主信号绑定",
+            "metric_kind": "power",
+            "required": true,
+            "channel_id": null,
+            "configured": false,
+            "source_channel_name": null,
+            "source_channel_label": null
+          }
+        ]
+      },
+      "pipelines": {
+        "dashboard": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "heats": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "inbox": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "tasks": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "reports": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "baselines": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "settings": {
+          "code": "host_disconnected",
+          "ready": false
+        }
+      }
+    },
+    "heats_after_fixed": {
+      "items": [],
+      "total": 0,
+      "page": 1,
+      "page_size": 5,
+      "snapshot_status": "error",
+      "snapshot_watermark": null,
+      "last_refresh_started_at": 1775483381043,
+      "last_refresh_completed_at": 1775483381043,
+      "refresh_error": "live_heat_inference_unavailable",
+      "refresh_failure_count": 5
+    },
+    "runtime_after_restore": {
+      "overall_code": "host_disconnected",
+      "host": {
+        "is_connected": false,
+        "machine_name": "--",
+        "last_sync_label": "--",
+        "meta": {
+          "source": "--",
+          "sensor_count": 0,
+          "channel_count": 0,
+          "enabled_channel_count": 0
+        }
+      },
+      "edc": {
+        "configured": false,
+        "base_url": "",
+        "username_present": false,
+        "host_channel_total": 0,
+        "enabled_channel_count": 0
+      },
+      "active_baseline": {
+        "id": null,
+        "name": null,
+        "status": null
+      },
+      "runtime": {
+        "showtime_enabled": false,
+        "live_heat_inference_enabled": true,
+        "baseline_length_scope_mode": "definition",
+        "plant_timezone": "Asia/Shanghai",
+        "cutting_mode": "signal_inference",
+        "fixed_interval_minutes": null
+      },
+      "channel_roles": {
+        "configured_count": 0,
+        "missing_required_role_keys": [
+          "dashboard_primary",
+          "live_heat_inference"
+        ],
+        "items": [
+          {
+            "role_key": "dashboard_primary",
+            "label": "Dashboard 主曲线",
+            "description": "Dashboard 实时主曲线绑定",
+            "metric_kind": "power",
+            "required": true,
+            "channel_id": null,
+            "configured": false,
+            "source_channel_name": null,
+            "source_channel_label": null
+          },
+          {
+            "role_key": "dashboard_secondary",
+            "label": "Dashboard 辅曲线",
+            "description": "Dashboard 实时辅曲线绑定",
+            "metric_kind": "voltage",
+            "required": false,
+            "channel_id": null,
+            "configured": false,
+            "source_channel_name": null,
+            "source_channel_label": null
+          },
+          {
+            "role_key": "live_heat_inference",
+            "label": "炉次推断主信号",
+            "description": "真实炉次推断主信号绑定",
+            "metric_kind": "power",
+            "required": true,
+            "channel_id": null,
+            "configured": false,
+            "source_channel_name": null,
+            "source_channel_label": null
+          }
+        ]
+      },
+      "pipelines": {
+        "dashboard": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "heats": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "inbox": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "tasks": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "reports": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "baselines": {
+          "code": "host_disconnected",
+          "ready": false
+        },
+        "settings": {
+          "code": "host_disconnected",
+          "ready": false
+        }
+      }
+    },
+    "heats_after_restore": {
+      "items": [],
+      "total": 0,
+      "page": 1,
+      "page_size": 5,
+      "snapshot_status": "error",
+      "snapshot_watermark": null,
+      "last_refresh_started_at": 1775483382623,
+      "last_refresh_completed_at": 1775483382623,
+      "refresh_error": "live_heat_inference_unavailable",
+      "refresh_failure_count": 7
+    }
+  },
+  "assertions": {
+    "blank_state_preserved": true,
+    "fixed_interval_roundtrip_ok": true,
+    "restored_default_mode_ok": true
+  }
+}

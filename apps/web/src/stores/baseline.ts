@@ -18,6 +18,7 @@ export interface BaselineItem {
   description: string | null
   definitionId: string
   definitionName: string
+  isDefault: boolean
   status: BaselineStatus
   version: number
   tolerancePercent: number
@@ -43,6 +44,7 @@ function mapBaseline(item: BaselineResponse): BaselineItem {
     description: item.description,
     definitionId: item.definition_id,
     definitionName: item.definition_name,
+    isDefault: item.is_default,
     status: item.status,
     version: item.version,
     tolerancePercent: item.tolerance_percent,

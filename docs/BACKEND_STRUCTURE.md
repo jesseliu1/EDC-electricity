@@ -22,6 +22,7 @@ apps/server/
 │   │   ├── __init__.py
 │   │   ├── baseline.py
 │   │   ├── heat.py
+│   │   ├── heat_baseline_binding.py
 │   │   ├── task.py
 │   │   └── setting.py
 │   │
@@ -34,7 +35,8 @@ apps/server/
 │   │
 │   ├── services/             # 业务逻辑
 │   │   ├── __init__.py
-│   │   ├── baseline_service.py
+│   │   ├── formal_baseline_service.py
+│   │   ├── formal_heat_service.py
 │   │   ├── deviation_service.py
 │   │   ├── report_service.py
 │   │   └── edc_client.py     # EDC API 客户端
@@ -60,15 +62,15 @@ apps/server/
 
 ### 2.1 设计总览
 
-本轮表结构按两类主表组织：
+本轮表结构按三类主表组织：
 
 - 主数据主表：`baseline_definitions`
-- 业务主表：`heats`
+- 黄金基线业务主表：`baselines`
+- 炉次业务主表：`heats`、`heat_baseline_bindings`
 
-其余表全部作为外部表或从表存在：
+其余表作为从表或支撑表存在：
 
 - `baseline_definition_metrics`：定义下的指标模板
-- `baselines`：定义下的基线版本
 - `metric_series`：基线或炉次的实际指标值
 - `tasks`：业务任务
 - `settings`：系统设置
@@ -76,11 +78,13 @@ apps/server/
 关键约束：
 
 - 除“当前正在发生的炉次”外，其余炉次都应进入 `heats`
+- 历史炉次与黄金基线的绑定关系统一进入 `heat_baseline_bindings`
 - 历史炉次的指标值统一存入 `metric_series`
 - 基线版本不再把功率、电压等固定指标写死在主表字段里
+- `baselines.is_default` 表示全系统当前默认黄金基线
 - `baseline_definition_metrics.item` 与 `metric_series.item` 表示“指标项号”
 - `baselines.item` 表示“版本号项”
-- 当前炉次运行态缓存应尽量与 `heats + metric_series` 同构，避免再做一套单独字段语义
+- 当前炉次运行态缓存应尽量与 `heats + heat_baseline_bindings + metric_series` 同构，避免再做一套单独字段语义
 - 历史炉次的指标值允许保留“前 30 分钟 + 当前炉次区间 + 后 30 分钟”的上下文窗口，便于后续单炉次人工调整
 - 所有未确认的自动回退、自动补全、自动替换都不应进入正式业务链路
 
@@ -203,16 +207,17 @@ apps/server/
 | 4 | `name` | `string(100)` | 否 | 是 | 基线名称 |
 | 5 | `description` | `text` | 否 | 否 | 基线描述 |
 | 6 | `status` | `string(20)` | 否 | 否 | 基线状态，允许为空 |
-| 7 | `source_heat_id` | `string(36)` | 否 | 否 | 可选的来源炉次定位 ID；允许为空 |
-| 8 | `selected_start_time` | `int64(timestamp_ms)` | 否 | 是 | 选区开始时间 |
-| 9 | `selected_end_time` | `int64(timestamp_ms)` | 否 | 是 | 选区结束时间 |
-| 10 | `effective_from` | `int64(timestamp_ms)` | 否 | 是 | 生效时间 |
-| 11 | `tolerance_percent` | `float` | 否 | 是 | 容许误差百分比 |
-| 12 | `created_by` | `string(50)` | 否 | 是 | 创建人 |
-| 13 | `updated_by` | `string(50)` | 否 | 是 | 更新人 |
-| 14 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
-| 15 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
-| 16 | `published_at` | `int64(timestamp_ms)` | 否 | 否 | 发布时间 |
+| 7 | `is_default` | `bool` | 否 | 是 | 是否默认黄金基线 |
+| 8 | `source_heat_id` | `string(36)` | 否 | 否 | 可选的来源炉次定位 ID；允许为空 |
+| 9 | `selected_start_time` | `int64(timestamp_ms)` | 否 | 是 | 选区开始时间 |
+| 10 | `selected_end_time` | `int64(timestamp_ms)` | 否 | 是 | 选区结束时间 |
+| 11 | `effective_from` | `int64(timestamp_ms)` | 否 | 是 | 生效时间 |
+| 12 | `tolerance_percent` | `float` | 否 | 是 | 容许误差百分比 |
+| 13 | `created_by` | `string(50)` | 否 | 是 | 创建人 |
+| 14 | `updated_by` | `string(50)` | 否 | 是 | 更新人 |
+| 15 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 16 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
+| 17 | `published_at` | `int64(timestamp_ms)` | 否 | 否 | 发布时间 |
 
 样例：
 
@@ -224,6 +229,7 @@ apps/server/
   "name": "标准基线 v1",
   "description": "2026-04 第一版",
   "status": "published",
+  "is_default": true,
   "source_heat_id": null,
   "selected_start_time": 1775218800000,
   "selected_end_time": 1775220540000,
@@ -243,6 +249,7 @@ apps/server/
 - `selected_start_time / selected_end_time` 必须落在同一个 `settings.plant_timezone` 业务日内
 - 基线曲线写入 `metric_series` 时，统一从该业务日的整天 preview 曲线按指标切片，不再要求必须绑定某个来源炉次
 - `source_heat_id` 仅作为 UI 定位/回看辅助信息，可为空；为空时不影响基线创建、发布与 compare
+- `is_default=1` 仅允许出现在 `status='published'` 的基线上，且同一时刻全系统最多一条
 
 ### 2.5 `metric_series`
 
@@ -342,7 +349,65 @@ apps/server/
 }
 ```
 
-### 2.6 `heats`
+### 2.6 `heat_baseline_bindings`
+
+炉次与黄金基线的正式绑定表。
+
+复合主键：
+
+- `heat_id`
+- `baseline_definition_id`
+- `baseline_item`
+
+| Index | 字段 | 类型 | 主键 | 必填 | 用途 |
+|---|---|---:|---:|---:|---|
+| 1 | `heat_id` | `string(36)` | 是 | 是 | 炉次 ID |
+| 2 | `baseline_definition_id` | `string(36)` | 是 | 是 | 绑定的基线定义 ID |
+| 3 | `baseline_item` | `string(3)` | 是 | 是 | 绑定的基线版本项 |
+| 4 | `is_primary` | `bool` | 否 | 是 | 是否该炉次的主黄金基线 |
+| 5 | `effective_from_snapshot` | `int64(timestamp_ms)` | 否 | 否 | 绑定时的基线生效时间快照 |
+| 6 | `tolerance_percent_snapshot` | `float` | 否 | 否 | 绑定时容许误差快照 |
+| 7 | `analysis_status` | `string(20)` | 否 | 是 | 分析状态，`pending / ready` |
+| 8 | `deviation_percent` | `float` | 否 | 否 | 该绑定的最大偏离度 |
+| 9 | `avg_deviation_percent` | `float` | 否 | 否 | 该绑定的平均偏离度 |
+| 10 | `deviation_details_json` | `text` | 否 | 否 | 该绑定的偏离详情 JSON |
+| 11 | `time_offset_percent` | `float` | 否 | 否 | 该绑定的时间偏移比例 |
+| 12 | `mismatch_duration_minutes` | `float` | 否 | 否 | 该绑定的连续不一致时长 |
+| 13 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 14 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
+
+样例：
+
+```json
+{
+  "heat_id": "heat-20260403-1740",
+  "baseline_definition_id": "def-std-melt",
+  "baseline_item": "001",
+  "is_primary": true,
+  "effective_from_snapshot": 1775222160000,
+  "tolerance_percent_snapshot": 15,
+  "analysis_status": "ready",
+  "deviation_percent": 12.8,
+  "avg_deviation_percent": 7.3,
+  "deviation_details_json": {
+    "abnormal_ranges": [
+      { "start": 1775219220000, "end": 1775219460000, "deviation": 16.2 }
+    ]
+  },
+  "time_offset_percent": 4.2,
+  "mismatch_duration_minutes": 3,
+  "created_at": 1775220720000,
+  "updated_at": 1775220780000
+}
+```
+
+补充约束：
+
+- 一条记录只表达“某炉次绑定某基线”以及该绑定自己的分析结果
+- `is_primary` 由炉次固化时确定，用于列表摘要和详情默认展示
+- 历史炉次的偏离结果真源不再放在 `heats`，而是放在该表
+
+### 2.7 `heats`
 
 业务主表。  
 除“当前正在发生的炉次”外，其余炉次都应进入这张表。  
@@ -360,22 +425,13 @@ apps/server/
 | 8 | `context_end_time` | `int64(timestamp_ms)` | 否 | 是 | 上下文窗口结束时间，通常为真实结束后 30 分钟 |
 | 9 | `sealed_at` | `int64(timestamp_ms)` | 否 | 是 | 固化入库时间 |
 | 10 | `source_kind` | `string(30)` | 否 | 是 | 来源类型 |
-| 11 | `baseline_definition_id` | `string(36)` | 否 | 否 | 绑定的基线定义 ID |
-| 12 | `baseline_item` | `string(3)` | 否 | 否 | 绑定的基线版本项 |
-| 13 | `baseline_effective_from_snapshot` | `int64(timestamp_ms)` | 否 | 否 | 绑定时的基线生效时间快照 |
-| 14 | `deviation_status` | `string(20)` | 否 | 是 | 偏离度状态 |
-| 15 | `deviation_percent` | `float` | 否 | 否 | 最大偏离度 |
-| 16 | `avg_deviation_percent` | `float` | 否 | 否 | 平均偏离度 |
-| 17 | `deviation_details_json` | `text` | 否 | 否 | 偏离详情 JSON |
-| 18 | `time_offset_percent` | `float` | 否 | 否 | 时间偏移比例 |
-| 19 | `mismatch_duration_minutes` | `float` | 否 | 否 | 连续不一致时长 |
-| 20 | `cut_reason` | `string(100)` | 否 | 否 | 切割原因 |
-| 21 | `cut_status` | `string(30)` | 否 | 是 | 切割状态 |
-| 22 | `status` | `string(20)` | 否 | 是 | 炉次状态 |
-| 23 | `created_by` | `string(50)` | 否 | 否 | 创建人 |
-| 24 | `updated_by` | `string(50)` | 否 | 否 | 更新人 |
-| 25 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
-| 26 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
+| 11 | `cut_reason` | `string(100)` | 否 | 否 | 切割原因 |
+| 12 | `cut_status` | `string(30)` | 否 | 是 | 切割状态 |
+| 13 | `status` | `string(20)` | 否 | 是 | 炉次状态 |
+| 14 | `created_by` | `string(50)` | 否 | 否 | 创建人 |
+| 15 | `updated_by` | `string(50)` | 否 | 否 | 更新人 |
+| 16 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 17 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
 
 样例：
 
@@ -390,17 +446,18 @@ apps/server/
   "context_end_time": 1775222340000,
   "sealed_at": 1775220720000,
   "source_kind": "live_inferred",
-  "baseline_definition_id": "def-std-melt",
-  "baseline_item": "001",
-  "baseline_effective_from_snapshot": 1775222160000,
-  "deviation_status": "ready",
-  "deviation_percent": 12.8,
-  "avg_deviation_percent": 7.3,
+  "cut_reason": null,
+  "cut_status": "normal",
   "status": "normal"
 }
 ```
 
-### 2.7 `tasks`
+补充约束：
+
+- `heats` 只保存炉次事实，不再存单条基线绑定结果
+- 列表摘要里的 `baseline_id / deviation_percent / mismatch_duration_minutes` 由 `heat_baseline_bindings.is_primary=1` 派生
+
+### 2.8 `tasks`
 
 | Index | 字段 | 类型 | 主键 | 必填 | 用途 |
 |---|---|---:|---:|---:|---|
@@ -419,7 +476,7 @@ apps/server/
 | 13 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
 | 14 | `completed_at` | `int64(timestamp_ms)` | 否 | 否 | 完成时间 |
 
-### 2.8 `settings`
+### 2.9 `settings`
 
 只存系统设置，不再承担主业务历史台账。
 
@@ -435,17 +492,22 @@ apps/server/
 - `plant_timezone`: 工厂业务时区，默认 `Asia/Shanghai`
 - `work_start_time / work_end_time / break_periods`: 作为 `plant_timezone` 下的本地时间规则解释
 
-### 2.9 表关系
+补充约束：
+
+- `settings.active_baseline_id` 目前仍可作为运行态遗留字段保留，但不再是正式黄金基线真源
+- 默认黄金基线真源统一为 `baselines.is_default`
+
+### 2.10 表关系
 
 ```mermaid
 erDiagram
     BASELINE_DEFINITIONS ||--o{ BASELINE_DEFINITION_METRICS : defines
     BASELINE_DEFINITIONS ||--o{ BASELINES : versions
-    BASELINE_DEFINITIONS ||--o{ METRIC_SERIES : structures
-    HEATS ||--o{ METRIC_SERIES : owns
+    HEATS ||--o{ HEAT_BASELINE_BINDINGS : binds
     HEATS ||--o{ TASKS : creates
     BASELINES ||--o{ METRIC_SERIES : owns
-    HEATS }o--|| BASELINE_DEFINITIONS : uses
+    HEATS ||--o{ METRIC_SERIES : owns
+    BASELINES ||--o{ HEAT_BASELINE_BINDINGS : bound_to
 ```
 
 业务口径：
@@ -454,20 +516,25 @@ erDiagram
 - `heats` 是业务根
 - `baseline_definition_metrics` 定义每个主数据下有哪些指标项
 - `baselines` 定义每个主数据下有哪些基线版本
+- `heat_baseline_bindings` 记录某条炉次绑定了哪些基线，以及每条绑定自己的分析结果
 - `metric_series` 真正存放基线或炉次的指标值
 - `tasks` 绑定业务炉次产生后续纠偏闭环
 
 ### 2.11 当前炉次运行态缓存设计
 
-当前炉次运行态不再单独设计一套与正式表完全不同的字段语义；应尽量与 `heats + metric_series` 同构。
+当前炉次运行态不再单独设计一套与正式表完全不同的字段语义；应尽量与 `heats + heat_baseline_bindings + metric_series` 同构。
 
 推荐口径：
 
 - 当前炉次缓存对象保留与 `heats` 相同的关键字段：
   - `id / heat_no / start_time / end_time`
   - `context_start_time / context_end_time`
-  - `baseline_definition_id / baseline_item`
-  - `deviation_status`
+  - `cut_reason / cut_status / status`
+- 当前炉次绑定摘要保留与 `heat_baseline_bindings` 同构的结构：
+  - `baseline_ids`
+  - `baseline_bindings`
+  - `is_primary`
+  - `analysis_status / deviation_percent / avg_deviation_percent`
 - 当前炉次指标值缓存保留与 `metric_series` 相同的结构：
   - `owner_key`
   - `item`
@@ -485,7 +552,7 @@ erDiagram
 - 调试和测试时缓存态/正式态断言尽量一致
 - 避免再维护一套“运行态字段”与一套“正式表字段”
 
-### 2.10 建议索引
+### 2.12 建议索引
 
 `baseline_definitions`
 
@@ -505,8 +572,16 @@ erDiagram
 - `PRIMARY KEY (definition_id, item)`
 - `INDEX idx_baselines_effective_from (effective_from)`
 - `INDEX idx_baselines_status (status)`
+- `INDEX idx_baselines_is_default (is_default)`
 - `INDEX idx_baselines_source_heat (source_heat_id)`
 - `INDEX idx_baselines_definition_published (definition_id, status, published_at)`
+
+`heat_baseline_bindings`
+
+- `PRIMARY KEY (heat_id, baseline_definition_id, baseline_item)`
+- `INDEX idx_heat_baseline_bindings_primary (heat_id, is_primary)`
+- `INDEX idx_heat_baseline_bindings_baseline (baseline_definition_id, baseline_item, effective_from_snapshot)`
+- `INDEX idx_heat_baseline_bindings_analysis_status (analysis_status, updated_at)`
 
 `metric_series`
 
@@ -522,9 +597,7 @@ erDiagram
 - `INDEX idx_heats_start_time (start_time DESC)`
 - `INDEX idx_heats_end_time (end_time DESC)`
 - `INDEX idx_heats_furnace_time (furnace_id, start_time DESC)`
-- `INDEX idx_heats_baseline_binding (baseline_definition_id, baseline_item, start_time DESC)`
 - `INDEX idx_heats_status (status, start_time DESC)`
-- `INDEX idx_heats_deviation_status (deviation_status, start_time DESC)`
 
 `tasks`
 
@@ -536,8 +609,6 @@ erDiagram
 `settings`
 
 - `PRIMARY KEY (key)`
-
-## 3. API 设计
 
 ## 3. API 设计
 

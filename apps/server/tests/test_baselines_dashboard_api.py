@@ -244,8 +244,8 @@ async def test_dashboard_realtime_falls_back_to_bound_host_channels_after_source
     response = await client.get("/api/dashboard/realtime", params={"duration": "1h"})
     assert response.status_code == 200
     payload = response.json()
-    assert payload["baseline_id"] is None
-    assert payload["baseline_name"] is None
+    assert payload["baseline_id"] == PRIMARY_BASELINE_ID
+    assert payload["baseline_name"] == "标准基线 v2.1"
     assert "总有功功率" in payload["power_source_label"]
     assert "A相电压" in payload["voltage_source_label"]
     assert payload["power"][0]["value"] == 88.0

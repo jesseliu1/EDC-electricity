@@ -20,6 +20,7 @@ from src.models import (
     BaselineDefinition,
     BaselineDefinitionMetric,
     Heat,
+    HeatBaselineBinding,
     MetricSeries,
 )
 from src.schemas.common import CurvePoint
@@ -84,6 +85,7 @@ async def _insert_formal_heat_fixture() -> str:
                 name="正式基线 V1",
                 description="已发布基线",
                 status="published",
+                is_default=True,
                 source_heat_id=heat_id,
                 selected_start_time=now - timedelta(minutes=25),
                 selected_end_time=now,
@@ -108,20 +110,40 @@ async def _insert_formal_heat_fixture() -> str:
                 context_end_time=now + timedelta(minutes=30),
                 sealed_at=now + timedelta(minutes=1),
                 source_kind="live_inferred",
-                baseline_definition_id=definition_id,
-                baseline_item="001",
-                baseline_effective_from_snapshot=now - timedelta(minutes=10),
-                deviation_status="ready",
-                deviation_percent=12.3,
-                avg_deviation_percent=8.1,
-                deviation_details_json=None,
-                time_offset_percent=4.2,
-                mismatch_duration_minutes=3.0,
                 cut_reason="live_inferred",
                 cut_status="normal",
                 status="normal",
                 created_by="system",
                 updated_by="system",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            HeatBaselineBinding(
+                heat_id=heat_id,
+                baseline_definition_id=definition_id,
+                baseline_item="001",
+                is_primary=True,
+                effective_from_snapshot=now - timedelta(minutes=10),
+                tolerance_percent_snapshot=15.0,
+                analysis_status="ready",
+                deviation_percent=12.3,
+                avg_deviation_percent=8.1,
+                deviation_details_json=json.dumps(
+                    {
+                        "abnormal_ranges": [
+                            {
+                                "start": int((now - timedelta(minutes=12)).timestamp() * 1000),
+                                "end": int((now - timedelta(minutes=9)).timestamp() * 1000),
+                                "deviation": 12.3,
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                time_offset_percent=4.2,
+                mismatch_duration_minutes=3.0,
                 created_at=now,
                 updated_at=now,
             )
@@ -393,8 +415,17 @@ async def test_resume_history_heat_writes_formal_tables(client) -> None:
         heat.cut_status = "blocked"
         heat.cut_reason = "major_issue_lock"
         heat.status = "pending"
-        heat.time_offset_percent = 16.0
-        heat.mismatch_duration_minutes = 9.0
+        binding = await session.get(
+            HeatBaselineBinding,
+            {
+                "heat_id": heat_id,
+                "baseline_definition_id": "def-history-001",
+                "baseline_item": "001",
+            },
+        )
+        assert binding is not None
+        binding.time_offset_percent = 16.0
+        binding.mismatch_duration_minutes = 9.0
         await session.commit()
 
     response = await client.post(
@@ -505,6 +536,7 @@ async def test_refresh_runtime_only_keeps_n_minus_1_and_n_in_cache(client, monke
                 name="运行态基线",
                 description="测试",
                 status="published",
+                is_default=True,
                 source_heat_id="heat-runtime-seed",
                 selected_start_time=now - timedelta(minutes=30),
                 selected_end_time=now,

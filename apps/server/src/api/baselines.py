@@ -33,6 +33,7 @@ from ..services import (
     load_baseline_metric_series,
     load_baseline_store,
     replace_baseline_metric_series,
+    set_default_baseline,
     set_baseline_status,
     update_baseline_record,
 )
@@ -206,12 +207,18 @@ def _published_baselines() -> list[dict[str, Any]]:
 
 
 def _resolve_active_baseline_item() -> dict[str, Any] | None:
-    active_baseline_id = _SETTINGS_STORE.get("active_baseline_id", {}).get("value")
-    if isinstance(active_baseline_id, str) and active_baseline_id:
-        active_item = _BASELINE_STORE.get(active_baseline_id)
-        if active_item and active_item["status"] == "published":
-            return active_item
-    return None
+    active_items = [
+        item
+        for item in _BASELINE_STORE.values()
+        if item["status"] == "published" and bool(item.get("is_default"))
+    ]
+    if not active_items:
+        return None
+    active_items.sort(
+        key=lambda item: (item.get("published_at") or item["updated_at"], item["updated_at"]),
+        reverse=True,
+    )
+    return active_items[0]
 
 
 def _resolve_next_active_baseline_item(excluded_id: str | None = None) -> dict[str, Any] | None:
@@ -229,6 +236,7 @@ def _to_baseline_response(item: dict[str, Any]) -> BaselineResponse:
         description=item["description"],
         definition_id=item["definition_id"],
         definition_name=_get_definition_name(item["definition_id"]),
+        is_default=bool(item.get("is_default")),
         source_heat_id=item["source_heat_id"],
         selected_start_time=item.get("selected_start_time"),
         selected_end_time=item.get("selected_end_time"),
@@ -264,6 +272,7 @@ def _to_baseline_with_curve(item: dict[str, Any]) -> BaselineWithCurve:
         description=item["description"],
         definition_id=item["definition_id"],
         definition_name=_get_definition_name(item["definition_id"]),
+        is_default=bool(item.get("is_default")),
         source_heat_id=item["source_heat_id"],
         selected_start_time=item.get("selected_start_time"),
         selected_end_time=item.get("selected_end_time"),
@@ -558,6 +567,7 @@ async def get_active_baseline() -> BaselineSummary | None:
         name=active["name"],
         status=active["status"],
         version=active["version"],
+        is_default=bool(active.get("is_default")),
     )
 
 
@@ -568,14 +578,23 @@ async def activate_baseline(baseline_id: str) -> BaselineSummary:
     if item["status"] != "published":
         raise HTTPException(status_code=400, detail="仅已发布基线可设为默认黄金基线")
 
-    _SETTINGS_STORE["active_baseline_id"]["value"] = baseline_id
+    definition_id, item_no = decode_baseline_id(baseline_id)
+    updated = await set_default_baseline(
+        definition_id=definition_id,
+        item=item_no,
+        actor="system",
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="基线不存在")
+    await _reload_baseline_store()
     _invalidate_compare_runtime_caches()
-    await persist_runtime_state("settings_store")
+    await persist_runtime_state("baselines")
     return BaselineSummary(
-        id=item["id"],
-        name=item["name"],
-        status=item["status"],
-        version=item["version"],
+        id=updated["id"],
+        name=updated["name"],
+        status=updated["status"],
+        version=updated["version"],
+        is_default=bool(updated.get("is_default")),
     )
 
 
@@ -592,6 +611,8 @@ async def get_baseline(baseline_id: str) -> BaselineWithCurve:
 async def create_baseline(data: BaselineCreate) -> BaselineResponse:
     """创建新基线实例，默认草稿状态。"""
     await _validate_definition(data.definition_id)
+    if data.is_default:
+        raise HTTPException(status_code=400, detail="草稿基线不能直接设置为默认黄金基线")
     selected_start_time = data.selected_start_time
     selected_end_time = data.selected_end_time
     _validate_selection_window(
@@ -626,6 +647,7 @@ async def create_baseline(data: BaselineCreate) -> BaselineResponse:
         selected_end_time=selected_end_time,
         effective_from=data.effective_from,
         tolerance_percent=data.tolerance_percent,
+        is_default=False,
         actor="system",
     )
     await replace_baseline_metric_series(
@@ -649,6 +671,8 @@ async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineRes
     item = await _get_or_404(baseline_id)
     if item["status"] != "draft":
         raise HTTPException(status_code=400, detail="仅草稿状态可编辑")
+    if data.is_default is not None:
+        raise HTTPException(status_code=400, detail="草稿基线不能设置默认黄金基线")
     definition_id, item_no = decode_baseline_id(baseline_id)
 
     next_selected_start_time = data.selected_start_time or item.get("selected_start_time")
@@ -686,6 +710,7 @@ async def update_baseline(baseline_id: str, data: BaselineUpdate) -> BaselineRes
         selected_end_time=data.selected_end_time,
         effective_from=data.effective_from,
         tolerance_percent=data.tolerance_percent,
+        is_default=None,
         actor="system",
     )
     if not item:
@@ -725,16 +750,18 @@ async def publish_baseline(baseline_id: str) -> BaselineResponse:
         actor="system",
         publish_time=now,
         effective_from=item.get("effective_from") if isinstance(item.get("effective_from"), datetime) else now,
+        is_default=False,
     )
     if not item:
         raise HTTPException(status_code=404, detail="基线不存在")
     await _reload_definition_store()
-    active_item = _resolve_active_baseline_item()
-    if active_item is None:
-        _SETTINGS_STORE["active_baseline_id"]["value"] = baseline_id
     await _reload_baseline_store()
+    if _resolve_active_baseline_item() is None:
+        default_item = await activate_baseline(baseline_id)
+        await _reload_baseline_store()
+        item = await _get_or_404(default_item.id)
     _invalidate_compare_runtime_caches()
-    await persist_runtime_state("baselines", "settings_store")
+    await persist_runtime_state("baselines")
 
     return _to_baseline_response(item)
 
@@ -745,6 +772,7 @@ async def disable_baseline(baseline_id: str) -> BaselineResponse:
     item = await _get_or_404(baseline_id)
     if item["status"] != "published":
         raise HTTPException(status_code=400, detail="仅已发布基线可停用")
+    was_default = bool(item.get("is_default"))
 
     definition_id, item_no = decode_baseline_id(baseline_id)
     item = await set_baseline_status(
@@ -756,14 +784,19 @@ async def disable_baseline(baseline_id: str) -> BaselineResponse:
     if not item:
         raise HTTPException(status_code=404, detail="基线不存在")
     await _reload_definition_store()
-    if _SETTINGS_STORE.get("active_baseline_id", {}).get("value") == baseline_id:
-        next_active = _resolve_next_active_baseline_item(excluded_id=baseline_id)
-        _SETTINGS_STORE["active_baseline_id"]["value"] = (
-            str(next_active["id"]) if next_active else ""
-        )
     await _reload_baseline_store()
+    if was_default:
+        next_active = _resolve_next_active_baseline_item(excluded_id=baseline_id)
+        if next_active:
+            next_definition_id, next_item_no = decode_baseline_id(str(next_active["id"]))
+            await set_default_baseline(
+                definition_id=next_definition_id,
+                item=next_item_no,
+                actor="system",
+            )
+            await _reload_baseline_store()
     _invalidate_compare_runtime_caches()
-    await persist_runtime_state("baselines", "settings_store")
+    await persist_runtime_state("baselines")
 
     return _to_baseline_response(item)
 

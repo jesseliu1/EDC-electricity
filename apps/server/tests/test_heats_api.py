@@ -603,7 +603,7 @@ async def test_heat_list_and_compare_follow_active_default_baseline(client, monk
     assert compare_resp.status_code == 200
     payload = compare_resp.json()
     assert payload["baseline"]["id"] == payload["baselines"][0]["baseline"]["id"]
-    assert any(item["baseline"]["id"] == baseline_id for item in payload["baselines"])
+    assert all(item["baseline"]["id"] != baseline_id for item in payload["baselines"])
 
 
 @pytest.mark.asyncio

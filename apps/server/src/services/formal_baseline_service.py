@@ -80,6 +80,7 @@ def _baseline_to_dict(
         "name": baseline.name,
         "description": baseline.description,
         "status": baseline.status or "",
+        "is_default": bool(baseline.is_default),
         "source_heat_id": baseline.source_heat_id,
         "selected_start_time": baseline.selected_start_time,
         "selected_end_time": baseline.selected_end_time,
@@ -554,6 +555,7 @@ async def create_baseline_record(
     selected_end_time: datetime,
     effective_from: datetime | None,
     tolerance_percent: float,
+    is_default: bool = False,
     actor: str,
 ) -> dict[str, Any]:
     now = utc_now()
@@ -571,6 +573,7 @@ async def create_baseline_record(
             name=name,
             description=description,
             status="draft",
+            is_default=is_default,
             source_heat_id=source_heat_id or None,
             selected_start_time=selected_start_time,
             selected_end_time=selected_end_time,
@@ -676,6 +679,7 @@ async def update_baseline_record(
     selected_end_time: datetime | None,
     effective_from: datetime | None,
     tolerance_percent: float | None,
+    is_default: bool | None,
     actor: str,
 ) -> dict[str, Any] | None:
     async with async_session_maker() as session:
@@ -694,6 +698,8 @@ async def update_baseline_record(
             baseline.effective_from = effective_from
         if tolerance_percent is not None:
             baseline.tolerance_percent = tolerance_percent
+        if is_default is not None:
+            baseline.is_default = is_default
         baseline.updated_by = actor
         baseline.updated_at = utc_now()
         await session.commit()
@@ -708,12 +714,17 @@ async def set_baseline_status(
     actor: str,
     publish_time: datetime | None = None,
     effective_from: datetime | None = None,
+    is_default: bool | None = None,
 ) -> dict[str, Any] | None:
     async with async_session_maker() as session:
         baseline = await session.get(Baseline, {"definition_id": definition_id, "item": item})
         if baseline is None:
             return None
         baseline.status = status
+        if status != "published":
+            baseline.is_default = False
+        elif is_default is not None:
+            baseline.is_default = is_default
         baseline.updated_by = actor
         baseline.updated_at = utc_now()
         if publish_time is not None:
@@ -721,6 +732,59 @@ async def set_baseline_status(
         if effective_from is not None:
             baseline.effective_from = effective_from
         await session.commit()
+    return await get_baseline_record(definition_id, item)
+
+
+async def get_default_baseline_record() -> dict[str, Any] | None:
+    async with async_session_maker() as session:
+        baseline = (
+            await session.execute(
+                select(Baseline)
+                .where(Baseline.is_default.is_(True))
+                .where(Baseline.status == "published")
+                .order_by(Baseline.updated_at.desc(), Baseline.published_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if baseline is None:
+            return None
+        definition = await session.get(BaselineDefinition, baseline.definition_id)
+    return _baseline_to_dict(baseline, definition_name=definition.definition_name if definition else "")
+
+
+async def set_default_baseline(
+    *,
+    definition_id: str,
+    item: str,
+    actor: str,
+) -> dict[str, Any] | None:
+    async with async_session_maker() as session:
+        baseline = await session.get(Baseline, {"definition_id": definition_id, "item": item})
+        if baseline is None:
+            return None
+        if baseline.status != "published":
+            raise ValueError("default_baseline_must_be_published")
+
+        now = utc_now()
+        existing_defaults = list(
+            (
+                await session.execute(
+                    select(Baseline)
+                    .where(Baseline.is_default.is_(True))
+                    .where(Baseline.status == "published")
+                )
+            ).scalars()
+        )
+        for candidate in existing_defaults:
+            candidate.is_default = False
+            candidate.updated_by = actor
+            candidate.updated_at = now
+
+        baseline.is_default = True
+        baseline.updated_by = actor
+        baseline.updated_at = now
+        await session.commit()
+
     return await get_baseline_record(definition_id, item)
 
 

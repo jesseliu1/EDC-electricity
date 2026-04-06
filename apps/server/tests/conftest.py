@@ -44,6 +44,7 @@ from src.models import (
     BaselineDefinition,
     BaselineDefinitionMetric,
     Heat,
+    HeatBaselineBinding,
     MetricSeries,
     Setting,
 )
@@ -309,6 +310,7 @@ async def _seed_formal_reference_records() -> None:
                     name="标准基线 v2.1",
                     description="标准基线正式样本",
                     status="published",
+                    is_default=True,
                     source_heat_id="heat-001",
                     selected_start_time=heat_start,
                     selected_end_time=heat_end,
@@ -327,6 +329,7 @@ async def _seed_formal_reference_records() -> None:
                     name="高功率基线",
                     description="高功率草稿样本",
                     status="draft",
+                    is_default=False,
                     source_heat_id="heat-001",
                     selected_start_time=heat_start,
                     selected_end_time=heat_end,
@@ -352,19 +355,33 @@ async def _seed_formal_reference_records() -> None:
                 context_end_time=context_end,
                 sealed_at=now,
                 source_kind="live_inferred",
+                cut_reason="live_inferred",
+                cut_status="normal",
+                status="normal",
+                created_by="tester",
+                updated_by="tester",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            HeatBaselineBinding(
+                heat_id="heat-001",
                 baseline_definition_id="def-001",
                 baseline_item="001",
-                baseline_effective_from_snapshot=datetime(2026, 3, 12, 11, 0, 0),
-                deviation_status="ready",
+                is_primary=True,
+                effective_from_snapshot=datetime(2026, 3, 12, 11, 0, 0),
+                tolerance_percent_snapshot=15.0,
+                analysis_status="ready",
                 deviation_percent=18.5,
                 avg_deviation_percent=9.2,
                 deviation_details_json=json.dumps(
                     {
                         "abnormal_ranges": [
                             {
-                                "start": "2026-03-12T10:18:00",
-                                "end": "2026-03-12T10:23:00",
-                                "deviation_percent": 18.5,
+                                "start": int((heat_start + timedelta(minutes=18)).timestamp() * 1000),
+                                "end": int((heat_start + timedelta(minutes=23)).timestamp() * 1000),
+                                "deviation": 18.5,
                             }
                         ]
                     },
@@ -373,11 +390,6 @@ async def _seed_formal_reference_records() -> None:
                 ),
                 time_offset_percent=4.8,
                 mismatch_duration_minutes=4.0,
-                cut_reason="live_inferred",
-                cut_status="normal",
-                status="normal",
-                created_by="tester",
-                updated_by="tester",
                 created_at=now,
                 updated_at=now,
             )

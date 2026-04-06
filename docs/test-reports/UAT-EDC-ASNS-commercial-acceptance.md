@@ -12,8 +12,14 @@
 
 > 当前口径说明：
 > - 本文档是正式 UAT 脚本与放行标准，不自动代表“当前版本已经通过”。
-> - 当前公网最新已部署版本是本地提交 `a38efd7 feat: consolidate host runtime source truth`。
-> - 这版的最终放行 UAT 还需要按本文档重跑并补齐视觉证据，不能直接沿用 `2026-03-30` 及更早历史报告里的 PASS 结论。
+> - 当前公网最新已部署版本是本地提交 `84cafe9 feat: add configurable heat cutting modes`。
+> - `2026-04-05` 已新增一轮“factory-reset + blank 后的定向验证”留存：
+>   - `apps/web/e2e/public-blank-cutting-uat.spec.ts`
+>   - `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/uat-summary.md`
+>   - `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/evidence.json`
+>   - `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/screenshot-review.json`
+> - 上述留存只证明“公网已回到 blank、/asns/ 与 /edc/ 可访问、设置页切割模式保存链正常”，不等于完整商业 UAT PASS。
+> - 若要宣称最终放行，仍需按本文档对真实 EDC 链路重跑 `S01 ~ S07`，不能直接沿用 `2026-03-30` 及更早历史报告里的 PASS 结论。
 
 ---
 
@@ -779,6 +785,30 @@ docs/test-reports/assets/UAT-EDC-ASNS-<YYYY-MM-DD>/
 - 所有正式 UAT 截图和报告必须保存在 `docs/test-reports/` 下，不得只放 `/tmp`。
 - 截图保留周期：至少到对应 issue 关闭后一个版本。
 - Bug 截图必须同步录入 `docs/ui_issues.md`，包含截图路径。
+
+### 10.6 2026-04-05 blank 重部署后的定向验证口径
+
+本条是“定向 blank 验证”登记，不替代完整商业 UAT。
+
+- 适用前提：
+  - 已完成 `factory-reset + blank`
+  - 当前明确要求先保持空白系统，不先连真实 EDC
+- 本轮登记的验证范围：
+  - `/asns/` 页面可打开
+  - 宿主连线设置页显示“已添加通道清单为空”
+  - `/edc/` 页面可打开，Dashboard 显示 blank / `host_disconnected` 提示
+  - `/edc/settings` 页面可打开
+  - 切割模式可从 `signal_inference` 切到 `fixed_interval=20` 并成功保存
+  - `GET /api/settings/runtime-status` 能正确反映切换结果
+  - 保存后可恢复默认 `signal_inference`
+  - `baseline-definitions / baselines / heats` 仍保持空白
+- 证据路径：
+  - `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/uat-summary.md`
+  - `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/evidence.json`
+  - `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/screenshot-review.json`
+- 判定规则：
+  - 本条 PASS 只表示“blank 部署结果与当前目标一致，且设置页切割模式保存链正常”
+  - 本条 PASS 不能替代 `S01 ~ S07` 对真实 EDC、通道绑定、实时数据、黄金基线、炉次、偏差和任务链路的正式放行结论
 
 ---
 

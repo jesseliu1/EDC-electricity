@@ -10,6 +10,7 @@ runtime_dir="${EDC_SERVER_RUNTIME_DIR:-/home/openclaw/edc-electricity-server}"
 service_name="${EDC_BACKEND_SERVICE_NAME:-edc-backend.service}"
 health_url="${EDC_BACKEND_HEALTH_URL:-http://127.0.0.1:8001/health}"
 python_bin="${EDC_BACKEND_PYTHON_BIN:-python3}"
+skip_start="${EDC_SERVER_SKIP_START:-0}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_dir="$runtime_dir/backups/$timestamp"
 
@@ -142,11 +143,15 @@ fi
 log_step "Compiling runtime Python sources"
 "$runtime_dir/venv/bin/python" -m compileall -q "$runtime_dir/src"
 
-log_step "Starting $service_name"
-systemctl --user start "$service_name"
+if [[ "$skip_start" == "1" ]]; then
+  log_step "Skipping $service_name start because EDC_SERVER_SKIP_START=1"
+else
+  log_step "Starting $service_name"
+  systemctl --user start "$service_name"
 
-log_step "Checking backend health"
-wait_for_health 10 1
+  log_step "Checking backend health"
+  wait_for_health 10 1
+fi
 
 printf "\nEDC runtime sync complete.\n"
 printf "Runtime backup: %s\n" "$backup_dir/runtime-pre-sync.tgz"

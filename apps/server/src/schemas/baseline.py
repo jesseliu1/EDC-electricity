@@ -30,6 +30,7 @@ class BaselineCreate(BaseModel):
     selected_end_time: TimestampMs = Field(..., description="图上选点结束时间")
     effective_from: OptionalTimestampMs = Field(default=None, description="生效时间")
     tolerance_percent: float = Field(default=15.0, ge=0, le=100, description="容许误差百分比")
+    is_default: bool = Field(default=False, description="是否默认黄金基线")
 
 
 class BaselineUpdate(BaseModel):
@@ -43,6 +44,7 @@ class BaselineUpdate(BaseModel):
     tolerance_percent: float | None = Field(
         default=None, ge=0, le=100, description="容许误差百分比"
     )
+    is_default: bool | None = Field(default=None, description="是否默认黄金基线")
 
 
 class BaselineResponse(BaseModel):
@@ -53,6 +55,7 @@ class BaselineResponse(BaseModel):
     description: str | None = Field(default=None, description="基线描述")
     definition_id: str = Field(..., description="所属基线定义ID")
     definition_name: str = Field(default="", description="所属基线定义名称")
+    is_default: bool = Field(default=False, description="是否默认黄金基线")
     source_heat_id: str | None = Field(default=None, description="来源炉次ID，可为空")
     selected_start_time: OptionalTimestampMs = Field(default=None, description="图上选点开始时间")
     selected_end_time: OptionalTimestampMs = Field(default=None, description="图上选点结束时间")
@@ -122,5 +125,6 @@ class BaselineSummary(BaseModel):
     name: str = Field(..., description="基线名称")
     status: str = Field(..., description="状态")
     version: int = Field(..., description="版本号")
+    is_default: bool = Field(default=False, description="是否默认黄金基线")
 
     model_config = {"from_attributes": True}

@@ -6,6 +6,205 @@
 
 ---
 
+### 2026-04-06（`1炉次 -> N黄金基线` 重构已完成，并按删库重建语义再次 blank 重部署）
+
+**当前阶段**：收口黄金基线绑定重构，统一历史炉次真源，并把公网重新部署回干净 blank 状态
+
+**本轮完成**：
+
+- [x] 已完成正式表结构与读写链重构
+  - [x] `baselines` 新增 `is_default`
+  - [x] 新增 `heat_baseline_bindings`
+  - [x] `heats` 回归只存炉次事实，不再承载单基线绑定结果
+  - [x] 历史炉次列表 / 详情 / compare / analyze / task 快照已统一改为从 `heats + heat_baseline_bindings + metric_series` 组装
+  - [x] 任务创建链已显式携带 `baseline_id`
+- [x] 已完成结构文档同步
+  - [x] 新增主计划文档 `docs/heat-baseline-binding-refactor-plan.md`
+  - [x] 已更新 `docs/BACKEND_STRUCTURE.md`
+  - [x] 已更新 `docs/DEPLOYMENT.md`
+  - [x] 已更新 `docs/lessons.md`
+- [x] 已修补 blank 重部署的一处脚本语义缺口
+  - [x] `scripts/sync-edc-server.sh` 已新增 `EDC_SERVER_SKIP_START=1`
+  - [x] 以后 blank 重部署可先同步 runtime 而不让后端带旧库短暂启动
+- [x] 已完成代码级验证
+  - [x] `pytest -q tests/test_formal_baseline_api.py tests/test_formal_heat_api.py tests/test_tasks_reports_settings_api.py tests/test_heats_api.py tests/test_baselines_dashboard_api.py tests/test_runtime_state_admin.py`
+    - [x] `105 passed`
+  - [x] `pytest -q`
+    - [x] `115 passed`
+  - [x] `pnpm --dir apps/web exec tsc --noEmit`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "can create and publish a baseline from the wizard|baseline detail source heat CTA opens the linked heat detail page|heat detail create task button posts to tasks api and opens the created task detail"`
+    - [x] `3 passed`
+  - [x] `git diff --check`
+    - [x] 无格式残留
+- [x] 已再次按“删库重建 + blank”语义完成公网重部署
+  - [x] 运行库备份：
+    - [x] `/home/openclaw/edc-electricity-server/backups/20260406T134640Z-factory-reset/asns.db.before-reset`
+  - [x] 后端 runtime 同步：
+    - [x] `EDC_SERVER_SKIP_SOURCE_REFRESH=1 ./scripts/sync-edc-server.sh`
+  - [x] SQLite 删库重建：
+    - [x] `systemctl --user stop edc-backend.service`
+    - [x] `/home/openclaw/edc-electricity-server/venv/bin/python -m src.runtime_state_admin --db /home/openclaw/edc-electricity-server/data/asns.db --mode factory-reset`
+    - [x] `systemctl --user start edc-backend.service`
+  - [x] EDC 前端 + ASNS 宿主发布：
+    - [x] `./scripts/publish-edc-web-and-asns.sh`
+  - [x] 新静态资源目录：
+    - [x] `/edc/` -> `/edc/assets-github-20260406T134757Z/index-CPNB5O-d.js`
+    - [x] `/edc/` -> `/edc/assets-github-20260406T134757Z/index-Dfe2v_0I.css`
+    - [x] `/asns/` -> `/asns/assets/index-CPYSMy8j.js`
+    - [x] `/asns/` -> `/asns/assets/index-xM4OlUIX.css`
+- [x] 已完成公网 blank 验活
+  - [x] `systemctl --user is-active edc-backend.service asns-host.service` -> `active / active`
+  - [x] `http://127.0.0.1:8001/health` -> `{"status":"ok"}`
+  - [x] `https://hopeofthepantheon.me/api/health` -> `{"status":"ok"}`
+  - [x] `https://hopeofthepantheon.me/edc/` -> `200`
+  - [x] `https://hopeofthepantheon.me/asns/` -> `200`
+  - [x] `/edc/` 和 `/asns/` 当前入口资源均返回 `200`
+  - [x] `https://hopeofthepantheon.me/api/baseline-definitions` -> 空
+  - [x] `https://hopeofthepantheon.me/api/baselines` -> 空
+  - [x] `https://hopeofthepantheon.me/api/heats?page=1&page_size=5` -> 空列表，`snapshot_status="warming"`，`refresh_error="live_heat_inference_unavailable"`
+  - [x] `https://hopeofthepantheon.me/api/settings/runtime-status`
+    - [x] `overall_code = host_disconnected`
+    - [x] `edc.configured = false`
+    - [x] `active_baseline.id = null`
+    - [x] `runtime.cutting_mode = signal_inference`
+    - [x] `runtime.fixed_interval_minutes = null`
+  - [x] SQLite 正式表已确认为：
+    - [x] `baseline_definitions = 0`
+    - [x] `baseline_definition_metrics = 0`
+    - [x] `baselines = 0`
+    - [x] `heats = 0`
+    - [x] `metric_series = 0`
+    - [x] `tasks = 0`
+  - [x] SQLite runtime 镜像已确认为：
+    - [x] `settings.runtime_baseline_definitions = {}`
+    - [x] `settings.runtime_baselines = {}`
+    - [x] `settings.runtime_settings_store.active_baseline_id = ""`
+    - [x] `settings.runtime_settings_store.edc_base_url = ""`
+- [x] 已补公网页面级 blank 回归
+  - [x] `pnpm --dir apps/web exec playwright test e2e/public-blank-cutting-uat.spec.ts --config=playwright.uat.config.ts`
+    - [x] `1 passed`
+
+**当前结论**：
+
+- [x] 公网当前再次回到干净 blank 状态，且已带上本轮 `heat_baseline_bindings + baselines.is_default` 重构代码
+- [x] 历史炉次与黄金基线的正式真源口径已更新为：
+  - [x] `baselines + heat_baseline_bindings + heats + metric_series`
+- [x] 当前 blank 环境没有真实 EDC 配置、没有正式业务数据、没有旧 runtime 基线/炉次/任务残留
+- [ ] `https://hopeofthepantheon.me/health` 仍为 `404`
+  - [ ] 原因仍是 nginx 根路径未暴露健康检查；当前继续以 `127.0.0.1:8001/health` 和 `/api/health` 为准
+- [ ] 本轮完成的是 blank 重部署与结构回归，不等于已完成真实 EDC 联调或完整商业 UAT
+
+### 2026-04-06（factory-reset 语义已升级为删库重建，公网部署默认按彻底重建口径执行）
+
+**当前阶段**：修正 blank 重部署的数据库重建语义，避免“代码已更新但 SQLite schema 仍旧”的环境漂移
+
+**本轮完成**：
+
+- [x] 已修正 `apps/server/src/runtime_state_admin.py` 的 `factory-reset` 语义
+  - [x] 不再只删除正式表与 `runtime_*` 记录
+  - [x] 现在会删除目标 SQLite 文件及 `-wal / -shm / -journal`
+  - [x] 随后按当前代码 models 直接重建空库 schema
+- [x] 已补回归测试防止旧 schema 再混进 blank 重部署
+  - [x] `apps/server/tests/test_runtime_state_admin.py`
+  - [x] 已新增“旧库 `source_heat_id NOT NULL` 也会被重建成当前可空 schema”的断言
+- [x] 已更新部署口径文档
+  - [x] `docs/DEPLOYMENT.md` 已明确：
+    - [x] `factory-reset + blank` 现在代表“删旧库 + 重建当前 schema + 空白启动”
+    - [x] 以后用户口头要求“公网部署 / 公网重部署”，若未明确保留数据，默认按彻底重建执行
+- [x] 已更新经验文档
+  - [x] `docs/lessons.md` 已补“公网 blank 重部署不能把清数据误当成重建数据库”
+
+**当前结论**：
+
+- [x] 后续再执行公网 blank 重部署时，`factory-reset` 不会再保留旧 SQLite schema
+- [x] 这次修正的目标不是业务功能，而是部署语义对齐
+- [ ] 线上服务尚未因本次代码改动再次重部署
+  - [ ] 当前只是先把仓库代码和部署规范修正到正确口径
+  - [ ] 真正公网生效仍需下一次按新语义重新部署
+
+### 2026-04-05（公网已重部署到 84cafe9，factory-reset + blank 与切割设置 roundtrip 已留存）
+
+**当前阶段**：公网 blank 重部署后的定向复核与留存收口
+
+**本轮完成**：
+
+- [x] 已把公网重新部署到当前工作区提交
+  - [x] 实际发布提交：`84cafe93f1ca769cf796a5432a9270ce8c348176`
+  - [x] `git log --oneline -1`：`84cafe9 feat: add configurable heat cutting modes`
+  - [x] 已按 `docs/DEPLOYMENT.md` 既有脚本执行：
+    - [x] `EDC_SERVER_SKIP_SOURCE_REFRESH=1 ./scripts/sync-edc-server.sh`
+    - [x] `systemctl --user stop edc-backend.service`
+    - [x] `/home/openclaw/edc-electricity-server/venv/bin/python -m src.runtime_state_admin --db /home/openclaw/edc-electricity-server/data/asns.db --mode factory-reset`
+    - [x] `systemctl --user start edc-backend.service`
+    - [x] `./scripts/publish-edc-web-and-asns.sh`
+  - [x] 已先备份运行库：
+    - [x] `/home/openclaw/edc-electricity-server/backups/20260405T151229Z-factory-reset/asns.db.before-reset`
+- [x] 已完成 blank 一致性复核
+  - [x] `https://hopeofthepantheon.me/api/health` -> `{"status":"ok"}`
+  - [x] `https://hopeofthepantheon.me/api/settings/runtime-status` -> `overall_code=host_disconnected`
+  - [x] `https://hopeofthepantheon.me/api/baseline-definitions` -> 空
+  - [x] `https://hopeofthepantheon.me/api/baselines` -> 空
+  - [x] `https://hopeofthepantheon.me/api/heats?page=1&page_size=5` -> 空列表，`refresh_error=live_heat_inference_unavailable`
+  - [x] SQLite 正式表已确认为 `baseline_definitions / baseline_definition_metrics / baselines / heats / metric_series / tasks = 0`
+  - [x] SQLite `settings.runtime_baseline_definitions = {}`
+  - [x] SQLite `settings.runtime_baselines = {}`
+  - [x] SQLite `settings.runtime_settings_store.active_baseline_id = ""`
+  - [x] SQLite `settings.runtime_settings_store.edc_base_url = ""`
+- [x] 已完成部署后代码与用户路径定向复核
+  - [x] 已对 `84cafe9` 的 `settings / heat_cutting_service / heats / SettingsView` 改动再做一轮 review
+  - [x] 当前未发现新的 blocking 结构性问题
+  - [x] 已新增公网 Playwright 定向验证：
+    - [x] `apps/web/e2e/public-blank-cutting-uat.spec.ts`
+    - [x] `pnpm --dir apps/web exec playwright test e2e/public-blank-cutting-uat.spec.ts --config=playwright.uat.config.ts`
+    - [x] 结果：`1 passed`
+  - [x] 已补正式留存：
+    - [x] `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/public/*.png`
+    - [x] `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/evidence.json`
+    - [x] `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/screenshot-review.json`
+    - [x] `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/uat-summary.md`
+- [x] 已确认设置页切割模式公网保存链闭环
+  - [x] blank 默认值为 `signal_inference`
+  - [x] 公网 `/edc/settings` 可切到 `fixed_interval=20` 并成功保存
+  - [x] `GET /api/settings/runtime-status` 已实测反映：
+    - [x] `runtime.cutting_mode = fixed_interval`
+    - [x] `runtime.fixed_interval_minutes = 20`
+  - [x] 随后已恢复默认 `signal_inference`
+  - [x] 恢复后再次确认：
+    - [x] `runtime.cutting_mode = signal_inference`
+    - [x] `runtime.fixed_interval_minutes = null`
+  - [x] 恢复默认后，blank 数据状态未被污染
+
+**验证结果**：
+
+- [x] `pytest -q apps/server/tests/test_formal_baseline_api.py apps/server/tests/test_formal_heat_api.py apps/server/tests/test_api_edge_cases.py apps/server/tests/test_tasks_reports_settings_api.py apps/server/tests/test_baselines_dashboard_api.py apps/server/tests/test_heats_api.py apps/server/tests/test_runtime_state_admin.py`
+  - [x] `110 passed`
+- [x] `pnpm --dir apps/web exec tsc --noEmit`
+- [x] `pnpm --dir apps/web build`
+- [x] `pnpm --dir apps/web exec playwright test e2e/coverage.spec.ts -g "settings page shows host connectivity and can save tolerance and cutting configuration"`
+  - [x] `1 passed`
+- [x] `pnpm --dir apps/web exec playwright test e2e/public-blank-cutting-uat.spec.ts --config=playwright.uat.config.ts`
+  - [x] `1 passed`
+- [x] `curl -fsS https://hopeofthepantheon.me/api/health`
+  - [x] `{"status":"ok"}`
+- [x] `curl -sS -o /tmp/root_health.out -w '%{http_code}' https://hopeofthepantheon.me/health`
+  - [x] `404`
+- [x] 静态资源复核：
+  - [x] `/edc/` -> `/edc/assets-github-20260405T151303Z/index-DUqdBweX.js`
+  - [x] `/edc/` -> `/edc/assets-github-20260405T151303Z/index-Dfe2v_0I.css`
+  - [x] `/asns/` -> `/asns/assets/index-CPYSMy8j.js`
+  - [x] `/asns/` -> `/asns/assets/index-xM4OlUIX.css`
+
+**当前结论**：
+
+- [x] 当前公网已经与本轮目标对齐为 `84cafe9` 的干净 blank 系统
+- [x] blank 语义已确认包含：代码版本、静态资源、SQLite 正式表、`settings.runtime_*`、宿主连接态均已重置
+- [x] 新增的切割模式设置已在公网真实页面完成保存往返验证，并已恢复默认值
+- [ ] 当前还不能宣称“完整商业 UAT 已通过”
+  - [ ] 原因：这轮按部署目标保持 blank，不接真实 EDC；因此只完成了 blank 定向验证与设置页回归，不等于 `S01 ~ S07` 全链路商业验收
+- [ ] `https://hopeofthepantheon.me/health` 仍为 `404`
+  - [ ] 这仍是 nginx 根路径未暴露健康检查，不是后端服务本体故障；当前健康口径继续使用 `/api/health` 与 `127.0.0.1:8001/health`
+
 ### 2026-04-05（炉次切割策略重构回归已收口，fixed_interval 与正式详情链恢复一致）
 
 **当前阶段**：炉次切割工业化改造后的后端回归收口

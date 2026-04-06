@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import re
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -597,6 +598,21 @@ def _build_generated_curve(
 
 
 def _resolve_primary_baseline_id(item: dict[str, Any]) -> str | None:
+    baseline_bindings = item.get("baseline_bindings")
+    if isinstance(baseline_bindings, list):
+        primary_binding = next(
+            (
+                binding
+                for binding in baseline_bindings
+                if isinstance(binding, dict) and bool(binding.get("is_primary"))
+            ),
+            None,
+        )
+        if isinstance(primary_binding, dict):
+            binding_baseline_id = primary_binding.get("baseline_id")
+            if isinstance(binding_baseline_id, str) and binding_baseline_id:
+                return binding_baseline_id
+
     baseline_version_id = item.get("baseline_version_id")
     if isinstance(baseline_version_id, str) and baseline_version_id:
         return baseline_version_id
@@ -749,6 +765,16 @@ def _infer_live_heat_items(
 
 
 def _resolve_compare_baseline_ids(item: dict[str, Any]) -> list[str]:
+    explicit_ids = item.get("baseline_ids")
+    if isinstance(explicit_ids, list):
+        normalized_ids = [
+            baseline_id
+            for baseline_id in explicit_ids
+            if isinstance(baseline_id, str) and baseline_id
+        ]
+        if normalized_ids:
+            return normalized_ids
+
     ordered_ids: list[str] = []
     primary_baseline_id = _resolve_primary_baseline_id(item)
     if primary_baseline_id:
@@ -1438,6 +1464,9 @@ def _build_heat_list_view(
             baseline_item.get("curve_source") or item.get("baseline_curve_source") or "none"
         )
 
+    if str(response_item.get("record_source") or "") == "sealed_history":
+        return response_item
+
     if response_item.get("status") == "pending":
         return response_item
 
@@ -1530,6 +1559,9 @@ async def _build_heat_response_view(item: dict[str, Any]) -> dict[str, Any]:
         response_item["baseline_voltage_curve"] = baseline_voltage_curve
     response_item["baseline_curve_source"] = str(hydrated_baseline.get("curve_source") or "none")
 
+    if str(response_item.get("record_source") or "") == "sealed_history":
+        return response_item
+
     if item.get("status") == "pending" or not baseline_power_curve or not current_power_curve:
         return response_item
 
@@ -1577,6 +1609,9 @@ def _build_heat_compare_view(item: dict[str, Any]) -> dict[str, Any]:
     response_item["baseline_curve_source"] = str(
         item.get("baseline_curve_source") or baseline_item.get("curve_source") or "none"
     )
+
+    if str(response_item.get("record_source") or "") == "sealed_history":
+        return response_item
 
     if item.get("status") == "pending" or not baseline_power_curve or not current_power_curve:
         return response_item
@@ -2031,6 +2066,47 @@ def _ensure_deviation_ranges(
     ]
 
 
+def _binding_by_baseline_id(item: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    bindings = item.get("baseline_bindings")
+    if not isinstance(bindings, list):
+        return {}
+    return {
+        str(binding["baseline_id"]): binding
+        for binding in bindings
+        if isinstance(binding, dict) and isinstance(binding.get("baseline_id"), str)
+    }
+
+
+def _binding_deviation_ranges(binding: dict[str, Any]) -> list[DeviationRange]:
+    raw_payload = binding.get("deviation_details_json")
+    if not isinstance(raw_payload, str) or not raw_payload.strip():
+        return []
+    try:
+        payload = json.loads(raw_payload)
+    except json.JSONDecodeError:
+        return []
+    ranges = payload.get("abnormal_ranges")
+    if not isinstance(ranges, list):
+        return []
+    normalized: list[DeviationRange] = []
+    for item in ranges:
+        if not isinstance(item, dict):
+            continue
+        start = item.get("start")
+        end = item.get("end")
+        deviation = item.get("deviation")
+        if start is None or end is None or deviation is None:
+            continue
+        normalized.append(
+            DeviationRange(
+                start=int(start),
+                end=int(end),
+                deviation=float(deviation),
+            )
+        )
+    return normalized
+
+
 def _select_metric_curve(
     metric_curves: list[MetricCompareSeries], metric_key: str
 ) -> list[CurvePoint]:
@@ -2225,7 +2301,13 @@ def _resolve_baseline_version_for_time(at_time: datetime) -> dict[str, Any] | No
     if published:
         eligible = [item for item in published if _baseline_effective_from(item) <= at_time]
         if eligible:
-            eligible.sort(key=lambda item: _baseline_effective_from(item), reverse=True)
+            eligible.sort(
+                key=lambda item: (
+                    bool(item.get("is_default")),
+                    _baseline_effective_from(item),
+                ),
+                reverse=True,
+            )
             return eligible[0]
         return None
     return None
@@ -3092,6 +3174,7 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     response_item = _build_heat_compare_view(item)
     heat = _to_heat_with_curve(response_item)
     current_power_curve = _coerce_curve_points(response_item.get("power_curve"))
+    binding_map = _binding_by_baseline_id(item)
     baseline_compares: list[BaselineCompareItem] = []
     for idx, baseline_id in enumerate(baseline_ids):
         metric_curves = await _build_metric_curve_series(
@@ -3107,6 +3190,7 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
             hydrated_baseline_item=hydrated_baselines.get(baseline_id),
             hydrate_baseline=False,
         )
+        binding_summary = binding_map.get(baseline_id)
         baseline_item = hydrated_baselines.get(baseline_id) or _BASELINE_STORE.get(baseline_id)
         baseline_name = (
             str(baseline_item.get("name"))
@@ -3118,21 +3202,44 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
 
         baseline_curve = _curve_points_to_pairs(baseline_curve_points)
         current_curve = _curve_points_to_pairs(current_power_curve)
-        result = deviation_service.calculate_deviation(
+        tolerance = float(
+            (binding_summary or {}).get("tolerance_percent")
+            or (baseline_item or {}).get("tolerance_percent")
+            or 15.0
+        )
+        computed_result = deviation_service.calculate_deviation(
             baseline_curve=baseline_curve,
             current_curve=current_curve,
-            tolerance=15.0,
+            tolerance=tolerance,
         )
 
-        deviation_ranges = [
-            DeviationRange(
-                start=int(item_range["start"]),
-                end=int(item_range["end"]),
-                deviation=float(item_range["deviation"]),
+        if (
+            is_sealed_history
+            and binding_summary is not None
+            and str(binding_summary.get("analysis_status") or "") == "ready"
+        ):
+            deviation_ranges = _binding_deviation_ranges(binding_summary)
+            deviation_ranges = _ensure_deviation_ranges(
+                {
+                    **response_item,
+                    "deviation_percent": binding_summary.get("deviation_percent"),
+                },
+                deviation_ranges,
             )
-            for item_range in result["abnormal_ranges"]
-        ]
-        deviation_ranges = _ensure_deviation_ranges(response_item, deviation_ranges)
+            max_deviation = binding_summary.get("deviation_percent")
+            avg_deviation = binding_summary.get("avg_deviation_percent")
+        else:
+            deviation_ranges = [
+                DeviationRange(
+                    start=int(item_range["start"]),
+                    end=int(item_range["end"]),
+                    deviation=float(item_range["deviation"]),
+                )
+                for item_range in computed_result["abnormal_ranges"]
+            ]
+            deviation_ranges = _ensure_deviation_ranges(response_item, deviation_ranges)
+            max_deviation = computed_result["max_deviation"]
+            avg_deviation = computed_result["avg_deviation"]
 
         baseline_compares.append(
             BaselineCompareItem(
@@ -3141,12 +3248,12 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
                     name=baseline_name,
                     power_curve=baseline_curve_points,
                     voltage_curve=baseline_voltage_curve_points,
-                    tolerance_percent=15.0,
+                    tolerance_percent=tolerance,
                 ),
                 metric_curves=metric_curves,
                 deviation_ranges=deviation_ranges,
-                max_deviation=result["max_deviation"],
-                avg_deviation=result["avg_deviation"],
+                max_deviation=max_deviation,
+                avg_deviation=avg_deviation,
             )
         )
 
@@ -3190,6 +3297,9 @@ async def analyze_heat(heat_id: str, data: HeatAnalyzeRequest) -> HeatAnalyzeRes
         raise HTTPException(status_code=400, detail="炉次未绑定基线，无法执行偏差分析。")
 
     if str(item.get("record_source") or "") == "sealed_history":
+        binding_summary = _binding_by_baseline_id(item).get(baseline_id)
+        if binding_summary is None:
+            raise HTTPException(status_code=400, detail="指定基线未绑定到该炉次。")
         hydrated_baselines = await _hydrate_compare_baselines([baseline_id])
         baseline_item = hydrated_baselines.get(baseline_id) or _BASELINE_STORE.get(baseline_id)
         if not baseline_item:
@@ -3209,7 +3319,11 @@ async def analyze_heat(heat_id: str, data: HeatAnalyzeRequest) -> HeatAnalyzeRes
             current_curve=[
                 (float(point.timestamp), float(point.value)) for point in current_curve_points
             ],
-            tolerance=float(baseline_item.get("tolerance_percent") or 15.0),
+            tolerance=float(
+                binding_summary.get("tolerance_percent")
+                or baseline_item.get("tolerance_percent")
+                or 15.0
+            ),
         )
         if await save_formal_heat_analysis(
             canonical_heat_id,

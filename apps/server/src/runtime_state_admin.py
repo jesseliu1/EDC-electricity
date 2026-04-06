@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from sqlalchemy import create_engine
+
+from . import models as _models
 from .channel_roles import (
     binding_score,
     channel_score,
@@ -20,6 +23,7 @@ from .channel_roles import (
     reconcile_channel_role_bindings,
 )
 from .config import settings as app_settings
+from .database import Base
 from .runtime_state import _SECTION_TO_KEY
 from .services import EDCClient, EDCClientError
 from .time_utils import to_timestamp_ms, utc_now, utc_now_ms
@@ -33,20 +37,38 @@ RUNTIME_HOST_CONNECTIVITY_STATUS_KEY = _SECTION_TO_KEY["host_connectivity_status
 RUNTIME_BASELINE_DEFINITIONS_KEY = _SECTION_TO_KEY["baseline_definitions"]
 REALTIME_PROBE_WINDOW = timedelta(minutes=5)
 MAX_LIVE_PROBE_CANDIDATES = 12
-FORMAL_RESET_TABLES = (
-    "tasks",
-    "metric_series",
-    "heats",
-    "baselines",
-    "baseline_definition_metrics",
-    "baseline_definitions",
-)
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(db_path)
     connection.row_factory = sqlite3.Row
     return connection
+
+
+def _sqlite_url_for_path(db_path: Path) -> str:
+    return f"sqlite:///{db_path.resolve().as_posix()}"
+
+
+def _delete_sqlite_artifacts(db_path: Path) -> None:
+    for candidate in (
+        db_path,
+        Path(f"{db_path}-wal"),
+        Path(f"{db_path}-shm"),
+        Path(f"{db_path}-journal"),
+    ):
+        if candidate.exists():
+            candidate.unlink()
+
+
+def _recreate_empty_database(db_path: Path) -> None:
+    # 保留 import side effect，确保所有 SQLAlchemy models 已注册到 metadata。
+    _ = _models
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    engine = create_engine(_sqlite_url_for_path(db_path))
+    try:
+        Base.metadata.create_all(engine)
+    finally:
+        engine.dispose()
 
 
 def _load_json_record(connection: sqlite3.Connection, key: str) -> Any:
@@ -787,15 +809,8 @@ async def refresh_runtime_source_state(
 
 
 def factory_reset_runtime_state(db_path: Path) -> None:
-    connection = _connect(db_path)
-    try:
-        for table_name in FORMAL_RESET_TABLES:
-            connection.execute(f"delete from {table_name}")
-        for key in _SECTION_TO_KEY.values():
-            _delete_record(connection, key)
-        connection.commit()
-    finally:
-        connection.close()
+    _delete_sqlite_artifacts(db_path)
+    _recreate_empty_database(db_path)
 
 
 async def _run() -> None:

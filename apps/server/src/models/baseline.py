@@ -104,6 +104,7 @@ class Baseline(Base):
     __table_args__ = (
         Index("idx_baselines_effective_from", "effective_from"),
         Index("idx_baselines_status", "status"),
+        Index("idx_baselines_is_default", "is_default"),
         Index("idx_baselines_source_heat", "source_heat_id"),
         Index("idx_baselines_definition_published", "definition_id", "status", "published_at"),
     )
@@ -121,6 +122,9 @@ class Baseline(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="基线名称")
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="基线描述")
     status: Mapped[str | None] = mapped_column(String(20), nullable=True, comment="基线状态")
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, comment="是否默认黄金基线"
+    )
     source_heat_id: Mapped[str | None] = mapped_column(
         String(100), nullable=True, comment="生成该基线的来源炉次，可为空"
     )

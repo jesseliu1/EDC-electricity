@@ -6,6 +6,204 @@
 
 ---
 
+## 2026-04-06 `1炉次 -> N黄金基线` 重构已上线到 blank 公网，当前真源口径已切到 bindings（最新口径，优先于下面旧记录）
+
+- 当前核心实现：
+  - `baselines` 已新增 `is_default`
+  - 已新增 `heat_baseline_bindings`
+  - `heats` 已回归只存炉次事实
+  - 历史炉次列表 / 详情 / compare / analyze / 任务快照已统一从 `heats + heat_baseline_bindings + metric_series` 组装
+  - 任务创建链已显式带 `baseline_id`
+- 当前结构文档：
+  - 主计划：`docs/heat-baseline-binding-refactor-plan.md`
+  - 结构说明：`docs/BACKEND_STRUCTURE.md`
+  - 部署说明：`docs/DEPLOYMENT.md`
+- 当前 blank 重部署附加口径：
+  - `scripts/sync-edc-server.sh` 已支持 `EDC_SERVER_SKIP_START=1`
+  - 以后 blank 重部署应优先使用：
+    - `EDC_SERVER_SKIP_SOURCE_REFRESH=1 EDC_SERVER_SKIP_START=1 ./scripts/sync-edc-server.sh`
+  - 原因：避免后端在删库前先带着旧 SQLite 和旧 source 配置短暂启动一次
+- 本轮代码验证结果：
+  - `pytest -q`（工作目录 `apps/server`）-> `115 passed`
+  - `pnpm --dir apps/web exec tsc --noEmit`
+  - `pnpm --dir apps/web build`
+  - `pnpm --dir apps/web exec playwright test e2e/app.spec.ts -g "can create and publish a baseline from the wizard|baseline detail source heat CTA opens the linked heat detail page|heat detail create task button posts to tasks api and opens the created task detail"` -> `3 passed`
+  - `pnpm --dir apps/web exec playwright test e2e/public-blank-cutting-uat.spec.ts --config=playwright.uat.config.ts` -> `1 passed`
+- 本轮公网实际执行：
+  - SQLite 备份：
+    - `/home/openclaw/edc-electricity-server/backups/20260406T134640Z-factory-reset/asns.db.before-reset`
+  - 后端同步：
+    - `EDC_SERVER_SKIP_SOURCE_REFRESH=1 ./scripts/sync-edc-server.sh`
+  - 删库重建：
+    - `systemctl --user stop edc-backend.service`
+    - `/home/openclaw/edc-electricity-server/venv/bin/python -m src.runtime_state_admin --db /home/openclaw/edc-electricity-server/data/asns.db --mode factory-reset`
+    - `systemctl --user start edc-backend.service`
+  - 前端 / 宿主发布：
+    - `./scripts/publish-edc-web-and-asns.sh`
+- 当前公网状态：
+  - 服务：
+    - `edc-backend.service = active`
+    - `asns-host.service = active`
+  - 健康：
+    - `http://127.0.0.1:8001/health` -> `{"status":"ok"}`
+    - `https://hopeofthepantheon.me/api/health` -> `{"status":"ok"}`
+  - 页面：
+    - `https://hopeofthepantheon.me/edc/` -> `200`
+    - `https://hopeofthepantheon.me/asns/` -> `200`
+  - 静态资源：
+    - `/edc/` -> `/edc/assets-github-20260406T134757Z/index-CPNB5O-d.js`
+    - `/edc/` -> `/edc/assets-github-20260406T134757Z/index-Dfe2v_0I.css`
+    - `/asns/` -> `/asns/assets/index-CPYSMy8j.js`
+    - `/asns/` -> `/asns/assets/index-xM4OlUIX.css`
+    - 上述资源均 `200`
+  - blank 数据：
+    - `GET /api/baseline-definitions` -> `{"items":[],"total":0}`
+    - `GET /api/baselines` -> `{"items":[],"total":0}`
+    - `GET /api/heats?page=1&page_size=5` -> 空列表，`snapshot_status="warming"`，`refresh_error="live_heat_inference_unavailable"`
+    - `GET /api/settings/runtime-status`：
+      - `overall_code = host_disconnected`
+      - `edc.configured = false`
+      - `active_baseline.id = null`
+      - `runtime.cutting_mode = signal_inference`
+      - `runtime.fixed_interval_minutes = null`
+    - SQLite：
+      - `baseline_definitions = 0`
+      - `baseline_definition_metrics = 0`
+      - `baselines = 0`
+      - `heats = 0`
+      - `metric_series = 0`
+      - `tasks = 0`
+      - `settings.runtime_baseline_definitions = {}`
+      - `settings.runtime_baselines = {}`
+      - `settings.runtime_settings_store.active_baseline_id = ""`
+      - `settings.runtime_settings_store.edc_base_url = ""`
+- 当前重要结论：
+  - 公网已经再次回到干净 blank 状态
+  - 本轮结构改造后的正式历史真源口径已切到 bindings，不再把 `heats` 当作单基线结果表
+  - `https://hopeofthepantheon.me/health` 仍为 `404`，这仍是 nginx 根路径未暴露健康检查，不是后端故障
+  - 下一轮如果要接真实 EDC，只能从当前 blank 状态继续，不要再默认继承旧 source 或旧业务数据
+
+## 2026-04-05 公网已重部署到 84cafe9，当前为 factory-reset + blank，且切割设置 roundtrip 已验证（最新口径，优先于下面旧记录）
+
+- 当前部署提交：
+  - 工作区 / 实际发布提交：`84cafe93f1ca769cf796a5432a9270ce8c348176`
+  - `git log --oneline -1`：`84cafe9 feat: add configurable heat cutting modes`
+- 本轮实际执行：
+  - 备份运行数据库到：
+    - `/home/openclaw/edc-electricity-server/backups/20260405T151229Z-factory-reset/asns.db.before-reset`
+  - 后端同步：
+    - `EDC_SERVER_SKIP_SOURCE_REFRESH=1 ./scripts/sync-edc-server.sh`
+  - SQLite 强清空：
+    - `systemctl --user stop edc-backend.service`
+    - `/home/openclaw/edc-electricity-server/venv/bin/python -m src.runtime_state_admin --db /home/openclaw/edc-electricity-server/data/asns.db --mode factory-reset`
+    - `systemctl --user start edc-backend.service`
+  - EDC 前端 + ASNS 宿主发布：
+    - `./scripts/publish-edc-web-and-asns.sh`
+- 当前公网 blank 结果：
+  - `https://hopeofthepantheon.me/api/health` -> `{"status":"ok"}`
+  - `https://hopeofthepantheon.me/api/baseline-definitions` -> `{"items":[],"total":0}`
+  - `https://hopeofthepantheon.me/api/baselines` -> `{"items":[],"total":0}`
+  - `https://hopeofthepantheon.me/api/heats?page=1&page_size=5` -> 空列表，`snapshot_status="error"`，`refresh_error="live_heat_inference_unavailable"`
+  - `https://hopeofthepantheon.me/api/settings/runtime-status`：
+    - `overall_code = host_disconnected`
+    - `edc.configured = false`
+    - `host.is_connected = false`
+    - `runtime.cutting_mode = signal_inference`
+    - `runtime.fixed_interval_minutes = null`
+    - `channel_roles.missing_required_role_keys = ["dashboard_primary", "live_heat_inference"]`
+- 当前 SQLite 验证：
+  - `baseline_definitions = 0`
+  - `baseline_definition_metrics = 0`
+  - `baselines = 0`
+  - `heats = 0`
+  - `metric_series = 0`
+  - `tasks = 0`
+  - `settings.runtime_baseline_definitions = {}`
+  - `settings.runtime_baselines = {}`
+  - `settings.runtime_settings_store.active_baseline_id = ""`
+  - `settings.runtime_settings_store.edc_base_url = ""`
+  - `settings.runtime_settings_store.cutting_mode = "signal_inference"`
+  - `settings.runtime_settings_store.fixed_interval_minutes = ""`
+- 当前静态资源指纹：
+  - `/edc/` -> `/edc/assets-github-20260405T151303Z/index-DUqdBweX.js`
+  - `/edc/` -> `/edc/assets-github-20260405T151303Z/index-Dfe2v_0I.css`
+  - `/asns/` -> `/asns/assets/index-CPYSMy8j.js`
+  - `/asns/` -> `/asns/assets/index-xM4OlUIX.css`
+  - 上述资源均 `200`
+- 当前已完成的公网可视化定向验证：
+  - Playwright 用例：
+    - `apps/web/e2e/public-blank-cutting-uat.spec.ts`
+  - 执行命令：
+    - `pnpm --dir apps/web exec playwright test e2e/public-blank-cutting-uat.spec.ts --config=playwright.uat.config.ts`
+  - 结果：
+    - `1 passed`
+  - 证据目录：
+    - `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/public/`
+    - `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/evidence.json`
+    - `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/screenshot-review.json`
+    - `docs/test-reports/assets/2026-04-05-public-blank-cutting-uat/uat-summary.md`
+  - 实测结论：
+    - `/asns/` 可打开，连线设置中“已添加通道清单”为空
+    - `/edc/` 可打开，Dashboard 显示 `宿主尚未同步真实连接状态`
+    - `/edc/settings` 可打开
+    - 切割模式可从 `signal_inference` 切到 `fixed_interval=20` 并成功保存
+    - 保存后 `runtime-status.runtime.cutting_mode = fixed_interval`、`fixed_interval_minutes = 20`
+    - 随后已恢复默认 `signal_inference`，恢复后 runtime 已再次核对正确
+- 当前已知差异：
+  - nginx 仍未暴露公网根路径 `/health`，所以 `https://hopeofthepantheon.me/health` 仍是 `404`
+  - 后端真实健康检查仍使用：
+    - `http://127.0.0.1:8001/health`
+    - `https://hopeofthepantheon.me/api/health`
+  - 当前只完成 blank 定向验证，不等于完整商业 UAT；若下一轮要做 `S01 ~ S07`，需在 blank 一致性已确认的前提下再接真实 EDC 源
+
+## 2026-04-05 公网已重部署到本地提交 9b2c048，当前为 factory-reset + blank 空白态（最新口径，优先于下面旧记录）
+
+- 当前部署提交：
+  - 工作区 / 实际发布提交：`9b2c048e8140582ee5ca882dd3ad5686da7fd800`
+  - `git log --oneline -1`：`9b2c048 fix baseline day-first wizard flow and history compare sourcing`
+  - 注意：当前 `master` 相对 `origin/master` 为 `ahead 1`，也就是公网已经跑到本地提交，但 GitHub 还没包含这次提交
+- 本轮实际执行：
+  - 备份运行数据库到：
+    - `/home/openclaw/edc-electricity-server/backups/20260405T110619Z-factory-reset/asns.db.before-reset`
+  - 后端同步：
+    - `EDC_SERVER_SKIP_SOURCE_REFRESH=1 ./scripts/sync-edc-server.sh`
+  - SQLite 强清空：
+    - `/home/openclaw/edc-electricity-server/venv/bin/python -m src.runtime_state_admin --db /home/openclaw/edc-electricity-server/data/asns.db --mode factory-reset`
+  - EDC 前端 + ASNS 宿主发布：
+    - `./scripts/publish-edc-web-and-asns.sh`
+- 当前公网 blank 结果：
+  - `https://hopeofthepantheon.me/api/health` -> `{"status":"ok"}`
+  - `https://hopeofthepantheon.me/api/baseline-definitions` -> `{"items":[],"total":0}`
+  - `https://hopeofthepantheon.me/api/baselines` -> `{"items":[],"total":0}`
+  - `https://hopeofthepantheon.me/api/heats?page=1&page_size=5` -> 空列表，`snapshot_status="warming"`，`refresh_error="live_heat_inference_unavailable"`
+  - `https://hopeofthepantheon.me/api/settings/runtime-status`：
+    - `overall_code = host_disconnected`
+    - `edc.configured = false`
+    - `host.is_connected = false`
+    - `channel_roles.missing_required_role_keys = ["dashboard_primary", "live_heat_inference"]`
+- 当前 SQLite 验证：
+  - `baseline_definitions = 0`
+  - `baseline_definition_metrics = 0`
+  - `baselines = 0`
+  - `heats = 0`
+  - `metric_series = 0`
+  - `tasks = 0`
+  - `settings.runtime_baseline_definitions = {}`
+  - `settings.runtime_baselines = {}`
+  - `settings.runtime_settings_store.active_baseline_id = ""`
+  - `settings.runtime_settings_store.edc_base_url = ""`
+- 当前静态资源指纹：
+  - `/edc/` -> `/edc/assets-github-20260405T110742Z/index-DTiC0rAT.js`
+  - `/edc/` -> `/edc/assets-github-20260405T110742Z/index-Dfe2v_0I.css`
+  - `/asns/` -> `/asns/assets/index-CPYSMy8j.js`
+  - `/asns/` -> `/asns/assets/index-xM4OlUIX.css`
+  - 上述资源均 `200`
+- 当前已知差异：
+  - nginx 仍未暴露公网根路径 `/health`，所以 `https://hopeofthepantheon.me/health` 仍是 `404`
+  - 后端真实健康检查仍使用：
+    - `http://127.0.0.1:8001/health`
+    - `https://hopeofthepantheon.me/api/health`
+
 ## 2026-04-04 公网部署刷新链时间类型 bug 已修，线上炉次时间/曲线症状已恢复（最新口径，优先于下面旧记录）
 
 - 当前工作区状态：

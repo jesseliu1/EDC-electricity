@@ -150,7 +150,29 @@ async def create_task(data: TaskCreate) -> TaskResponse:
     from .heats import _build_heat_list_view, _get_or_404 as _get_heat_or_404
 
     now = _now()
-    if data.heat_no:
+    if data.baseline_id:
+        heat_record = await _get_heat_or_404(data.heat_id)
+        heat_item = _build_heat_list_view(heat_record)
+        bindings = heat_record.get("baseline_bindings")
+        if isinstance(bindings, list):
+            matched_binding = next(
+                (
+                    binding
+                    for binding in bindings
+                    if isinstance(binding, dict)
+                    and str(binding.get("baseline_id") or "") == str(data.baseline_id)
+                ),
+                None,
+            )
+            if matched_binding is not None:
+                heat_item = {
+                    **heat_item,
+                    "deviation_percent": matched_binding.get("deviation_percent"),
+                    "avg_deviation_percent": matched_binding.get("avg_deviation_percent"),
+                    "time_offset_percent": matched_binding.get("time_offset_percent"),
+                    "mismatch_duration_minutes": matched_binding.get("mismatch_duration_minutes"),
+                }
+    elif data.heat_no:
         heat_item = {
             "heat_no": data.heat_no,
             "deviation_percent": data.deviation_percent,
@@ -159,7 +181,8 @@ async def create_task(data: TaskCreate) -> TaskResponse:
             "mismatch_duration_minutes": data.mismatch_duration_minutes,
         }
     else:
-        heat_item = _build_heat_list_view(await _get_heat_or_404(data.heat_id))
+        heat_record = await _get_heat_or_404(data.heat_id)
+        heat_item = _build_heat_list_view(heat_record)
     task_id = f"task-{uuid4()}"
     plant_now = to_plant_datetime(now, get_plant_timezone())
     item = {

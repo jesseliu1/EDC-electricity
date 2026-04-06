@@ -38,12 +38,9 @@ async def _sorted_dashboard_heats() -> list[dict[str, Any]]:
 
 
 def _resolve_active_baseline() -> dict[str, Any] | None:
-    active_baseline_id = _SETTINGS_STORE.get("active_baseline_id", {}).get("value")
-    if isinstance(active_baseline_id, str) and active_baseline_id:
-        item = _BASELINE_STORE.get(active_baseline_id)
-        if item:
-            return item
-    return None
+    from .baselines import _resolve_active_baseline_item
+
+    return _resolve_active_baseline_item()
 
 def _resolve_dashboard_realtime_context() -> dict[str, Any]:
     baseline = _resolve_active_baseline()
