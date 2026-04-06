@@ -59,7 +59,7 @@
   - blank 数据：
     - `GET /api/baseline-definitions` -> `{"items":[],"total":0}`
     - `GET /api/baselines` -> `{"items":[],"total":0}`
-    - `GET /api/heats?page=1&page_size=5` -> 空列表，`snapshot_status="warming"`，`refresh_error="live_heat_inference_unavailable"`
+    - `GET /api/heats?page=1&page_size=5` -> 空列表，`snapshot_status="error"`，`refresh_error="live_heat_inference_unavailable"`
     - `GET /api/settings/runtime-status`：
       - `overall_code = host_disconnected`
       - `edc.configured = false`

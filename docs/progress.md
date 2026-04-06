@@ -62,7 +62,7 @@
   - [x] `/edc/` 和 `/asns/` 当前入口资源均返回 `200`
   - [x] `https://hopeofthepantheon.me/api/baseline-definitions` -> 空
   - [x] `https://hopeofthepantheon.me/api/baselines` -> 空
-  - [x] `https://hopeofthepantheon.me/api/heats?page=1&page_size=5` -> 空列表，`snapshot_status="warming"`，`refresh_error="live_heat_inference_unavailable"`
+  - [x] `https://hopeofthepantheon.me/api/heats?page=1&page_size=5` -> 空列表，`snapshot_status="error"`，`refresh_error="live_heat_inference_unavailable"`
   - [x] `https://hopeofthepantheon.me/api/settings/runtime-status`
     - [x] `overall_code = host_disconnected`
     - [x] `edc.configured = false`
