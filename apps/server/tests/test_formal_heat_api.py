@@ -24,7 +24,11 @@ from src.models import (
     MetricSeries,
 )
 from src.schemas.common import CurvePoint
-from src.services import prepare_runtime_candidates_for_persist, persist_sealed_heat_candidates
+from src.services import (
+    get_formal_heat_record,
+    prepare_runtime_candidates_for_persist,
+    persist_sealed_heat_candidates,
+)
 from src.time_utils import from_timestamp_ms, to_timestamp_ms
 
 
@@ -273,6 +277,30 @@ async def test_list_heats_reads_history_from_formal_tables(client) -> None:
     assert item["current_curve_source"] == "formal_db"
     assert item["baseline_id"] == "def-history-001:001"
     assert item["deviation_percent"] == pytest.approx(12.3)
+
+
+@pytest.mark.asyncio
+async def test_list_heats_prefers_formal_history_over_overlapping_previous_runtime(client) -> None:
+    formal_item = await get_formal_heat_record("heat-001")
+    assert formal_item is not None
+
+    _PREVIOUS_HEAT_RUNTIME.clear()
+    _PREVIOUS_HEAT_RUNTIME["live-heat-overlap-001"] = {
+        **formal_item,
+        "id": "live-heat-overlap-001",
+        "record_source": "previous_runtime",
+        "completion_status": "completed",
+        "current_curve_source": "live_edc",
+        "baseline_curve_source": "none",
+        "sealed_at": None,
+    }
+
+    response = await client.get("/api/heats", params={"page_size": 20})
+    assert response.status_code == 200
+    items = response.json()["items"]
+
+    assert any(item["id"] == "heat-001" and item["record_source"] == "sealed_history" for item in items)
+    assert all(item["id"] != "live-heat-overlap-001" for item in items)
 
 
 @pytest.mark.asyncio

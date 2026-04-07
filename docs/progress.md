@@ -6,6 +6,41 @@
 
 ---
 
+### 2026-04-07（replay job 取消锁库与 replay/head 重叠展示已在本地代码层收口）
+
+**当前阶段**：已完成本地代码层修复并通过受影响回归，下一步是部署到公网并验证真实运行态；本条不是“已部署完成”口径
+
+**本轮完成**：
+
+- [x] 已修复 replay job 取消路径的 SQLite 锁竞争
+  - [x] `apps/server/src/services/heat_replay_batch_service.py` 新增 `_REPLAY_JOB_SNAPSHOTS`
+  - [x] 运行中 / 取消中 / 刚完成的 replay job 查询优先读内存快照，不再让 `GET /api/heats/replay-jobs/{job_id}` 和后台 worker 在 SQLite 上抢读写
+  - [x] `_update_job(...)` 已增加 `database is locked` 重试，避免 SQLite 短时锁把 worker 直接打崩
+  - [x] replay runner 已统一兼容 ORM job / snapshot job 两种读取口径
+- [x] 已保留并稳定前一轮 replay/head 收口
+  - [x] replay 完成后仍会触发 head runtime rebuild
+  - [x] `/api/heats` 仍按 formal-first 合并，避免 `sealed_history` 与重叠 `previous_runtime` 一起展示
+- [x] 已补测试运行态清理
+  - [x] `apps/server/tests/conftest.py` 现在会额外清空 `_REPLAY_JOB_SNAPSHOTS`
+
+**本轮验证**：
+
+- [x] `python3 -m pytest -q tests/test_heat_replay_api.py tests/test_formal_heat_api.py -k 'replay or prefers_formal_history_over_overlapping_previous_runtime'`
+  - [x] `4 passed`
+- [x] `python3 -m pytest -q tests/test_heat_replay_api.py tests/test_formal_heat_api.py tests/test_heats_api.py -k 'replay or previous_runtime or formal_history or live_incremental'`
+  - [x] `5 passed`
+- [x] `python3 -m pytest -q tests/test_heat_replay_api.py tests/test_formal_heat_api.py tests/test_heats_api.py`
+  - [x] `61 passed`
+- [x] `git diff --check`
+  - [x] 无格式残留
+
+**当前结论**：
+
+- [x] `test_cancel_replay_job_marks_job_cancelled` 已不再触发 `sqlite3.OperationalError: database is locked`
+- [x] replay 完成后 head rebuild 与 formal-first 列表保护仍然成立
+- [ ] 本轮还未把这批修复重新部署到公网
+  - [ ] 下一步需要按既有部署语义把当前代码发布，并在真实源下复验 replay job / `/api/heats` / head runtime 收口
+
 ### 2026-04-07（`live_incremental / replay_batch` 后端主链已正式落地，旧 `72h` live refresh 代码已下线）
 
 **当前阶段**：已完成后端双主链第一轮实现，当前 live 刷新只走增量处理器，历史初始化/重算已有显式 replay backend；下一步进入部署验证与公网重建
@@ -6406,3 +6441,62 @@ EDC 前端（apps/web，/edc/）
   - [!] 本地 `master` 当前为 `9b2c048`，相对 `origin/master` 仍 `ahead 1`
   - [!] 也就是说公网现已运行本地提交 `9b2c048`，但 GitHub `origin/master` 还没包含这次提交
   - [!] 公网根路径 `/health` 仍由 nginx 返回 `404`；后端真实健康检查入口仍是本机 `8001/health` 与公网 `/api/health`
+
+### 2026-04-07（live/replay 新链路公网真源验证，提交 286a3b5）
+
+- [x] 当前工作区提交与本轮公网代码口径确认
+  - [x] 工作区 `HEAD = 286a3b54a85d83d900550d532ff6f34f2231cb08`
+  - [x] `git log --oneline -1` -> `286a3b5 Refactor heat runtime to live/replay pipeline`
+- [x] 公网 blank 基础上重新接入真实 EDC 源
+  - [x] 先备份运行库到 `/home/openclaw/edc-electricity-server/backups/20260407T123508Z-source-connect`
+  - [x] 执行 `POST /api/settings/source-switch`
+    - [x] `base_url = http://60.251.229.32/`
+    - [x] `username = volapu`
+    - [x] `password = admin`
+  - [x] 执行 `/home/openclaw/edc-electricity-server/venv/bin/python -m src.runtime_state_admin --db /home/openclaw/edc-electricity-server/data/asns.db --mode deploy-refresh`
+  - [x] 执行 `systemctl --user restart edc-backend.service`
+- [x] deploy-refresh 后运行态已正确恢复
+  - [x] `runtime_host_channel_catalog = 2127`
+  - [x] `runtime_host_channels = 6`
+  - [x] `runtime_channel_role_bindings` 已自动绑定：
+    - [x] `dashboard_primary = 2347-199`
+    - [x] `dashboard_secondary = 2347-128`
+    - [x] `live_heat_inference = 2347-199`
+  - [x] `runtime_host_connectivity_status.is_connected = true`
+  - [x] `machine_name = EDC Gateway (60.251.229.32)`
+- [x] 新 `live_incremental` 口径已在公网实际生效
+  - [x] 后端重启后第一轮真实拉数窗口为近 `3` 小时：
+    - [x] 日志 `edc_get_local_datas.start_time = 2026-04-07T10:01:08.356944`
+    - [x] 日志 `edc_get_local_datas.end_time = 2026-04-07T13:01:08.356944`
+    - [x] `points_count = 10798`
+  - [x] 后续 live 增量轮询已收敛为约 `90` 秒窗口：
+    - [x] 例如 `2026-04-07T13:00:40.698000 -> 2026-04-07T13:02:11.399464`
+    - [x] `points_count = 91`
+  - [x] 当前 `/api/heats?page=1&page_size=10` 返回 runtime `N-1 / N` 视图，`snapshot_status = ready`
+  - [x] 当前正式表未再出现旧 `72h` 自动回填行为
+- [x] 新 `replay_batch` 口径已在公网实际验证通过
+  - [x] 创建任务：
+    - [x] `POST /api/heats/replay-jobs`
+    - [x] `job_id = heat-replay-20260407130213-dd0c8eb7`
+    - [x] 回放窗口：`2026-04-07T09:02:06.837Z -> 2026-04-07T13:02:06.837Z`
+  - [x] 任务完成：
+    - [x] `status = completed`
+    - [x] `processed_chunk_count = 1`
+    - [x] `generated_heat_count = 3`
+  - [x] 回放后 SQLite：
+    - [x] `heats = 3`
+    - [x] `metric_series = 3`
+    - [x] `heat_replay_jobs = 1`
+    - [x] `heat_baseline_bindings = 0`（当前尚无已发布黄金基线，符合预期）
+- [x] 公网验活
+  - [x] `http://127.0.0.1:8001/api/settings/runtime-status` -> `overall_code = ready`
+  - [x] `https://hopeofthepantheon.me/api/health` -> `{"status":"ok"}`
+  - [x] `https://hopeofthepantheon.me/api/heats?page=1&page_size=10` -> 返回 live + formal 混合结果，`refresh_error = null`
+  - [x] `https://hopeofthepantheon.me/edc/` -> `200`
+  - [x] `https://hopeofthepantheon.me/asns/` -> `200`
+- [x] 本轮关键结论
+  - [x] 当前公网后台 DB 与新炉次刷新链路已经走到新的 `live_incremental + replay_batch` 路线
+  - [x] 本轮真源验证中，重启后的新进程未再复现此前的 `UNIQUE constraint failed: heats.heat_no`
+  - [x] 旧日志里的唯一键报错来自先前进程 / 旧运行态窗口，不代表当前 blank 后重新接源的现行行为
+- [!] 待后续观察
+  - [!] 当前 `/api/heats` 在 replay 后会同时看到 `sealed_history` 与 `previous_runtime`，存在短时重叠展示；这不影响正式入库，但是否需要进一步收口列表展示语义，后续再评估

@@ -1246,20 +1246,110 @@ async def resolve_heat_time_window(
     return item["start_time"], item["end_time"]
 
 
+def _runtime_window_probe(*, start_time: datetime, end_time: datetime) -> dict[str, Any]:
+    return {
+        "id": f"window-{to_timestamp_ms(start_time)}-{to_timestamp_ms(end_time)}",
+        "start_time": start_time,
+        "end_time": end_time,
+    }
+
+
+def _filter_runtime_items_covered_by_formal_history(
+    runtime_items: dict[str, dict[str, Any]],
+    *,
+    formal_items: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    filtered: dict[str, dict[str, Any]] = {}
+    for heat_id, item in runtime_items.items():
+        covered = _find_overlapping_heat_record(item, formal_items)
+        if covered is not None:
+            _link_heat_alias(heat_id, str(covered.get("id") or ""))
+            continue
+        filtered[heat_id] = item
+    return filtered
+
+
+def _resolve_replay_head_rebuild_anchor(
+    *,
+    anchor_time: datetime,
+    end_time: datetime,
+    channel_key: str,
+) -> datetime | None:
+    replay_window = _runtime_window_probe(start_time=anchor_time, end_time=end_time)
+    overlapping_start_times: list[datetime] = []
+
+    for runtime_store in (_PREVIOUS_HEAT_RUNTIME, _ACTIVE_HEAT_RUNTIME):
+        for item in runtime_store.values():
+            runtime_channel_key = str(
+                item.get("_live_context_key") or item.get("furnace_id") or ""
+            )
+            if runtime_channel_key != channel_key:
+                continue
+            if not _has_overlapping_time_window(item, replay_window):
+                continue
+            start_time = item.get("start_time")
+            if isinstance(start_time, datetime):
+                overlapping_start_times.append(start_time)
+
+    if not overlapping_start_times:
+        return None
+    return min(overlapping_start_times)
+
+
+async def _rebuild_head_runtime_after_replay(
+    anchor_time: datetime,
+    end_time: datetime,
+    channel_key: str,
+) -> None:
+    rebuild_anchor = _resolve_replay_head_rebuild_anchor(
+        anchor_time=anchor_time,
+        end_time=end_time,
+        channel_key=channel_key,
+    )
+    if rebuild_anchor is None:
+        return
+
+    inflight = _HEAT_RUNTIME_REFRESH_INFLIGHT
+    if inflight is not None and not inflight.done():
+        try:
+            await inflight
+        except Exception:
+            pass
+
+    invalidate_compare_runtime_caches(include_shared=True)
+    invalidate_live_heat_runtime_cache()
+    await refresh_heat_runtime_state(
+        reason="replay_head_rebuild",
+        force_anchor_time=rebuild_anchor,
+        force_reset_processor=True,
+    )
+
+
 async def _list_heat_store() -> dict[str, dict[str, Any]]:
     if is_mock_dataset_enabled():
         return dict(_MOCK_HEAT_STREAM_STORE)
 
-    merged = {
+    formal_items = {
         str(item["id"]): item
         for item in await list_formal_heat_records()
     }
-    merged.update(_PREVIOUS_HEAT_RUNTIME)
+    merged = dict(formal_items)
+    merged.update(
+        _filter_runtime_items_covered_by_formal_history(
+            _PREVIOUS_HEAT_RUNTIME,
+            formal_items=formal_items,
+        )
+    )
     merged.update(_ACTIVE_HEAT_RUNTIME)
     return merged
 
 
-async def refresh_heat_runtime_state(*, reason: str) -> dict[str, Any]:
+async def refresh_heat_runtime_state(
+    *,
+    reason: str,
+    force_anchor_time: datetime | None = None,
+    force_reset_processor: bool = False,
+) -> dict[str, Any]:
     if is_mock_dataset_enabled():
         _HEAT_RUNTIME_REFRESH_META.update(
             {
@@ -1296,10 +1386,13 @@ async def refresh_heat_runtime_state(*, reason: str) -> dict[str, Any]:
         cutting_config=get_cutting_config(),
         point_loader=_load_live_heat_inference_power_points,
         processor_snapshot=(
-            dict(_HEAT_STREAM_PROCESSOR_STATE) if _HEAT_STREAM_PROCESSOR_STATE else None
+            None
+            if force_reset_processor
+            else (dict(_HEAT_STREAM_PROCESSOR_STATE) if _HEAT_STREAM_PROCESSOR_STATE else None)
         ),
         processing_mode="live_incremental",
         threshold_resolver=_infer_live_activity_threshold,
+        force_start_time=force_anchor_time,
     )
     _HEAT_STREAM_PROCESSOR_STATE.clear()
     _HEAT_STREAM_PROCESSOR_STATE.update(refresh_result.processor_state)
@@ -3195,6 +3288,7 @@ async def create_replay_job(data: HeatReplayJobCreateRequest) -> HeatReplayJobRe
                 expected_duration_minutes=int(context["expected_duration_minutes"]),
             ),
             threshold_resolver=_infer_live_activity_threshold,
+            after_replace=_rebuild_head_runtime_after_replay,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

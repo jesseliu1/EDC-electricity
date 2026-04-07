@@ -80,6 +80,7 @@ async def _stop_runtime_background_tasks() -> None:
                 pass
     heat_replay_batch_service._REPLAY_TASKS.clear()
     heat_replay_batch_service._REPLAY_ACTIVE_CHANNELS.clear()
+    heat_replay_batch_service._REPLAY_JOB_SNAPSHOTS.clear()
 
 
 async def _reset_test_database() -> None:

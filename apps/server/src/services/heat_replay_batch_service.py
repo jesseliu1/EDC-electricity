@@ -9,7 +9,9 @@ from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
+from ..observability import log_event
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 from ..database import async_session_maker
 from ..models import HeatReplayJob
@@ -21,11 +23,15 @@ from .heat_stream_processor import HeatStreamProcessor
 
 _REPLAY_TASKS: dict[str, asyncio.Task[None]] = {}
 _REPLAY_ACTIVE_CHANNELS: set[str] = set()
+_REPLAY_JOB_SNAPSHOTS: dict[str, dict[str, Any]] = {}
 _REPLAY_CHUNK_HOURS = 6
+_SQLITE_LOCK_RETRY_COUNT = 20
+_SQLITE_LOCK_RETRY_DELAY_SECONDS = 0.05
 
 LoadPointWindow = Callable[[dict[str, str], datetime, datetime], Awaitable[list[CurvePoint]]]
 BuildReplayItems = Callable[[list[list[CurvePoint]]], list[dict[str, Any]]]
 ThresholdResolver = Callable[[list[CurvePoint]], float | None]
+AfterReplaceCallback = Callable[[datetime, datetime, str], Awaitable[None]]
 
 
 @dataclass(slots=True)
@@ -50,20 +56,82 @@ def _cutting_config_snapshot(config: HeatCuttingConfig) -> str:
     return json.dumps(asdict(config), ensure_ascii=False, separators=(",", ":"))
 
 
-async def _update_job(job_id: str, **fields: Any) -> HeatReplayJob | None:
-    async with async_session_maker() as session:
-        job = await session.get(HeatReplayJob, job_id)
-        if job is None:
-            return None
-        for field_name, value in fields.items():
-            setattr(job, field_name, value)
-        job.updated_at = utc_now()
-        await session.commit()
-        await session.refresh(job)
-        return job
+def _is_sqlite_locked_error(exc: OperationalError) -> bool:
+    return "database is locked" in str(exc).lower()
 
 
-async def list_heat_replay_jobs() -> list[HeatReplayJob]:
+def _job_to_snapshot(job: HeatReplayJob) -> dict[str, Any]:
+    return {
+        "id": job.id,
+        "job_kind": job.job_kind,
+        "status": job.status,
+        "anchor_time": job.anchor_time,
+        "end_time": job.end_time,
+        "channel_key": job.channel_key,
+        "force_replace": job.force_replace,
+        "progress_cursor": job.progress_cursor,
+        "processed_chunk_count": job.processed_chunk_count,
+        "generated_heat_count": job.generated_heat_count,
+        "error_message": job.error_message,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "completed_at": job.completed_at,
+        "updated_at": job.updated_at,
+    }
+
+
+def _get_job_snapshot(job_id: str) -> dict[str, Any] | None:
+    snapshot = _REPLAY_JOB_SNAPSHOTS.get(job_id)
+    if snapshot is None:
+        return None
+    return dict(snapshot)
+
+
+def _merge_job_snapshot(job_id: str, **fields: Any) -> dict[str, Any] | None:
+    snapshot = _REPLAY_JOB_SNAPSHOTS.get(job_id)
+    if snapshot is None:
+        return None
+    merged = dict(snapshot)
+    merged.update(fields)
+    _REPLAY_JOB_SNAPSHOTS[job_id] = merged
+    return dict(merged)
+
+
+def _job_field(job: HeatReplayJob | dict[str, Any], field_name: str) -> Any:
+    if isinstance(job, dict):
+        return job.get(field_name)
+    return getattr(job, field_name)
+
+
+async def _update_job(job_id: str, **fields: Any) -> HeatReplayJob | dict[str, Any] | None:
+    updated_at = utc_now()
+    snapshot = _merge_job_snapshot(job_id, **fields, updated_at=updated_at)
+    last_error: OperationalError | None = None
+    for attempt in range(_SQLITE_LOCK_RETRY_COUNT):
+        try:
+            async with async_session_maker() as session:
+                job = await session.get(HeatReplayJob, job_id)
+                if job is None:
+                    return snapshot
+                for field_name, value in fields.items():
+                    setattr(job, field_name, value)
+                job.updated_at = updated_at
+                await session.commit()
+                await session.refresh(job)
+                persisted_snapshot = _job_to_snapshot(job)
+                _REPLAY_JOB_SNAPSHOTS[job_id] = persisted_snapshot
+                return job
+        except OperationalError as exc:
+            if not _is_sqlite_locked_error(exc) or attempt == _SQLITE_LOCK_RETRY_COUNT - 1:
+                raise
+            last_error = exc
+            await asyncio.sleep(_SQLITE_LOCK_RETRY_DELAY_SECONDS)
+    if last_error is not None:
+        raise last_error
+    return snapshot
+
+
+async def list_heat_replay_jobs() -> list[HeatReplayJob | dict[str, Any]]:
     async with async_session_maker() as session:
         rows = list(
             (
@@ -72,12 +140,29 @@ async def list_heat_replay_jobs() -> list[HeatReplayJob]:
                 )
             ).scalars()
         )
-    return rows
+    snapshots = {job_id: dict(snapshot) for job_id, snapshot in _REPLAY_JOB_SNAPSHOTS.items()}
+    items: list[HeatReplayJob | dict[str, Any]] = []
+    seen_job_ids: set[str] = set()
+    for row in rows:
+        seen_job_ids.add(row.id)
+        items.append(snapshots.get(row.id) or row)
+    for job_id, snapshot in snapshots.items():
+        if job_id not in seen_job_ids:
+            items.append(snapshot)
+    return items
 
 
-async def get_heat_replay_job(job_id: str) -> HeatReplayJob | None:
+async def get_heat_replay_job(job_id: str) -> HeatReplayJob | dict[str, Any] | None:
+    snapshot = _get_job_snapshot(job_id)
+    if snapshot is not None:
+        return snapshot
     async with async_session_maker() as session:
-        return await session.get(HeatReplayJob, job_id)
+        job = await session.get(HeatReplayJob, job_id)
+        if job is None:
+            return None
+        persisted_snapshot = _job_to_snapshot(job)
+        _REPLAY_JOB_SNAPSHOTS[job_id] = persisted_snapshot
+        return job
 
 
 async def mark_interrupted_heat_replay_jobs() -> None:
@@ -134,6 +219,7 @@ async def create_heat_replay_job(
         session.add(job)
         await session.commit()
         await session.refresh(job)
+    _REPLAY_JOB_SNAPSHOTS[job.id] = _job_to_snapshot(job)
     return job
 
 
@@ -165,6 +251,7 @@ def launch_heat_replay_job(
     point_loader: LoadPointWindow,
     build_items_from_segments: BuildReplayItems,
     threshold_resolver: ThresholdResolver | None = None,
+    after_replace: AfterReplaceCallback | None = None,
 ) -> asyncio.Task[None]:
     if replay_context.channel_key in _REPLAY_ACTIVE_CHANNELS:
         raise ValueError("replay_job_already_running")
@@ -185,8 +272,8 @@ def launch_heat_replay_job(
             )
             generated_heat_count = 0
             processed_chunk_count = 0
-            chunk_start = job.anchor_time
-            end_time = job.end_time
+            chunk_start = _job_field(job, "anchor_time")
+            end_time = _job_field(job, "end_time")
             processor = HeatStreamProcessor(
                 cache_key=replay_context.cache_key,
                 channel_key=replay_context.channel_key,
@@ -237,7 +324,7 @@ def launch_heat_replay_job(
                 trigger_source=f"replay_job:{job_id}",
             )
             await replace_heat_range(
-                anchor_time=job.anchor_time,
+                anchor_time=_job_field(job, "anchor_time"),
                 end_time=end_time,
                 candidates=compiled_candidates,
             )
@@ -250,6 +337,20 @@ def launch_heat_replay_job(
                 completed_at=utc_now(),
                 error_message=None,
             )
+            if after_replace is not None:
+                try:
+                    await after_replace(
+                        _job_field(job, "anchor_time"),
+                        end_time,
+                        replay_context.channel_key,
+                    )
+                except Exception as exc:  # pragma: no cover - 运维补偿失败不影响正式落库
+                    log_event(
+                        "heat_replay_after_replace_error",
+                        job_id=job_id,
+                        channel_key=replay_context.channel_key,
+                        error=str(exc),
+                    )
         except asyncio.CancelledError:
             await _update_job(
                 job_id,

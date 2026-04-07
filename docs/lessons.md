@@ -21,6 +21,13 @@
 
 ## 记录
 
+### 2026-04-07 SQLite 上的长任务状态查询不能每次都直读正式表
+
+- **错误模式**: replay job 正在运行或刚收到取消时，前台轮询 `GET /api/heats/replay-jobs/{job_id}` 仍然每次都去 SQLite 读正式表；与此同时后台 worker 也在同一张 `heat_replay_jobs` 表上 commit 进度或最终状态。SQLite 单文件锁下，读轮询会反向把写 commit 卡住，最后表面看起来像“取消时写 cancelled 失败”。
+- **正确做法**: 长任务要拆成“运行态快照 + 正式持久化”两层。运行中 / 取消中 / 刚完成的 job 状态先读内存快照，SQLite 只负责持久化与补偿恢复；正式写库再补 `database is locked` 重试。不要让轮询查询和后台 worker 在同一个单文件库上硬碰硬。
+- **适用场景**: SQLite、`asyncio.create_task` 后台任务、任务轮询接口、进度型 job API、任何“前台频繁查状态 + 后台持续写进度”的后端。
+- **相关文档**: `apps/server/src/services/heat_replay_batch_service.py`, `apps/server/tests/test_heat_replay_api.py`
+
 ### 2026-04-07 SQLite 上的后台 job 取消不能由 API 线程和 worker 线程同时回写同一状态行
 
 - **错误模式**: replay job 运行中，`cancel` 接口一边 `task.cancel()`，一边自己立刻把 `heat_replay_jobs.status` 改成 `cancelled`；后台 worker 在收到 `CancelledError` 后又会再写同一行。SQLite 单文件写锁下，这种“双写同一任务状态”的并发很容易直接打成 `database is locked`。
@@ -973,3 +980,10 @@
 - **正确做法**: 运行态必须与历史固化分层。只保留 `当前炉次 + 前一个炉次` 作为动态运行态，其余一旦退出缓冲区就封口为稳定历史；同时保留旧运行态 ID 到当前有效记录的 alias，避免列表点击与后台重算窗口撞车。
 - **适用场景**: 任何通过实时曲线推断业务台账、且用户会把列表记录当成正式历史记录查看与追溯的工业监控系统。
 - **相关文档**: BACKEND_STRUCTURE.md, apps/server/src/api/heats.py, docs/testing.md
+
+### 2026-04-07 公网真源重连：`source-switch` 不是完整上线动作，`deploy-refresh` 后还必须重启后端
+
+- **错误模式**: 只调用 `POST /api/settings/source-switch` 把 EDC 地址和账号密码写进后端，就以为公网已经“接上真源”。实际上这一步只更新来源边界和持久化设置，运行中的后端内存态仍可能保持 `host_disconnected / no_enabled_channels`，宿主通道、角色绑定和连接摘要也不会自动变成当前真源的最终运行态。
+- **正确做法**: 公网 blank 后重新接真实源，必须按完整顺序执行：`source-switch -> runtime_state_admin --mode deploy-refresh -> restart edc-backend.service -> 再看 runtime-status`。只有重启后，后端才会从 SQLite 重新加载 `runtime_host_channels / runtime_channel_role_bindings / runtime_host_connectivity_status`，真正进入 `overall_code = ready`。
+- **适用场景**: 服务器 blank 部署后重新接 EDC 真源、切换数据源、需要让宿主通道目录和角色绑定自动重建的运维场景。
+- **相关文档**: docs/DEPLOYMENT.md, docs/session_handoff.md, apps/server/src/runtime_state.py, apps/server/src/runtime_state_admin.py

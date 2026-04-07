@@ -43,7 +43,14 @@ def _compute_fetch_window(
     processor_state: HeatProcessorState | None,
     expected_duration_minutes: int,
     current_time: datetime,
+    force_start_time: datetime | None = None,
 ) -> tuple[datetime, datetime, bool]:
+    if force_start_time is not None:
+        effective_start = min(force_start_time, current_time) - timedelta(
+            seconds=_FETCH_OVERLAP_SECONDS
+        )
+        return (effective_start, current_time, True)
+
     if processor_state is None or processor_state.last_point_timestamp is None:
         return (
             current_time - timedelta(minutes=_bootstrap_window_minutes(expected_duration_minutes)),
@@ -66,6 +73,7 @@ async def refresh_live_heat_segments(
     processing_mode: str = "live_incremental",
     current_time: datetime | None = None,
     threshold_resolver: ThresholdResolver | None = None,
+    force_start_time: datetime | None = None,
 ) -> LiveHeatRefreshResult:
     now = current_time or utc_now()
     restored_state = HeatProcessorState.from_snapshot(processor_snapshot)
@@ -73,6 +81,7 @@ async def refresh_live_heat_segments(
         processor_state=restored_state,
         expected_duration_minutes=int(context["expected_duration_minutes"]),
         current_time=now,
+        force_start_time=force_start_time,
     )
     processor = HeatStreamProcessor(
         cache_key=str(context["cache_key"]),
