@@ -6,6 +6,228 @@
 
 ---
 
+### 2026-04-07（`live_incremental / replay_batch` 后端主链已正式落地，旧 `72h` live refresh 代码已下线）
+
+**当前阶段**：已完成后端双主链第一轮实现，当前 live 刷新只走增量处理器，历史初始化/重算已有显式 replay backend；下一步进入部署验证与公网重建
+
+**本轮完成**：
+
+- [x] 已落地统一点流状态机
+  - [x] 新增 `apps/server/src/services/heat_stream_processor.py`
+  - [x] 引入 `HeatProcessorState / HeatStreamProcessor / HeatProcessorResult`
+  - [x] 当前实现改为“滚动未决 buffer + retain tail”模式
+  - [x] bootstrap 首轮只保留 `N-1 / N` runtime，不再自动把窗口内更早炉次补进正式表
+- [x] 已切 live 主链到增量刷新
+  - [x] 新增 `apps/server/src/services/live_heat_runtime_service.py`
+  - [x] `refresh_heat_runtime_state()` 改为：
+    - [x] 恢复 processor state
+    - [x] 按 watermark 增量取点
+    - [x] 喂给 `HeatStreamProcessor`
+    - [x] 仅 append 已确认闭合炉次
+  - [x] 已删除旧 `72h` lookback 常量与主调用路径
+  - [x] 新增 `runtime_heat_stream_processor_state` 持久化
+- [x] 已补 replay backend
+  - [x] 新增 `apps/server/src/models/heat_replay_job.py`
+  - [x] 新增 `apps/server/src/schemas/heat_replay.py`
+  - [x] 新增 `apps/server/src/services/heat_replay_batch_service.py`
+  - [x] 新增 API：
+    - [x] `GET /api/heats/replay-jobs`
+    - [x] `POST /api/heats/replay-jobs`
+    - [x] `GET /api/heats/replay-jobs/{job_id}`
+    - [x] `POST /api/heats/replay-jobs/{job_id}/cancel`
+  - [x] 应用启动时会把残留 `running` replay job 标记为 `failed(job_interrupted_by_process_restart)`
+  - [x] 同一 `channel_key` 同时只允许一个 replay job
+- [x] 已拆正式表写库语义
+  - [x] `compile_runtime_candidates(...)`
+  - [x] `append_sealed_heats(...)`
+  - [x] `replace_heat_range(...)`
+  - [x] live append 在 replay 运行期间会暂停同通道 formal append，仅保留 runtime 更新
+- [x] 已更新回归测试
+  - [x] 新增 `apps/server/tests/test_heat_stream_processor.py`
+  - [x] 新增 `apps/server/tests/test_heat_replay_api.py`
+  - [x] 已把旧“bootstrap 首轮自动补历史”的测试口径改成新语义
+
+**本轮验证**：
+
+- [x] `python3 -m pytest tests/test_heat_stream_processor.py tests/test_heats_api.py -q`
+  - [x] `49 passed`
+- [x] `python3 -m pytest tests/test_formal_heat_api.py tests/test_runtime_state_admin.py tests/test_heats_api.py tests/test_heat_replay_api.py tests/test_heat_stream_processor.py -q`
+  - [x] `68 passed`
+- [x] `python3 -m pytest -q`
+  - [x] `121 passed`
+- [x] `git diff --check`
+  - [x] 无格式残留
+
+**当前结论**：
+
+- [x] 后台当前已不存在“每轮回拉最近 `72h` 原始点整窗切历史”的 active code path
+- [x] blank 接回真实 EDC 后，live 链只会维护 runtime，不会在首轮 bootstrap 自动把几小时窗口内历史补进正式表
+- [x] 历史初始化 / 重算已有显式 replay backend，可替代旧自动历史补算
+- [ ] 还未做本轮公网重部署与真实源验证
+  - [ ] 下一步按删库重建 + blank 语义重新部署，并用 `http://60.251.229.32/` / `volapu` / `admin` 验证 live + replay 主链
+
+### 2026-04-07（`72h` 整窗历史重算主链已判定废弃，`live_incremental / replay_batch` 双主链方案已收敛）
+
+**当前阶段**：已完成炉次主链方案重定向，明确不再在旧 `72h` 背景刷新链上继续补丁，下一步将按统一增量处理器 + 双主链方向实施
+
+**本轮完成**：
+
+- [x] 已确认当前炉次后台刷新故障的主因不是单点 SQLite bug，而是旧主链语义错误
+  - [x] 已确认当前旧实现会：
+    - [x] 回拉最近 `72h` 原始点
+    - [x] 整窗重切历史炉次
+    - [x] 把更早炉次自动固化进正式表
+  - [x] 已确认这会直接引出：
+    - [x] blank 接回真实 EDC 后自动补历史
+    - [x] 历史边界漂移
+    - [x] `heats.heat_no` 唯一键冲突
+- [x] 已明确新主链边界
+  - [x] `live_incremental`
+    - [x] 只维护实时 runtime
+    - [x] 只追加确认闭合的炉次
+    - [x] 不再回头改写历史
+  - [x] `replay_batch`
+    - [x] 成为唯一历史初始化 / 历史重算入口
+    - [x] 按 chunk loop 处理历史点流
+    - [x] 通过范围替换而不是逐条 merge 写正式表
+- [x] 已明确共同内核
+  - [x] 两条主链共用一个 `HeatStreamProcessor`
+  - [x] 共用 `candidate -> runtime -> preseal_payload` 编译链
+  - [x] 不再复用旧 `72h` refresh loop
+- [x] 已新增正式方案文档
+  - [x] `docs/live-replay-refactor-plan.md`
+  - [x] `docs/live-replay-development-plan.md`
+  - [x] 已写清：
+    - [x] 对象与 service 边界
+    - [x] live / replay 数据流
+    - [x] append / replace_range 持久化语义
+    - [x] UI 只走 API 的接口建议
+    - [x] 旧逻辑保留 / 废弃清单
+    - [x] 分阶段实施步骤、测试计划、并发约束与回滚策略
+
+**当前结论**：
+
+- [x] 当前 `72h` 整窗历史重算逻辑已不再适合作为后续正式实现基础
+- [x] 下一步应直接进入 `HeatStreamProcessor + LiveHeatRuntimeService + HeatReplayBatchService` 的重构，而不是继续修补旧后台 loop
+- [ ] 本轮还未开始实现双主链代码
+  - [ ] 当前仅完成方案收敛与文档落盘
+
+### 2026-04-07（runtime 聚合与正式炉次持久化链已落地，当前进入后续功能扩展前的稳定化阶段）
+
+**当前阶段**：runtime 已从“临时 dict 现场拼装”推进到“先组装运行态，再薄事务落正式表”的第一轮实现，当前重点从方案收敛转入稳定化与后续批量回放前准备
+
+**本轮完成**：
+
+- [x] 已落地当前炉次 runtime 聚合对象
+  - [x] 新增 `apps/server/src/services/heat_runtime_types.py`
+  - [x] 已补 runtime 聚合层类型：
+    - [x] `RuntimeHeatFacts`
+    - [x] `RuntimeHeatBinding`
+    - [x] `RuntimeMetricSeries`
+    - [x] `RuntimePresealPayload`
+    - [x] `RuntimeProcessingMeta`
+    - [x] `CurrentHeatRuntime`
+  - [x] live refresh 链现在会先构造：
+    - [x] `baseline_bindings`
+    - [x] `runtime_metric_series`
+    - [x] `processing_meta`
+    - [x] `preseal_payload`
+- [x] 已重构正式炉次固化链
+  - [x] `persist_sealed_heat_candidates()` 已改成消费预组装 `preseal_payload`
+  - [x] 已去掉“按时间 overlap 判重复”的旧口径
+  - [x] 正式身份改为 `heat.id`
+  - [x] 持久化事务内已不再补做已发布基线筛选、binding 组装、metric_series 组装
+  - [x] 已避开先前容易触发的 nested session / SQLite 自锁写法
+- [x] 已补正式炉次手动保存链
+  - [x] `heats` 新增 `is_manually_adjusted`
+  - [x] `HeatResponse` 已透出 `is_manually_adjusted`
+  - [x] 正式炉次修改 `start_time / end_time` 后会：
+    - [x] 标记 `is_manually_adjusted = true`
+    - [x] 同步回写 `metric_series.series_json.heat_start_time / heat_end_time`
+  - [x] 仍保持：
+    - [x] `context_start_time / context_end_time` 不联动改
+    - [x] 相邻正式炉次允许 overlap
+    - [x] `heat_no` 本轮不重算
+- [x] 已补测试基建稳定化
+  - [x] `apps/server/tests/conftest.py` 现在会在每轮 HTTP client 测试前：
+    - [x] 停掉残留 heat refresh 任务
+    - [x] 显式重建测试库 schema
+  - [x] 已为不走 HTTP client 的 DB 用例补 `reset_test_database` fixture
+  - [x] 已把异步 fixture 改为 `pytest_asyncio.fixture`
+- [x] 已补回归断言
+  - [x] `apps/server/tests/test_formal_heat_api.py`
+    - [x] 覆盖手动调整后 `is_manually_adjusted`
+    - [x] 覆盖 `metric_series` 时间窗同步
+    - [x] 覆盖合法 overlap 的正式炉次持久化
+  - [x] `apps/server/tests/test_heats_api.py`
+    - [x] 覆盖 runtime 内 `processing_meta`
+    - [x] 覆盖 runtime 内 `baseline_bindings`
+    - [x] 覆盖 runtime 内 `runtime_metric_series`
+
+**本轮验证**：
+
+- [x] `python3 -m pytest tests/test_formal_heat_api.py -q`
+  - [x] `11 passed`
+- [x] `python3 -m pytest tests/test_heats_api.py -q`
+  - [x] `46 passed`
+- [x] `python3 -m pytest tests/test_formal_heat_api.py tests/test_heats_api.py tests/test_runtime_state_admin.py -q`
+  - [x] `63 passed`
+- [x] `python3 -m pytest tests/test_tasks_reports_settings_api.py -q`
+  - [x] `17 passed`
+- [x] `git diff --check`
+  - [x] 无格式残留
+
+**当前结论**：
+
+- [x] 本轮 runtime 改造已不再停留在设计稿，核心持久化主链已经落地
+- [x] 当前正式炉次写入边界已收敛到 service 入口，API 层主要负责校验与调度
+- [x] 当前炉次 runtime 已为未来 `replay_batch` 预留 `processing_meta` 和 `preseal_payload` 扩展位
+- [ ] 未来“批量调整后续炉次 / 批量重算历史时段”仍未实现
+  - [ ] 这部分仍是下一轮工作，不在本轮提交范围内
+
+### 2026-04-07（runtime 分层设计草案已落地，当前仍处于方案收敛阶段）
+
+**当前阶段**：梳理 `EDC 采集运行态 / 后端业务运行态 / 前端显示交互态` 三层边界，为后续修复 SQLite 锁与 runtime 同构改造提供设计基线
+
+**本轮完成**：
+
+- [x] 已完成 runtime 分层设计草案
+  - [x] 新增 `docs/runtime-layering-design-draft.md`
+  - [x] 已明确三层 runtime 边界：
+    - [x] `collection runtime（采集运行态）`
+    - [x] `business runtime（业务运行态）`
+    - [x] `ui runtime（前端显示/交互态）`
+  - [x] 已明确炉次固化目标语义：
+    - [x] 业务 runtime 先准备 `heat_payload / binding_payloads / metric_series_payloads`
+    - [x] 持久化层只负责 DB 校验与事务提交
+  - [x] 已明确 UI 修改边界：
+    - [x] UI 只能提交意图型修改或字段 patch
+    - [x] UI 不得直接改采集层原始值，也不得整对象覆盖后端 runtime
+  - [x] 已明确当前实现与目标结构的主要差距：
+    - [x] live runtime 仍偏接口视图 dict
+    - [x] `1 heat -> N baseline bindings` 尚未先在 runtime 中完整成型
+    - [x] 部分偏离分析仍在请求阶段现场计算
+    - [x] 炉次固化时持久化层仍在补做 binding / metric_series 组装
+  - [x] 已补充当前炉次固化数据包语义：
+    - [x] `metric_series(owner_type='heat')` 表示该炉次自己的 `N-1 / N / N+1` 上下文曲线包
+    - [x] UI 显示固化炉次时，直接从 `heats + heat_baseline_bindings + metric_series` 拼装
+    - [x] `heats.start_time / end_time` 允许在人工保存后与相邻炉次出现合法 overlap
+    - [x] `heats` 需新增 `is_manually_adjusted` 字段，标记该炉次已被用户手动修改并保存
+  - [x] 已为下一轮批量重算预留 runtime 处理链扩展位：
+    - [x] 当前炉次 runtime 需补 `processing_meta`
+    - [x] 当前炉次 runtime 组装链必须可复用到 `live_incremental` 与未来 `replay_batch`
+    - [x] 本轮只保留 runtime 结构与处理链位置，不实现批量入口
+  - [x] 已新增本轮实施计划文档：
+    - [x] `docs/runtime-implementation-plan.md`
+    - [x] 已把 runtime 聚合对象、SQLite lock 修复、`is_manually_adjusted`、合法 overlap 语义和手动保存链写成文件级步骤
+
+**当前结论**：
+
+- [x] 用户提出的三层 runtime 方向符合设计常理，可作为后续改造目标
+- [x] 当前代码仍未完全达到该目标，尤其是“运行态先成型、落库只做校验提交”这一点
+- [ ] 本轮尚未开始实现 runtime 分层或修复 SQLite 锁
+  - [ ] 当前仅完成设计收敛与方案文档留存
+
 ### 2026-04-06（`1炉次 -> N黄金基线` 重构已完成，并按删库重建语义再次 blank 重部署）
 
 **当前阶段**：收口黄金基线绑定重构，统一历史炉次真源，并把公网重新部署回干净 blank 状态

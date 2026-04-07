@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Index, String, Text
+from sqlalchemy import Boolean, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db_types import TimestampMsType
@@ -42,6 +42,9 @@ class Heat(Base):
     )
     context_end_time: Mapped[datetime] = mapped_column(
         TimestampMsType(), nullable=False, comment="上下文窗口结束时间"
+    )
+    is_manually_adjusted: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, comment="是否已被用户手动修改并保存"
     )
     sealed_at: Mapped[datetime] = mapped_column(
         TimestampMsType(), nullable=False, comment="固化入库时间"

@@ -1,10 +1,12 @@
 """测试配置"""
 
+import asyncio
 import copy
 import json
 from datetime import datetime, timedelta
 
 import pytest
+import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
@@ -17,6 +19,7 @@ from src.api.heats import (
     _HEAT_COMPARE_CACHE,
     _HEAT_ID_ALIAS_STORE,
     _HEAT_RUNTIME_REFRESH_META,
+    _HEAT_STREAM_PROCESSOR_STATE,
     _HEAT_STORE,
     _LIVE_HEAT_CACHE,
     _MOCK_HEAT_STREAM_STORE,
@@ -37,7 +40,7 @@ from src.api.settings import (
 )
 from src.api.tasks import _SHOWTIME_TASK_STORE, _TASK_STORE
 from src.config import settings
-from src.database import Base, async_session_maker, engine, init_db
+from src.database import Base, async_session_maker, engine
 from src.main import app
 from src.models import (
     Baseline,
@@ -53,6 +56,39 @@ from src.services import close_shared_edc_clients, encode_baseline_id
 
 FORMAL_PRIMARY_BASELINE_ID = encode_baseline_id("def-001", "001")
 FORMAL_SECONDARY_BASELINE_ID = encode_baseline_id("def-002", "001")
+
+
+async def _stop_runtime_background_tasks() -> None:
+    import src.api.heats as heats_module
+    from src.services import heat_replay_batch_service
+
+    await heats_module.stop_heat_runtime_refresh_loop()
+    inflight = heats_module._HEAT_RUNTIME_REFRESH_INFLIGHT
+    if inflight is not None and not inflight.done():
+        inflight.cancel()
+        try:
+            await inflight
+        except asyncio.CancelledError:
+            pass
+    heats_module._HEAT_RUNTIME_REFRESH_INFLIGHT = None
+    for task in list(heat_replay_batch_service._REPLAY_TASKS.values()):
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+    heat_replay_batch_service._REPLAY_TASKS.clear()
+    heat_replay_batch_service._REPLAY_ACTIVE_CHANNELS.clear()
+
+
+async def _reset_test_database() -> None:
+    await close_shared_edc_clients()
+    await _stop_runtime_background_tasks()
+    await engine.dispose()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
 
 
 def _build_test_reference_heats() -> dict[str, dict]:
@@ -353,6 +389,7 @@ async def _seed_formal_reference_records() -> None:
                 end_time=heat_end,
                 context_start_time=context_start,
                 context_end_time=context_end,
+                is_manually_adjusted=False,
                 sealed_at=now,
                 source_kind="live_inferred",
                 cut_reason="live_inferred",
@@ -517,13 +554,10 @@ async def _seed_formal_reference_records() -> None:
         await session.commit()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def client(reset_in_memory_stores):
     """创建测试客户端"""
-    await close_shared_edc_clients()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await init_db()
+    await _reset_test_database()
     await _seed_formal_reference_records()
     async with async_session_maker() as session:
         await session.execute(delete(Setting).where(Setting.key.in_(_SECTION_TO_KEY.values())))
@@ -533,6 +567,16 @@ async def client(reset_in_memory_stores):
     await _reload_baseline_store()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
+    await _stop_runtime_background_tasks()
+    await close_shared_edc_clients()
+
+
+@pytest_asyncio.fixture
+async def reset_test_database(reset_in_memory_stores):
+    """为不走 HTTP client 的用例提供独立测试库。"""
+    await _reset_test_database()
+    yield
+    await _stop_runtime_background_tasks()
     await close_shared_edc_clients()
 
 
@@ -545,6 +589,7 @@ def reset_in_memory_stores():
     active_heat_snapshot = copy.deepcopy(_ACTIVE_HEAT_RUNTIME)
     previous_heat_snapshot = copy.deepcopy(_PREVIOUS_HEAT_RUNTIME)
     heat_id_alias_snapshot = copy.deepcopy(_HEAT_ID_ALIAS_STORE)
+    heat_stream_processor_snapshot = copy.deepcopy(_HEAT_STREAM_PROCESSOR_STATE)
     heat_runtime_refresh_meta_snapshot = copy.deepcopy(_HEAT_RUNTIME_REFRESH_META)
     live_heat_cache_snapshot = copy.deepcopy(_LIVE_HEAT_CACHE)
     heat_compare_cache_snapshot = copy.deepcopy(_HEAT_COMPARE_CACHE)
@@ -572,6 +617,7 @@ def reset_in_memory_stores():
     _ACTIVE_HEAT_RUNTIME.clear()
     _PREVIOUS_HEAT_RUNTIME.clear()
     _HEAT_ID_ALIAS_STORE.clear()
+    _HEAT_STREAM_PROCESSOR_STATE.clear()
     _reset_heat_runtime_refresh_meta()
     _HEAT_RUNTIME_REFRESH_META["snapshot_status"] = "ready"
     _HOST_CHANNEL_STORE.clear()
@@ -607,6 +653,9 @@ def reset_in_memory_stores():
 
     _HEAT_ID_ALIAS_STORE.clear()
     _HEAT_ID_ALIAS_STORE.update(copy.deepcopy(heat_id_alias_snapshot))
+
+    _HEAT_STREAM_PROCESSOR_STATE.clear()
+    _HEAT_STREAM_PROCESSOR_STATE.update(copy.deepcopy(heat_stream_processor_snapshot))
 
     _HEAT_RUNTIME_REFRESH_META.clear()
     _HEAT_RUNTIME_REFRESH_META.update(copy.deepcopy(heat_runtime_refresh_meta_snapshot))

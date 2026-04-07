@@ -21,6 +21,7 @@ class HeatResponse(BaseModel):
     description: str | None = Field(default=None, description="炉次描述")
     start_time: TimestampMs = Field(..., description="开始时间")
     end_time: TimestampMs = Field(..., description="结束时间")
+    is_manually_adjusted: bool = Field(default=False, description="是否已被用户手动修改")
     completion_status: str = Field(default="completed", description="完成状态: completed/in_progress")
     last_point_at: OptionalTimestampMs = Field(default=None, description="当前已采样到的最后时间")
     runtime_snapshot_status: str = Field(default="warming", description="当前运行态快照状态")

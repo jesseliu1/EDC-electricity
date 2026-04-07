@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from src.api.heats import (
     _ACTIVE_HEAT_RUNTIME,
@@ -24,6 +24,7 @@ from src.models import (
     MetricSeries,
 )
 from src.schemas.common import CurvePoint
+from src.services import prepare_runtime_candidates_for_persist, persist_sealed_heat_candidates
 from src.time_utils import from_timestamp_ms, to_timestamp_ms
 
 
@@ -108,6 +109,7 @@ async def _insert_formal_heat_fixture() -> str:
                 end_time=now,
                 context_start_time=now - timedelta(minutes=55),
                 context_end_time=now + timedelta(minutes=30),
+                is_manually_adjusted=False,
                 sealed_at=now + timedelta(minutes=1),
                 source_kind="live_inferred",
                 cut_reason="live_inferred",
@@ -374,6 +376,7 @@ async def test_update_history_heat_writes_formal_tables(client) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["description"] == "手工修订后的历史炉次"
+    assert payload["is_manually_adjusted"] is True
     updated_start = from_timestamp_ms(payload["start_time"])
     updated_end = from_timestamp_ms(payload["end_time"])
     assert updated_start == new_start
@@ -382,8 +385,26 @@ async def test_update_history_heat_writes_formal_tables(client) -> None:
     detail = await client.get(f"/api/heats/{heat_id}")
     assert detail.status_code == 200
     assert detail.json()["description"] == "手工修订后的历史炉次"
+    assert detail.json()["is_manually_adjusted"] is True
     detail_start = from_timestamp_ms(detail.json()["start_time"])
     assert detail_start == new_start
+
+    async with async_session_maker() as session:
+        series_rows = list(
+            (
+                await session.execute(
+                    select(MetricSeries)
+                    .where(MetricSeries.owner_key == heat_id)
+                    .where(MetricSeries.owner_type == "heat")
+                    .order_by(MetricSeries.sort_order, MetricSeries.item)
+                )
+            ).scalars()
+        )
+    assert series_rows
+    for row in series_rows:
+        payload = json.loads(row.series_json)
+        assert payload["heat_start_time"] == to_timestamp_ms(new_start)
+        assert payload["heat_end_time"] == to_timestamp_ms(new_end)
 
 
 @pytest.mark.asyncio
@@ -404,6 +425,86 @@ async def test_update_history_heat_rejects_adjust_subsequent(client) -> None:
     )
     assert response.status_code == 400
     assert "联动批量调整尚未实现" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_persist_sealed_heat_candidates_allows_overlapping_windows(
+    reset_test_database,
+) -> None:
+    await _insert_formal_heat_fixture()
+    base_start = datetime.now().replace(microsecond=0, second=0)
+    candidates = [
+        {
+            "id": "heat-overlap-001",
+            "heat_no": "HOVERLAP-001",
+            "description": "重叠炉次一",
+            "start_time": base_start,
+            "end_time": base_start + timedelta(minutes=30),
+            "context_start_time": base_start - timedelta(minutes=30),
+            "context_end_time": base_start + timedelta(minutes=60),
+            "record_source": "live_inferred",
+            "cut_reason": "test",
+            "cut_status": "normal",
+            "status": "normal",
+            "created_at": base_start,
+            "power_curve": [
+                CurvePoint(timestamp=to_timestamp_ms(base_start), value=420.0),
+                CurvePoint(
+                    timestamp=to_timestamp_ms(base_start + timedelta(minutes=30)),
+                    value=430.0,
+                ),
+            ],
+            "voltage_curve": [
+                CurvePoint(timestamp=to_timestamp_ms(base_start), value=220.0),
+                CurvePoint(
+                    timestamp=to_timestamp_ms(base_start + timedelta(minutes=30)),
+                    value=225.0,
+                ),
+            ],
+        },
+        {
+            "id": "heat-overlap-002",
+            "heat_no": "HOVERLAP-002",
+            "description": "重叠炉次二",
+            "start_time": base_start + timedelta(minutes=20),
+            "end_time": base_start + timedelta(minutes=50),
+            "context_start_time": base_start - timedelta(minutes=10),
+            "context_end_time": base_start + timedelta(minutes=80),
+            "record_source": "live_inferred",
+            "cut_reason": "test",
+            "cut_status": "normal",
+            "status": "normal",
+            "created_at": base_start + timedelta(minutes=20),
+            "power_curve": [
+                CurvePoint(
+                    timestamp=to_timestamp_ms(base_start + timedelta(minutes=20)),
+                    value=421.0,
+                ),
+                CurvePoint(
+                    timestamp=to_timestamp_ms(base_start + timedelta(minutes=50)),
+                    value=431.0,
+                ),
+            ],
+            "voltage_curve": [
+                CurvePoint(
+                    timestamp=to_timestamp_ms(base_start + timedelta(minutes=20)),
+                    value=221.0,
+                ),
+                CurvePoint(
+                    timestamp=to_timestamp_ms(base_start + timedelta(minutes=50)),
+                    value=226.0,
+                ),
+            ],
+        },
+    ]
+
+    prepared = await prepare_runtime_candidates_for_persist(candidates, trigger_source="test")
+    persisted = await persist_sealed_heat_candidates(prepared)
+
+    assert "heat-overlap-001" in persisted
+    assert "heat-overlap-002" in persisted
+    assert persisted["heat-overlap-001"]["start_time"] < persisted["heat-overlap-002"]["start_time"]
+    assert persisted["heat-overlap-001"]["end_time"] > persisted["heat-overlap-002"]["start_time"]
 
 
 @pytest.mark.asyncio
@@ -590,5 +691,7 @@ async def test_refresh_runtime_only_keeps_n_minus_1_and_n_in_cache(client, monke
     items = list_resp.json()["items"]
     runtime_items = [item for item in items if item["record_source"] in {"active_runtime", "previous_runtime"}]
     history_items = [item for item in items if item["record_source"] == "sealed_history"]
+    live_history_items = [item for item in history_items if item["id"].startswith("live-heat-")]
     assert len(runtime_items) == 2
-    assert len(history_items) >= 2
+    assert live_history_items == []
+    assert any(item["id"] == "heat-001" for item in history_items)

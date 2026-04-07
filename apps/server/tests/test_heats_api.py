@@ -1186,7 +1186,9 @@ async def test_analyze_heat_updates_status(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_refresh_heat_runtime_populates_history_from_live_points(client, monkeypatch) -> None:
+async def test_refresh_heat_runtime_bootstrap_keeps_live_segments_in_runtime_only(
+    client, monkeypatch
+) -> None:
     _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
     live_points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
 
@@ -1221,19 +1223,32 @@ async def test_refresh_heat_runtime_populates_history_from_live_points(client, m
     runtime_items = [
         item for item in payload["items"] if item["record_source"] in {"active_runtime", "previous_runtime"}
     ]
+    live_history_items = [
+        item
+        for item in payload["items"]
+        if item["record_source"] == "sealed_history" and item["id"].startswith("live-heat-")
+    ]
     assert len(runtime_items) == 2
     assert runtime_items[0]["record_source"] == "active_runtime"
     assert runtime_items[0]["completion_status"] == "in_progress"
     assert runtime_items[1]["record_source"] == "previous_runtime"
     assert runtime_items[1]["completion_status"] == "completed"
+    assert live_history_items == []
     assert all(item["current_curve_source"] == "live_edc" for item in runtime_items)
     assert runtime_items[0]["id"].startswith("live-heat-")
     assert any(item["id"] == "heat-001" for item in payload["items"])
     assert payload["snapshot_status"] == "stale"
+    active_runtime = next(iter(heats_module._ACTIVE_HEAT_RUNTIME.values()))
+    assert active_runtime["processing_meta"]["processing_mode"] == "live_incremental"
+    assert active_runtime["processing_meta"]["trigger_source"] == "test"
+    assert active_runtime["baseline_bindings"]
+    assert active_runtime["runtime_metric_series"]
 
 
 @pytest.mark.asyncio
-async def test_refresh_heat_runtime_supports_fixed_interval_cutting_mode(client, monkeypatch) -> None:
+async def test_refresh_heat_runtime_supports_fixed_interval_cutting_mode_on_bootstrap(
+    client, monkeypatch
+) -> None:
     _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
     _SETTINGS_STORE["cutting_mode"]["value"] = "fixed_interval"
     _SETTINGS_STORE["fixed_interval_minutes"]["value"] = "15"
@@ -1263,8 +1278,14 @@ async def test_refresh_heat_runtime_supports_fixed_interval_cutting_mode(client,
     assert response.status_code == 200
     payload = response.json()
     live_items = [item for item in payload["items"] if item["id"].startswith("live-heat-")]
+    live_history_items = [
+        item
+        for item in live_items
+        if item["record_source"] == "sealed_history"
+    ]
 
-    assert len(live_items) == 4
+    assert len(live_items) == 2
+    assert live_history_items == []
     assert all(item["id"].endswith("-15") for item in live_items)
 
 
@@ -1585,10 +1606,12 @@ async def test_refresh_heat_runtime_only_keeps_current_and_previous_as_runtime(
         item for item in payload["items"] if item["record_source"] in {"active_runtime", "previous_runtime"}
     ]
     history_items = [item for item in payload["items"] if item["record_source"] == "sealed_history"]
+    live_history_items = [item for item in history_items if item["id"].startswith("live-heat-")]
     assert len(runtime_items) == 2
     assert runtime_items[0]["record_source"] == "active_runtime"
     assert runtime_items[1]["record_source"] == "previous_runtime"
-    assert len(history_items) >= 3
+    assert live_history_items == []
+    assert any(item["id"] == "heat-001" for item in history_items)
 
 
 @pytest.mark.asyncio

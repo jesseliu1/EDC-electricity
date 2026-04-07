@@ -23,6 +23,7 @@ apps/server/
 │   │   ├── baseline.py
 │   │   ├── heat.py
 │   │   ├── heat_baseline_binding.py
+│   │   ├── heat_replay_job.py
 │   │   ├── task.py
 │   │   └── setting.py
 │   │
@@ -30,6 +31,7 @@ apps/server/
 │   │   ├── __init__.py
 │   │   ├── baseline.py
 │   │   ├── heat.py
+│   │   ├── heat_replay.py
 │   │   ├── task.py
 │   │   └── common.py
 │   │
@@ -37,6 +39,9 @@ apps/server/
 │   │   ├── __init__.py
 │   │   ├── formal_baseline_service.py
 │   │   ├── formal_heat_service.py
+│   │   ├── heat_stream_processor.py
+│   │   ├── live_heat_runtime_service.py
+│   │   ├── heat_replay_batch_service.py
 │   │   ├── deviation_service.py
 │   │   ├── report_service.py
 │   │   └── edc_client.py     # EDC API 客户端
@@ -72,6 +77,7 @@ apps/server/
 
 - `baseline_definition_metrics`：定义下的指标模板
 - `metric_series`：基线或炉次的实际指标值
+- `heat_replay_jobs`：历史初始化 / 历史重算任务
 - `tasks`：业务任务
 - `settings`：系统设置
 
@@ -87,6 +93,8 @@ apps/server/
 - 当前炉次运行态缓存应尽量与 `heats + heat_baseline_bindings + metric_series` 同构，避免再做一套单独字段语义
 - 历史炉次的指标值允许保留“前 30 分钟 + 当前炉次区间 + 后 30 分钟”的上下文窗口，便于后续单炉次人工调整
 - 所有未确认的自动回退、自动补全、自动替换都不应进入正式业务链路
+- live 主链只负责 `runtime + append confirmed sealed heats`
+- 历史初始化 / 历史重算必须显式走 `heat_replay_jobs + replay_batch`，不再复用实时后台 loop
 
 时间语义约束：
 
@@ -279,7 +287,7 @@ apps/server/
 | 11 | `source_channel_id` | `string(100)` | 否 | 否 | 通道 ID 快照 |
 | 12 | `source_channel_name` | `string(100)` | 否 | 否 | 通道名称快照 |
 | 13 | `source_channel_label` | `string(255)` | 否 | 否 | 通道标签快照 |
-| 14 | `series_json` | `text` | 否 | 是 | 指标完整窗口数据 JSON，包含前 30 分钟 + 当前炉次区间 + 后 30 分钟 |
+| 14 | `series_json` | `text` | 否 | 是 | 指标完整窗口数据 JSON，包含该炉次自己的 `N-1 / N / N+1` 上下文窗口 |
 | 15 | `stat_json` | `text` | 否 | 否 | 统计信息 JSON |
 | 16 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
 | 17 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
@@ -349,6 +357,12 @@ apps/server/
 }
 ```
 
+补充约束：
+
+- `owner_type='heat'` 的 `metric_series` 表示“这条炉次自己的上下文曲线包”，不是全局时间线的唯一切片
+- 每条炉次的 `metric_series` 都应自带 `N-1 / N / N+1` 观察余量，便于详情页直接从 DB 拼接显示
+- 不同炉次的 `metric_series` 时间范围允许彼此覆盖，这不代表重复数据错误
+
 ### 2.6 `heat_baseline_bindings`
 
 炉次与黄金基线的正式绑定表。
@@ -411,7 +425,7 @@ apps/server/
 
 业务主表。  
 除“当前正在发生的炉次”外，其余炉次都应进入这张表。  
-本表除炉次真实起止时间外，还保留编辑/回看所需的上下文窗口时间。
+本表除炉次主业务起止时间外，还保留编辑/回看所需的上下文窗口时间。
 
 | Index | 字段 | 类型 | 主键 | 必填 | 用途 |
 |---|---|---:|---:|---:|---|
@@ -423,15 +437,16 @@ apps/server/
 | 6 | `end_time` | `int64(timestamp_ms)` | 否 | 是 | 结束时间 |
 | 7 | `context_start_time` | `int64(timestamp_ms)` | 否 | 是 | 上下文窗口开始时间，通常为真实开始前 30 分钟 |
 | 8 | `context_end_time` | `int64(timestamp_ms)` | 否 | 是 | 上下文窗口结束时间，通常为真实结束后 30 分钟 |
-| 9 | `sealed_at` | `int64(timestamp_ms)` | 否 | 是 | 固化入库时间 |
-| 10 | `source_kind` | `string(30)` | 否 | 是 | 来源类型 |
-| 11 | `cut_reason` | `string(100)` | 否 | 否 | 切割原因 |
-| 12 | `cut_status` | `string(30)` | 否 | 是 | 切割状态 |
-| 13 | `status` | `string(20)` | 否 | 是 | 炉次状态 |
-| 14 | `created_by` | `string(50)` | 否 | 否 | 创建人 |
-| 15 | `updated_by` | `string(50)` | 否 | 否 | 更新人 |
-| 16 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
-| 17 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
+| 9 | `is_manually_adjusted` | `bool` | 否 | 是 | 是否已被用户手动修改并保存 |
+| 10 | `sealed_at` | `int64(timestamp_ms)` | 否 | 是 | 固化入库时间 |
+| 11 | `source_kind` | `string(30)` | 否 | 是 | 来源类型 |
+| 12 | `cut_reason` | `string(100)` | 否 | 否 | 切割原因 |
+| 13 | `cut_status` | `string(30)` | 否 | 是 | 切割状态 |
+| 14 | `status` | `string(20)` | 否 | 是 | 炉次状态 |
+| 15 | `created_by` | `string(50)` | 否 | 否 | 创建人 |
+| 16 | `updated_by` | `string(50)` | 否 | 否 | 更新人 |
+| 17 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 18 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
 
 样例：
 
@@ -444,6 +459,7 @@ apps/server/
   "end_time": 1775220540000,
   "context_start_time": 1775217000000,
   "context_end_time": 1775222340000,
+  "is_manually_adjusted": false,
   "sealed_at": 1775220720000,
   "source_kind": "live_inferred",
   "cut_reason": null,
@@ -455,6 +471,10 @@ apps/server/
 补充约束：
 
 - `heats` 只保存炉次事实，不再存单条基线绑定结果
+- `start_time / end_time` 表示这条炉次自己的主业务区间，不要求在全局时间线上绝对不重叠
+- 自动固化路径应尽量按时间顺序生成炉次，通常不会自然产生重复炉次
+- 若用户在页面上手动修正并保存某条炉次，允许该炉次与相邻炉次在 `start_time / end_time` 上出现合法 overlap
+- `is_manually_adjusted=1` 表示该炉次已经被用户手动保存过修改
 - 列表摘要里的 `baseline_id / deviation_percent / mismatch_duration_minutes` 由 `heat_baseline_bindings.is_primary=1` 派生
 
 ### 2.8 `tasks`
@@ -497,7 +517,36 @@ apps/server/
 - `settings.active_baseline_id` 目前仍可作为运行态遗留字段保留，但不再是正式黄金基线真源
 - 默认黄金基线真源统一为 `baselines.is_default`
 
-### 2.10 表关系
+### 2.10 `heat_replay_jobs`
+
+历史初始化 / 历史重算任务表。
+
+| Index | 字段 | 类型 | 主键 | 必填 | 用途 |
+|---|---|---:|---:|---:|---|
+| 1 | `id` | `string(64)` | 是 | 是 | replay 任务 ID |
+| 2 | `job_kind` | `string(32)` | 否 | 是 | 任务类型，当前为 `replay_batch` |
+| 3 | `status` | `string(24)` | 否 | 是 | `queued / running / completed / failed / cancelled` |
+| 4 | `anchor_time` | `int64(timestamp_ms)` | 否 | 是 | 起始时间 |
+| 5 | `end_time` | `int64(timestamp_ms)` | 否 | 是 | 结束时间 |
+| 6 | `channel_key` | `string(64)` | 否 | 是 | 本次 replay 针对的通道键 |
+| 7 | `force_replace` | `bool` | 否 | 是 | 是否按范围强制替换正式表 |
+| 8 | `cutting_config_snapshot_json` | `text` | 否 | 是 | 任务启动时切割配置快照 |
+| 9 | `progress_cursor` | `int64(timestamp_ms)` | 否 | 否 | 当前已处理到的时间游标 |
+| 10 | `processed_chunk_count` | `int` | 否 | 是 | 已处理 chunk 数 |
+| 11 | `generated_heat_count` | `int` | 否 | 是 | 当前已生成的炉次数 |
+| 12 | `error_message` | `text` | 否 | 否 | 失败或取消原因 |
+| 13 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 14 | `started_at` | `int64(timestamp_ms)` | 否 | 否 | 开始时间 |
+| 15 | `completed_at` | `int64(timestamp_ms)` | 否 | 否 | 完成时间 |
+| 16 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
+
+补充约束：
+
+- `heat_replay_jobs` 只记录任务生命周期，不作为业务事实台账
+- 同一 `channel_key` 同时只允许一个 `running` replay job
+- replay 执行期间，live 链仍可刷新 runtime，但同通道 formal append 应暂停
+
+### 2.11 表关系
 
 ```mermaid
 erDiagram
@@ -522,20 +571,28 @@ erDiagram
 
 ### 2.11 当前炉次运行态缓存设计
 
-当前炉次运行态不再单独设计一套与正式表完全不同的字段语义；应尽量与 `heats + heat_baseline_bindings + metric_series` 同构。
+当前炉次运行态不再单独设计一套与正式表完全不同的字段语义；应尽量与 `heats + heat_baseline_bindings + metric_series` 同构，并聚合为一个“当前炉次 runtime 对象”。
 
 推荐口径：
 
-- 当前炉次缓存对象保留与 `heats` 相同的关键字段：
+- 推荐聚合对象：
+  - `current_heat_runtime.facts`
+  - `current_heat_runtime.bindings`
+  - `current_heat_runtime.metric_series`
+  - `current_heat_runtime.preseal_payload`
+  - `current_heat_runtime.refresh_meta`
+  - `current_heat_runtime.processing_meta`
+- 当前炉次 `facts` 保留与 `heats` 相同的关键字段：
   - `id / heat_no / start_time / end_time`
   - `context_start_time / context_end_time`
+  - `is_manually_adjusted`
   - `cut_reason / cut_status / status`
-- 当前炉次绑定摘要保留与 `heat_baseline_bindings` 同构的结构：
+- 当前炉次 `bindings` 保留与 `heat_baseline_bindings` 同构的结构：
   - `baseline_ids`
   - `baseline_bindings`
   - `is_primary`
   - `analysis_status / deviation_percent / avg_deviation_percent`
-- 当前炉次指标值缓存保留与 `metric_series` 相同的结构：
+- 当前炉次 `metric_series` 保留与正式 `metric_series` 相同的结构：
   - `owner_key`
   - `item`
   - `metric_key / metric_name / unit`
@@ -545,6 +602,16 @@ erDiagram
   - `record_stage=runtime`
   - `last_point_at`
   - `runtime_status`
+  - `processing_mode`
+  - `trigger_source`
+
+处理链约束：
+
+- 当前炉次 runtime 的后端组装逻辑，后续必须同时可复用给：
+  - 实时增量刷新
+  - 从指定时间点开始的批量回放/重算
+- 两类入口共享同一套“识别炉次 -> 组装 runtime -> 生成 preseal payload -> 覆盖写入正式表”逻辑
+- 差异只允许体现在调度方式、批次大小、取数步长，不应复制出两套业务判断逻辑
 
 这样做的目的：
 

@@ -31,6 +31,9 @@ from ..schemas import (
     HeatAnalyzeResponse,
     HeatCompareResponse,
     HeatListResponse,
+    HeatReplayJobCreateRequest,
+    HeatReplayJobListResponse,
+    HeatReplayJobResponse,
     HeatResponse,
     HeatResumeCuttingRequest,
     HeatUpdate,
@@ -40,12 +43,14 @@ from ..schemas import (
 )
 from ..schemas.heat import BaselineWithCurveSimple
 from ..services import (
+    append_sealed_heats,
+    compile_runtime_candidates,
     DeviationService,
     EDCClient,
     EDCClientError,
+    encode_baseline_id,
     get_formal_heat_record,
     list_formal_heat_records,
-    persist_sealed_heat_candidates,
     resume_formal_heat_cutting,
     save_formal_heat_analysis,
     update_formal_heat_record,
@@ -55,6 +60,23 @@ from ..services.heat_cutting_service import (
     build_live_heat_cache_key,
     infer_live_activity_threshold,
     infer_live_heat_segments,
+)
+from ..services.live_heat_runtime_service import refresh_live_heat_segments
+from ..services.heat_replay_batch_service import (
+    ReplayContext,
+    cancel_heat_replay_job as cancel_heat_replay_job_record,
+    create_heat_replay_job as create_heat_replay_job_record,
+    get_heat_replay_job as get_heat_replay_job_record,
+    is_replay_active_for_channel,
+    launch_heat_replay_job,
+    list_heat_replay_jobs as list_heat_replay_job_records,
+)
+from ..services.heat_runtime_types import (
+    CurrentHeatRuntime,
+    RuntimeHeatBinding,
+    RuntimeHeatFacts,
+    RuntimeMetricSeries,
+    RuntimeProcessingMeta,
 )
 from ..time_utils import (
     from_timestamp_ms,
@@ -78,7 +100,6 @@ from .settings import (
 router = APIRouter(prefix="/heats", tags=["Heats"])
 deviation_service = DeviationService()
 
-_LIVE_HEAT_LOOKBACK_HOURS = 72
 _LIVE_HEAT_CACHE_TTL_SECONDS = 30
 _LIVE_HEAT_GAP_MINUTES = 3
 _LIVE_HEAT_ID_BUCKET_MINUTES = 5
@@ -764,6 +785,29 @@ def _infer_live_heat_items(
     return {str(item["id"]): item for item in inferred}
 
 
+def _build_live_heat_items_from_segments(
+    *,
+    context: dict[str, Any],
+    segments: list[list[CurvePoint]],
+    baseline_id: str | None,
+    expected_duration_minutes: int,
+) -> list[dict[str, Any]]:
+    built: list[dict[str, Any]] = []
+    for index, segment in enumerate(segments, start=1):
+        if not segment:
+            continue
+        built.append(
+            _build_live_heat_item(
+                index=index,
+                context=context,
+                baseline_id=baseline_id,
+                power_curve=segment,
+                expected_duration_minutes=expected_duration_minutes,
+            )
+        )
+    return built
+
+
 def _resolve_compare_baseline_ids(item: dict[str, Any]) -> list[str]:
     explicit_ids = item.get("baseline_ids")
     if isinstance(explicit_ids, list):
@@ -858,6 +902,17 @@ def _resolve_live_heat_inference_context() -> dict[str, Any] | None:
     return _clone_live_heat_context(contexts[0])
 
 
+def _build_replay_context(context: dict[str, Any]) -> ReplayContext:
+    return ReplayContext(
+        channel=dict(context["channel"]),
+        channel_key=str(context["channel_key"]),
+        context_hash=str(context["context_hash"]),
+        cache_key=str(context["cache_key"]),
+        baseline_id=context.get("baseline_id"),
+        expected_duration_minutes=int(context["expected_duration_minutes"]),
+    )
+
+
 def build_live_heat_lookup_context(
     *,
     definition_id: str | None,
@@ -887,13 +942,13 @@ def build_live_heat_lookup_context(
 
 async def _load_live_heat_inference_power_points(
     channel: dict[str, str],
+    start_time: datetime,
+    end_time: datetime,
 ) -> list[CurvePoint]:
     config = get_edc_connection_config()
     if not config["base_url"] or not config["username"] or not config["password"]:
         return []
 
-    end_time = utc_now()
-    start_time = end_time - timedelta(hours=_LIVE_HEAT_LOOKBACK_HOURS)
     try:
         async with EDCClient(**config) as client:
             return await client.get_local_datas(
@@ -945,7 +1000,18 @@ async def _get_live_inferred_heat_store(
         return await inflight
 
     async def _refresh_live_items() -> dict[str, dict[str, Any]]:
-        points = await _load_live_heat_inference_power_points(context["channel"])
+        window_end = utc_now()
+        window_start = window_end - timedelta(
+            minutes=max(int(context["expected_duration_minutes"]) * 4, 180)
+        )
+        try:
+            points = await _load_live_heat_inference_power_points(
+                context["channel"],
+                window_start,
+                window_end,
+            )
+        except TypeError:
+            points = await _load_live_heat_inference_power_points(context["channel"])
         inferred_items = _infer_live_heat_items(
             context=context,
             points=points,
@@ -1225,32 +1291,78 @@ async def refresh_heat_runtime_state(*, reason: str) -> dict[str, Any]:
         await persist_runtime_state(*_runtime_heat_sections())
         return _build_heat_runtime_refresh_meta_snapshot()
 
-    points = await _load_live_heat_inference_power_points(context["channel"])
-    inferred_items = _infer_live_heat_items(
+    refresh_result = await refresh_live_heat_segments(
         context=context,
-        points=points,
+        cutting_config=get_cutting_config(),
+        point_loader=_load_live_heat_inference_power_points,
+        processor_snapshot=(
+            dict(_HEAT_STREAM_PROCESSOR_STATE) if _HEAT_STREAM_PROCESSOR_STATE else None
+        ),
+        processing_mode="live_incremental",
+        threshold_resolver=_infer_live_activity_threshold,
+    )
+    _HEAT_STREAM_PROCESSOR_STATE.clear()
+    _HEAT_STREAM_PROCESSOR_STATE.update(refresh_result.processor_state)
+
+    segment_items = _build_live_heat_items_from_segments(
+        context=context,
+        segments=[segment.points for segment in refresh_result.processor_result.all_segments],
         baseline_id=context["baseline_id"],
         expected_duration_minutes=int(context["expected_duration_minutes"]),
     )
-    if not inferred_items:
+    segment_item_lookup = {
+        (
+            int(item.get("_live_original_start_ts") or 0),
+            int(item.get("_live_original_end_ts") or 0),
+        ): item
+        for item in segment_items
+    }
+
+    def _segment_item(segment) -> dict[str, Any] | None:
+        if segment is None:
+            return None
+        return segment_item_lookup.get(segment.key())
+
+    active_candidate = _segment_item(refresh_result.processor_result.active_segment)
+    previous_candidate = _segment_item(refresh_result.processor_result.previous_segment)
+    sealed_candidates = [
+        item
+        for segment in refresh_result.processor_result.sealed_segments
+        if (item := _segment_item(segment)) is not None
+    ]
+
+    if not active_candidate and not previous_candidate and not sealed_candidates:
         _mark_heat_runtime_refresh_failure(error="no_runtime_heats_inferred")
         await persist_runtime_state(*_runtime_heat_sections())
         return _build_heat_runtime_refresh_meta_snapshot()
 
-    runtime_candidates = [_bind_runtime_baseline(raw_item) for raw_item in inferred_items.values()]
-    runtime_candidates.sort(key=lambda item: item["start_time"], reverse=True)
-
     next_active_runtime: dict[str, dict[str, Any]] = {}
     next_previous_runtime: dict[str, dict[str, Any]] = {}
-    if runtime_candidates:
-        active_item = _mark_active_runtime(runtime_candidates[0])
+    if active_candidate is not None:
+        active_runtime = _build_current_heat_runtime(
+            active_candidate,
+            trigger_source=reason,
+            processing_mode="live_incremental",
+        )
+        active_item = _mark_active_runtime(active_runtime.to_runtime_item())
         next_active_runtime[str(active_item["id"])] = active_item
-    if len(runtime_candidates) > 1:
-        previous_item = _mark_previous_runtime(runtime_candidates[1])
+    if previous_candidate is not None:
+        previous_runtime = _build_current_heat_runtime(
+            previous_candidate,
+            trigger_source=reason,
+            processing_mode="live_incremental",
+        )
+        previous_item = _mark_previous_runtime(previous_runtime.to_runtime_item())
         next_previous_runtime[str(previous_item["id"])] = previous_item
 
-    sealed_candidates = runtime_candidates[2:]
-    next_history_items = await persist_sealed_heat_candidates(sealed_candidates)
+    next_history_items: dict[str, dict[str, Any]] = {}
+    if not is_replay_active_for_channel(str(context["channel_key"])):
+        prepared_sealed_candidates = await compile_runtime_candidates(
+            sealed_candidates,
+            processing_mode="live_incremental",
+            trigger_source=reason,
+        )
+        next_history_items = await append_sealed_heats(prepared_sealed_candidates)
 
     previous_runtime_items = [
         *list(_ACTIVE_HEAT_RUNTIME.values()),
@@ -1276,6 +1388,10 @@ async def refresh_heat_runtime_state(*, reason: str) -> dict[str, Any]:
         runtime_item = next(iter(runtime_store.values()), None)
         if runtime_item and isinstance(runtime_item.get("last_point_at"), datetime):
             watermark_candidates.append(runtime_item["last_point_at"])
+    if refresh_result.processor_result.last_point_timestamp is not None:
+        watermark_candidates.append(
+            from_timestamp_ms(refresh_result.processor_result.last_point_timestamp)
+        )
 
     _mark_heat_runtime_refresh_success(
         reason=reason,
@@ -2246,6 +2362,7 @@ _HEAT_STORE: dict[str, dict[str, Any]] = {}
 _ACTIVE_HEAT_RUNTIME: dict[str, dict[str, Any]] = {}
 _PREVIOUS_HEAT_RUNTIME: dict[str, dict[str, Any]] = {}
 _HEAT_ID_ALIAS_STORE: dict[str, str] = {}
+_HEAT_STREAM_PROCESSOR_STATE: dict[str, Any] = {}
 _MOCK_HEAT_STREAM_STORE: dict[str, dict[str, Any]] = _seed_mock_stream_heats()
 _NEXT_MOCK_HEAT_INDEX = len(_MOCK_HEAT_STREAM_STORE) + 1
 _HEAT_RUNTIME_REFRESH_META: dict[str, Any] = {}
@@ -2313,16 +2430,204 @@ def _resolve_baseline_version_for_time(at_time: datetime) -> dict[str, Any] | No
     return None
 
 
-def _bind_runtime_baseline(item: dict[str, Any]) -> dict[str, Any]:
-    bound = dict(item)
-    baseline_item = _resolve_baseline_version_for_time(bound["start_time"])
-    baseline_id = str(baseline_item["id"]) if baseline_item and baseline_item.get("id") else None
-    effective_from = _baseline_effective_from(baseline_item)
-    bound["baseline_id"] = baseline_id
-    bound["baseline_version_id"] = baseline_id
-    bound["baseline_effective_from"] = effective_from
-    bound["baseline_ids"] = [baseline_id] if baseline_id else []
-    return bound
+def _list_applicable_runtime_baselines(at_time: datetime) -> list[dict[str, Any]]:
+    published = [
+        item
+        for item in _BASELINE_STORE.values()
+        if item.get("status") == "published" and _baseline_effective_from(item) is not None
+    ]
+    eligible = [item for item in published if _baseline_effective_from(item) <= at_time]
+    eligible.sort(
+        key=lambda item: (
+            bool(item.get("is_default")),
+            _baseline_effective_from(item),
+            item.get("published_at") if isinstance(item.get("published_at"), datetime) else datetime.min,
+            item.get("updated_at") if isinstance(item.get("updated_at"), datetime) else datetime.min,
+        ),
+        reverse=True,
+    )
+    return eligible
+
+
+def _runtime_metric_series_spec(metric_kind: str) -> dict[str, Any]:
+    if metric_kind == "power":
+        return {
+            "item": "001",
+            "metric_key": "power",
+            "metric_name": "总有功功率",
+            "unit": "kW",
+            "color": "#409EFF",
+            "sort_order": 1,
+        }
+    return {
+        "item": "002",
+        "metric_key": "voltage",
+        "metric_name": "A相电压",
+        "unit": "V",
+        "color": "#67C23A",
+        "sort_order": 2,
+    }
+
+
+def _build_runtime_metric_series_payload(
+    *,
+    owner_key: str,
+    metric_kind: str,
+    start_time: datetime,
+    end_time: datetime,
+    context_start_time: datetime,
+    context_end_time: datetime,
+    points: list[CurvePoint],
+) -> RuntimeMetricSeries | None:
+    normalized = _coerce_curve_points(points)
+    if not normalized:
+        return None
+    spec = _runtime_metric_series_spec(metric_kind)
+    return RuntimeMetricSeries(
+        owner_key=owner_key,
+        item=str(spec["item"]),
+        owner_type="heat",
+        metric_key=str(spec["metric_key"]),
+        metric_name=str(spec["metric_name"]),
+        unit=spec["unit"],
+        color=str(spec["color"]),
+        sort_order=int(spec["sort_order"]),
+        series_json={
+            "context_start_time": context_start_time,
+            "heat_start_time": start_time,
+            "heat_end_time": end_time,
+            "context_end_time": context_end_time,
+            "points": [
+                {"timestamp": int(point.timestamp), "value": float(point.value)}
+                for point in normalized
+            ],
+        },
+        stat_json={
+            "metric_kind": metric_kind,
+            "heat_min": min(float(point.value) for point in normalized),
+            "heat_max": max(float(point.value) for point in normalized),
+            "heat_avg": round(
+                sum(float(point.value) for point in normalized) / max(len(normalized), 1),
+                4,
+            ),
+        },
+    )
+
+
+def _build_runtime_bindings(item: dict[str, Any]) -> list[RuntimeHeatBinding]:
+    applicable = _list_applicable_runtime_baselines(item["start_time"])
+    if not applicable:
+        return []
+    primary = applicable[0]
+    candidate_baseline_id = (
+        str(item.get("baseline_id")).strip() if item.get("baseline_id") else None
+    )
+    bindings: list[RuntimeHeatBinding] = []
+    primary_baseline_id = str(primary.get("id") or "")
+    for baseline_item in applicable:
+        baseline_definition_id = str(baseline_item.get("definition_id") or "")
+        baseline_version_item = str(baseline_item.get("item") or "")
+        baseline_id = str(
+            baseline_item.get("id")
+            or encode_baseline_id(baseline_definition_id, baseline_version_item)
+        )
+        should_seed = False
+        if candidate_baseline_id and candidate_baseline_id == baseline_id:
+            should_seed = True
+        elif candidate_baseline_id is None and primary_baseline_id == baseline_id:
+            should_seed = True
+        analysis_ready = should_seed and item.get("deviation_percent") is not None
+        bindings.append(
+            RuntimeHeatBinding(
+                heat_id=str(item["id"]),
+                baseline_id=baseline_id,
+                baseline_definition_id=baseline_definition_id,
+                baseline_item=baseline_version_item,
+                is_primary=baseline_id == primary_baseline_id,
+                baseline_effective_from=_baseline_effective_from(baseline_item),
+                tolerance_percent=(
+                    float(baseline_item.get("tolerance_percent"))
+                    if baseline_item.get("tolerance_percent") is not None
+                    else None
+                ),
+                analysis_status="ready" if analysis_ready else "pending",
+                deviation_percent=item.get("deviation_percent") if should_seed else None,
+                avg_deviation_percent=item.get("avg_deviation_percent") if should_seed else None,
+                time_offset_percent=item.get("time_offset_percent") if should_seed else None,
+                mismatch_duration_minutes=(
+                    item.get("mismatch_duration_minutes") if should_seed else None
+                ),
+            )
+        )
+    return bindings
+
+
+def _build_current_heat_runtime(
+    item: dict[str, Any],
+    *,
+    trigger_source: str,
+    processing_mode: str = "live_incremental",
+) -> CurrentHeatRuntime:
+    start_time = item["start_time"]
+    end_time = item["end_time"]
+    context_start_time = item.get("context_start_time") or start_time
+    context_end_time = item.get("context_end_time") or end_time
+    facts = RuntimeHeatFacts(
+        heat_id=str(item["id"]),
+        heat_no=str(item["heat_no"]),
+        description=item.get("description"),
+        furnace_id=str(item.get("furnace_id") or item.get("_live_context_key") or "") or None,
+        start_time=start_time,
+        end_time=end_time,
+        context_start_time=context_start_time,
+        context_end_time=context_end_time,
+        is_manually_adjusted=bool(item.get("is_manually_adjusted") or False),
+        completion_status=str(item.get("completion_status") or "completed"),
+        last_point_at=item.get("last_point_at") or end_time,
+        schedule_tag=str(item.get("schedule_tag") or "work"),
+        cut_reason=item.get("cut_reason"),
+        cut_status=str(item.get("cut_status") or "normal"),
+        major_issue=bool(item.get("major_issue") or False),
+        blocked_by_issue=bool(item.get("blocked_by_issue") or False),
+        status=str(item.get("status") or "normal"),
+        temperature=item.get("temperature"),
+        record_source=str(item.get("record_source") or "live_inferred"),
+        current_curve_source=str(item.get("current_curve_source") or "live_edc"),
+        baseline_curve_source=str(item.get("baseline_curve_source") or "none"),
+        created_at=item.get("created_at") or utc_now(),
+        sealed_at=item.get("sealed_at"),
+    )
+    metric_series: list[RuntimeMetricSeries] = []
+    for metric_kind, curve_field in (("power", "power_curve"), ("voltage", "voltage_curve")):
+        payload = _build_runtime_metric_series_payload(
+            owner_key=facts.heat_id,
+            metric_kind=metric_kind,
+            start_time=start_time,
+            end_time=end_time,
+            context_start_time=context_start_time,
+            context_end_time=context_end_time,
+            points=_coerce_curve_points(item.get(curve_field)),
+        )
+        if payload is not None:
+            metric_series.append(payload)
+    processing_meta = RuntimeProcessingMeta(
+        processing_mode=processing_mode,
+        trigger_source=trigger_source,
+        request_anchor_time=start_time,
+        batch_cursor=None,
+        last_processed_heat_id=facts.heat_id,
+    )
+    return CurrentHeatRuntime(
+        facts=facts,
+        bindings=_build_runtime_bindings(item),
+        metric_series=metric_series,
+        processing_meta=processing_meta,
+        refresh_meta={},
+        power_curve=_coerce_curve_points(item.get("power_curve")),
+        voltage_curve=_coerce_curve_points(item.get("voltage_curve")),
+        baseline_power_curve=_coerce_curve_points(item.get("baseline_power_curve")),
+        baseline_voltage_curve=_coerce_curve_points(item.get("baseline_voltage_curve")),
+    )
 
 
 def _mark_active_runtime(item: dict[str, Any]) -> dict[str, Any]:
@@ -2561,6 +2866,7 @@ def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
         description=item.get("description"),
         start_time=item["start_time"],
         end_time=item["end_time"],
+        is_manually_adjusted=bool(item.get("is_manually_adjusted") or False),
         completion_status=str(item.get("completion_status") or "completed"),
         last_point_at=item.get("last_point_at"),
         runtime_snapshot_status=_runtime_snapshot_status(now=current_time),
@@ -2594,6 +2900,10 @@ def _to_heat_with_curve(item: dict[str, Any]) -> HeatWithCurve:
     )
 
 
+def _to_heat_replay_job_response(job) -> HeatReplayJobResponse:
+    return HeatReplayJobResponse.model_validate(job)
+
+
 def _ensure_persisted_heat(item: dict[str, Any]) -> dict[str, Any]:
     heat_id = str(item["id"])
     target_store = _MOCK_HEAT_STREAM_STORE if is_mock_dataset_enabled() else _HEAT_STORE
@@ -2618,6 +2928,7 @@ def _runtime_heat_sections() -> tuple[str, ...]:
         "active_heat_runtime",
         "previous_heat_runtime",
         "heat_id_aliases",
+        "heat_stream_processor_state",
         "heat_runtime_refresh_meta",
     )
 
@@ -2845,6 +3156,69 @@ async def refresh_heat_runtime() -> dict[str, Any]:
         "refresh_status": "running" if task else "idle",
         "snapshot_status": _runtime_snapshot_status(),
     }
+
+
+@router.get("/replay-jobs", response_model=HeatReplayJobListResponse)
+async def list_replay_jobs() -> HeatReplayJobListResponse:
+    jobs = await list_heat_replay_job_records()
+    return HeatReplayJobListResponse(items=[_to_heat_replay_job_response(job) for job in jobs])
+
+
+@router.post("/replay-jobs", response_model=HeatReplayJobResponse, status_code=201)
+async def create_replay_job(data: HeatReplayJobCreateRequest) -> HeatReplayJobResponse:
+    if data.anchor_time > data.end_time:
+        raise HTTPException(status_code=400, detail="anchor_time_after_end_time")
+
+    context = _resolve_live_heat_inference_context()
+    if context is None:
+        raise HTTPException(status_code=400, detail="live_heat_inference_unavailable")
+
+    cutting_config = get_cutting_config()
+    try:
+        job = await create_heat_replay_job_record(
+            job_kind=data.job_kind,
+            anchor_time=data.anchor_time,
+            end_time=data.end_time,
+            channel_key=str(context["channel_key"]),
+            cutting_config=cutting_config,
+            force_replace=bool(data.force_replace),
+        )
+        launch_heat_replay_job(
+            job_id=job.id,
+            replay_context=_build_replay_context(context),
+            cutting_config=cutting_config,
+            point_loader=_load_live_heat_inference_power_points,
+            build_items_from_segments=lambda segments: _build_live_heat_items_from_segments(
+                context=context,
+                segments=segments,
+                baseline_id=context["baseline_id"],
+                expected_duration_minutes=int(context["expected_duration_minutes"]),
+            ),
+            threshold_resolver=_infer_live_activity_threshold,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    refreshed = await get_heat_replay_job_record(job.id)
+    if refreshed is None:
+        raise HTTPException(status_code=500, detail="replay_job_launch_failed")
+    return _to_heat_replay_job_response(refreshed)
+
+
+@router.get("/replay-jobs/{job_id}", response_model=HeatReplayJobResponse)
+async def get_replay_job(job_id: str) -> HeatReplayJobResponse:
+    job = await get_heat_replay_job_record(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="replay_job_not_found")
+    return _to_heat_replay_job_response(job)
+
+
+@router.post("/replay-jobs/{job_id}/cancel", response_model=HeatReplayJobResponse)
+async def cancel_replay_job(job_id: str) -> HeatReplayJobResponse:
+    job = await cancel_heat_replay_job_record(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="replay_job_not_found")
+    return _to_heat_replay_job_response(job)
 
 
 @router.get("/{heat_id}", response_model=HeatResponse)

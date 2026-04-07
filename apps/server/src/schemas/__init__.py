@@ -45,6 +45,11 @@ from .heat import (
     HeatWithCurve,
     MetricCompareSeries,
 )
+from .heat_replay import (
+    HeatReplayJobCreateRequest,
+    HeatReplayJobListResponse,
+    HeatReplayJobResponse,
+)
 from .setting import (
     BaselineLengthScopeSettingRequest,
     ChannelRoleBindingCollectionResponse,
@@ -120,6 +125,9 @@ __all__ = [
     "HeatAnalyzeRequest",
     "HeatAnalyzeResponse",
     "HeatUpdate",
+    "HeatReplayJobCreateRequest",
+    "HeatReplayJobResponse",
+    "HeatReplayJobListResponse",
     # Task
     "TaskCreate",
     "TaskUpdate",

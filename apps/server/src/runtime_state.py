@@ -31,6 +31,7 @@ _SECTION_TO_KEY = {
     "active_heat_runtime": "runtime_active_heat_runtime",
     "previous_heat_runtime": "runtime_previous_heat_runtime",
     "heat_id_aliases": "runtime_heat_id_aliases",
+    "heat_stream_processor_state": "runtime_heat_stream_processor_state",
     "heat_runtime_refresh_meta": "runtime_heat_runtime_refresh_meta",
     "tasks": "runtime_tasks",
     "mock_heats": "runtime_mock_heats",
@@ -94,6 +95,7 @@ async def persist_runtime_state(*sections: str) -> None:
         "active_heat_runtime": heats_api._ACTIVE_HEAT_RUNTIME,
         "previous_heat_runtime": heats_api._PREVIOUS_HEAT_RUNTIME,
         "heat_id_aliases": heats_api._HEAT_ID_ALIAS_STORE,
+        "heat_stream_processor_state": heats_api._HEAT_STREAM_PROCESSOR_STATE,
         "heat_runtime_refresh_meta": heats_api._HEAT_RUNTIME_REFRESH_META,
         "tasks": tasks_api._TASK_STORE,
         "mock_heats": heats_api._MOCK_HEAT_STREAM_STORE,
@@ -153,6 +155,7 @@ async def load_runtime_state() -> None:
             heats_api._ACTIVE_HEAT_RUNTIME.clear()
             heats_api._PREVIOUS_HEAT_RUNTIME.clear()
             heats_api._HEAT_ID_ALIAS_STORE.clear()
+            heats_api._HEAT_STREAM_PROCESSOR_STATE.clear()
             heats_api._reset_heat_runtime_refresh_meta()
             tasks_api._TASK_STORE.clear()
             heats_api._MOCK_HEAT_STREAM_STORE.clear()
@@ -227,6 +230,12 @@ async def load_runtime_state() -> None:
                 if source_id and target_id
             }
         )
+
+    if isinstance(payloads.get("heat_stream_processor_state"), dict):
+        heats_api._HEAT_STREAM_PROCESSOR_STATE.clear()
+        heats_api._HEAT_STREAM_PROCESSOR_STATE.update(payloads["heat_stream_processor_state"])
+    else:
+        heats_api._HEAT_STREAM_PROCESSOR_STATE.clear()
 
     if isinstance(payloads.get("heat_runtime_refresh_meta"), dict):
         heats_api._HEAT_RUNTIME_REFRESH_META.clear()

@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from ..channel_roles import infer_metric_kind
 from ..database import async_session_maker
@@ -20,6 +20,7 @@ from ..models import (
 from ..schemas.common import CurvePoint
 from ..time_utils import from_timestamp_ms, to_timestamp_ms, utc_now
 from .formal_baseline_service import decode_baseline_id, encode_baseline_id
+from .heat_runtime_types import RuntimePresealPayload
 
 DEFAULT_METRIC_SPECS: dict[str, dict[str, Any]] = {
     "power": {
@@ -82,6 +83,10 @@ def _build_series_payload(
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
+def _json_compact(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
 def _parse_series_payload(series_json: str | None) -> dict[str, Any]:
     if not series_json:
         return {}
@@ -90,6 +95,20 @@ def _parse_series_payload(series_json: str | None) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _rewrite_heat_series_payload_window(
+    series_json: str | None,
+    *,
+    heat_start_time: datetime,
+    heat_end_time: datetime,
+) -> str | None:
+    payload = _parse_series_payload(series_json)
+    if not payload:
+        return series_json
+    payload["heat_start_time"] = to_timestamp_ms(heat_start_time)
+    payload["heat_end_time"] = to_timestamp_ms(heat_end_time)
+    return _json_compact(payload)
 
 
 def _metric_series_points(series: MetricSeries) -> list[CurvePoint]:
@@ -197,6 +216,7 @@ def _heat_model_to_dict(
         "end_time": heat.end_time,
         "context_start_time": context_start_time or heat.context_start_time,
         "context_end_time": context_end_time or heat.context_end_time,
+        "is_manually_adjusted": bool(heat.is_manually_adjusted),
         "completion_status": "completed",
         "last_point_at": heat.end_time,
         "baseline_id": primary_baseline_id,
@@ -384,10 +404,32 @@ async def update_formal_heat_record(
         if new_start < heat.context_start_time or new_end > heat.context_end_time:
             raise ValueError("outside_context_window")
 
+        time_changed = new_start != heat.start_time or new_end != heat.end_time
         heat.start_time = new_start
         heat.end_time = new_end
+        if time_changed:
+            heat.is_manually_adjusted = True
         heat.updated_by = updated_by
         heat.updated_at = utc_now()
+
+        if time_changed:
+            series_rows = list(
+                (
+                    await session.execute(
+                        select(MetricSeries)
+                        .where(MetricSeries.owner_key == heat_id)
+                        .where(MetricSeries.owner_type == "heat")
+                        .order_by(MetricSeries.sort_order, MetricSeries.item)
+                    )
+                ).scalars()
+            )
+            for row in series_rows:
+                row.series_json = _rewrite_heat_series_payload_window(
+                    row.series_json,
+                    heat_start_time=new_start,
+                    heat_end_time=new_end,
+                )
+                row.updated_at = heat.updated_at
         await session.commit()
 
     return await get_formal_heat_record(heat_id)
@@ -566,6 +608,33 @@ async def _list_applicable_published_baselines(start_time: datetime) -> list[Bas
     return baselines
 
 
+async def _list_all_published_baselines() -> list[Baseline]:
+    async with async_session_maker() as session:
+        rows = list(
+            (
+                await session.execute(
+                    select(Baseline)
+                    .where(Baseline.status == "published")
+                    .order_by(
+                        Baseline.is_default.desc(),
+                        Baseline.effective_from.desc(),
+                        Baseline.published_at.desc(),
+                        Baseline.updated_at.desc(),
+                    )
+                )
+            ).scalars()
+        )
+    return rows
+
+
+def _eligible_published_baselines(
+    published_baselines: list[Baseline],
+    *,
+    start_time: datetime,
+) -> list[Baseline]:
+    return [baseline for baseline in published_baselines if baseline.effective_from <= start_time]
+
+
 def _resolve_primary_baseline(
     baselines: list[Baseline],
 ) -> Baseline | None:
@@ -618,171 +687,355 @@ def _seed_binding_analysis(
     }
 
 
-async def persist_sealed_heat_candidates(
+def _build_binding_payloads(
+    *,
+    heat_id: str,
+    applicable_baselines: list[Baseline],
+    candidate: dict[str, Any],
+    created_at: datetime,
+    updated_at: datetime,
+) -> tuple[list[dict[str, Any]], str | None]:
+    primary_baseline = _resolve_primary_baseline(applicable_baselines)
+    primary_definition_id = primary_baseline.definition_id if primary_baseline is not None else None
+    candidate_baseline_id = (
+        str(candidate.get("baseline_id")).strip() if candidate.get("baseline_id") else None
+    )
+    payloads: list[dict[str, Any]] = []
+    for baseline in applicable_baselines:
+        seeded = _seed_binding_analysis(
+            baseline=baseline,
+            primary_baseline=primary_baseline,
+            candidate_baseline_id=candidate_baseline_id,
+            candidate_deviation_percent=candidate.get("deviation_percent"),
+            candidate_avg_deviation_percent=candidate.get("avg_deviation_percent"),
+            candidate_time_offset_percent=candidate.get("time_offset_percent"),
+            candidate_mismatch_duration_minutes=candidate.get("mismatch_duration_minutes"),
+        )
+        payloads.append(
+            {
+                "heat_id": heat_id,
+                "baseline_definition_id": baseline.definition_id,
+                "baseline_item": baseline.item,
+                "is_primary": (
+                    primary_baseline is not None
+                    and baseline.definition_id == primary_baseline.definition_id
+                    and baseline.item == primary_baseline.item
+                ),
+                "effective_from_snapshot": baseline.effective_from,
+                "tolerance_percent_snapshot": baseline.tolerance_percent,
+                "analysis_status": str(seeded["analysis_status"]),
+                "deviation_percent": seeded["deviation_percent"],
+                "avg_deviation_percent": seeded["avg_deviation_percent"],
+                "deviation_details_json": None,
+                "time_offset_percent": seeded["time_offset_percent"],
+                "mismatch_duration_minutes": seeded["mismatch_duration_minutes"],
+                "created_at": created_at,
+                "updated_at": updated_at,
+            }
+        )
+    return payloads, primary_definition_id
+
+
+def _build_metric_series_payloads(
+    *,
+    heat_payload: dict[str, Any],
+    candidate: dict[str, Any],
+    primary_definition_id: str | None,
+    template_map: dict[str, list[BaselineDefinitionMetric]],
+) -> list[dict[str, Any]]:
+    templates = template_map.get(primary_definition_id or "", [])
+    metric_payloads: list[dict[str, Any]] = []
+    for metric_kind, curve_field in (("power", "power_curve"), ("voltage", "voltage_curve")):
+        points = _normalize_curve_points(candidate.get(curve_field))
+        if not points:
+            continue
+        template = _pick_metric_template(templates, metric_kind=metric_kind)
+        if template is not None:
+            spec = {
+                "item": template.item,
+                "metric_key": template.metric_key,
+                "metric_name": template.metric_name,
+                "unit": template.unit,
+                "color": template.color,
+                "sort_order": template.sort_order,
+            }
+        else:
+            spec = _default_metric_spec(metric_kind)
+        metric_payloads.append(
+            {
+                "owner_key": encode_heat_owner_key(str(heat_payload["id"])),
+                "item": str(spec["item"]),
+                "owner_type": "heat",
+                "definition_id": primary_definition_id,
+                "item_kind": "metric_item",
+                "metric_key": str(spec["metric_key"]),
+                "metric_name": str(spec["metric_name"]),
+                "unit": spec.get("unit"),
+                "color": str(spec["color"]),
+                "sort_order": int(spec["sort_order"]),
+                "source_channel_id": None,
+                "source_channel_name": None,
+                "source_channel_label": None,
+                "series_json": _build_series_payload(
+                    context_start_time=heat_payload["context_start_time"],
+                    heat_start_time=heat_payload["start_time"],
+                    heat_end_time=heat_payload["end_time"],
+                    context_end_time=heat_payload["context_end_time"],
+                    points=points,
+                ),
+                "stat_json": _json_compact(
+                    {
+                        "metric_kind": metric_kind,
+                        "heat_min": min(float(point.value) for point in points),
+                        "heat_max": max(float(point.value) for point in points),
+                        "heat_avg": round(
+                            sum(float(point.value) for point in points) / max(len(points), 1),
+                            4,
+                        ),
+                    }
+                ),
+                "created_at": heat_payload["created_at"],
+                "updated_at": heat_payload["updated_at"],
+            }
+        )
+    return metric_payloads
+
+
+def _build_preseal_payload_for_candidate(
+    candidate: dict[str, Any],
+    *,
+    applicable_baselines: list[Baseline],
+    template_map: dict[str, list[BaselineDefinitionMetric]],
+    trigger_source: str,
+) -> RuntimePresealPayload:
+    furnace_id = str(candidate.get("furnace_id") or candidate.get("_live_context_key") or "") or None
+    now = utc_now()
+    heat_payload = {
+        "id": str(candidate["id"]),
+        "heat_no": str(candidate["heat_no"]),
+        "description": candidate.get("description"),
+        "furnace_id": furnace_id,
+        "start_time": candidate["start_time"],
+        "end_time": candidate["end_time"],
+        "context_start_time": candidate.get("context_start_time") or candidate["start_time"],
+        "context_end_time": candidate.get("context_end_time") or candidate["end_time"],
+        "is_manually_adjusted": bool(candidate.get("is_manually_adjusted") or False),
+        "sealed_at": now,
+        "source_kind": str(candidate.get("record_source") or trigger_source),
+        "cut_reason": candidate.get("cut_reason"),
+        "cut_status": str(candidate.get("cut_status") or "normal"),
+        "status": str(candidate.get("status") or "normal"),
+        "created_by": "system",
+        "updated_by": "system",
+        "created_at": candidate.get("created_at") or now,
+        "updated_at": now,
+    }
+    binding_payloads, primary_definition_id = _build_binding_payloads(
+        heat_id=str(heat_payload["id"]),
+        applicable_baselines=applicable_baselines,
+        candidate=candidate,
+        created_at=now,
+        updated_at=now,
+    )
+    metric_series_payloads = _build_metric_series_payloads(
+        heat_payload=heat_payload,
+        candidate=candidate,
+        primary_definition_id=primary_definition_id,
+        template_map=template_map,
+    )
+    return RuntimePresealPayload(
+        heat_payload=heat_payload,
+        binding_payloads=binding_payloads,
+        metric_series_payloads=metric_series_payloads,
+    )
+
+
+async def compile_runtime_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    processing_mode: str = "live_incremental",
+    trigger_source: str = "background_refresh",
+) -> list[dict[str, Any]]:
+    if not candidates:
+        return []
+    published_baselines = await _list_all_published_baselines()
+    definition_ids: set[str] = set()
+    applicable_by_candidate: dict[str, list[Baseline]] = {}
+    for candidate in candidates:
+        candidate_id = str(candidate["id"])
+        applicable = _eligible_published_baselines(
+            published_baselines,
+            start_time=candidate["start_time"],
+        )
+        applicable_by_candidate[candidate_id] = applicable
+        primary_baseline = _resolve_primary_baseline(applicable)
+        if primary_baseline is not None:
+            definition_ids.add(primary_baseline.definition_id)
+    template_map = await _load_definition_metric_templates(sorted(definition_ids))
+
+    prepared: list[dict[str, Any]] = []
+    for candidate in candidates:
+        prepared_candidate = dict(candidate)
+        processing_meta = dict(prepared_candidate.get("processing_meta") or {})
+        if not processing_meta:
+            processing_meta = {
+                "processing_mode": processing_mode,
+                "trigger_source": trigger_source,
+                "request_anchor_time": candidate.get("start_time"),
+                "batch_cursor": None,
+                "last_processed_heat_id": str(candidate["id"]),
+            }
+        prepared_candidate["processing_meta"] = processing_meta
+        prepared_candidate["preseal_payload"] = _build_preseal_payload_for_candidate(
+            prepared_candidate,
+            applicable_baselines=applicable_by_candidate[str(candidate["id"])],
+            template_map=template_map,
+            trigger_source=trigger_source,
+        ).to_dict()
+        prepared.append(prepared_candidate)
+    return prepared
+
+
+async def append_sealed_heats(
     candidates: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     if not candidates:
         return {}
 
+    prepared_candidates = [
+        dict(candidate)
+        for candidate in (
+            candidates
+            if all(isinstance(candidate.get("preseal_payload"), dict) for candidate in candidates)
+            else await compile_runtime_candidates(candidates)
+        )
+    ]
     persisted: dict[str, dict[str, Any]] = {}
     persisted_ids: list[str] = []
+    candidate_ids = [str(candidate["id"]) for candidate in prepared_candidates]
     async with async_session_maker() as session:
-        for candidate in candidates:
-            furnace_id = str(candidate.get("_live_context_key") or "") or None
-            start_time = candidate["start_time"]
-            end_time = candidate["end_time"]
-
-            overlap_query = select(Heat).where(
-                Heat.end_time >= start_time,
-                Heat.start_time <= end_time,
-            )
-            if furnace_id:
-                overlap_query = overlap_query.where(Heat.furnace_id == furnace_id)
-            existing = (
-                await session.execute(overlap_query.order_by(Heat.start_time.desc()).limit(1))
-            ).scalar_one_or_none()
-            if existing is not None:
-                existing_dict = await get_formal_heat_record(existing.id)
-                if existing_dict is not None:
-                    persisted[str(candidate["id"])] = existing_dict
+        existing_ids = set(
+            (
+                await session.execute(select(Heat.id).where(Heat.id.in_(candidate_ids)))
+            ).scalars()
+        )
+    async with async_session_maker() as session:
+        seen_new_ids: set[str] = set()
+        for candidate in prepared_candidates:
+            candidate_id = str(candidate["id"])
+            if candidate_id in existing_ids or candidate_id in seen_new_ids:
                 continue
-
-            applicable_baselines = await _list_applicable_published_baselines(start_time)
-            primary_baseline = _resolve_primary_baseline(applicable_baselines)
-            primary_definition_id = (
-                primary_baseline.definition_id if primary_baseline is not None else None
-            )
-            template_map = await _load_definition_metric_templates(
-                [primary_definition_id] if primary_definition_id else []
-            )
-
-            heat = Heat(
-                id=str(candidate["id"]),
-                heat_no=str(candidate["heat_no"]),
-                description=candidate.get("description"),
-                furnace_id=furnace_id,
-                start_time=start_time,
-                end_time=end_time,
-                context_start_time=candidate.get("context_start_time") or start_time,
-                context_end_time=candidate.get("context_end_time") or end_time,
-                sealed_at=utc_now(),
-                source_kind=str(candidate.get("record_source") or "live_inferred"),
-                cut_reason=candidate.get("cut_reason"),
-                cut_status=str(candidate.get("cut_status") or "normal"),
-                status=str(candidate.get("status") or "normal"),
-                created_by="system",
-                updated_by="system",
-                created_at=candidate.get("created_at") or utc_now(),
-                updated_at=utc_now(),
-            )
-            session.add(heat)
-
-            candidate_baseline_id = (
-                str(candidate.get("baseline_id")).strip() if candidate.get("baseline_id") else None
-            )
-            now = utc_now()
-            for baseline in applicable_baselines:
-                seeded = _seed_binding_analysis(
-                    baseline=baseline,
-                    primary_baseline=primary_baseline,
-                    candidate_baseline_id=candidate_baseline_id,
-                    candidate_deviation_percent=candidate.get("deviation_percent"),
-                    candidate_avg_deviation_percent=candidate.get("avg_deviation_percent"),
-                    candidate_time_offset_percent=candidate.get("time_offset_percent"),
-                    candidate_mismatch_duration_minutes=candidate.get("mismatch_duration_minutes"),
-                )
-                session.add(
-                    HeatBaselineBinding(
-                        heat_id=heat.id,
-                        baseline_definition_id=baseline.definition_id,
-                        baseline_item=baseline.item,
-                        is_primary=(
-                            primary_baseline is not None
-                            and baseline.definition_id == primary_baseline.definition_id
-                            and baseline.item == primary_baseline.item
-                        ),
-                        effective_from_snapshot=baseline.effective_from,
-                        tolerance_percent_snapshot=baseline.tolerance_percent,
-                        analysis_status=str(seeded["analysis_status"]),
-                        deviation_percent=seeded["deviation_percent"],
-                        avg_deviation_percent=seeded["avg_deviation_percent"],
-                        deviation_details_json=None,
-                        time_offset_percent=seeded["time_offset_percent"],
-                        mismatch_duration_minutes=seeded["mismatch_duration_minutes"],
-                        created_at=now,
-                        updated_at=now,
-                    )
-                )
-
-            templates = template_map.get(primary_definition_id or "", [])
-            metric_specs: list[tuple[str, list[CurvePoint], dict[str, Any]]] = []
-            for metric_kind, curve_field in (("power", "power_curve"), ("voltage", "voltage_curve")):
-                points = _normalize_curve_points(candidate.get(curve_field))
-                if not points:
-                    continue
-                template = _pick_metric_template(templates, metric_kind=metric_kind)
-                if template is not None:
-                    spec = {
-                        "item": template.item,
-                        "metric_key": template.metric_key,
-                        "metric_name": template.metric_name,
-                        "unit": template.unit,
-                        "color": template.color,
-                        "sort_order": template.sort_order,
-                    }
-                else:
-                    spec = _default_metric_spec(metric_kind)
-                metric_specs.append((metric_kind, points, spec))
-
-            for metric_kind, points, spec in metric_specs:
-                session.add(
-                    MetricSeries(
-                        owner_key=encode_heat_owner_key(heat.id),
-                        item=str(spec["item"]),
-                        owner_type="heat",
-                        definition_id=primary_definition_id,
-                        item_kind="metric_item",
-                        metric_key=str(spec["metric_key"]),
-                        metric_name=str(spec["metric_name"]),
-                        unit=spec.get("unit"),
-                        color=str(spec["color"]),
-                        sort_order=int(spec["sort_order"]),
-                        source_channel_id=None,
-                        source_channel_name=None,
-                        source_channel_label=None,
-                        series_json=_build_series_payload(
-                            context_start_time=heat.context_start_time,
-                            heat_start_time=heat.start_time,
-                            heat_end_time=heat.end_time,
-                            context_end_time=heat.context_end_time,
-                            points=points,
-                        ),
-                        stat_json=json.dumps(
-                            {
-                                "metric_kind": metric_kind,
-                                "heat_min": min(float(point.value) for point in points),
-                                "heat_max": max(float(point.value) for point in points),
-                                "heat_avg": round(
-                                    sum(float(point.value) for point in points) / max(len(points), 1),
-                                    4,
-                                ),
-                            },
-                            ensure_ascii=False,
-                            separators=(",", ":"),
-                        ),
-                        created_at=heat.created_at,
-                        updated_at=heat.updated_at,
-                    )
-                )
-
-            await session.flush()
-            persisted_ids.append(str(heat.id))
+            payload = candidate.get("preseal_payload") or {}
+            heat_payload = dict(payload.get("heat_payload") or {})
+            if not heat_payload:
+                continue
+            session.add(Heat(**heat_payload))
+            for binding_payload in payload.get("binding_payloads") or []:
+                session.add(HeatBaselineBinding(**binding_payload))
+            for metric_payload in payload.get("metric_series_payloads") or []:
+                session.add(MetricSeries(**metric_payload))
+            persisted_ids.append(candidate_id)
+            seen_new_ids.add(candidate_id)
 
         await session.commit()
 
-    for heat_id in persisted_ids:
+    for heat_id in [*sorted(existing_ids), *persisted_ids]:
         persisted_dict = await get_formal_heat_record(heat_id)
         if persisted_dict is not None:
             persisted[heat_id] = persisted_dict
 
     return persisted
+
+
+async def replace_heat_range(
+    *,
+    anchor_time: datetime,
+    end_time: datetime,
+    candidates: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    prepared_candidates = [
+        dict(candidate)
+        for candidate in (
+            candidates
+            if all(isinstance(candidate.get("preseal_payload"), dict) for candidate in candidates)
+            else await compile_runtime_candidates(
+                candidates,
+                processing_mode="replay_batch",
+                trigger_source="replay_batch",
+            )
+        )
+    ]
+    insertable_candidates = [
+        candidate
+        for candidate in prepared_candidates
+        if candidate.get("start_time") is not None
+        and candidate.get("end_time") is not None
+        and candidate["end_time"] >= anchor_time
+        and candidate["start_time"] <= end_time
+    ]
+
+    async with async_session_maker() as session:
+        affected_heat_ids = list(
+            (
+                await session.execute(
+                    select(Heat.id)
+                    .where(Heat.end_time >= anchor_time)
+                    .where(Heat.start_time <= end_time)
+                )
+            ).scalars()
+        )
+
+        if affected_heat_ids:
+            await session.execute(
+                delete(MetricSeries)
+                .where(MetricSeries.owner_type == "heat")
+                .where(MetricSeries.owner_key.in_(affected_heat_ids))
+            )
+            await session.execute(
+                delete(HeatBaselineBinding).where(HeatBaselineBinding.heat_id.in_(affected_heat_ids))
+            )
+            await session.execute(delete(Heat).where(Heat.id.in_(affected_heat_ids)))
+
+        for candidate in insertable_candidates:
+            payload = candidate.get("preseal_payload") or {}
+            heat_payload = dict(payload.get("heat_payload") or {})
+            if not heat_payload:
+                continue
+            session.add(Heat(**heat_payload))
+            for binding_payload in payload.get("binding_payloads") or []:
+                session.add(HeatBaselineBinding(**binding_payload))
+            for metric_payload in payload.get("metric_series_payloads") or []:
+                session.add(MetricSeries(**metric_payload))
+
+        await session.commit()
+
+    persisted: dict[str, dict[str, Any]] = {}
+    for candidate in insertable_candidates:
+        heat_id = str(candidate["id"])
+        persisted_record = await get_formal_heat_record(heat_id)
+        if persisted_record is not None:
+            persisted[heat_id] = persisted_record
+    return persisted
+
+
+async def prepare_runtime_candidates_for_persist(
+    candidates: list[dict[str, Any]],
+    *,
+    processing_mode: str = "live_incremental",
+    trigger_source: str = "background_refresh",
+) -> list[dict[str, Any]]:
+    """兼容旧调用名，语义等同于 compile_runtime_candidates。"""
+
+    return await compile_runtime_candidates(
+        candidates,
+        processing_mode=processing_mode,
+        trigger_source=trigger_source,
+    )
+
+
+async def persist_sealed_heat_candidates(
+    candidates: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """兼容旧调用名，语义等同于 append_sealed_heats。"""
+
+    return await append_sealed_heats(candidates)

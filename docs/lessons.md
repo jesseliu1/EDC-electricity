@@ -21,6 +21,20 @@
 
 ## 记录
 
+### 2026-04-07 SQLite 上的后台 job 取消不能由 API 线程和 worker 线程同时回写同一状态行
+
+- **错误模式**: replay job 运行中，`cancel` 接口一边 `task.cancel()`，一边自己立刻把 `heat_replay_jobs.status` 改成 `cancelled`；后台 worker 在收到 `CancelledError` 后又会再写同一行。SQLite 单文件写锁下，这种“双写同一任务状态”的并发很容易直接打成 `database is locked`。
+- **正确做法**: 取消接口只负责发取消信号，不与后台 worker 竞争最终状态写入。只要后台 task 仍在运行，就让它在 `CancelledError` 分支里单点回写 `cancelled`；接口侧返回当前 job 快照，调用方再轮询最终状态。
+- **适用场景**: SQLite 作为单文件运行库、进程内 `asyncio.create_task` 后台任务、需要支持 `cancel` / `running` / `failed` / `completed` 生命周期查询的任务型后端。
+- **相关文档**: `apps/server/src/services/heat_replay_batch_service.py`, `docs/BACKEND_STRUCTURE.md`
+
+### 2026-04-07 共享 SQLite 测试库不能并行跑多个 pytest 进程
+
+- **错误模式**: 为了省时间，把依赖 `apps/server/data/asns.db` 的后端测试文件并行跑，例如同时起两个 `pytest` 进程分别跑 `test_formal_heat_api.py` 和 `test_heats_api.py`。这两边都会重建同一个测试库，最终出现 `no such table`、`readonly database`、`disk I/O error` 这类伪故障。
+- **正确做法**: 只要测试共用同一个 SQLite 文件，就必须串行跑；如果确实要并行，只能先把每个进程切到独立测试库路径。当前仓库的默认口径是共享 `apps/server/data/asns.db`，因此默认不要并行多个 `pytest` 进程。
+- **适用场景**: 本仓库后端单测、`conftest.py` 会重建 SQLite schema 的测试、任何使用共享文件库而不是临时独立 DB 的本地回归。
+- **相关文档**: `apps/server/tests/conftest.py`, `docs/progress.md`
+
 ### 2026-04-06 blank 重部署时，代码同步和删库重建之间不能让后端先带旧库启动
 
 - **错误模式**: 先执行 `sync-edc-server.sh`，脚本会在 runtime 同步完成后自动拉起 `edc-backend.service`。如果这时旧 SQLite 里仍保留真实 EDC 配置，后端会在 `factory-reset` 前短暂按旧配置启动，和“先 blank 再启动”的语义冲突。

@@ -21,6 +21,7 @@ from .observability import (
 from .request_mode import reset_showtime_mode, resolve_showtime_mode, set_showtime_mode
 from .runtime_state import load_runtime_state
 from .services import close_shared_edc_clients
+from .services.heat_replay_batch_service import mark_interrupted_heat_replay_jobs
 
 
 @asynccontextmanager
@@ -29,6 +30,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     configure_observability()
     # 启动时初始化数据库
     await init_db()
+    await mark_interrupted_heat_replay_jobs()
     await load_runtime_state()
     from .api import heats as heats_api
 

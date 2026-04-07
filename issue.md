@@ -265,3 +265,50 @@
 - **备注**:
   - 当前公网运行态还是 `cutting_mode = signal_inference`
   - 这条问题与“默认应为 fixed_interval”存在直接关联，但两者不是同一个 issue
+
+## 2026-04-07 Issue 登记
+
+### ISSUE-2026-04-07-001
+
+- **状态**: 调查完成，未修理
+- **GitHub Issue**: `#8` <https://github.com/jesseliu1/EDC-electricity/issues/8>
+- **问题简述**: blank 重部署后，只要重新接回真实 EDC 并启用 `live_heat_inference`，后端就会自动回拉最近 `72` 小时原始点、切割并固化历史炉次，导致系统不再保持“空白待初始化”语义
+- **影响范围**: blank 环境语义、炉次浏览、后端 runtime 刷新链、历史炉次正式表写入、部署/UAT 预期
+- **复现步骤**:
+  1. 按 `factory-reset + blank` 语义完成公网重部署
+  2. 确认 blank 刚启动时 `baseline_definitions / baselines / heats / metric_series / tasks` 为空
+  3. 在 ASNS / 设置页重新接入真实 EDC，并绑定 `live_heat_inference` 通道
+  4. 等待后端后台 refresh loop 运行，或触发一次设置变更 / `POST /api/heats/runtime/refresh`
+  5. 再查看 `/api/heats` 与 SQLite `heats / metric_series`
+- **调查结论**:
+  - 部署层:
+    - 当前 `factory-reset` 语义已经是“删旧库并按当前 schema 重建”，不是“只清数据不删库”
+    - 因此这次现象不是部署漏删旧 SQLite 残留
+  - API / 数据层:
+    - 当前公网 `/api/heats?page=1&page_size=10` 返回 `total=38`
+    - SQLite 实际已有 `heats = 36`、`metric_series = 36`
+    - 最新两条为 `active_runtime / previous_runtime`，其余为 `sealed_history`
+  - 后端实现层:
+    - `apps/server/src/api/heats.py` 中 `_LIVE_HEAT_LOOKBACK_HOURS = 72`
+    - runtime 刷新时直接通过 `EDCClient.get_local_datas(...)` 取“现在往前 72 小时”的原始点，不是通过本系统 `/api/heats` 或持久化 runtime API 再取数
+    - 取点后走 `_infer_live_heat_items(...)` 切割，再构造成 `CurrentHeatRuntime`
+    - 最新两条留在 `_ACTIVE_HEAT_RUNTIME / _PREVIOUS_HEAT_RUNTIME`
+    - 更早条目会通过 `persist_sealed_heat_candidates(...)` 直接写入正式表 `heats / metric_series`
+  - 触发机制层:
+    - 后端服务启动时会自动 `start_heat_runtime_refresh_loop()`
+    - 后台 loop 会持续按 `30s / 60s` 间隔刷新
+    - 设置修改还会额外触发 `schedule_heat_runtime_refresh(reason=\"settings_changed\")`
+  - 结论:
+    - 当前系统语义不是“blank 后保持空白，等待人工初始化/回放”
+    - 而是“只要真实源接通，后台就自动回拉近 72 小时并补历史炉次”
+    - 这与当前期望的 blank / 初始化边界不一致
+- **备注**:
+  - 当前问题先标记为后端行为语义问题，不等于 runtime 机制本身卡住
+  - 运行态刷新当前是通的:
+    - `/api/settings/runtime-status` 显示 `overall_code = ready`
+    - `/api/heats` 返回 `snapshot_status = refreshing_history`
+    - `refresh_error = null`
+    - `refresh_failure_count = 0`
+  - 后续修复应优先先定产品语义:
+    - blank 接回真实 EDC 后是否允许自动回拉历史
+    - 如果不允许，初始化/回放必须改成显式动作，而不是后台默认行为
