@@ -58,18 +58,13 @@ class HeatSegment:
 
 
 @dataclass(slots=True)
-class HeatProcessorState:
+class HeatProcessorConfig:
     cache_key: str
     channel_key: str
     context_hash: str
-    baseline_id: str | None
     expected_duration_minutes: int
     cutting_config_token: str
     processing_mode: str
-    bootstrapped: bool = False
-    activity_threshold: float | None = None
-    last_point_timestamp: int | None = None
-    points_buffer: list[CurvePoint] = field(default_factory=list)
 
     def is_compatible(
         self,
@@ -77,7 +72,6 @@ class HeatProcessorState:
         cache_key: str,
         channel_key: str,
         context_hash: str,
-        baseline_id: str | None,
         expected_duration_minutes: int,
         cutting_config: HeatCuttingConfig,
         processing_mode: str,
@@ -86,7 +80,6 @@ class HeatProcessorState:
             self.cache_key == cache_key
             and self.channel_key == channel_key
             and self.context_hash == context_hash
-            and self.baseline_id == baseline_id
             and self.expected_duration_minutes == expected_duration_minutes
             and self.cutting_config_token == cutting_config.cache_token()
             and self.processing_mode == processing_mode
@@ -97,13 +90,56 @@ class HeatProcessorState:
             "cache_key": self.cache_key,
             "channel_key": self.channel_key,
             "context_hash": self.context_hash,
-            "baseline_id": self.baseline_id,
             "expected_duration_minutes": self.expected_duration_minutes,
             "cutting_config_token": self.cutting_config_token,
             "processing_mode": self.processing_mode,
+        }
+
+    @classmethod
+    def from_snapshot(cls, snapshot: dict[str, Any] | None) -> HeatProcessorConfig | None:
+        if not isinstance(snapshot, dict):
+            return None
+        source = snapshot.get("config") if isinstance(snapshot.get("config"), dict) else snapshot
+        cache_key = str(source.get("cache_key") or "").strip()
+        channel_key = str(source.get("channel_key") or "").strip()
+        context_hash = str(source.get("context_hash") or "").strip()
+        processing_mode = str(source.get("processing_mode") or "").strip()
+        if not cache_key or not channel_key or not context_hash or not processing_mode:
+            return None
+        try:
+            expected_duration_minutes = int(source.get("expected_duration_minutes") or 0)
+        except (TypeError, ValueError):
+            return None
+        if expected_duration_minutes <= 0:
+            return None
+        return cls(
+            cache_key=cache_key,
+            channel_key=channel_key,
+            context_hash=context_hash,
+            expected_duration_minutes=expected_duration_minutes,
+            cutting_config_token=str(source.get("cutting_config_token") or ""),
+            processing_mode=processing_mode,
+        )
+
+
+@dataclass(slots=True)
+class HeatProcessorState:
+    bootstrapped: bool = False
+    processor_phase: str = "cold_start"
+    activity_threshold: float | None = None
+    last_point_timestamp: int | None = None
+    current_heat_id: str | None = None
+    pending_seal_heat_id: str | None = None
+    points_buffer: list[CurvePoint] = field(default_factory=list)
+
+    def to_snapshot(self) -> dict[str, Any]:
+        return {
             "bootstrapped": self.bootstrapped,
+            "processor_phase": self.processor_phase,
             "activity_threshold": self.activity_threshold,
             "last_point_timestamp": self.last_point_timestamp,
+            "current_heat_id": self.current_heat_id,
+            "pending_seal_heat_id": self.pending_seal_heat_id,
             "points_buffer": list(self.points_buffer),
         }
 
@@ -111,34 +147,29 @@ class HeatProcessorState:
     def from_snapshot(cls, snapshot: dict[str, Any] | None) -> HeatProcessorState | None:
         if not isinstance(snapshot, dict):
             return None
-        cache_key = str(snapshot.get("cache_key") or "").strip()
-        channel_key = str(snapshot.get("channel_key") or "").strip()
-        context_hash = str(snapshot.get("context_hash") or "").strip()
-        processing_mode = str(snapshot.get("processing_mode") or "").strip()
-        if not cache_key or not channel_key or not context_hash or not processing_mode:
-            return None
-        try:
-            expected_duration_minutes = int(snapshot.get("expected_duration_minutes") or 0)
-        except (TypeError, ValueError):
-            return None
-        if expected_duration_minutes <= 0:
-            return None
+        source = snapshot.get("state") if isinstance(snapshot.get("state"), dict) else snapshot
         threshold_raw = snapshot.get("activity_threshold")
+        if isinstance(source, dict):
+            threshold_raw = source.get("activity_threshold")
         threshold = float(threshold_raw) if threshold_raw is not None else None
-        last_point_raw = snapshot.get("last_point_timestamp")
+        last_point_raw = source.get("last_point_timestamp")
         last_point_timestamp = int(last_point_raw) if last_point_raw is not None else None
         return cls(
-            cache_key=cache_key,
-            channel_key=channel_key,
-            context_hash=context_hash,
-            baseline_id=str(snapshot.get("baseline_id")) if snapshot.get("baseline_id") else None,
-            expected_duration_minutes=expected_duration_minutes,
-            cutting_config_token=str(snapshot.get("cutting_config_token") or ""),
-            processing_mode=processing_mode,
-            bootstrapped=bool(snapshot.get("bootstrapped") or False),
+            bootstrapped=bool(source.get("bootstrapped") or False),
+            processor_phase=str(source.get("processor_phase") or "cold_start"),
             activity_threshold=threshold,
             last_point_timestamp=last_point_timestamp,
-            points_buffer=_normalize_points(snapshot.get("points_buffer")),
+            current_heat_id=(
+                str(source.get("current_heat_id"))
+                if source.get("current_heat_id") is not None
+                else None
+            ),
+            pending_seal_heat_id=(
+                str(source.get("pending_seal_heat_id"))
+                if source.get("pending_seal_heat_id") is not None
+                else None
+            ),
+            points_buffer=_normalize_points(source.get("points_buffer")),
         )
 
 
@@ -166,15 +197,20 @@ class HeatStreamProcessor:
         expected_duration_minutes: int,
         cutting_config: HeatCuttingConfig,
         processing_mode: str,
+        snapshot_config: HeatProcessorConfig | None = None,
         state: HeatProcessorState | None = None,
         gap_minutes: int = _DEFAULT_GAP_MINUTES,
         threshold_resolver: Callable[[list[CurvePoint]], float | None] | None = None,
     ) -> None:
-        self._cache_key = cache_key
-        self._channel_key = channel_key
-        self._context_hash = context_hash
-        self._baseline_id = baseline_id
-        self._expected_duration_minutes = expected_duration_minutes
+        del baseline_id
+        self._config = HeatProcessorConfig(
+            cache_key=cache_key,
+            channel_key=channel_key,
+            context_hash=context_hash,
+            expected_duration_minutes=expected_duration_minutes,
+            cutting_config_token=cutting_config.cache_token(),
+            processing_mode=processing_mode,
+        )
         self._cutting_config = cutting_config
         self._cutting_context = HeatCuttingContext(
             expected_duration_minutes=expected_duration_minutes
@@ -182,33 +218,27 @@ class HeatStreamProcessor:
         self._processing_mode = processing_mode
         self._gap_minutes = gap_minutes
         self._threshold_resolver = threshold_resolver or infer_live_activity_threshold
-        if state is not None and state.is_compatible(
+        if state is not None and snapshot_config is not None and snapshot_config.is_compatible(
             cache_key=cache_key,
             channel_key=channel_key,
             context_hash=context_hash,
-            baseline_id=baseline_id,
             expected_duration_minutes=expected_duration_minutes,
             cutting_config=cutting_config,
             processing_mode=processing_mode,
         ):
             self._state = state
         else:
-            self._state = HeatProcessorState(
-                cache_key=cache_key,
-                channel_key=channel_key,
-                context_hash=context_hash,
-                baseline_id=baseline_id,
-                expected_duration_minutes=expected_duration_minutes,
-                cutting_config_token=cutting_config.cache_token(),
-                processing_mode=processing_mode,
-            )
+            self._state = HeatProcessorState()
 
     @property
     def state(self) -> HeatProcessorState:
         return self._state
 
     def snapshot_state(self) -> dict[str, Any]:
-        return self._state.to_snapshot()
+        return {
+            "config": self._config.to_snapshot(),
+            "state": self._state.to_snapshot(),
+        }
 
     def feed_points(
         self,
@@ -298,6 +328,7 @@ class HeatStreamProcessor:
     ) -> HeatProcessorResult:
         segments = self._infer_segments(points)
         if not segments:
+            self._state.processor_phase = "buffering"
             self._state.points_buffer = self._trim_idle_buffer(points)
             return HeatProcessorResult(
                 active_segment=None,
@@ -319,11 +350,17 @@ class HeatStreamProcessor:
             sealed_segments = []
 
         if retained_segments:
+            self._state.processor_phase = "tracking_active_heat"
+            self._state.current_heat_id = None
+            self._state.pending_seal_heat_id = None
             earliest_retained_start = retained_segments[0].start_timestamp
             self._state.points_buffer = [
                 point for point in points if int(point.timestamp) >= earliest_retained_start
             ]
         else:
+            self._state.processor_phase = "awaiting_seal" if sealed_segments else "buffering"
+            self._state.current_heat_id = None
+            self._state.pending_seal_heat_id = None
             self._state.points_buffer = self._trim_idle_buffer(points)
 
         if segments:
@@ -344,6 +381,10 @@ class HeatStreamProcessor:
     def _trim_idle_buffer(self, points: list[CurvePoint]) -> list[CurvePoint]:
         if not points:
             return []
-        idle_window_minutes = max(self._expected_duration_minutes, self._gap_minutes * 4, 15)
+        idle_window_minutes = max(
+            self._config.expected_duration_minutes,
+            self._gap_minutes * 4,
+            15,
+        )
         cutoff = int(points[-1].timestamp) - idle_window_minutes * 60_000
         return [point for point in points if int(point.timestamp) >= cutoff]

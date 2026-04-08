@@ -10,6 +10,7 @@ from ..schemas.common import CurvePoint
 from ..services.heat_cutting_service import HeatCuttingConfig
 from ..time_utils import from_timestamp_ms, utc_now
 from .heat_stream_processor import (
+    HeatProcessorConfig,
     HeatProcessorState,
     HeatProcessorResult,
     HeatStreamProcessor,
@@ -76,6 +77,7 @@ async def refresh_live_heat_segments(
     force_start_time: datetime | None = None,
 ) -> LiveHeatRefreshResult:
     now = current_time or utc_now()
+    restored_config = HeatProcessorConfig.from_snapshot(processor_snapshot)
     restored_state = HeatProcessorState.from_snapshot(processor_snapshot)
     fetch_start_time, fetch_end_time, used_bootstrap_window = _compute_fetch_window(
         processor_state=restored_state,
@@ -91,6 +93,7 @@ async def refresh_live_heat_segments(
         expected_duration_minutes=int(context["expected_duration_minutes"]),
         cutting_config=cutting_config,
         processing_mode=processing_mode,
+        snapshot_config=restored_config,
         state=restored_state,
         threshold_resolver=threshold_resolver,
     )

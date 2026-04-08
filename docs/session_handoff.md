@@ -6,6 +6,57 @@
 
 ---
 
+## 2026-04-08 runtime 真源重构 Stage 3/4 已在本地完成，尚未部署公网（最新交接摘要，优先于下面旧记录）
+
+- 当前代码状态：
+  - runtime 真源重构已完成 Stage 1-4，本地代码现已做到：
+    - 当前炉次出生即冻结
+    - live 运行中只增量更新 runtime
+    - replay 固化沿用同一份出生快照语义
+    - runtime compare 在完整快照到位时只读 runtime 真源
+  - 新增可直接给新 session 使用的交接提示词：
+    - `docs/RUNTIME_STAGE34_HANDOFF_PROMPT.md`
+  - 关键文档：
+    - `docs/runtime-source-of-truth-refactor-plan.md`
+    - `docs/runtime-code-review-2026-04-08.md`
+    - `docs/BACKEND_STRUCTURE.md`
+    - `docs/progress.md`
+    - `docs/lessons.md`
+- 本轮本地修复点：
+  - `birth_context` 已补：
+    - `definition_metric_snapshots`
+    - `baseline_curve_snapshots`
+    - `cutting_config_snapshot`
+  - same active heat 延续时，`refresh_heat_runtime_state()` 已不会重新走 `compile_runtime_candidates(...)`
+  - live refresh 已优先复用 `birth_context + cutting_config_snapshot`
+  - replay 批量固化已显式透传 `cutting_config`
+  - runtime compare 已新增独立真源路径：
+    - 当前曲线优先读 `runtime_metric_series`
+    - 基线曲线优先读 `baseline_curve_snapshots`
+    - 不再请求期回源 EDC / hydrate baseline
+  - runtime compare 新路径已加完整快照判定，避免把旧样板 runtime 误切进新路径
+- 本轮本地验证：
+  - `pytest -q tests/test_heat_runtime_factory.py tests/test_heat_stream_processor.py tests/test_heats_api.py tests/test_formal_heat_api.py tests/test_heat_replay_api.py`
+    - `76 passed`
+  - `pytest -q`
+    - `135 passed`
+  - `git diff --check`
+    - 通过
+- 当前结论：
+  - 本地代码下，Stage 3/4 已完成，runtime 在运行中已基本收口成唯一业务真源
+  - 当前还没有新的公网部署和公网验证结论
+  - “正式多指标主链”仍未彻底完成：
+    - `baseline metric_series` 已支持按定义多指标存储
+    - `heat metric_series` 正式主链目前仍主要写 `power / voltage`
+    - 偏离分析目前仍主要按 `power` 计算
+- 下一步：
+  - 若进入部署：
+    - 先按当前部署语义把本地工作区发布到公网
+    - 部署后优先验证 live runtime / replay / compare 真源路径没有回退
+  - 若继续开发：
+    - 进入 `heat 正式多指标主链` 改造
+    - 目标不是只改 UI 动态显示，而是打通 runtime / formal heat / compare / analysis
+
 ## 2026-04-08 炉次详情 compare 已在本地切到“上下文显示 + 核心窗口高亮”口径，尚未重新部署公网（最新交接摘要，优先于下面旧记录）
 
 - 当前代码状态：

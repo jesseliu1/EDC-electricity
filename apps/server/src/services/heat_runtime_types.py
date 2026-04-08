@@ -10,6 +10,110 @@ from ..schemas.common import CurvePoint
 
 
 @dataclass(slots=True)
+class RuntimeDefinitionMetricSnapshot:
+    item: str
+    metric_key: str
+    metric_name: str
+    unit: str | None
+    color: str
+    sort_order: int
+    edc_channel_id: str | None = None
+    source_channel_name: str | None = None
+    source_channel_label: str | None = None
+    enabled: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "item": self.item,
+            "metric_key": self.metric_key,
+            "metric_name": self.metric_name,
+            "unit": self.unit,
+            "color": self.color,
+            "sort_order": self.sort_order,
+            "edc_channel_id": self.edc_channel_id,
+            "source_channel_name": self.source_channel_name,
+            "source_channel_label": self.source_channel_label,
+            "enabled": self.enabled,
+        }
+
+
+@dataclass(slots=True)
+class RuntimeBaselineCurveSnapshot:
+    baseline_id: str
+    metric_key: str
+    curve_source: str
+    points: list[CurvePoint] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "baseline_id": self.baseline_id,
+            "metric_key": self.metric_key,
+            "curve_source": self.curve_source,
+            "points": list(self.points),
+        }
+
+
+@dataclass(slots=True)
+class RuntimeCuttingConfigSnapshot:
+    time_tolerance_percent: float
+    major_issue_duration_minutes: int
+    plant_timezone: str
+    work_start_time: str
+    work_end_time: str
+    break_periods: tuple[str, ...] = ()
+    cutting_mode: str = "signal_inference"
+    fixed_interval_minutes: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "time_tolerance_percent": self.time_tolerance_percent,
+            "major_issue_duration_minutes": self.major_issue_duration_minutes,
+            "plant_timezone": self.plant_timezone,
+            "work_start_time": self.work_start_time,
+            "work_end_time": self.work_end_time,
+            "break_periods": list(self.break_periods),
+            "cutting_mode": self.cutting_mode,
+            "fixed_interval_minutes": self.fixed_interval_minutes,
+        }
+
+
+@dataclass(slots=True)
+class HeatBirthContext:
+    heat_id: str
+    channel_key: str | None = None
+    cutting_mode: str | None = None
+    expected_duration_minutes: int | None = None
+    plant_timezone: str | None = None
+    cutting_config_snapshot: RuntimeCuttingConfigSnapshot | None = None
+    primary_baseline_id: str | None = None
+    baseline_bindings_snapshot: list[dict[str, Any]] = field(default_factory=list)
+    definition_metric_snapshots: list[RuntimeDefinitionMetricSnapshot] = field(default_factory=list)
+    baseline_curve_snapshots: list[RuntimeBaselineCurveSnapshot] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "heat_id": self.heat_id,
+            "channel_key": self.channel_key,
+            "cutting_mode": self.cutting_mode,
+            "expected_duration_minutes": self.expected_duration_minutes,
+            "plant_timezone": self.plant_timezone,
+            "cutting_config_snapshot": (
+                self.cutting_config_snapshot.to_dict()
+                if self.cutting_config_snapshot is not None
+                else None
+            ),
+            "primary_baseline_id": self.primary_baseline_id,
+            "baseline_bindings_snapshot": list(self.baseline_bindings_snapshot),
+            "definition_metric_snapshots": [
+                snapshot.to_dict() for snapshot in self.definition_metric_snapshots
+            ],
+            "baseline_curve_snapshots": [
+                snapshot.to_dict() for snapshot in self.baseline_curve_snapshots
+            ],
+        }
+
+
+@dataclass(slots=True)
 class RuntimeHeatFacts:
     heat_id: str
     heat_no: str
@@ -161,8 +265,11 @@ class RuntimeProcessingMeta:
 @dataclass(slots=True)
 class CurrentHeatRuntime:
     facts: RuntimeHeatFacts
+    birth_context: HeatBirthContext | None = None
     bindings: list[RuntimeHeatBinding] = field(default_factory=list)
     metric_series: list[RuntimeMetricSeries] = field(default_factory=list)
+    definition_metric_snapshots: list[RuntimeDefinitionMetricSnapshot] = field(default_factory=list)
+    baseline_curve_snapshots: list[RuntimeBaselineCurveSnapshot] = field(default_factory=list)
     preseal_payload: RuntimePresealPayload | None = None
     processing_meta: RuntimeProcessingMeta | None = None
     refresh_meta: dict[str, Any] = field(default_factory=dict)
@@ -200,6 +307,15 @@ class CurrentHeatRuntime:
             primary_binding.mismatch_duration_minutes if primary_binding else None
         )
         item["runtime_metric_series"] = [series.to_dict() for series in self.metric_series]
+        item["birth_context"] = (
+            self.birth_context.to_dict() if self.birth_context is not None else None
+        )
+        item["definition_metric_snapshots"] = [
+            snapshot.to_dict() for snapshot in self.definition_metric_snapshots
+        ]
+        item["baseline_curve_snapshots"] = [
+            snapshot.to_dict() for snapshot in self.baseline_curve_snapshots
+        ]
         item["processing_meta"] = (
             self.processing_meta.to_dict() if self.processing_meta is not None else None
         )

@@ -52,11 +52,14 @@ from ..services import (
     update_formal_heat_record,
 )
 from ..services.heat_cutting_service import (
+    HeatCuttingConfig,
     HeatCuttingContext,
     build_live_heat_cache_key,
     infer_live_activity_threshold,
     infer_live_heat_segments,
 )
+from ..services.heat_runtime_factory import HeatRuntimeFactory
+from ..services.heat_runtime_updater import HeatRuntimeUpdater
 from ..services.live_heat_runtime_service import refresh_live_heat_segments
 from ..services.heat_replay_batch_service import (
     ReplayContext,
@@ -69,6 +72,10 @@ from ..services.heat_replay_batch_service import (
 )
 from ..services.heat_runtime_types import (
     CurrentHeatRuntime,
+    HeatBirthContext,
+    RuntimeBaselineCurveSnapshot,
+    RuntimeCuttingConfigSnapshot,
+    RuntimeDefinitionMetricSnapshot,
     RuntimeHeatBinding,
     RuntimeHeatFacts,
     RuntimeMetricSeries,
@@ -540,9 +547,10 @@ def _build_live_heat_context(
     channel: dict[str, str],
     baseline_id: str | None,
     expected_duration_minutes: int,
+    cutting_config: HeatCuttingConfig | None = None,
 ) -> dict[str, Any]:
     channel_key = _live_heat_channel_key(channel)
-    cutting_config = get_cutting_config()
+    effective_cutting_config = cutting_config or get_cutting_config()
     return {
         "channel": channel,
         "channel_key": channel_key,
@@ -550,10 +558,13 @@ def _build_live_heat_context(
         "cache_key": build_live_heat_cache_key(
             channel_key=channel_key,
             expected_duration_minutes=expected_duration_minutes,
-            config=cutting_config,
+            config=effective_cutting_config,
         ),
         "baseline_id": baseline_id,
         "expected_duration_minutes": expected_duration_minutes,
+        "cutting_config_snapshot": _HEAT_RUNTIME_FACTORY.serialize_cutting_config(
+            effective_cutting_config
+        ),
     }
 
 
@@ -601,7 +612,148 @@ def _clone_live_heat_context(context: dict[str, Any]) -> dict[str, Any]:
         "cache_key": str(context["cache_key"]),
         "baseline_id": str(context["baseline_id"]) if context.get("baseline_id") else None,
         "expected_duration_minutes": int(context["expected_duration_minutes"]),
+        "cutting_config_snapshot": deepcopy(context.get("cutting_config_snapshot") or {}),
     }
+
+
+def _resolve_live_heat_channel_by_key(channel_key: str | None) -> dict[str, str] | None:
+    if not channel_key:
+        return None
+    suid, sep, cuid = str(channel_key).partition(":")
+    if not suid or not cuid or sep != ":":
+        return None
+    return next(
+        (
+            item
+            for item in _HOST_CHANNEL_STORE
+            if str(item.get("suid") or "") == suid and str(item.get("cuid") or "") == cuid
+        ),
+        None,
+    )
+
+
+def _build_live_refresh_context_from_runtime_item(
+    item: dict[str, Any],
+) -> dict[str, Any] | None:
+    birth_context = item.get("birth_context")
+    if not isinstance(birth_context, dict):
+        return None
+
+    channel_key = str(
+        birth_context.get("channel_key") or item.get("_live_context_key") or item.get("furnace_id") or ""
+    ).strip()
+    expected_duration_minutes = birth_context.get("expected_duration_minutes")
+    if not channel_key or expected_duration_minutes is None:
+        return None
+
+    channel = _resolve_live_heat_channel_by_key(channel_key)
+    if channel is None:
+        return None
+    cutting_config = _HEAT_RUNTIME_FACTORY.resolve_frozen_cutting_config(
+        item,
+        fallback_config=get_cutting_config(),
+    )
+    if cutting_config is None:
+        return None
+
+    return _build_live_heat_context(
+        channel=channel,
+        baseline_id=(
+            str(
+                birth_context.get("primary_baseline_id")
+                or item.get("baseline_id")
+                or ""
+            )
+            if (
+                birth_context.get("primary_baseline_id") is not None
+                or item.get("baseline_id") is not None
+            )
+            else None
+        ),
+        expected_duration_minutes=int(expected_duration_minutes),
+        cutting_config=cutting_config,
+    )
+
+
+def _resolve_live_context_cutting_config(context: dict[str, Any] | None) -> HeatCuttingConfig:
+    if not isinstance(context, dict):
+        return get_cutting_config()
+
+    raw_snapshot = context.get("cutting_config_snapshot")
+    if not isinstance(raw_snapshot, dict):
+        return get_cutting_config()
+
+    try:
+        fixed_interval_minutes = raw_snapshot.get("fixed_interval_minutes")
+        return HeatCuttingConfig(
+            time_tolerance_percent=float(raw_snapshot.get("time_tolerance_percent") or 0.0),
+            major_issue_duration_minutes=int(
+                raw_snapshot.get("major_issue_duration_minutes") or 0
+            ),
+            plant_timezone=str(raw_snapshot.get("plant_timezone") or ""),
+            work_start_time=str(raw_snapshot.get("work_start_time") or ""),
+            work_end_time=str(raw_snapshot.get("work_end_time") or ""),
+            break_periods=tuple(str(period) for period in (raw_snapshot.get("break_periods") or [])),
+            cutting_mode=str(raw_snapshot.get("cutting_mode") or "signal_inference"),
+            fixed_interval_minutes=(
+                int(fixed_interval_minutes) if fixed_interval_minutes is not None else None
+            ),
+        )
+    except (TypeError, ValueError):
+        return get_cutting_config()
+
+
+def _resolve_live_runtime_refresh_context() -> dict[str, Any] | None:
+    existing_active_item = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
+    if isinstance(existing_active_item, dict):
+        runtime_context = _build_live_refresh_context_from_runtime_item(existing_active_item)
+        if runtime_context is not None:
+            return runtime_context
+    return _resolve_live_heat_inference_context()
+
+
+def _hydrate_candidate_from_existing_runtime(
+    candidate: dict[str, Any] | None,
+    *,
+    existing_item: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if candidate is None or not isinstance(existing_item, dict):
+        return candidate
+    candidate_id = str(candidate.get("id") or "").strip()
+    existing_id = str(existing_item.get("id") or "").strip()
+    if not candidate_id or candidate_id != existing_id:
+        return candidate
+
+    hydrated = dict(candidate)
+    hydrated["birth_context"] = deepcopy(existing_item.get("birth_context"))
+    hydrated["definition_metric_snapshots"] = deepcopy(
+        existing_item.get("definition_metric_snapshots") or []
+    )
+    hydrated["baseline_curve_snapshots"] = deepcopy(
+        existing_item.get("baseline_curve_snapshots") or []
+    )
+    hydrated["baseline_bindings"] = deepcopy(existing_item.get("baseline_bindings") or [])
+    hydrated["baseline_id"] = existing_item.get("baseline_id")
+    hydrated["baseline_version_id"] = existing_item.get("baseline_version_id")
+    hydrated["baseline_ids"] = deepcopy(existing_item.get("baseline_ids") or [])
+    hydrated["baseline_effective_from"] = existing_item.get("baseline_effective_from")
+    return hydrated
+
+
+def _same_runtime_candidate(
+    candidate: dict[str, Any] | None,
+    existing_item: dict[str, Any] | None,
+) -> bool:
+    if candidate is None or not isinstance(existing_item, dict):
+        return False
+    return str(candidate.get("id") or "").strip() == str(existing_item.get("id") or "").strip()
+
+
+def _candidate_end_time(item: dict[str, Any] | None) -> datetime | None:
+    if not isinstance(item, dict):
+        return None
+    end_time = item.get("end_time")
+    return end_time if isinstance(end_time, datetime) else None
 
 
 def _infer_metric_key(metric: dict[str, Any], index: int) -> str:
@@ -707,11 +859,11 @@ def _build_live_heat_item(
     baseline_id: str | None,
     power_curve: list[CurvePoint],
     expected_duration_minutes: int,
+    cutting_config: HeatCuttingConfig,
 ) -> dict[str, Any]:
     start_time = from_timestamp_ms(power_curve[0].timestamp)
     end_time = from_timestamp_ms(power_curve[-1].timestamp)
     duration_minutes = max((end_time - start_time).total_seconds() / 60, 1)
-    cutting_config = get_cutting_config()
     schedule_tag = _schedule_tag_of(start_time, cutting_config)
     duration_ratio = duration_minutes / max(expected_duration_minutes, 1)
     status = "abnormal" if duration_ratio < 0.6 or duration_ratio > 1.5 else "normal"
@@ -732,7 +884,7 @@ def _build_live_heat_item(
         duration_bucket_minutes=duration_bucket_minutes,
     )
 
-    plant_start_time = to_plant_datetime(start_time, get_plant_timezone())
+    plant_start_time = to_plant_datetime(start_time, cutting_config.plant_timezone)
     return {
         "id": heat_id,
         "heat_no": f"H{plant_start_time.strftime('%Y%m%d')}-{plant_start_time.strftime('%H%M')}",
@@ -771,6 +923,9 @@ def _build_live_heat_item(
         "_live_duration_bucket_minutes": duration_bucket_minutes,
         "_live_original_start_ts": original_start_ts,
         "_live_original_end_ts": original_end_ts,
+        "_live_expected_duration_minutes": int(expected_duration_minutes),
+        "_live_cutting_mode": str(cutting_config.cutting_mode),
+        "_live_plant_timezone": str(cutting_config.plant_timezone),
     }
 
 
@@ -780,7 +935,9 @@ def _infer_live_heat_items(
     points: list[CurvePoint],
     baseline_id: str | None,
     expected_duration_minutes: int,
+    cutting_config: HeatCuttingConfig | None = None,
 ) -> dict[str, dict[str, Any]]:
+    effective_cutting_config = cutting_config or _resolve_live_context_cutting_config(context)
     activity_threshold = _infer_live_activity_threshold(points)
     if activity_threshold is None:
         return {}
@@ -788,7 +945,7 @@ def _infer_live_heat_items(
     split_segments = infer_live_heat_segments(
         points,
         context=HeatCuttingContext(expected_duration_minutes=expected_duration_minutes),
-        config=get_cutting_config(),
+        config=effective_cutting_config,
         activity_threshold=activity_threshold,
     )
 
@@ -803,6 +960,7 @@ def _infer_live_heat_items(
                 baseline_id=baseline_id,
                 power_curve=split_segment,
                 expected_duration_minutes=expected_duration_minutes,
+                cutting_config=effective_cutting_config,
             )
         )
 
@@ -816,7 +974,9 @@ def _build_live_heat_items_from_segments(
     segments: list[list[CurvePoint]],
     baseline_id: str | None,
     expected_duration_minutes: int,
+    cutting_config: HeatCuttingConfig | None = None,
 ) -> list[dict[str, Any]]:
+    effective_cutting_config = cutting_config or _resolve_live_context_cutting_config(context)
     built: list[dict[str, Any]] = []
     for index, segment in enumerate(segments, start=1):
         if not segment:
@@ -828,6 +988,7 @@ def _build_live_heat_items_from_segments(
                 baseline_id=baseline_id,
                 power_curve=segment,
                 expected_duration_minutes=expected_duration_minutes,
+                cutting_config=effective_cutting_config,
             )
         )
     return built
@@ -1042,6 +1203,7 @@ async def _get_live_inferred_heat_store(
             points=points,
             baseline_id=context["baseline_id"],
             expected_duration_minutes=int(context["expected_duration_minutes"]),
+            cutting_config=_resolve_live_context_cutting_config(context),
         )
         cache_entry["items"] = inferred_items
         cache_entry["expires_at"] = utc_now() + timedelta(
@@ -1400,7 +1562,10 @@ async def refresh_heat_runtime_state(
     )
     _sync_heat_runtime_refresh_meta_status(now=started_at)
 
-    context = _resolve_live_heat_inference_context()
+    existing_active_item = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
+    existing_previous_item = next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)
+    context = _resolve_live_runtime_refresh_context()
+    cutting_config = _resolve_live_context_cutting_config(context)
     if not _is_live_heat_inference_enabled() or not context:
         _mark_heat_runtime_refresh_failure(error="live_heat_inference_unavailable")
         await persist_runtime_state(*_runtime_heat_sections())
@@ -1408,7 +1573,7 @@ async def refresh_heat_runtime_state(
 
     refresh_result = await refresh_live_heat_segments(
         context=context,
-        cutting_config=get_cutting_config(),
+        cutting_config=cutting_config,
         point_loader=_load_live_heat_inference_power_points,
         processor_snapshot=(
             None
@@ -1427,6 +1592,7 @@ async def refresh_heat_runtime_state(
         segments=[segment.points for segment in refresh_result.processor_result.all_segments],
         baseline_id=context["baseline_id"],
         expected_duration_minutes=int(context["expected_duration_minutes"]),
+        cutting_config=cutting_config,
     )
     segment_item_lookup = {
         (
@@ -1448,35 +1614,88 @@ async def refresh_heat_runtime_state(
         for segment in refresh_result.processor_result.sealed_segments
         if (item := _segment_item(segment)) is not None
     ]
+    active_candidate = _hydrate_candidate_from_existing_runtime(
+        active_candidate,
+        existing_item=existing_active_item if isinstance(existing_active_item, dict) else None,
+    )
+    previous_candidate = _hydrate_candidate_from_existing_runtime(
+        previous_candidate,
+        existing_item=existing_previous_item if isinstance(existing_previous_item, dict) else None,
+    )
+    if (
+        previous_candidate is not None
+        and isinstance(existing_active_item, dict)
+        and str(previous_candidate.get("id") or "") == str(existing_active_item.get("id") or "")
+    ):
+        previous_candidate = _hydrate_candidate_from_existing_runtime(
+            previous_candidate,
+            existing_item=existing_active_item,
+        )
 
     if not active_candidate and not previous_candidate and not sealed_candidates:
         _mark_heat_runtime_refresh_failure(error="no_runtime_heats_inferred")
         await persist_runtime_state(*_runtime_heat_sections())
         return _build_heat_runtime_refresh_meta_snapshot()
 
-    raw_runtime_candidates = [
-        candidate
-        for candidate in [active_candidate, previous_candidate, *sealed_candidates]
-        if candidate is not None
-    ]
-    prepared_runtime_candidates = await compile_runtime_candidates(
-        raw_runtime_candidates,
-        processing_mode="live_incremental",
-        trigger_source=reason,
+    active_reuses_existing = _same_runtime_candidate(active_candidate, existing_active_item)
+    previous_reuses_existing = _same_runtime_candidate(previous_candidate, existing_previous_item)
+    previous_reuses_existing_active = _same_runtime_candidate(
+        previous_candidate,
+        existing_active_item,
+    )
+    compile_candidates: list[dict[str, Any]] = []
+    if active_candidate is not None and not active_reuses_existing:
+        compile_candidates.append(active_candidate)
+    if (
+        previous_candidate is not None
+        and not previous_reuses_existing
+        and not previous_reuses_existing_active
+    ):
+        compile_candidates.append(previous_candidate)
+    compile_candidates.extend(sealed_candidates)
+
+    prepared_runtime_candidates = (
+        await compile_runtime_candidates(
+            compile_candidates,
+            processing_mode="live_incremental",
+            trigger_source=reason,
+            cutting_config=cutting_config,
+        )
+        if compile_candidates
+        else []
     )
     prepared_runtime_candidate_map = {
         str(candidate["id"]): candidate for candidate in prepared_runtime_candidates
     }
-    prepared_active_candidate = (
-        prepared_runtime_candidate_map.get(str(active_candidate["id"]))
-        if active_candidate is not None
-        else None
-    )
-    prepared_previous_candidate = (
-        prepared_runtime_candidate_map.get(str(previous_candidate["id"]))
-        if previous_candidate is not None
-        else None
-    )
+    prepared_active_candidate: dict[str, Any] | None = None
+    if active_candidate is not None:
+        if active_reuses_existing and isinstance(existing_active_item, dict):
+            prepared_active_candidate = _HEAT_RUNTIME_UPDATER.update_existing_runtime(
+                existing_item=existing_active_item,
+                candidate=active_candidate,
+                trigger_source=reason,
+                processing_mode="live_incremental",
+                request_anchor_time=force_anchor_time or active_candidate.get("start_time"),
+            )
+        else:
+            prepared_active_candidate = prepared_runtime_candidate_map.get(str(active_candidate["id"]))
+
+    prepared_previous_candidate: dict[str, Any] | None = None
+    if previous_candidate is not None:
+        if previous_reuses_existing_active and isinstance(existing_active_item, dict):
+            prepared_previous_candidate = _HEAT_RUNTIME_UPDATER.update_existing_runtime(
+                existing_item=existing_active_item,
+                candidate=previous_candidate,
+                trigger_source=reason,
+                processing_mode="live_incremental",
+                request_anchor_time=force_anchor_time or previous_candidate.get("start_time"),
+            )
+        elif previous_reuses_existing and isinstance(existing_previous_item, dict):
+            prepared_previous_candidate = dict(existing_previous_item)
+        else:
+            prepared_previous_candidate = prepared_runtime_candidate_map.get(
+                str(previous_candidate["id"])
+            )
     prepared_sealed_candidates = [
         prepared_runtime_candidate_map[str(candidate["id"])]
         for candidate in sealed_candidates
@@ -1485,8 +1704,6 @@ async def refresh_heat_runtime_state(
 
     next_active_runtime: dict[str, dict[str, Any]] = {}
     next_previous_runtime: dict[str, dict[str, Any]] = {}
-    existing_active_item = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
-    existing_previous_item = next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)
     if prepared_active_candidate is not None:
         active_runtime = _build_current_heat_runtime(
             prepared_active_candidate,
@@ -1542,8 +1759,34 @@ async def refresh_heat_runtime_state(
             from_timestamp_ms(refresh_result.processor_result.last_point_timestamp)
         )
 
+    existing_active_id = (
+        str(existing_active_item.get("id") or "") if isinstance(existing_active_item, dict) else ""
+    )
+    next_active_id = (
+        str(prepared_active_candidate.get("id") or "")
+        if isinstance(prepared_active_candidate, dict)
+        else ""
+    )
+    existing_active_end = _candidate_end_time(existing_active_item)
+    next_active_end = _candidate_end_time(prepared_active_candidate)
+    if not prepared_active_candidate:
+        refresh_outcome = "no_new_heat_born"
+    elif existing_active_id and next_active_id == existing_active_id:
+        refresh_outcome = (
+            "active_heat_continues"
+            if (
+                existing_active_end is not None
+                and next_active_end is not None
+                and next_active_end > existing_active_end
+            )
+            else "no_new_heat_born"
+        )
+    else:
+        refresh_outcome = "new_heat_born"
+
     _mark_heat_runtime_refresh_success(
         reason=reason,
+        refresh_outcome=refresh_outcome,
         snapshot_watermark=max(watermark_candidates) if watermark_candidates else None,
     )
     await persist_runtime_state(*_runtime_heat_sections())
@@ -2054,6 +2297,131 @@ def _resolve_heat_curves_from_shared_channels(
     return resolved
 
 
+def _is_runtime_compare_source(item: dict[str, Any]) -> bool:
+    if str(item.get("record_source") or "") not in {"active_runtime", "previous_runtime"}:
+        return False
+    return bool(_runtime_metric_series_entries(item)) and bool(
+        _build_runtime_definition_metric_snapshots(item)
+    ) and bool(_build_runtime_baseline_curve_snapshots(item))
+
+
+def _runtime_metric_series_entries(item: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_series = item.get("runtime_metric_series")
+    if not isinstance(raw_series, list):
+        return []
+    return [series for series in raw_series if isinstance(series, dict)]
+
+
+def _runtime_series_payload(series: dict[str, Any]) -> dict[str, Any]:
+    raw_payload = series.get("series_json")
+    if isinstance(raw_payload, dict):
+        return raw_payload
+    if isinstance(raw_payload, str):
+        try:
+            parsed = json.loads(raw_payload)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _resolve_runtime_current_curves(
+    item: dict[str, Any],
+) -> dict[str, list[CurvePoint]]:
+    curves: dict[str, list[CurvePoint]] = {}
+    for series in _runtime_metric_series_entries(item):
+        metric_key = str(series.get("metric_key") or "").strip()
+        if not metric_key:
+            continue
+        points = _coerce_curve_points(_runtime_series_payload(series).get("points"))
+        if points:
+            curves[metric_key] = points
+    if not curves.get("power"):
+        curves["power"] = _coerce_curve_points(item.get("power_curve"))
+    if not curves.get("voltage"):
+        curves["voltage"] = _coerce_curve_points(item.get("voltage_curve"))
+    return {metric_key: points for metric_key, points in curves.items() if points}
+
+
+def _resolve_runtime_baseline_curve_snapshots(
+    item: dict[str, Any],
+) -> dict[tuple[str, str], RuntimeBaselineCurveSnapshot]:
+    return {
+        (snapshot.baseline_id, snapshot.metric_key): snapshot
+        for snapshot in _build_runtime_baseline_curve_snapshots(item)
+    }
+
+
+def _resolve_runtime_definition_metric_snapshots(
+    item: dict[str, Any],
+) -> list[RuntimeDefinitionMetricSnapshot]:
+    snapshots = _build_runtime_definition_metric_snapshots(item)
+    if snapshots:
+        return snapshots
+
+    _baseline_id, metrics = _resolve_definition_metrics(item)
+    resolved: list[RuntimeDefinitionMetricSnapshot] = []
+    for index, metric in enumerate(metrics):
+        metric_key = _infer_metric_key(metric, index)
+        resolved.append(
+            RuntimeDefinitionMetricSnapshot(
+                item=str(metric.get("item") or f"{index + 1:03d}"),
+                metric_key=metric_key,
+                metric_name=str(metric.get("name") or f"指标{index + 1}"),
+                unit=str(metric.get("unit")) if metric.get("unit") is not None else None,
+                color=str(metric.get("color") or "#94a3b8"),
+                sort_order=index,
+                edc_channel_id=(
+                    str(metric.get("edc_channel_id"))
+                    if metric.get("edc_channel_id") is not None
+                    else None
+                ),
+                source_channel_name=None,
+                source_channel_label=None,
+                enabled=True,
+            )
+        )
+    return resolved
+
+
+def _build_runtime_metric_curve_series(
+    *,
+    item: dict[str, Any],
+    baseline_id: str,
+) -> list[MetricCompareSeries]:
+    metric_snapshots = _resolve_runtime_definition_metric_snapshots(item)
+    current_curves = _resolve_runtime_current_curves(item)
+    baseline_snapshots = _resolve_runtime_baseline_curve_snapshots(item)
+
+    series: list[MetricCompareSeries] = []
+    for snapshot in metric_snapshots:
+        baseline_snapshot = baseline_snapshots.get((baseline_id, snapshot.metric_key))
+        baseline_curve = (
+            _rebase_curve_points_to_window(
+                baseline_snapshot.points,
+                target_start_time=item["start_time"],
+                target_end_time=item["end_time"],
+            )
+            if baseline_snapshot is not None
+            else []
+        )
+        series.append(
+            MetricCompareSeries(
+                metric_key=snapshot.metric_key,
+                metric_name=snapshot.metric_name,
+                unit=snapshot.unit or "--",
+                color=snapshot.color,
+                edc_channel_id=snapshot.edc_channel_id,
+                source_channel_name=snapshot.source_channel_name,
+                source_channel_label=snapshot.source_channel_label,
+                baseline_curve=baseline_curve,
+                current_curve=current_curves.get(snapshot.metric_key, []),
+            )
+        )
+
+    return series
+
+
 async def _build_metric_curve_series(
     *,
     start_time: datetime,
@@ -2409,6 +2777,8 @@ _NEXT_MOCK_HEAT_INDEX = len(_MOCK_HEAT_STREAM_STORE) + 1
 _HEAT_RUNTIME_REFRESH_META: dict[str, Any] = {}
 _HEAT_RUNTIME_REFRESH_INFLIGHT: asyncio.Task[dict[str, Any]] | None = None
 _HEAT_RUNTIME_REFRESH_LOOP_TASK: asyncio.Task[None] | None = None
+_HEAT_RUNTIME_FACTORY = HeatRuntimeFactory()
+_HEAT_RUNTIME_UPDATER = HeatRuntimeUpdater()
 
 
 def _default_heat_runtime_refresh_meta() -> dict[str, Any]:
@@ -2416,6 +2786,7 @@ def _default_heat_runtime_refresh_meta() -> dict[str, Any]:
         "snapshot_status": "warming",
         "refresh_status": "idle",
         "refresh_reason": None,
+        "refresh_outcome": None,
         "refresh_error": None,
         "refresh_failure_count": 0,
         "snapshot_watermark": None,
@@ -2659,6 +3030,174 @@ def _build_runtime_bindings(item: dict[str, Any]) -> list[RuntimeHeatBinding]:
     return bindings
 
 
+def _build_runtime_definition_metric_snapshots(
+    item: dict[str, Any],
+) -> list[RuntimeDefinitionMetricSnapshot]:
+    raw_birth_context = item.get("birth_context")
+    if isinstance(raw_birth_context, dict):
+        raw_snapshots = raw_birth_context.get("definition_metric_snapshots")
+    else:
+        raw_snapshots = item.get("definition_metric_snapshots")
+    if not isinstance(raw_snapshots, list):
+        return []
+
+    snapshots: list[RuntimeDefinitionMetricSnapshot] = []
+    for snapshot in raw_snapshots:
+        if not isinstance(snapshot, dict):
+            continue
+        metric_key = str(snapshot.get("metric_key") or "").strip()
+        metric_name = str(snapshot.get("metric_name") or "").strip()
+        item_no = str(snapshot.get("item") or "").strip()
+        color = str(snapshot.get("color") or "").strip()
+        if not metric_key or not metric_name or not item_no or not color:
+            continue
+        snapshots.append(
+            RuntimeDefinitionMetricSnapshot(
+                item=item_no,
+                metric_key=metric_key,
+                metric_name=metric_name,
+                unit=str(snapshot.get("unit")) if snapshot.get("unit") is not None else None,
+                color=color,
+                sort_order=int(snapshot.get("sort_order") or 0),
+                edc_channel_id=(
+                    str(snapshot.get("edc_channel_id"))
+                    if snapshot.get("edc_channel_id") is not None
+                    else None
+                ),
+                source_channel_name=(
+                    str(snapshot.get("source_channel_name"))
+                    if snapshot.get("source_channel_name") is not None
+                    else None
+                ),
+                source_channel_label=(
+                    str(snapshot.get("source_channel_label"))
+                    if snapshot.get("source_channel_label") is not None
+                    else None
+                ),
+                enabled=bool(snapshot.get("enabled", True)),
+            )
+        )
+    return snapshots
+
+
+def _build_runtime_baseline_curve_snapshots(
+    item: dict[str, Any],
+) -> list[RuntimeBaselineCurveSnapshot]:
+    raw_birth_context = item.get("birth_context")
+    if isinstance(raw_birth_context, dict):
+        raw_snapshots = raw_birth_context.get("baseline_curve_snapshots")
+    else:
+        raw_snapshots = item.get("baseline_curve_snapshots")
+    if not isinstance(raw_snapshots, list):
+        return []
+
+    snapshots: list[RuntimeBaselineCurveSnapshot] = []
+    for snapshot in raw_snapshots:
+        if not isinstance(snapshot, dict):
+            continue
+        baseline_id = str(snapshot.get("baseline_id") or "").strip()
+        metric_key = str(snapshot.get("metric_key") or "").strip()
+        if not baseline_id or not metric_key:
+            continue
+        snapshots.append(
+            RuntimeBaselineCurveSnapshot(
+                baseline_id=baseline_id,
+                metric_key=metric_key,
+                curve_source=str(snapshot.get("curve_source") or "none"),
+                points=_coerce_curve_points(snapshot.get("points")),
+            )
+        )
+    return snapshots
+
+
+def _build_runtime_cutting_config_snapshot(
+    item: dict[str, Any],
+) -> RuntimeCuttingConfigSnapshot | None:
+    raw_birth_context = item.get("birth_context")
+    if not isinstance(raw_birth_context, dict):
+        return None
+
+    raw_snapshot = raw_birth_context.get("cutting_config_snapshot")
+    if not isinstance(raw_snapshot, dict):
+        return None
+
+    try:
+        fixed_interval_minutes = raw_snapshot.get("fixed_interval_minutes")
+        return RuntimeCuttingConfigSnapshot(
+            time_tolerance_percent=float(raw_snapshot.get("time_tolerance_percent") or 0.0),
+            major_issue_duration_minutes=int(
+                raw_snapshot.get("major_issue_duration_minutes") or 0
+            ),
+            plant_timezone=str(raw_snapshot.get("plant_timezone") or ""),
+            work_start_time=str(raw_snapshot.get("work_start_time") or ""),
+            work_end_time=str(raw_snapshot.get("work_end_time") or ""),
+            break_periods=tuple(
+                str(period) for period in (raw_snapshot.get("break_periods") or [])
+            ),
+            cutting_mode=str(raw_snapshot.get("cutting_mode") or "signal_inference"),
+            fixed_interval_minutes=(
+                int(fixed_interval_minutes) if fixed_interval_minutes is not None else None
+            ),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_heat_birth_context(
+    item: dict[str, Any],
+    *,
+    bindings: list[RuntimeHeatBinding],
+    definition_metric_snapshots: list[RuntimeDefinitionMetricSnapshot],
+    baseline_curve_snapshots: list[RuntimeBaselineCurveSnapshot],
+) -> HeatBirthContext | None:
+    raw_birth_context = item.get("birth_context")
+    if not isinstance(raw_birth_context, dict):
+        return None
+
+    heat_id = str(raw_birth_context.get("heat_id") or item.get("id") or "").strip()
+    if not heat_id:
+        return None
+
+    raw_bindings_snapshot = raw_birth_context.get("baseline_bindings_snapshot")
+    baseline_bindings_snapshot = (
+        [dict(binding) for binding in raw_bindings_snapshot if isinstance(binding, dict)]
+        if isinstance(raw_bindings_snapshot, list)
+        else [binding.to_dict() for binding in bindings]
+    )
+    return HeatBirthContext(
+        heat_id=heat_id,
+        channel_key=(
+            str(raw_birth_context.get("channel_key"))
+            if raw_birth_context.get("channel_key") is not None
+            else None
+        ),
+        cutting_mode=(
+            str(raw_birth_context.get("cutting_mode"))
+            if raw_birth_context.get("cutting_mode") is not None
+            else None
+        ),
+        expected_duration_minutes=(
+            int(raw_birth_context.get("expected_duration_minutes"))
+            if raw_birth_context.get("expected_duration_minutes") is not None
+            else None
+        ),
+        plant_timezone=(
+            str(raw_birth_context.get("plant_timezone"))
+            if raw_birth_context.get("plant_timezone") is not None
+            else None
+        ),
+        cutting_config_snapshot=_build_runtime_cutting_config_snapshot(item),
+        primary_baseline_id=(
+            str(raw_birth_context.get("primary_baseline_id"))
+            if raw_birth_context.get("primary_baseline_id") is not None
+            else None
+        ),
+        baseline_bindings_snapshot=baseline_bindings_snapshot,
+        definition_metric_snapshots=definition_metric_snapshots,
+        baseline_curve_snapshots=baseline_curve_snapshots,
+    )
+
+
 def _build_current_heat_runtime(
     item: dict[str, Any],
     *,
@@ -2707,6 +3246,15 @@ def _build_current_heat_runtime(
         )
         if payload is not None:
             metric_series.append(payload)
+    bindings = _build_runtime_bindings(item)
+    definition_metric_snapshots = _build_runtime_definition_metric_snapshots(item)
+    baseline_curve_snapshots = _build_runtime_baseline_curve_snapshots(item)
+    birth_context = _build_heat_birth_context(
+        item,
+        bindings=bindings,
+        definition_metric_snapshots=definition_metric_snapshots,
+        baseline_curve_snapshots=baseline_curve_snapshots,
+    )
     raw_processing_meta = item.get("processing_meta")
     if isinstance(raw_processing_meta, dict):
         processing_meta = RuntimeProcessingMeta(
@@ -2752,8 +3300,11 @@ def _build_current_heat_runtime(
     )
     return CurrentHeatRuntime(
         facts=facts,
-        bindings=_build_runtime_bindings(item),
+        birth_context=birth_context,
+        bindings=bindings,
         metric_series=metric_series,
+        definition_metric_snapshots=definition_metric_snapshots,
+        baseline_curve_snapshots=baseline_curve_snapshots,
         preseal_payload=preseal_payload,
         processing_meta=processing_meta,
         refresh_meta={},
@@ -2993,6 +3544,7 @@ def _mark_heat_runtime_refresh_failure(*, error: str, completed_at: datetime | N
     _HEAT_RUNTIME_REFRESH_META.update(
         {
             "refresh_status": "idle",
+            "refresh_outcome": "runtime_refresh_failed",
             "refresh_error": error,
             "refresh_failure_count": _refresh_failure_count() + 1,
             "last_refresh_completed_at": finished_at,
@@ -3004,6 +3556,7 @@ def _mark_heat_runtime_refresh_failure(*, error: str, completed_at: datetime | N
 def _mark_heat_runtime_refresh_success(
     *,
     reason: str,
+    refresh_outcome: str | None,
     snapshot_watermark: datetime | None,
     completed_at: datetime | None = None,
 ) -> None:
@@ -3012,6 +3565,7 @@ def _mark_heat_runtime_refresh_success(
         {
             "refresh_reason": reason,
             "refresh_status": "idle",
+            "refresh_outcome": refresh_outcome,
             "refresh_error": None,
             "refresh_failure_count": 0,
             "snapshot_watermark": snapshot_watermark,
@@ -3370,6 +3924,7 @@ async def create_replay_job(data: HeatReplayJobCreateRequest) -> HeatReplayJobRe
                 segments=segments,
                 baseline_id=context["baseline_id"],
                 expected_duration_minutes=int(context["expected_duration_minutes"]),
+                cutting_config=cutting_config,
             ),
             threshold_resolver=_infer_live_activity_threshold,
             after_replace=_rebuild_head_runtime_after_replay,
@@ -3638,7 +4193,42 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     )
     compare_channels = _collect_compare_metric_channels(baseline_ids)
     is_sealed_history = str(item.get("record_source") or "") == "sealed_history"
-    if is_sealed_history:
+    is_runtime_compare = _is_runtime_compare_source(item)
+    if is_runtime_compare:
+        hydrated_baselines = {
+            baseline_id: dict(baseline_item)
+            for baseline_id in baseline_ids
+            if (baseline_item := _BASELINE_STORE.get(baseline_id)) is not None
+        }
+        runtime_current_curves = _resolve_runtime_current_curves(item)
+        shared_current_curves = {}
+        display_current_curves = {}
+        live_curves = _clip_curves_to_time_window(
+            runtime_current_curves,
+            start_time=item["start_time"],
+            end_time=item["end_time"],
+        )
+        display_live_curves = dict(runtime_current_curves)
+        runtime_baseline_snapshots = _resolve_runtime_baseline_curve_snapshots(item)
+        if baseline_id:
+            baseline_power_snapshot = runtime_baseline_snapshots.get((baseline_id, "power"))
+            baseline_voltage_snapshot = runtime_baseline_snapshots.get((baseline_id, "voltage"))
+            if baseline_power_snapshot is not None:
+                item["baseline_power_curve"] = _rebase_curve_points_to_window(
+                    baseline_power_snapshot.points,
+                    target_start_time=item["start_time"],
+                    target_end_time=item["end_time"],
+                )
+                item["baseline_curve_source"] = baseline_power_snapshot.curve_source
+            if baseline_voltage_snapshot is not None:
+                item["baseline_voltage_curve"] = _rebase_curve_points_to_window(
+                    baseline_voltage_snapshot.points,
+                    target_start_time=item["start_time"],
+                    target_end_time=item["end_time"],
+                )
+                if not item.get("baseline_curve_source"):
+                    item["baseline_curve_source"] = baseline_voltage_snapshot.curve_source
+    elif is_sealed_history:
         hydrated_baselines = await _hydrate_compare_baselines(baseline_ids)
         shared_current_curves = {}
         display_current_curves = {}
@@ -3668,7 +4258,7 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         )
         live_curves = _resolve_heat_curves_from_shared_channels(item, shared_current_curves)
         display_live_curves = _resolve_heat_curves_from_shared_channels(item, display_current_curves)
-    if not is_sealed_history:
+    if not is_sealed_history and not is_runtime_compare:
         direct_live_fallback_keys: set[str] = set()
         if not live_curves.get("power") or not live_curves.get("voltage"):
             direct_live_curves = await _load_heat_curves_from_edc(item) or {}
@@ -3708,15 +4298,16 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     if live_curves.get("voltage"):
         item["voltage_curve"] = _coerce_curve_points(live_curves["voltage"])
     if live_curves:
-        item["current_curve_source"] = (
-            str(item.get("current_curve_source") or "formal_db")
-            if is_sealed_history
-            else "live_edc"
-        )
+        if is_runtime_compare:
+            item["current_curve_source"] = "runtime_metric_series"
+        elif is_sealed_history:
+            item["current_curve_source"] = str(item.get("current_curve_source") or "formal_db")
+        else:
+            item["current_curve_source"] = "live_edc"
 
     if baseline_id:
         baseline_item = hydrated_baselines.get(baseline_id) or _BASELINE_STORE.get(baseline_id)
-        if baseline_item:
+        if baseline_item and not is_runtime_compare:
             baseline_power_curve = _coerce_curve_points(baseline_item.get("power_curve"))
             baseline_voltage_curve = _coerce_curve_points(baseline_item.get("voltage_curve"))
             if baseline_power_curve:
@@ -3730,19 +4321,25 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     binding_map = _binding_by_baseline_id(item)
     baseline_compares: list[BaselineCompareItem] = []
     for idx, baseline_id in enumerate(baseline_ids):
-        metric_curves = await _build_metric_curve_series(
-            start_time=item["start_time"],
-            end_time=item["end_time"],
-            minutes=46,
-            baseline_id=baseline_id,
-            power_curve=display_live_curves.get("power")
-            or _coerce_curve_points(response_item.get("power_curve")),
-            voltage_curve=display_live_curves.get("voltage")
-            or _coerce_curve_points(response_item.get("voltage_curve")),
-            current_curves_by_channel=display_current_curves,
-            hydrated_baseline_item=hydrated_baselines.get(baseline_id),
-            hydrate_baseline=False,
-        )
+        if is_runtime_compare:
+            metric_curves = _build_runtime_metric_curve_series(
+                item=item,
+                baseline_id=baseline_id,
+            )
+        else:
+            metric_curves = await _build_metric_curve_series(
+                start_time=item["start_time"],
+                end_time=item["end_time"],
+                minutes=46,
+                baseline_id=baseline_id,
+                power_curve=display_live_curves.get("power")
+                or _coerce_curve_points(response_item.get("power_curve")),
+                voltage_curve=display_live_curves.get("voltage")
+                or _coerce_curve_points(response_item.get("voltage_curve")),
+                current_curves_by_channel=display_current_curves,
+                hydrated_baseline_item=hydrated_baselines.get(baseline_id),
+                hydrate_baseline=False,
+            )
         binding_summary = binding_map.get(baseline_id)
         baseline_item = hydrated_baselines.get(baseline_id) or _BASELINE_STORE.get(baseline_id)
         baseline_name = (

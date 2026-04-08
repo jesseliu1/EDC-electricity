@@ -21,6 +21,20 @@
 
 ## 记录
 
+### 2026-04-08 runtime compare 切真源时，不能只看 record_source，必须先确认完整快照已经到位
+
+- **错误模式**: 看到记录来源是 `active_runtime / previous_runtime`，就直接把 compare 主链切到“只读 runtime 快照”新路径，结果把还没带齐 `runtime_metric_series / definition_metric_snapshots / baseline_curve_snapshots` 的旧样板 runtime 一起带进去了，瞬间打坏旧回归。
+- **正确做法**: runtime compare 的新路径必须以“完整快照已存在”为前提，不是只以 `record_source` 判定。至少要确认当前 runtime 已带齐当前曲线真源、指标模板快照、基线曲线快照，再切到纯 runtime compare；未满足时继续走旧兼容路径。
+- **适用场景**: runtime 真源重构过渡期、compare 接口切换真源、旧样板 runtime 仍在仓库或测试里存在、任何“同一 record_source 里混着新旧两代结构”的重构阶段。
+- **相关文档**: `apps/server/src/api/heats.py`, `docs/runtime-source-of-truth-refactor-plan.md`, `docs/BACKEND_STRUCTURE.md`
+
+### 2026-04-08 runtime 真源改造不能边改边漂语义，每完成一个修改点都要回看设计文档并做一次 review
+
+- **错误模式**: 在 runtime、状态机、基线绑定、compare 这类跨层共享能力上，一边改代码一边凭局部直觉推进，导致新结构外面包着旧语义，最后出现“对象像是 runtime 真源，实际还在每轮 refresh 重新查外部状态”的半成品实现。
+- **正确做法**: 这类工业化改造必须先锁正式计划文档，再按阶段实施。每完成一个修改点，都要回看当前计划文档、`docs/BACKEND_STRUCTURE.md`、相关 runtime 设计文档，确认代码语义仍与设计一致；然后按 `review` skill 口径做一次差异审查，再进入下一阶段。
+- **适用场景**: runtime 真源改造、状态机重构、共享业务对象建模、基线绑定语义重写、live/replay 共核重构、任何“新对象模型承接旧逻辑”风险很高的后端主链改造。
+- **相关文档**: `docs/BACKEND_STRUCTURE.md`, `docs/runtime-layering-design-draft.md`, `docs/heat-baseline-binding-refactor-plan.md`
+
 ### 2026-04-08 compare 接口必须显式给出上下文窗口，前端不能再靠裁曲线或猜点范围决定显示口径
 
 - **错误模式**: 后端 compare 已返回更宽的 `current_curve`，但接口没有把 `context_start_time / context_end_time` 作为显式契约带出来，前端于是继续把“摘要判断逻辑”和“图表显示逻辑”混在一起，最终把上下文曲线又裁回当前炉次本体。

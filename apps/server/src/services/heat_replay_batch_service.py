@@ -322,6 +322,7 @@ def launch_heat_replay_job(
                 generated_candidates,
                 processing_mode="replay_batch",
                 trigger_source=f"replay_job:{job_id}",
+                cutting_config=cutting_config,
             )
             await replace_heat_range(
                 anchor_time=_job_field(job, "anchor_time"),

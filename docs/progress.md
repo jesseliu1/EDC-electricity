@@ -6,6 +6,154 @@
 
 ---
 
+### 2026-04-08（runtime 真源重构已完成 Stage 3/4，live/replay 出生快照与 runtime compare 主链已收口）
+
+**当前阶段**：runtime 真源重构已完成 Stage 1-4，本地代码现已做到“当前炉次出生即冻结、运行中只增量更新、runtime compare 只读 runtime 自身快照”；下一步是按部署语义发布到公网并做 blank / 真实源验证
+
+**本轮完成**：
+
+- [x] 已完成 Stage 3：运行中刷新链收口
+  - [x] `apps/server/src/services/heat_runtime_updater.py`
+    - [x] 新增 `HeatRuntimeUpdater（炉次运行态更新器）`
+    - [x] 同一 active heat 延续时，已改为只基于冻结快照更新当前 runtime，不再重新走出生编译
+  - [x] `apps/server/src/api/heats.py`
+    - [x] `refresh_heat_runtime_state()` 已显式区分：
+      - [x] `new_heat_born`
+      - [x] `active_heat_continues`
+      - [x] `no_new_heat_born`
+      - [x] `runtime_refresh_failed`
+    - [x] 当前运行炉次 refresh 已优先复用 `birth_context`
+    - [x] 当前运行炉次 refresh 已优先复用 `cutting_config_snapshot`
+    - [x] 同 ID active runtime 已不会再回进 `compile_runtime_candidates(...)`
+  - [x] `apps/server/src/services/heat_runtime_factory.py`
+    - [x] 出生快照已新增 `cutting_config_snapshot`
+    - [x] 已支持从 runtime 冻结快照恢复切割配置
+  - [x] `apps/server/src/services/heat_replay_batch_service.py`
+    - [x] replay 批量固化已显式透传同一份 `cutting_config`
+- [x] 已完成 Stage 4：compare / analysis / persist 主链收口
+  - [x] `apps/server/src/api/heats.py`
+    - [x] runtime compare 已改为仅在“完整 runtime 快照到位”时走新真源路径
+    - [x] runtime compare 已不再请求期回源 EDC 补当前曲线
+    - [x] runtime compare 已不再请求期 hydrate baseline 补基线曲线
+    - [x] runtime compare 当前曲线改为优先读取 `runtime_metric_series`
+    - [x] runtime compare 基线曲线改为优先读取 `baseline_curve_snapshots`
+    - [x] 历史 formal compare 仍保留原正式表路径，未与 runtime 新真源混用
+  - [x] `apps/server/src/services/formal_heat_service.py`
+    - [x] `compile_runtime_candidates(...)` 已支持显式接收 `cutting_config`
+    - [x] `preseal_payload` 继续沿用冻结快照生成，不再要求 compare 请求期补真源
+- [x] 已同步文档
+  - [x] `docs/BACKEND_STRUCTURE.md` 已补 `birth_context.cutting_config_snapshot`
+  - [x] `docs/lessons.md` 已补 runtime compare 切真源边界经验
+
+**本轮验证**：
+
+- [x] `pytest -q tests/test_heat_runtime_factory.py tests/test_heat_stream_processor.py tests/test_heats_api.py tests/test_formal_heat_api.py tests/test_heat_replay_api.py`
+  - [x] `76 passed`
+- [x] `pytest -q`
+  - [x] `135 passed`
+- [x] `git diff --check`
+  - [x] 无格式残留
+
+**当前结论**：
+
+- [x] 当前炉次在运行中已不再继续吃全局切割配置，切割语义已随出生快照冻结
+- [x] same active heat 延续时，live refresh 已不会把当前炉次重新编译成一条“新出生”的业务对象
+- [x] runtime compare 现已具备独立真源路径，不再要求请求期去外部 EDC 或 baseline hydrate 现场拼曲线
+- [ ] 仍有后续演进项，但已不属于本轮 Stage 3/4 阻断项
+  - [ ] 若 active heat 的 canonical id 因极端边界漂移发生换代，仍需继续观察是否需要更强的“同炉次判定”语义
+  - [ ] 正式多指标主链目前仍以 `power / voltage` 为主，后续仍需继续扩展到定义级完整多指标落库
+  - [ ] 本轮尚未按公网部署语义发布，公网验证结论仍为空
+
+### 2026-04-08（runtime 真源重构已完成 Stage 1/2，当前炉次出生快照已接入 live 主链）
+
+**当前阶段**：已完成 runtime 真源重构的边界收口和出生冻结主链，当前运行中的 `active_runtime` 已优先使用自身 `birth_context` 续跑；下一步进入 Stage 3，收口“运行中刷新只更新 runtime 自身增量状态”的剩余路径
+
+**本轮完成**：
+
+- [x] 已新增 runtime 真源正式计划文档
+  - [x] `docs/runtime-source-of-truth-refactor-plan.md`
+  - [x] 已把“每完成一个修改点都要回看文档并做 review”补入 `docs/lessons.md`
+- [x] 已完成 Stage 1：对象边界收口
+  - [x] `apps/server/src/services/heat_runtime_types.py`
+    - [x] 新增 `HeatBirthContext（炉次出生上下文）`
+    - [x] 新增 `RuntimeDefinitionMetricSnapshot（定义指标模板快照）`
+    - [x] 新增 `RuntimeBaselineCurveSnapshot（基线曲线快照）`
+  - [x] `apps/server/src/services/heat_stream_processor.py`
+    - [x] 已拆分 `HeatProcessorConfig（处理器固定配置）` 与 `HeatProcessorState（处理器运行状态）`
+    - [x] 已保留旧平铺 snapshot 的兼容读取
+  - [x] `apps/server/src/api/heats.py`
+    - [x] `_build_current_heat_runtime(...)` 已能回组 `birth_context / definition_metric_snapshots / baseline_curve_snapshots`
+- [x] 已完成 Stage 2：新炉次出生冻结接入 live 主链
+  - [x] 新增 `apps/server/src/services/heat_runtime_factory.py`
+    - [x] 负责新炉次首次生成时创建 `birth_context`
+    - [x] 负责已有 `birth_context` 的候选炉次优先从冻结快照恢复分析输入
+  - [x] `apps/server/src/services/formal_heat_service.py`
+    - [x] `compile_runtime_candidates(...)` 已支持两条路径：
+      - [x] 无冻结快照时，从正式已发布基线创建出生快照
+      - [x] 有冻结快照时，只从 runtime 自带快照继续分析，不再回查当前全局基线真源
+    - [x] heat `metric_series` 生成已优先复用 `definition_metric_snapshots`
+  - [x] `apps/server/src/api/heats.py`
+    - [x] live refresh 已优先从 `active_runtime.birth_context` 恢复 refresh context
+    - [x] 新生成 live 候选已补 `_live_expected_duration_minutes / _live_cutting_mode / _live_plant_timezone`
+    - [x] 当前候选若与既有 runtime 同 ID，已回灌冻结业务快照后再进入编译
+- [x] 已同步架构文档
+  - [x] `docs/BACKEND_STRUCTURE.md` 已补 runtime 的 `birth_context / definition_metric_snapshots / baseline_curve_snapshots`
+
+**本轮验证**：
+
+- [x] `pytest -q tests/test_heat_runtime_factory.py tests/test_heat_stream_processor.py tests/test_heats_api.py`
+  - [x] `57 passed`
+- [x] `git diff --check`
+  - [x] 无格式残留
+
+**当前结论**：
+
+- [x] 当前炉次一旦出生，后续 live refresh 已不会继续依赖全局 inference context 才能续跑
+- [x] 当前炉次的基线绑定、主黄金基线、定义模板快照、基线曲线快照，现已可以冻结在 runtime 内部并复用
+- [ ] 还没有完成 Stage 3/4
+  - [ ] 目前 `candidate -> runtime` 的快照回灌仍主要依赖“同 ID 延续”口径，尚未收口成独立 `HeatRuntimeUpdater（炉次运行态更新器）`
+  - [ ] 如果 live 当前炉次出现“大边界漂移导致 canonical id 改变”的情况，仍存在重新走出生链的风险
+  - [ ] 当前 refresh context 虽已优先读 `birth_context`，但 `cutting_config` 仍来自当前全局设置，尚未完全冻结到当前炉次运行期
+
+---
+
+### 2026-04-08（runtime 架构对齐代码审查已完成，结论已沉淀为专项 review 文档）
+
+**当前阶段**：已完成基于 runtime 分层 / binding 重构文档的代码审查，下一步是按 review 文档分阶段清理主链残留旧语义；本条不是“已完成整改”口径
+
+**本轮完成**：
+
+- [x] 已基于以下文档完成代码审查
+  - [x] `docs/runtime-layering-design-draft.md`
+  - [x] `docs/heat-baseline-binding-refactor-plan.md`
+  - [x] 交叉对照：
+    - [x] `docs/runtime-source-of-truth-refactor-plan.md`
+    - [x] `docs/runtime-implementation-plan.md`
+    - [x] `docs/live-replay-refactor-plan.md`
+    - [x] `docs/BACKEND_STRUCTURE.md`
+- [x] 已输出正式 review 文档
+  - [x] `docs/runtime-code-review-2026-04-08.md`
+- [x] 已明确当前主链残留的主要冲突方向
+  - [x] live / replay 上下文仍受当前全局基线影响
+  - [x] candidate 缺 birth context 时仍会重绑基线
+  - [x] compare 主路径仍有请求期回源 EDC / 伪曲线生成
+  - [x] runtime / formal 多指标主链仍停留在 `power / voltage`
+  - [x] `time_offset_percent` 未真正进入统一分析输出
+
+**本轮验证**：
+
+- [x] 本轮为只读代码审查 + 文档沉淀
+- [x] 未修改业务代码
+- [x] 未执行新的功能性测试
+
+**当前结论**：
+
+- [x] 当前 runtime 架构离“运行中唯一真源”还差最后一段主链语义清理
+- [x] 结构层改造已明显推进，但主路径仍残留部分旧时代 fallback 和请求期组装逻辑
+- [ ] 下一步需按 `docs/runtime-code-review-2026-04-08.md` 分阶段整改并补对应回归
+
+---
+
 ### 2026-04-08（炉次详情 compare 已切回“上下文显示 + 核心窗口高亮”口径，本地代码与定向回归通过）
 
 **当前阶段**：已完成本地 compare 契约与详情页渲染收口，下一步是随下一轮部署发布到公网并按新 UAT 口径复验；本条不是“已部署完成”口径

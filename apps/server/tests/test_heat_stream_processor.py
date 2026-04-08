@@ -4,7 +4,11 @@ from datetime import datetime, timedelta
 
 from src.schemas.common import CurvePoint
 from src.services.heat_cutting_service import HeatCuttingConfig
-from src.services.heat_stream_processor import HeatStreamProcessor
+from src.services.heat_stream_processor import (
+    HeatProcessorConfig,
+    HeatProcessorState,
+    HeatStreamProcessor,
+)
 
 
 def _build_cutting_config(*, cutting_mode: str = "signal_inference", fixed_interval: int | None = None):
@@ -148,3 +152,73 @@ def test_processor_finalize_until_seals_remaining_closed_tail() -> None:
     assert result.active_segment is None
     assert result.previous_segment is None
     assert len(result.sealed_segments) == len(result.all_segments)
+
+
+def test_processor_snapshot_separates_config_and_state_and_supports_restore() -> None:
+    cutting_config = _build_cutting_config()
+    processor = HeatStreamProcessor(
+        cache_key="test-cache",
+        channel_key="2349:199",
+        context_hash="ctx",
+        baseline_id="def-001:001",
+        expected_duration_minutes=30,
+        cutting_config=cutting_config,
+        processing_mode="live_incremental",
+        threshold_resolver=lambda _points: 100.0,
+    )
+
+    processor.feed_points(
+        _build_live_power_points(datetime(2026, 3, 19, 8, 0)),
+        allow_sealing=False,
+        retain_tail_count=2,
+    )
+    snapshot = processor.snapshot_state()
+
+    assert snapshot["config"]["cache_key"] == "test-cache"
+    assert snapshot["config"]["expected_duration_minutes"] == 30
+    assert "baseline_id" not in snapshot["config"]
+    assert snapshot["state"]["bootstrapped"] is True
+    assert snapshot["state"]["processor_phase"] == "tracking_active_heat"
+
+    restored = HeatStreamProcessor(
+        cache_key="test-cache",
+        channel_key="2349:199",
+        context_hash="ctx",
+        baseline_id="def-001:001",
+        expected_duration_minutes=30,
+        cutting_config=cutting_config,
+        processing_mode="live_incremental",
+        snapshot_config=HeatProcessorConfig.from_snapshot(snapshot),
+        state=HeatProcessorState.from_snapshot(snapshot),
+        threshold_resolver=lambda _points: 100.0,
+    )
+
+    assert restored.state.bootstrapped is True
+    assert restored.state.last_point_timestamp == processor.state.last_point_timestamp
+    assert restored.state.points_buffer == processor.state.points_buffer
+
+
+def test_processor_snapshot_restores_legacy_flat_shape() -> None:
+    points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
+    legacy_snapshot = {
+        "cache_key": "test-cache",
+        "channel_key": "2349:199",
+        "context_hash": "ctx",
+        "expected_duration_minutes": 30,
+        "cutting_config_token": _build_cutting_config().cache_token(),
+        "processing_mode": "live_incremental",
+        "bootstrapped": True,
+        "activity_threshold": 100.0,
+        "last_point_timestamp": int(points[-1].timestamp),
+        "points_buffer": [{"timestamp": int(point.timestamp), "value": float(point.value)} for point in points[-3:]],
+    }
+
+    restored_config = HeatProcessorConfig.from_snapshot(legacy_snapshot)
+    restored_state = HeatProcessorState.from_snapshot(legacy_snapshot)
+
+    assert restored_config is not None
+    assert restored_config.cache_key == "test-cache"
+    assert restored_state is not None
+    assert restored_state.bootstrapped is True
+    assert restored_state.activity_threshold == 100.0
+    assert len(restored_state.points_buffer) == 3

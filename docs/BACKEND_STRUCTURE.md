@@ -576,12 +576,22 @@ erDiagram
 推荐口径：
 
 - 推荐聚合对象：
+  - `current_heat_runtime.birth_context`
   - `current_heat_runtime.facts`
   - `current_heat_runtime.bindings`
   - `current_heat_runtime.metric_series`
+  - `current_heat_runtime.definition_metric_snapshots`
+  - `current_heat_runtime.baseline_curve_snapshots`
   - `current_heat_runtime.preseal_payload`
   - `current_heat_runtime.refresh_meta`
   - `current_heat_runtime.processing_meta`
+- `birth_context` 表示炉次出生时冻结的业务解释上下文：
+  - `channel_key / cutting_mode / expected_duration_minutes`
+  - `cutting_config_snapshot`
+  - `primary_baseline_id`
+  - `baseline_bindings_snapshot`
+  - `definition_metric_snapshots`
+  - `baseline_curve_snapshots`
 - 当前炉次 `facts` 保留与 `heats` 相同的关键字段：
   - `id / heat_no / start_time / end_time`
   - `context_start_time / context_end_time`
@@ -604,6 +614,10 @@ erDiagram
   - `runtime_status`
   - `processing_mode`
   - `trigger_source`
+- `processor_snapshot` 只作为点流切割辅助状态保存：
+  - `config` 负责保存切割器固定配置
+  - `state` 负责保存可变处理状态
+  - 业务冻结真源不能继续寄存在 `processor_snapshot`
 
 处理链约束：
 

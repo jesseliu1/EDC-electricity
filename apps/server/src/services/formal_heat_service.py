@@ -20,7 +20,9 @@ from ..models import (
 from ..schemas.common import CurvePoint
 from ..time_utils import from_timestamp_ms, to_timestamp_ms, utc_now
 from .formal_baseline_service import decode_baseline_id, encode_baseline_id
+from .heat_cutting_service import HeatCuttingConfig
 from .heat_deviation_analysis_service import HeatDeviationAnalysisService
+from .heat_runtime_factory import HeatRuntimeFactory
 from .heat_runtime_types import RuntimePresealPayload
 
 DEFAULT_METRIC_SPECS: dict[str, dict[str, Any]] = {
@@ -43,6 +45,7 @@ DEFAULT_METRIC_SPECS: dict[str, dict[str, Any]] = {
 }
 
 _heat_deviation_analysis_service = HeatDeviationAnalysisService()
+_heat_runtime_factory = HeatRuntimeFactory()
 
 
 def encode_heat_owner_key(heat_id: str) -> str:
@@ -500,19 +503,41 @@ async def _load_definition_metric_templates(
     return grouped
 
 
+def _template_field(template: Any, field_name: str) -> Any:
+    if isinstance(template, dict):
+        return template.get(field_name)
+    return getattr(template, field_name)
+
+
+def _baseline_field(baseline: Any, field_name: str) -> Any:
+    if isinstance(baseline, dict):
+        return baseline.get(field_name)
+    return getattr(baseline, field_name)
+
+
 def _pick_metric_template(
-    templates: list[BaselineDefinitionMetric],
+    templates: list[Any],
     *,
     metric_kind: str,
-) -> BaselineDefinitionMetric | None:
+) -> Any | None:
     exact = next(
-        (row for row in templates if str(row.metric_key).strip().lower() == metric_kind),
+        (
+            row
+            for row in templates
+            if str(_template_field(row, "metric_key") or "").strip().lower() == metric_kind
+        ),
         None,
     )
     if exact is not None:
         return exact
     inferred = [
-        row for row in templates if infer_metric_kind(row.metric_name, row.unit or "") == metric_kind
+        row
+        for row in templates
+        if infer_metric_kind(
+            str(_template_field(row, "metric_name") or ""),
+            str(_template_field(row, "unit") or ""),
+        )
+        == metric_kind
     ]
     return inferred[0] if inferred else None
 
@@ -588,11 +613,14 @@ def _eligible_published_baselines(
 
 
 def _resolve_primary_baseline(
-    baselines: list[Baseline],
-) -> Baseline | None:
+    baselines: list[Any],
+) -> Any | None:
     if not baselines:
         return None
-    default_baseline = next((baseline for baseline in baselines if baseline.is_default), None)
+    default_baseline = next(
+        (baseline for baseline in baselines if bool(_baseline_field(baseline, "is_default"))),
+        None,
+    )
     if default_baseline is not None:
         return default_baseline
     return baselines[0]
@@ -600,17 +628,23 @@ def _resolve_primary_baseline(
 
 def _seed_binding_analysis(
     *,
-    baseline: Baseline,
-    primary_baseline: Baseline | None,
+    baseline: Any,
+    primary_baseline: Any | None,
     candidate_baseline_id: str | None,
     candidate_deviation_percent: float | None,
     candidate_avg_deviation_percent: float | None,
     candidate_time_offset_percent: float | None,
     candidate_mismatch_duration_minutes: float | None,
 ) -> dict[str, Any]:
-    baseline_id = encode_baseline_id(baseline.definition_id, baseline.item)
+    baseline_id = encode_baseline_id(
+        str(_baseline_field(baseline, "definition_id") or ""),
+        str(_baseline_field(baseline, "item") or ""),
+    )
     primary_baseline_id = (
-        encode_baseline_id(primary_baseline.definition_id, primary_baseline.item)
+        encode_baseline_id(
+            str(_baseline_field(primary_baseline, "definition_id") or ""),
+            str(_baseline_field(primary_baseline, "item") or ""),
+        )
         if primary_baseline is not None
         else None
     )
@@ -642,7 +676,7 @@ def _seed_binding_analysis(
 def _build_binding_payloads(
     *,
     heat_id: str,
-    applicable_baselines: list[Baseline],
+    applicable_baselines: list[Any],
     candidate: dict[str, Any],
     created_at: datetime,
     updated_at: datetime,
@@ -682,7 +716,11 @@ def _build_binding_payloads(
             return payloads, primary_definition_id
 
     primary_baseline = _resolve_primary_baseline(applicable_baselines)
-    primary_definition_id = primary_baseline.definition_id if primary_baseline is not None else None
+    primary_definition_id = (
+        str(_baseline_field(primary_baseline, "definition_id") or "")
+        if primary_baseline is not None
+        else None
+    )
     candidate_baseline_id = (
         str(candidate.get("baseline_id")).strip() if candidate.get("baseline_id") else None
     )
@@ -700,15 +738,17 @@ def _build_binding_payloads(
         payloads.append(
             {
                 "heat_id": heat_id,
-                "baseline_definition_id": baseline.definition_id,
-                "baseline_item": baseline.item,
+                "baseline_definition_id": str(_baseline_field(baseline, "definition_id") or ""),
+                "baseline_item": str(_baseline_field(baseline, "item") or ""),
                 "is_primary": (
                     primary_baseline is not None
-                    and baseline.definition_id == primary_baseline.definition_id
-                    and baseline.item == primary_baseline.item
+                    and str(_baseline_field(baseline, "definition_id") or "")
+                    == str(_baseline_field(primary_baseline, "definition_id") or "")
+                    and str(_baseline_field(baseline, "item") or "")
+                    == str(_baseline_field(primary_baseline, "item") or "")
                 ),
-                "effective_from_snapshot": baseline.effective_from,
-                "tolerance_percent_snapshot": baseline.tolerance_percent,
+                "effective_from_snapshot": _baseline_field(baseline, "effective_from"),
+                "tolerance_percent_snapshot": _baseline_field(baseline, "tolerance_percent"),
                 "analysis_status": str(seeded["analysis_status"]),
                 "deviation_percent": seeded["deviation_percent"],
                 "avg_deviation_percent": seeded["avg_deviation_percent"],
@@ -722,6 +762,24 @@ def _build_binding_payloads(
     return payloads, primary_definition_id
 
 
+def _candidate_definition_metric_templates(
+    candidate: dict[str, Any],
+    *,
+    primary_definition_id: str | None,
+    template_map: dict[str, list[BaselineDefinitionMetric]],
+) -> list[Any]:
+    raw_snapshots = candidate.get("definition_metric_snapshots")
+    raw_birth_context = candidate.get("birth_context")
+    if isinstance(raw_birth_context, dict) and isinstance(
+        raw_birth_context.get("definition_metric_snapshots"),
+        list,
+    ):
+        raw_snapshots = raw_birth_context.get("definition_metric_snapshots")
+    if isinstance(raw_snapshots, list) and raw_snapshots:
+        return [snapshot for snapshot in raw_snapshots if isinstance(snapshot, dict)]
+    return template_map.get(primary_definition_id or "", [])
+
+
 def _build_metric_series_payloads(
     *,
     heat_payload: dict[str, Any],
@@ -729,7 +787,11 @@ def _build_metric_series_payloads(
     primary_definition_id: str | None,
     template_map: dict[str, list[BaselineDefinitionMetric]],
 ) -> list[dict[str, Any]]:
-    templates = template_map.get(primary_definition_id or "", [])
+    templates = _candidate_definition_metric_templates(
+        candidate,
+        primary_definition_id=primary_definition_id,
+        template_map=template_map,
+    )
     metric_payloads: list[dict[str, Any]] = []
     for metric_kind, curve_field in (("power", "power_curve"), ("voltage", "voltage_curve")):
         points = _normalize_curve_points(candidate.get(curve_field))
@@ -738,15 +800,22 @@ def _build_metric_series_payloads(
         template = _pick_metric_template(templates, metric_kind=metric_kind)
         if template is not None:
             spec = {
-                "item": template.item,
-                "metric_key": template.metric_key,
-                "metric_name": template.metric_name,
-                "unit": template.unit,
-                "color": template.color,
-                "sort_order": template.sort_order,
+                "item": _template_field(template, "item"),
+                "metric_key": _template_field(template, "metric_key"),
+                "metric_name": _template_field(template, "metric_name"),
+                "unit": _template_field(template, "unit"),
+                "color": _template_field(template, "color"),
+                "sort_order": _template_field(template, "sort_order"),
+                "source_channel_id": _template_field(template, "edc_channel_id")
+                or _template_field(template, "source_channel_id"),
+                "source_channel_name": _template_field(template, "source_channel_name"),
+                "source_channel_label": _template_field(template, "source_channel_label"),
             }
         else:
             spec = _default_metric_spec(metric_kind)
+            spec["source_channel_id"] = None
+            spec["source_channel_name"] = None
+            spec["source_channel_label"] = None
         metric_payloads.append(
             {
                 "owner_key": encode_heat_owner_key(str(heat_payload["id"])),
@@ -759,9 +828,9 @@ def _build_metric_series_payloads(
                 "unit": spec.get("unit"),
                 "color": str(spec["color"]),
                 "sort_order": int(spec["sort_order"]),
-                "source_channel_id": None,
-                "source_channel_name": None,
-                "source_channel_label": None,
+                "source_channel_id": spec.get("source_channel_id"),
+                "source_channel_name": spec.get("source_channel_name"),
+                "source_channel_label": spec.get("source_channel_label"),
                 "series_json": _build_series_payload(
                     context_start_time=heat_payload["context_start_time"],
                     heat_start_time=heat_payload["start_time"],
@@ -790,7 +859,7 @@ def _build_metric_series_payloads(
 def _build_preseal_payload_for_candidate(
     candidate: dict[str, Any],
     *,
-    applicable_baselines: list[Baseline],
+    applicable_baselines: list[Any],
     template_map: dict[str, list[BaselineDefinitionMetric]],
     trigger_source: str,
 ) -> RuntimePresealPayload:
@@ -836,11 +905,28 @@ def _build_preseal_payload_for_candidate(
     )
 
 
+def build_runtime_preseal_payload(
+    candidate: dict[str, Any],
+    *,
+    applicable_baselines: list[Any],
+    trigger_source: str,
+) -> RuntimePresealPayload:
+    """基于当前 candidate 与已冻结 binding/template 快照生成待固化 payload。"""
+
+    return _build_preseal_payload_for_candidate(
+        candidate,
+        applicable_baselines=applicable_baselines,
+        template_map={},
+        trigger_source=trigger_source,
+    )
+
+
 async def compile_runtime_candidates(
     candidates: list[dict[str, Any]],
     *,
     processing_mode: str = "live_incremental",
     trigger_source: str = "background_refresh",
+    cutting_config: HeatCuttingConfig | None = None,
 ) -> list[dict[str, Any]]:
     if not candidates:
         return []
@@ -849,6 +935,8 @@ async def compile_runtime_candidates(
     applicable_by_candidate: dict[str, list[Baseline]] = {}
     applicable_baselines: list[Baseline] = []
     for candidate in candidates:
+        if _heat_runtime_factory.has_frozen_birth_context(candidate):
+            continue
         candidate_id = str(candidate["id"])
         applicable = _eligible_published_baselines(
             published_baselines,
@@ -867,15 +955,61 @@ async def compile_runtime_candidates(
     prepared: list[dict[str, Any]] = []
     for candidate in candidates:
         prepared_candidate = dict(candidate)
+        frozen_inputs = _heat_runtime_factory.resolve_frozen_analysis_inputs(prepared_candidate)
+        candidate_applicable_baselines: list[Any]
+        candidate_curve_payloads: dict[str, Any]
+        if frozen_inputs is not None:
+            candidate_applicable_baselines = frozen_inputs.applicable_baselines
+            candidate_curve_payloads = frozen_inputs.baseline_curve_payloads
+            prepared_candidate["definition_metric_snapshots"] = list(
+                frozen_inputs.definition_metric_snapshots
+            )
+            prepared_candidate["baseline_curve_snapshots"] = list(
+                frozen_inputs.baseline_curve_snapshots
+            )
+        else:
+            candidate_applicable_baselines = applicable_by_candidate[str(candidate["id"])]
+            candidate_curve_payloads = baseline_curve_payloads
         binding_analyses = _heat_deviation_analysis_service.analyze_candidate_bindings(
             candidate=prepared_candidate,
-            applicable_baselines=applicable_by_candidate[str(candidate["id"])],
-            baseline_curve_payloads=baseline_curve_payloads,
+            applicable_baselines=candidate_applicable_baselines,
+            baseline_curve_payloads=candidate_curve_payloads,
         )
         prepared_candidate = _heat_deviation_analysis_service.apply_binding_analysis_to_candidate(
             candidate=prepared_candidate,
             binding_analyses=binding_analyses,
         )
+        if frozen_inputs is None:
+            primary_definition_id = (
+                str(prepared_candidate.get("baseline_definition_id") or "").strip() or None
+            )
+            birth_snapshot = _heat_runtime_factory.build_birth_snapshot(
+                prepared_candidate,
+                applicable_baselines=candidate_applicable_baselines,
+                definition_templates=template_map.get(primary_definition_id or "", []),
+                baseline_curve_payloads=baseline_curve_payloads,
+                cutting_config=(
+                    cutting_config
+                    or _heat_runtime_factory.resolve_frozen_cutting_config(prepared_candidate)
+                    or HeatCuttingConfig(
+                        time_tolerance_percent=0.0,
+                        major_issue_duration_minutes=0,
+                        plant_timezone=str(prepared_candidate.get("_live_plant_timezone") or ""),
+                        work_start_time="00:00",
+                        work_end_time="23:59",
+                        break_periods=(),
+                        cutting_mode=str(prepared_candidate.get("_live_cutting_mode") or "signal_inference"),
+                        fixed_interval_minutes=None,
+                    )
+                ),
+            )
+            prepared_candidate["birth_context"] = birth_snapshot.birth_context
+            prepared_candidate["definition_metric_snapshots"] = list(
+                birth_snapshot.definition_metric_snapshots
+            )
+            prepared_candidate["baseline_curve_snapshots"] = list(
+                birth_snapshot.baseline_curve_snapshots
+            )
         processing_meta = dict(prepared_candidate.get("processing_meta") or {})
         if not processing_meta:
             processing_meta = {
@@ -888,7 +1022,7 @@ async def compile_runtime_candidates(
         prepared_candidate["processing_meta"] = processing_meta
         prepared_candidate["preseal_payload"] = _build_preseal_payload_for_candidate(
             prepared_candidate,
-            applicable_baselines=applicable_by_candidate[str(candidate["id"])],
+            applicable_baselines=candidate_applicable_baselines,
             template_map=template_map,
             trigger_source=trigger_source,
         ).to_dict()
