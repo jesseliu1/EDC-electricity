@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -15,6 +15,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from .config import settings as app_settings
 from .database import async_session_maker
 from .models import Setting
+from .observability import log_event
 from .time_utils import from_timestamp_ms, to_timestamp_ms, utc_now
 
 _SECTION_TO_KEY = {
@@ -53,6 +54,28 @@ def _json_object_hook(value: dict[str, Any]) -> Any:
     if value.get("__type__") == "datetime" and isinstance(value.get("value"), str):
         return datetime.fromisoformat(value["value"])
     return value
+
+
+def _filter_runtime_cache_payloads(payload: Any, *, section: str) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+
+    filtered: dict[str, Any] = {}
+    dropped_ids: list[str] = []
+    for heat_id, item in payload.items():
+        runtime_series = item.get("runtime_metric_series") if isinstance(item, dict) else None
+        if isinstance(runtime_series, list) and runtime_series:
+            filtered[str(heat_id)] = item
+            continue
+        dropped_ids.append(str(heat_id))
+
+    if dropped_ids:
+        log_event(
+            "runtime_state_drop_legacy_runtime_items",
+            section=section,
+            dropped_heat_ids=dropped_ids,
+        )
+    return filtered
 
 
 async def _read_runtime_payloads() -> dict[str, Any]:
@@ -215,11 +238,21 @@ async def load_runtime_state() -> None:
 
     if isinstance(payloads.get("active_heat_runtime"), dict):
         heats_api._ACTIVE_HEAT_RUNTIME.clear()
-        heats_api._ACTIVE_HEAT_RUNTIME.update(payloads["active_heat_runtime"])
+        heats_api._ACTIVE_HEAT_RUNTIME.update(
+            _filter_runtime_cache_payloads(
+                payloads["active_heat_runtime"],
+                section="active_heat_runtime",
+            )
+        )
 
     if isinstance(payloads.get("previous_heat_runtime"), dict):
         heats_api._PREVIOUS_HEAT_RUNTIME.clear()
-        heats_api._PREVIOUS_HEAT_RUNTIME.update(payloads["previous_heat_runtime"])
+        heats_api._PREVIOUS_HEAT_RUNTIME.update(
+            _filter_runtime_cache_payloads(
+                payloads["previous_heat_runtime"],
+                section="previous_heat_runtime",
+            )
+        )
 
     if isinstance(payloads.get("heat_id_aliases"), dict):
         heats_api._HEAT_ID_ALIAS_STORE.clear()

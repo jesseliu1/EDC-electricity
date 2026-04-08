@@ -1383,6 +1383,78 @@ async def test_refresh_heat_runtime_bootstrap_keeps_live_segments_in_runtime_onl
 
 
 @pytest.mark.asyncio
+async def test_refresh_heat_runtime_bootstrap_hydrates_all_definition_metrics_into_runtime(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    live_points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
+
+    async def fake_load_live_heat_inference_power_points(_channel):
+        return live_points
+
+    async def fake_load_metric_current_curves_from_edc(*, metrics, start_time, end_time):
+        curves: dict[str, list[CurvePoint]] = {}
+        for metric in metrics:
+            metric_id = str(metric.get("id") or "")
+            metric_key = str(metric.get("metric_key") or "")
+            if metric_key == "power":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=int(start_time.timestamp() * 1000), value=420.0),
+                    CurvePoint(timestamp=int(end_time.timestamp() * 1000), value=435.0),
+                ]
+            elif metric_key == "voltage":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=int(start_time.timestamp() * 1000), value=221.0),
+                    CurvePoint(timestamp=int(end_time.timestamp() * 1000), value=226.0),
+                ]
+            elif metric_key == "temperature":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=int(start_time.timestamp() * 1000), value=1548.0),
+                    CurvePoint(timestamp=int(end_time.timestamp() * 1000), value=1562.0),
+                ]
+        return curves
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._load_metric_current_curves_from_edc",
+        fake_load_metric_current_curves_from_edc,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+
+    await heats_module.refresh_heat_runtime_state(reason="test")
+
+    active_runtime = next(iter(heats_module._ACTIVE_HEAT_RUNTIME.values()))
+    metric_keys = {
+        str(entry.get("metric_key") or "")
+        for entry in active_runtime["runtime_metric_series"]
+        if isinstance(entry, dict)
+    }
+    assert {"power", "voltage", "temperature"} <= metric_keys
+    assert active_runtime["current_curve_source"] == "runtime_metric_series"
+
+    response = await client.get("/api/heats", params={"page_size": 20})
+    assert response.status_code == 200
+    payload = response.json()
+    runtime_item = next(item for item in payload["items"] if item["record_source"] == "active_runtime")
+    runtime_metric_keys = {entry["metric_key"] for entry in runtime_item["runtime_metric_series"]}
+    assert {"power", "voltage", "temperature"} <= runtime_metric_keys
+    assert runtime_item["current_curve_source"] == "runtime_metric_series"
+
+
+@pytest.mark.asyncio
 async def test_refresh_heat_runtime_supports_fixed_interval_cutting_mode_on_bootstrap(
     client, monkeypatch
 ) -> None:

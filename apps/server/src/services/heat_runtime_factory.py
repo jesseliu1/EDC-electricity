@@ -311,12 +311,9 @@ class HeatRuntimeFactory:
             )
             payload = baseline_curve_payloads.get(
                 baseline_id,
-                BaselineCurvePayload(power_curve=[], voltage_curve=[], curve_source="none"),
+                BaselineCurvePayload(curves_by_metric={}, curve_source="none"),
             )
-            for metric_key, points in (
-                ("power", payload.power_curve),
-                ("voltage", payload.voltage_curve),
-            ):
+            for metric_key, points in payload.curves_by_metric.items():
                 snapshots.append(
                     {
                         "baseline_id": baseline_id,
@@ -336,25 +333,23 @@ class HeatRuntimeFactory:
         for snapshot in baseline_curve_snapshots:
             baseline_id = str(snapshot.get("baseline_id") or "").strip()
             metric_key = str(snapshot.get("metric_key") or "").strip().lower()
-            if not baseline_id or metric_key not in {"power", "voltage"}:
+            if not baseline_id or not metric_key:
                 continue
             payload = grouped.setdefault(
                 baseline_id,
                 {
-                    "power_curve": [],
-                    "voltage_curve": [],
+                    "curves_by_metric": {},
                     "curve_source": str(snapshot.get("curve_source") or "none"),
                 },
             )
-            payload[f"{metric_key}_curve"] = _coerce_curve_points(snapshot.get("points"))
+            payload["curves_by_metric"][metric_key] = _coerce_curve_points(snapshot.get("points"))
             curve_source = str(snapshot.get("curve_source") or "").strip()
             if curve_source:
                 payload["curve_source"] = curve_source
 
         return {
             baseline_id: BaselineCurvePayload(
-                power_curve=list(payload["power_curve"]),
-                voltage_curve=list(payload["voltage_curve"]),
+                curves_by_metric=dict(payload["curves_by_metric"]),
                 curve_source=str(payload["curve_source"] or "none"),
             )
             for baseline_id, payload in grouped.items()

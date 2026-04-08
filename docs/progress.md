@@ -6,6 +6,46 @@
 
 ---
 
+### 2026-04-08（正式多指标主链推进中：runtime / compare / seal 已切到 definition metrics 严格模式）
+
+**当前阶段**：已开始把“正式多指标主链”从双指标兼容逻辑切到 definition metrics 真源；当前代码已收掉 runtime hydrate / compare / formal persist 的多处 hardcode 与 fallback，但还未完成全量回归测试与公网验证
+
+**本轮完成**：
+
+- [x] `apps/server/src/services/heat_deviation_analysis_service.py`
+  - [x] baseline 曲线载荷已从固定 `power_curve / voltage_curve` 改成 `curves_by_metric`
+- [x] `apps/server/src/services/heat_runtime_factory.py`
+  - [x] 出生快照里的 `baseline_curve_snapshots` 已按 baseline 全量指标冻结，不再只收 `power / voltage`
+- [x] `apps/server/src/services/formal_baseline_service.py`
+  - [x] baseline metric series 读取结果已显式回传 `metric_key`
+- [x] `apps/server/src/services/formal_heat_service.py`
+  - [x] runtime hydrate 已支持按 definition metrics 批量回填 `runtime_metric_series`
+  - [x] formal persist 已改为严格依赖 `runtime_metric_series`
+  - [x] 缺少 definition templates / 缺少指标曲线 / runtime metric series 不完整时，已改为直接报错并记录日志
+- [x] `apps/server/src/services/heat_runtime_updater.py`
+  - [x] same active heat 延续时，已在更新链内补齐 definition metrics 对应 runtime metric series
+- [x] `apps/server/src/api/heats.py`
+  - [x] live refresh 编译链已改为向 runtime hydrate 传递多指标 loader
+  - [x] compare 已收掉“缺 baseline ids 时回退所有 published baselines”
+  - [x] compare 已收掉“缺 definition metrics 时现场伪造 power / voltage / temperature / pressure”
+  - [x] compare 已收掉“缺实时曲线时回退直接热炉曲线 / 生成假曲线”
+  - [x] runtime compare 已收掉 `runtime_metric_series -> power/voltage` 兼容回退，改为严格依赖 runtime 真源
+
+**本轮验证**：
+
+- [x] `uv run ruff check src/api/heats.py src/services/formal_heat_service.py src/services/heat_runtime_updater.py src/services/heat_runtime_factory.py src/services/heat_deviation_analysis_service.py src/services/formal_baseline_service.py`
+- [x] `uv run pytest -q tests/test_heat_runtime_factory.py`
+  - [x] `2 passed`
+- [ ] 尚未完成完整后端回归
+  - [ ] 旧测试里有一批是按 fallback 语义写的，需按“严格真源报错”新口径重写
+
+**当前结论**：
+
+- [x] “正式多指标主链”在 runtime 出生快照、运行态 hydrate、formal heat metric_series 落库三段都已经开始按 definition metrics 收口
+- [x] 当前主链已不再允许缺指标时悄悄退回双指标兼容逻辑
+- [ ] 偏离率分析仍然是单主指标口径，尚未进入“多指标分析结果存储与输出”阶段
+- [ ] compare / live refresh / formal persist 仍需补新的严格模式测试并跑完整回归
+
 ### 2026-04-08（runtime 真源重构已完成 Stage 3/4，live/replay 出生快照与 runtime compare 主链已收口）
 
 **当前阶段**：runtime 真源重构已完成 Stage 1-4，本地代码现已做到“当前炉次出生即冻结、运行中只增量更新、runtime compare 只读 runtime 自身快照”；下一步是按部署语义发布到公网并做 blank / 真实源验证

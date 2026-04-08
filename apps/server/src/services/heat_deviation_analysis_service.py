@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any
 
 from ..schemas.common import CurvePoint
 from .deviation_service import DeviationService
@@ -117,9 +118,16 @@ def _merge_heat_status(existing_status: Any, analyzed_status: str | None) -> str
 
 @dataclass(slots=True)
 class BaselineCurvePayload:
-    power_curve: list[CurvePoint]
-    voltage_curve: list[CurvePoint]
+    curves_by_metric: dict[str, list[CurvePoint]]
     curve_source: str
+
+    @property
+    def power_curve(self) -> list[CurvePoint]:
+        return list(self.curves_by_metric.get("power") or [])
+
+    @property
+    def voltage_curve(self) -> list[CurvePoint]:
+        return list(self.curves_by_metric.get("voltage") or [])
 
 
 @dataclass(slots=True)
@@ -176,9 +184,18 @@ class HeatDeviationAnalysisService:
             if baseline_id in payloads:
                 continue
             series_payload = await load_baseline_metric_series(definition_id, item)
+            curves_by_metric: dict[str, list[CurvePoint]] = {}
+            for curve in series_payload.get("curves_data") or []:
+                if not isinstance(curve, dict):
+                    continue
+                metric_key = str(curve.get("metric_key") or "").strip().lower()
+                if not metric_key:
+                    continue
+                points = _coerce_curve_points(curve.get("points"))
+                if points:
+                    curves_by_metric[metric_key] = points
             payloads[baseline_id] = BaselineCurvePayload(
-                power_curve=_coerce_curve_points(series_payload.get("power_curve")),
-                voltage_curve=_coerce_curve_points(series_payload.get("voltage_curve")),
+                curves_by_metric=curves_by_metric,
                 curve_source=str(series_payload.get("curve_source") or "none"),
             )
         return payloads
@@ -208,7 +225,7 @@ class HeatDeviationAnalysisService:
             rebased_power_curve = _rebase_curve_points_to_window(
                 baseline_curve_payloads.get(
                     baseline_id,
-                    BaselineCurvePayload(power_curve=[], voltage_curve=[], curve_source="none"),
+                    BaselineCurvePayload(curves_by_metric={}, curve_source="none"),
                 ).power_curve,
                 target_start_time=current_start_time,
                 target_end_time=current_end_time,

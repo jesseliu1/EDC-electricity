@@ -6,7 +6,11 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
-from .formal_heat_service import build_runtime_preseal_payload
+from .formal_heat_service import (
+    MetricCurveLoader,
+    build_runtime_preseal_payload,
+    hydrate_candidate_runtime_metric_series,
+)
 from .heat_deviation_analysis_service import HeatDeviationAnalysisService
 from .heat_runtime_factory import HeatRuntimeFactory
 
@@ -18,7 +22,7 @@ class HeatRuntimeUpdater:
         self._runtime_factory = HeatRuntimeFactory()
         self._analysis_service = HeatDeviationAnalysisService()
 
-    def update_existing_runtime(
+    async def update_existing_runtime(
         self,
         *,
         existing_item: dict[str, Any],
@@ -26,6 +30,7 @@ class HeatRuntimeUpdater:
         trigger_source: str,
         processing_mode: str = "live_incremental",
         request_anchor_time: datetime | None = None,
+        metric_curve_loader: MetricCurveLoader | None = None,
     ) -> dict[str, Any]:
         frozen_inputs = self._runtime_factory.resolve_frozen_analysis_inputs(existing_item)
         if frozen_inputs is None:
@@ -40,6 +45,11 @@ class HeatRuntimeUpdater:
         )
         updated["baseline_curve_snapshots"] = deepcopy(
             existing_item.get("baseline_curve_snapshots") or []
+        )
+        updated = await hydrate_candidate_runtime_metric_series(
+            updated,
+            definition_templates=frozen_inputs.definition_metric_snapshots,
+            metric_curve_loader=metric_curve_loader,
         )
 
         binding_analyses = self._analysis_service.analyze_candidate_bindings(

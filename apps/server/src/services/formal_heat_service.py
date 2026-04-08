@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
@@ -17,32 +19,20 @@ from ..models import (
     HeatBaselineBinding,
     MetricSeries,
 )
+from ..observability import log_event
 from ..schemas.common import CurvePoint
 from ..time_utils import from_timestamp_ms, to_timestamp_ms, utc_now
+from .edc_client import EDCClient, EDCClientError
 from .formal_baseline_service import decode_baseline_id, encode_baseline_id
 from .heat_cutting_service import HeatCuttingConfig
 from .heat_deviation_analysis_service import HeatDeviationAnalysisService
 from .heat_runtime_factory import HeatRuntimeFactory
 from .heat_runtime_types import RuntimePresealPayload
 
-DEFAULT_METRIC_SPECS: dict[str, dict[str, Any]] = {
-    "power": {
-        "item": "001",
-        "metric_key": "power",
-        "metric_name": "总有功功率",
-        "unit": "kW",
-        "color": "#409EFF",
-        "sort_order": 1,
-    },
-    "voltage": {
-        "item": "002",
-        "metric_key": "voltage",
-        "metric_name": "A相电压",
-        "unit": "V",
-        "color": "#67C23A",
-        "sort_order": 2,
-    },
-}
+MetricCurveLoader = Callable[
+    [list[dict[str, Any]], datetime, datetime],
+    Awaitable[dict[str, list[CurvePoint]]],
+]
 
 _heat_deviation_analysis_service = HeatDeviationAnalysisService()
 _heat_runtime_factory = HeatRuntimeFactory()
@@ -125,6 +115,17 @@ def _metric_series_points(series: MetricSeries) -> list[CurvePoint]:
     return []
 
 
+def _series_payload_points(raw_payload: Any) -> list[CurvePoint]:
+    if isinstance(raw_payload, dict):
+        raw_points = raw_payload.get("points")
+        return _normalize_curve_points(raw_points if isinstance(raw_points, list) else None)
+    if isinstance(raw_payload, str):
+        payload = _parse_series_payload(raw_payload)
+        raw_points = payload.get("points")
+        return _normalize_curve_points(raw_points if isinstance(raw_points, list) else None)
+    return []
+
+
 def _context_boundaries_from_series(
     series_rows: list[MetricSeries],
 ) -> tuple[datetime | None, datetime | None]:
@@ -146,6 +147,28 @@ def _metric_kind_for_series(series: MetricSeries) -> str:
         if lowered in {"power", "voltage", "temperature", "pressure"}:
             return lowered
     return infer_metric_kind(series.metric_name, series.unit or "")
+
+
+def _candidate_metric_curve_map(candidate: dict[str, Any]) -> dict[str, list[CurvePoint]]:
+    curves: dict[str, list[CurvePoint]] = {}
+    runtime_series = candidate.get("runtime_metric_series")
+    if isinstance(runtime_series, list):
+        for entry in runtime_series:
+            if not isinstance(entry, dict):
+                continue
+            metric_key = str(entry.get("metric_key") or "").strip().lower()
+            if not metric_key:
+                continue
+            points = _series_payload_points(entry.get("series_json"))
+            if points:
+                curves[metric_key] = points
+    power_curve = _normalize_curve_points(candidate.get("power_curve"))
+    if power_curve:
+        curves.setdefault("power", power_curve)
+    voltage_curve = _normalize_curve_points(candidate.get("voltage_curve"))
+    if voltage_curve:
+        curves.setdefault("voltage", voltage_curve)
+    return curves
 
 
 def _binding_sort_key(binding: HeatBaselineBinding) -> tuple[int, float, float, str]:
@@ -212,6 +235,24 @@ def _heat_model_to_dict(
         else None
     )
     binding_views = [_binding_to_dict(binding) for binding in ordered_bindings]
+    runtime_metric_series = [
+        {
+            "owner_key": row.owner_key,
+            "item": row.item,
+            "owner_type": row.owner_type,
+            "metric_key": row.metric_key,
+            "metric_name": row.metric_name,
+            "unit": row.unit,
+            "color": row.color,
+            "sort_order": row.sort_order,
+            "source_channel_id": row.source_channel_id,
+            "source_channel_name": row.source_channel_name,
+            "source_channel_label": row.source_channel_label,
+            "series_json": _parse_series_payload(row.series_json),
+            "stat_json": _parse_series_payload(row.stat_json),
+        }
+        for row in sorted(series_rows, key=lambda item: (item.sort_order, item.item))
+    ]
 
     return {
         "id": heat.id,
@@ -260,6 +301,7 @@ def _heat_model_to_dict(
         "baseline_curve_source": "none",
         "created_at": heat.created_at,
         "sealed_at": heat.sealed_at,
+        "runtime_metric_series": runtime_metric_series,
         "power_curve": power_curve,
         "voltage_curve": voltage_curve,
         "baseline_power_curve": [],
@@ -542,18 +584,208 @@ def _pick_metric_template(
     return inferred[0] if inferred else None
 
 
-def _default_metric_spec(metric_kind: str) -> dict[str, Any]:
-    spec = DEFAULT_METRIC_SPECS.get(metric_kind)
-    if spec is None:
-        return {
-            "item": "999",
-            "metric_key": metric_kind,
-            "metric_name": metric_kind,
-            "unit": None,
-            "color": "#909399",
-            "sort_order": 99,
+def _template_series_spec(template: Any) -> dict[str, Any] | None:
+    item = str(_template_field(template, "item") or "").strip()
+    metric_key = str(_template_field(template, "metric_key") or "").strip().lower()
+    metric_name = str(_template_field(template, "metric_name") or "").strip()
+    color = str(_template_field(template, "color") or "").strip()
+    if not item or not metric_key or not metric_name or not color:
+        return None
+    return {
+        "item": item,
+        "metric_key": metric_key,
+        "metric_name": metric_name,
+        "unit": _template_field(template, "unit"),
+        "color": color,
+        "sort_order": int(_template_field(template, "sort_order") or 0),
+        "source_channel_id": _template_field(template, "edc_channel_id")
+        or _template_field(template, "source_channel_id"),
+        "source_channel_name": _template_field(template, "source_channel_name"),
+        "source_channel_label": _template_field(template, "source_channel_label"),
+    }
+
+
+def _runtime_series_window(candidate: dict[str, Any]) -> tuple[datetime, datetime, datetime, datetime]:
+    start_time = candidate["start_time"]
+    end_time = candidate["end_time"]
+    context_start_time = candidate.get("context_start_time") or start_time
+    context_end_time = candidate.get("context_end_time") or end_time
+    return context_start_time, start_time, end_time, context_end_time
+
+
+def _build_runtime_metric_series_entries(
+    *,
+    candidate: dict[str, Any],
+    definition_templates: list[Any],
+    curves_by_metric: dict[str, list[CurvePoint]],
+) -> list[dict[str, Any]]:
+    context_start_time, start_time, end_time, context_end_time = _runtime_series_window(candidate)
+    series_entries: list[dict[str, Any]] = []
+    for template in definition_templates:
+        spec = _template_series_spec(template)
+        if spec is None:
+            continue
+        points = curves_by_metric.get(str(spec["metric_key"]))
+        if not points:
+            continue
+        series_entries.append(
+            {
+                "owner_key": encode_heat_owner_key(str(candidate["id"])),
+                "item": str(spec["item"]),
+                "owner_type": "heat",
+                "metric_key": str(spec["metric_key"]),
+                "metric_name": str(spec["metric_name"]),
+                "unit": spec.get("unit"),
+                "color": str(spec["color"]),
+                "sort_order": int(spec["sort_order"]),
+                "source_channel_id": spec.get("source_channel_id"),
+                "source_channel_name": spec.get("source_channel_name"),
+                "source_channel_label": spec.get("source_channel_label"),
+                "series_json": {
+                    "context_start_time": to_timestamp_ms(context_start_time),
+                    "heat_start_time": to_timestamp_ms(start_time),
+                    "heat_end_time": to_timestamp_ms(end_time),
+                    "context_end_time": to_timestamp_ms(context_end_time),
+                    "points": [
+                        {"timestamp": int(point.timestamp), "value": float(point.value)}
+                        for point in points
+                    ],
+                },
+                "stat_json": {
+                    "heat_min": min(float(point.value) for point in points),
+                    "heat_max": max(float(point.value) for point in points),
+                    "heat_avg": round(
+                        sum(float(point.value) for point in points) / max(len(points), 1),
+                        4,
+                    ),
+                },
+            }
+        )
+    return series_entries
+
+
+async def _default_metric_curve_loader(
+    metrics: list[dict[str, Any]],
+    start_time: datetime,
+    end_time: datetime,
+) -> dict[str, list[CurvePoint]]:
+    from ..api.settings import _HOST_CHANNEL_STORE, get_edc_connection_config
+
+    config = get_edc_connection_config()
+    if not config["base_url"] or not config["username"] or not config["password"]:
+        return {}
+
+    host_channels = {
+        str(channel.get("id") or ""): channel
+        for channel in _HOST_CHANNEL_STORE
+        if isinstance(channel, dict) and str(channel.get("id") or "")
+    }
+    bound_metrics: list[tuple[str, dict[str, str]]] = []
+    for metric in metrics:
+        metric_id = str(metric.get("id") or "").strip()
+        channel_id = str(metric.get("edc_channel_id") or "").strip()
+        channel = host_channels.get(channel_id)
+        if metric_id and channel:
+            bound_metrics.append((metric_id, channel))
+    if not bound_metrics:
+        return {}
+
+    try:
+        async with EDCClient(**config) as client:
+            tasks = {
+                metric_id: asyncio.create_task(
+                    client.get_local_datas(
+                        suid=str(channel["suid"]),
+                        cuid=str(channel["cuid"]),
+                        start_time=start_time,
+                        end_time=end_time,
+                    )
+                )
+                for metric_id, channel in bound_metrics
+            }
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    except EDCClientError:
+        return {}
+
+    curves: dict[str, list[CurvePoint]] = {}
+    for metric_id, result in zip(tasks.keys(), results, strict=False):
+        if isinstance(result, Exception) or not result:
+            continue
+        curves[metric_id] = result
+    return curves
+
+
+async def hydrate_candidate_runtime_metric_series(
+    candidate: dict[str, Any],
+    *,
+    definition_templates: list[Any],
+    metric_curve_loader: MetricCurveLoader | None = None,
+) -> dict[str, Any]:
+    hydrated = dict(candidate)
+    if not definition_templates:
+        log_event(
+            "runtime_metric_series_hydrate_error",
+            heat_id=str(candidate.get("id") or ""),
+            error="definition_metric_templates_missing",
+        )
+        raise ValueError("definition_metric_templates_missing")
+
+    curves_by_metric = _candidate_metric_curve_map(hydrated)
+    context_start_time, _start_time, _end_time, context_end_time = _runtime_series_window(hydrated)
+    loader = metric_curve_loader or _default_metric_curve_loader
+    metric_views = [
+        {
+            "id": str(spec["item"]),
+            "metric_key": str(spec["metric_key"]),
+            "name": str(spec["metric_name"]),
+            "unit": spec.get("unit"),
+            "color": str(spec["color"]),
+            "edc_channel_id": spec.get("source_channel_id"),
         }
-    return dict(spec)
+        for template in definition_templates
+        if (spec := _template_series_spec(template)) is not None
+    ]
+    loaded_curves = await loader(metric_views, context_start_time, context_end_time)
+    metric_key_by_item = {
+        str(metric["id"]): str(metric["metric_key"]) for metric in metric_views if metric.get("id")
+    }
+    for metric_item, points in loaded_curves.items():
+        metric_key = metric_key_by_item.get(str(metric_item))
+        if metric_key and points:
+            curves_by_metric[metric_key] = list(points)
+
+    required_metric_keys = [
+        str(spec["metric_key"])
+        for template in definition_templates
+        if (spec := _template_series_spec(template)) is not None
+    ]
+    missing_metric_keys = [
+        metric_key for metric_key in required_metric_keys if not curves_by_metric.get(metric_key)
+    ]
+    if missing_metric_keys:
+        log_event(
+            "runtime_metric_series_hydrate_error",
+            heat_id=str(candidate.get("id") or ""),
+            error="runtime_metric_curves_incomplete",
+            missing_metric_keys=missing_metric_keys,
+        )
+        raise ValueError("runtime_metric_curves_incomplete")
+
+    runtime_metric_series = _build_runtime_metric_series_entries(
+        candidate=hydrated,
+        definition_templates=definition_templates,
+        curves_by_metric=curves_by_metric,
+    )
+    hydrated["runtime_metric_series"] = runtime_metric_series
+    if curves_by_metric.get("power"):
+        hydrated["power_curve"] = list(curves_by_metric["power"])
+    if curves_by_metric.get("voltage"):
+        hydrated["voltage_curve"] = list(curves_by_metric["voltage"])
+    if runtime_metric_series:
+        hydrated["current_curve_source"] = "runtime_metric_series"
+        hydrated["context_start_time"] = context_start_time
+        hydrated["context_end_time"] = context_end_time
+    return hydrated
 
 
 def _decode_baseline_binding(baseline_id: str | None) -> tuple[str | None, str | None]:
@@ -792,67 +1024,97 @@ def _build_metric_series_payloads(
         primary_definition_id=primary_definition_id,
         template_map=template_map,
     )
+    runtime_series = candidate.get("runtime_metric_series")
+    if not isinstance(runtime_series, list) or not runtime_series:
+        log_event(
+            "runtime_metric_series_persist_error",
+            heat_id=str(candidate.get("id") or ""),
+            error="runtime_metric_series_missing",
+        )
+        raise ValueError("runtime_metric_series_missing")
+
+    template_by_metric_key = {
+        str(spec["metric_key"]): spec
+        for template in templates
+        if (spec := _template_series_spec(template)) is not None
+    }
+    if not template_by_metric_key:
+        log_event(
+            "runtime_metric_series_persist_error",
+            heat_id=str(candidate.get("id") or ""),
+            error="definition_metric_templates_missing",
+        )
+        raise ValueError("definition_metric_templates_missing")
+
     metric_payloads: list[dict[str, Any]] = []
-    for metric_kind, curve_field in (("power", "power_curve"), ("voltage", "voltage_curve")):
-        points = _normalize_curve_points(candidate.get(curve_field))
-        if not points:
+    persisted_metric_keys: list[str] = []
+    for entry in runtime_series:
+        if not isinstance(entry, dict):
             continue
-        template = _pick_metric_template(templates, metric_kind=metric_kind)
-        if template is not None:
-            spec = {
-                "item": _template_field(template, "item"),
-                "metric_key": _template_field(template, "metric_key"),
-                "metric_name": _template_field(template, "metric_name"),
-                "unit": _template_field(template, "unit"),
-                "color": _template_field(template, "color"),
-                "sort_order": _template_field(template, "sort_order"),
-                "source_channel_id": _template_field(template, "edc_channel_id")
-                or _template_field(template, "source_channel_id"),
-                "source_channel_name": _template_field(template, "source_channel_name"),
-                "source_channel_label": _template_field(template, "source_channel_label"),
-            }
-        else:
-            spec = _default_metric_spec(metric_kind)
-            spec["source_channel_id"] = None
-            spec["source_channel_name"] = None
-            spec["source_channel_label"] = None
+        metric_key = str(entry.get("metric_key") or "").strip().lower()
+        if not metric_key:
+            continue
+        spec = template_by_metric_key.get(metric_key)
+        if spec is None:
+            log_event(
+                "runtime_metric_series_persist_error",
+                heat_id=str(candidate.get("id") or ""),
+                error="definition_metric_template_missing_for_runtime_metric",
+                metric_key=metric_key,
+            )
+            raise ValueError("definition_metric_template_missing_for_runtime_metric")
+        series_payload = entry.get("series_json")
+        stat_payload = entry.get("stat_json")
         metric_payloads.append(
             {
                 "owner_key": encode_heat_owner_key(str(heat_payload["id"])),
-                "item": str(spec["item"]),
+                "item": str(entry.get("item") or spec["item"]),
                 "owner_type": "heat",
                 "definition_id": primary_definition_id,
                 "item_kind": "metric_item",
-                "metric_key": str(spec["metric_key"]),
-                "metric_name": str(spec["metric_name"]),
-                "unit": spec.get("unit"),
-                "color": str(spec["color"]),
-                "sort_order": int(spec["sort_order"]),
-                "source_channel_id": spec.get("source_channel_id"),
-                "source_channel_name": spec.get("source_channel_name"),
-                "source_channel_label": spec.get("source_channel_label"),
-                "series_json": _build_series_payload(
-                    context_start_time=heat_payload["context_start_time"],
-                    heat_start_time=heat_payload["start_time"],
-                    heat_end_time=heat_payload["end_time"],
-                    context_end_time=heat_payload["context_end_time"],
-                    points=points,
+                "metric_key": metric_key,
+                "metric_name": str(entry.get("metric_name") or spec["metric_name"]),
+                "unit": entry.get("unit", spec.get("unit")),
+                "color": str(entry.get("color") or spec["color"]),
+                "sort_order": int(entry.get("sort_order") or spec["sort_order"]),
+                "source_channel_id": entry.get("source_channel_id", spec.get("source_channel_id")),
+                "source_channel_name": entry.get(
+                    "source_channel_name",
+                    spec.get("source_channel_name"),
                 ),
-                "stat_json": _json_compact(
-                    {
-                        "metric_kind": metric_kind,
-                        "heat_min": min(float(point.value) for point in points),
-                        "heat_max": max(float(point.value) for point in points),
-                        "heat_avg": round(
-                            sum(float(point.value) for point in points) / max(len(points), 1),
-                            4,
-                        ),
-                    }
+                "source_channel_label": entry.get(
+                    "source_channel_label",
+                    spec.get("source_channel_label"),
+                ),
+                "series_json": (
+                    _json_compact(series_payload)
+                    if isinstance(series_payload, dict)
+                    else str(series_payload or "")
+                ),
+                "stat_json": (
+                    _json_compact(stat_payload)
+                    if isinstance(stat_payload, dict)
+                    else str(stat_payload or "")
                 ),
                 "created_at": heat_payload["created_at"],
                 "updated_at": heat_payload["updated_at"],
             }
         )
+        persisted_metric_keys.append(metric_key)
+
+    missing_metric_keys = [
+        metric_key
+        for metric_key in template_by_metric_key
+        if metric_key not in persisted_metric_keys
+    ]
+    if missing_metric_keys:
+        log_event(
+            "runtime_metric_series_persist_error",
+            heat_id=str(candidate.get("id") or ""),
+            error="runtime_metric_series_incomplete",
+            missing_metric_keys=missing_metric_keys,
+        )
+        raise ValueError("runtime_metric_series_incomplete")
     return metric_payloads
 
 
@@ -927,6 +1189,7 @@ async def compile_runtime_candidates(
     processing_mode: str = "live_incremental",
     trigger_source: str = "background_refresh",
     cutting_config: HeatCuttingConfig | None = None,
+    metric_curve_loader: MetricCurveLoader | None = None,
 ) -> list[dict[str, Any]]:
     if not candidates:
         return []
@@ -942,6 +1205,13 @@ async def compile_runtime_candidates(
             published_baselines,
             start_time=candidate["start_time"],
         )
+        if not applicable:
+            log_event(
+                "runtime_candidate_compile_error",
+                heat_id=candidate_id,
+                error="published_baselines_missing",
+            )
+            raise ValueError("published_baselines_missing")
         applicable_by_candidate[candidate_id] = applicable
         applicable_baselines.extend(applicable)
         primary_baseline = _resolve_primary_baseline(applicable)
@@ -958,6 +1228,7 @@ async def compile_runtime_candidates(
         frozen_inputs = _heat_runtime_factory.resolve_frozen_analysis_inputs(prepared_candidate)
         candidate_applicable_baselines: list[Any]
         candidate_curve_payloads: dict[str, Any]
+        definition_templates: list[Any]
         if frozen_inputs is not None:
             candidate_applicable_baselines = frozen_inputs.applicable_baselines
             candidate_curve_payloads = frozen_inputs.baseline_curve_payloads
@@ -967,9 +1238,30 @@ async def compile_runtime_candidates(
             prepared_candidate["baseline_curve_snapshots"] = list(
                 frozen_inputs.baseline_curve_snapshots
             )
+            definition_templates = list(frozen_inputs.definition_metric_snapshots)
         else:
             candidate_applicable_baselines = applicable_by_candidate[str(candidate["id"])]
             candidate_curve_payloads = baseline_curve_payloads
+            primary_baseline = _resolve_primary_baseline(candidate_applicable_baselines)
+            primary_definition_id = (
+                (
+                    str(primary_baseline.definition_id)
+                    if primary_baseline is not None
+                    else str(prepared_candidate.get("baseline_definition_id") or "").strip()
+                )
+                or None
+            )
+            if primary_definition_id is not None:
+                prepared_candidate["baseline_definition_id"] = primary_definition_id
+            definition_templates = list(template_map.get(primary_definition_id or "", []))
+            if not definition_templates:
+                log_event(
+                    "runtime_candidate_compile_error",
+                    heat_id=str(candidate.get("id") or ""),
+                    error="definition_metric_templates_missing",
+                    definition_id=primary_definition_id,
+                )
+                raise ValueError("definition_metric_templates_missing")
         binding_analyses = _heat_deviation_analysis_service.analyze_candidate_bindings(
             candidate=prepared_candidate,
             applicable_baselines=candidate_applicable_baselines,
@@ -1010,6 +1302,12 @@ async def compile_runtime_candidates(
             prepared_candidate["baseline_curve_snapshots"] = list(
                 birth_snapshot.baseline_curve_snapshots
             )
+            definition_templates = list(birth_snapshot.definition_metric_snapshots)
+        prepared_candidate = await hydrate_candidate_runtime_metric_series(
+            prepared_candidate,
+            definition_templates=definition_templates,
+            metric_curve_loader=metric_curve_loader,
+        )
         processing_meta = dict(prepared_candidate.get("processing_meta") or {})
         if not processing_meta:
             processing_meta = {

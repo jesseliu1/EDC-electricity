@@ -55,12 +55,27 @@ def test_factory_builds_birth_snapshot_from_candidate_and_templates() -> None:
             "source_channel_name": "总有功功率",
             "source_channel_label": "测试设备 / 总有功功率 / kW",
             "enabled": True,
+        },
+        {
+            "item": "003",
+            "metric_key": "temperature",
+            "metric_name": "熔炼温度",
+            "unit": "℃",
+            "color": "#E6A23C",
+            "sort_order": 3,
+            "edc_channel_id": "2054-128",
+            "source_channel_name": "热电偶温度采集通道",
+            "source_channel_label": "测试设备 / 熔炼温度 / ℃",
+            "enabled": True,
         }
     ]
     baseline_curve_payloads = {
         "def-001:001": BaselineCurvePayload(
-            power_curve=[CurvePoint(timestamp=1000, value=410.0)],
-            voltage_curve=[CurvePoint(timestamp=1000, value=220.0)],
+            curves_by_metric={
+                "power": [CurvePoint(timestamp=1000, value=410.0)],
+                "voltage": [CurvePoint(timestamp=1000, value=220.0)],
+                "temperature": [CurvePoint(timestamp=1000, value=1560.0)],
+            },
             curve_source="baseline_metric_series",
         )
     }
@@ -90,6 +105,10 @@ def test_factory_builds_birth_snapshot_from_candidate_and_templates() -> None:
     assert snapshot.definition_metric_snapshots[0]["metric_key"] == "power"
     assert snapshot.baseline_curve_snapshots[0]["curve_source"] == "baseline_metric_series"
     assert snapshot.baseline_curve_snapshots[0]["points"][0].value == 410.0
+    assert any(
+        entry["metric_key"] == "temperature" and entry["points"][0].value == 1560.0
+        for entry in snapshot.baseline_curve_snapshots
+    )
 
 
 def test_factory_resolves_frozen_analysis_inputs_from_birth_context() -> None:
@@ -133,6 +152,12 @@ def test_factory_resolves_frozen_analysis_inputs_from_birth_context() -> None:
                     "metric_key": "power",
                     "curve_source": "baseline_metric_series",
                     "points": [{"timestamp": 1000, "value": 410.0}],
+                },
+                {
+                    "baseline_id": "def-001:001",
+                    "metric_key": "temperature",
+                    "curve_source": "baseline_metric_series",
+                    "points": [{"timestamp": 1000, "value": 1560.0}],
                 }
             ],
         }
@@ -145,3 +170,4 @@ def test_factory_resolves_frozen_analysis_inputs_from_birth_context() -> None:
     assert inputs.applicable_baselines[0]["is_default"] is True
     assert inputs.definition_metric_snapshots[0]["metric_key"] == "power"
     assert inputs.baseline_curve_payloads["def-001:001"].power_curve[0].value == 410.0
+    assert inputs.baseline_curve_payloads["def-001:001"].curves_by_metric["temperature"][0].value == 1560.0

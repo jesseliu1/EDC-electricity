@@ -212,6 +212,7 @@ async def load_baseline_metric_series(
         curves_data.append(
             {
                 "metric_id": row.item,
+                "metric_key": row.metric_key,
                 "metric_name": row.metric_name,
                 "unit": row.unit or "",
                 "color": row.color,
