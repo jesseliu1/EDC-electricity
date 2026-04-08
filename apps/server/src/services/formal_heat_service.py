@@ -20,6 +20,7 @@ from ..models import (
 from ..schemas.common import CurvePoint
 from ..time_utils import from_timestamp_ms, to_timestamp_ms, utc_now
 from .formal_baseline_service import decode_baseline_id, encode_baseline_id
+from .heat_deviation_analysis_service import HeatDeviationAnalysisService
 from .heat_runtime_types import RuntimePresealPayload
 
 DEFAULT_METRIC_SPECS: dict[str, dict[str, Any]] = {
@@ -40,6 +41,8 @@ DEFAULT_METRIC_SPECS: dict[str, dict[str, Any]] = {
         "sort_order": 2,
     },
 }
+
+_heat_deviation_analysis_service = HeatDeviationAnalysisService()
 
 
 def encode_heat_owner_key(heat_id: str) -> str:
@@ -373,14 +376,6 @@ async def get_formal_heat_record(heat_id: str) -> dict[str, Any] | None:
     )
 
 
-def _serialize_deviation_details(abnormal_ranges: list[dict[str, Any]]) -> str:
-    return json.dumps(
-        {"abnormal_ranges": abnormal_ranges},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-
-
 async def update_formal_heat_record(
     heat_id: str,
     *,
@@ -472,49 +467,6 @@ async def resume_formal_heat_cutting(
                 8.0,
             )
             primary_binding.updated_at = utc_now()
-
-        await session.commit()
-
-    return await get_formal_heat_record(heat_id)
-
-
-async def save_formal_heat_analysis(
-    heat_id: str,
-    *,
-    baseline_id: str,
-    max_deviation: float,
-    avg_deviation: float,
-    status: str,
-    abnormal_ranges: list[dict[str, Any]],
-    updated_by: str = "system",
-) -> dict[str, Any] | None:
-    baseline_definition_id, baseline_item = decode_baseline_id(baseline_id)
-    async with async_session_maker() as session:
-        heat = await session.get(Heat, heat_id)
-        if heat is None:
-            return None
-
-        binding = await session.get(
-            HeatBaselineBinding,
-            {
-                "heat_id": heat_id,
-                "baseline_definition_id": baseline_definition_id,
-                "baseline_item": baseline_item,
-            },
-        )
-        if binding is None:
-            return None
-
-        binding.analysis_status = "ready"
-        binding.deviation_percent = max_deviation
-        binding.avg_deviation_percent = avg_deviation
-        binding.deviation_details_json = _serialize_deviation_details(abnormal_ranges)
-        binding.updated_at = utc_now()
-
-        if binding.is_primary:
-            heat.status = status
-            heat.updated_by = updated_by
-            heat.updated_at = utc_now()
 
         await session.commit()
 
@@ -695,6 +647,40 @@ def _build_binding_payloads(
     created_at: datetime,
     updated_at: datetime,
 ) -> tuple[list[dict[str, Any]], str | None]:
+    existing_bindings = candidate.get("baseline_bindings")
+    if isinstance(existing_bindings, list) and existing_bindings:
+        payloads: list[dict[str, Any]] = []
+        primary_definition_id: str | None = None
+        for binding in existing_bindings:
+            if not isinstance(binding, dict):
+                continue
+            baseline_definition_id = str(binding.get("baseline_definition_id") or "")
+            baseline_item = str(binding.get("baseline_item") or "")
+            if not baseline_definition_id or not baseline_item:
+                continue
+            if bool(binding.get("is_primary")):
+                primary_definition_id = baseline_definition_id
+            payloads.append(
+                {
+                    "heat_id": heat_id,
+                    "baseline_definition_id": baseline_definition_id,
+                    "baseline_item": baseline_item,
+                    "is_primary": bool(binding.get("is_primary")),
+                    "effective_from_snapshot": binding.get("baseline_effective_from"),
+                    "tolerance_percent_snapshot": binding.get("tolerance_percent"),
+                    "analysis_status": str(binding.get("analysis_status") or "pending"),
+                    "deviation_percent": binding.get("deviation_percent"),
+                    "avg_deviation_percent": binding.get("avg_deviation_percent"),
+                    "deviation_details_json": binding.get("deviation_details_json"),
+                    "time_offset_percent": binding.get("time_offset_percent"),
+                    "mismatch_duration_minutes": binding.get("mismatch_duration_minutes"),
+                    "created_at": created_at,
+                    "updated_at": updated_at,
+                }
+            )
+        if payloads:
+            return payloads, primary_definition_id
+
     primary_baseline = _resolve_primary_baseline(applicable_baselines)
     primary_definition_id = primary_baseline.definition_id if primary_baseline is not None else None
     candidate_baseline_id = (
@@ -861,6 +847,7 @@ async def compile_runtime_candidates(
     published_baselines = await _list_all_published_baselines()
     definition_ids: set[str] = set()
     applicable_by_candidate: dict[str, list[Baseline]] = {}
+    applicable_baselines: list[Baseline] = []
     for candidate in candidates:
         candidate_id = str(candidate["id"])
         applicable = _eligible_published_baselines(
@@ -868,14 +855,27 @@ async def compile_runtime_candidates(
             start_time=candidate["start_time"],
         )
         applicable_by_candidate[candidate_id] = applicable
+        applicable_baselines.extend(applicable)
         primary_baseline = _resolve_primary_baseline(applicable)
         if primary_baseline is not None:
             definition_ids.add(primary_baseline.definition_id)
     template_map = await _load_definition_metric_templates(sorted(definition_ids))
+    baseline_curve_payloads = await _heat_deviation_analysis_service.load_baseline_curve_payloads(
+        applicable_baselines
+    )
 
     prepared: list[dict[str, Any]] = []
     for candidate in candidates:
         prepared_candidate = dict(candidate)
+        binding_analyses = _heat_deviation_analysis_service.analyze_candidate_bindings(
+            candidate=prepared_candidate,
+            applicable_baselines=applicable_by_candidate[str(candidate["id"])],
+            baseline_curve_payloads=baseline_curve_payloads,
+        )
+        prepared_candidate = _heat_deviation_analysis_service.apply_binding_analysis_to_candidate(
+            candidate=prepared_candidate,
+            binding_analyses=binding_analyses,
+        )
         processing_meta = dict(prepared_candidate.get("processing_meta") or {})
         if not processing_meta:
             processing_meta = {

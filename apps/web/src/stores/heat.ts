@@ -26,6 +26,8 @@ export interface HeatItem {
   description: string | null
   startTime: number
   endTime: number
+  contextStartTime: number | null
+  contextEndTime: number | null
   completionStatus: HeatCompletionStatus
   lastPointAt: number | null
   runtimeSnapshotStatus: HeatRuntimeSnapshotStatus
@@ -145,6 +147,8 @@ function mapHeat(item: HeatResponseItem): HeatItem {
     description: item.description ?? null,
     startTime: item.start_time,
     endTime: item.end_time,
+    contextStartTime: item.context_start_time ?? null,
+    contextEndTime: item.context_end_time ?? null,
     completionStatus: item.completion_status || 'completed',
     lastPointAt: item.last_point_at,
     runtimeSnapshotStatus: item.runtime_snapshot_status || 'warming',

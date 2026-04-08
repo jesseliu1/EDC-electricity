@@ -6,6 +6,119 @@
 
 ---
 
+### 2026-04-08（炉次详情 compare 已切回“上下文显示 + 核心窗口高亮”口径，本地代码与定向回归通过）
+
+**当前阶段**：已完成本地 compare 契约与详情页渲染收口，下一步是随下一轮部署发布到公网并按新 UAT 口径复验；本条不是“已部署完成”口径
+
+**本轮完成**：
+
+- [x] 已新增正式计划文档
+  - [x] `docs/heat-compare-context-display-plan.md`
+  - [x] 已按 `plan-eng-review` 维度收口：
+    - [x] compare 契约边界
+    - [x] 前端核心窗口 / 上下文窗口拆分
+    - [x] 测试与 UAT 联动范围
+- [x] 已显式输出 compare 上下文窗口
+  - [x] `apps/server/src/schemas/heat.py`
+    - [x] `HeatResponse / HeatWithCurve` 新增 `context_start_time / context_end_time`
+  - [x] `apps/server/src/api/heats.py`
+    - [x] `_to_heat_response()` 已统一回填 context 字段
+    - [x] live compare 已优先使用 item 自带 context 窗口
+    - [x] 仅在缺少 context 时才回退旧 `±60 分钟` display window
+- [x] 已收口前端详情页 compare 图口径
+  - [x] `apps/web/src/api/heat.ts`
+  - [x] `apps/web/src/stores/heat.ts`
+  - [x] `apps/web/src/views/HeatDetailView.vue`
+  - [x] compare 图现已：
+    - [x] 直接显示 `metric_curves[*].current_curve` 的完整上下文
+    - [x] `xAxis` 使用显式 context 窗口
+    - [x] 用核心窗口边界线标出当前炉次本体
+    - [x] 不再把 compare 图错误 fallback 到 `heat.power_curve`
+- [x] 已更新定向 E2E 与正式 UAT 口径
+  - [x] `apps/web/e2e/issue-acceptance.spec.ts`
+    - [x] 旧“必须裁回炉次本体”用例已改为“保留上下文窗口”
+  - [x] `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`
+    - [x] compare 验收口径已更新为“显示上下文 + 核心窗口可识别 + 不得全天污染”
+
+**本轮验证**：
+
+- [x] `python3 -m pytest -q tests/test_heats_api.py -k 'compare'`
+  - [x] `16 passed`
+- [x] `pnpm --dir apps/web build`
+  - [x] 通过
+- [x] `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail compare chart keeps extended current curves and exposes context window"`
+  - [x] `1 passed`
+
+**当前结论**：
+
+- [x] 本地代码下，炉次详情 compare 图已不再把上下文曲线裁回当前炉次本体
+- [x] compare 契约已显式暴露 context 窗口，前端不再靠点集范围猜展示边界
+- [x] 当前仍未形成新的公网验证结论
+  - [ ] 下一步需部署后复验：
+    - [ ] 历史炉次 compare 是否显示前后文
+    - [ ] 当前炉次 compare 是否仍保留核心窗口边界识别
+    - [ ] 页面是否未退化成全天污染
+
+---
+
+### 2026-04-08（偏离度已收口到后端真源，`compare` 现算主链与 `analyze` 入口已在本地代码层下线）
+
+**当前阶段**：已完成本地代码层改造并通过全量后端回归，下一步是部署到公网并验证真实 runtime / formal 数据都走新口径；本条不是“已部署完成”口径
+
+**本轮完成**：
+
+- [x] 已新增统一偏离度分析服务
+  - [x] 新增 `apps/server/src/services/heat_deviation_analysis_service.py`
+  - [x] 统一负责：
+    - [x] 适用基线曲线加载
+    - [x] 基线对齐到炉次窗口
+    - [x] 最大/平均偏离度计算
+    - [x] `deviation_details_json`
+    - [x] `mismatch_duration_minutes`
+- [x] 已把 replay / formal 持久化链切到“先算后存”
+  - [x] `compile_runtime_candidates(...)` 现在会先产出 `baseline_bindings`
+  - [x] `append_sealed_heats(...) / replace_heat_range(...)` 已直接消费预先算好的 binding 分析结果
+  - [x] 新固化正式炉次默认就会带 `analysis_status=ready` 与偏离度结果，不再等详情页触发
+- [x] 已把 live runtime 链接到同一套分析逻辑
+  - [x] live refresh 现在会把 `active / previous / sealed` 候选统一先走 `compile_runtime_candidates(...)`
+  - [x] `active_runtime` 每轮刷新都会重算偏离度
+  - [x] `previous_runtime` 已改为冻结语义：
+    - [x] 当 `active` 未换代时，不再持续重算 `previous`
+    - [x] 只有 `active` 换代时，才生成新的 `previous_runtime`
+- [x] 已下线 compare/analyze 的旧业务真源角色
+  - [x] `GET /api/heats/{id}/compare` 不再现场补算偏离度
+  - [x] 正式 / runtime compare 现在只读取已存的 binding 分析结果
+  - [x] `analysis_status=pending` 时，compare 返回空分析结果，不再 fallback 现算
+  - [x] 已删除 `POST /api/heats/{id}/analyze` 及相关 schema/export
+- [x] 已同步收口 runtime 结构
+  - [x] `RuntimeHeatBinding` 已补 `deviation_details_json`
+  - [x] `CurrentHeatRuntime` 现在会带上现成的 `preseal_payload`
+  - [x] compare cache key 已纳入 binding 分析结果，避免旧缓存继续返回过期偏离度
+
+**本轮验证**：
+
+- [x] `python3 -m pytest -q tests/test_formal_heat_api.py tests/test_heats_api.py`
+  - [x] `60 passed`
+- [x] `python3 -m pytest -q tests/test_heat_replay_api.py tests/test_formal_heat_api.py tests/test_heats_api.py tests/test_tasks_reports_settings_api.py tests/test_deviation_service.py`
+  - [x] `83 passed`
+- [x] `python3 -m pytest -q`
+  - [x] `125 passed`
+- [x] `git diff --check`
+  - [x] 无格式残留
+
+**当前结论**：
+
+- [x] 炉次列表里的黄金基线偏离度不再依赖 compare/详情页触发
+- [x] 正式历史炉次的 compare 已不会在 `analysis_status=pending` 时偷偷现场补算
+- [x] live runtime 的 `previous_runtime` 已不再在 `active` 不换代时持续漂移
+- [ ] 本轮还未把这批修复部署到公网
+  - [ ] 下一步需要按当前公网部署语义发布，并在真实源下复验：
+    - [ ] `/api/heats` 偏离度是否实时/固化一致
+    - [ ] `/api/heats/{id}/compare` 是否只读存量分析结果
+    - [ ] `previous_runtime` 在 live 刷新中是否保持冻结语义
+
+---
+
 ### 2026-04-07（replay job 取消锁库与 replay/head 重叠展示已在本地代码层收口）
 
 **当前阶段**：已完成本地代码层修复并通过受影响回归，下一步是部署到公网并验证真实运行态；本条不是“已部署完成”口径

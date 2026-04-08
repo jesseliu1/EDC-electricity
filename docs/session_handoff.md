@@ -6,6 +6,88 @@
 
 ---
 
+## 2026-04-08 炉次详情 compare 已在本地切到“上下文显示 + 核心窗口高亮”口径，尚未重新部署公网（最新交接摘要，优先于下面旧记录）
+
+- 当前代码状态：
+  - 本地工作区已完成 compare 契约和详情页渲染收口，尚未形成新的公网部署结论
+  - 计划文档：
+    - `docs/heat-compare-context-display-plan.md`
+  - 受影响文件：
+    - `apps/server/src/schemas/heat.py`
+    - `apps/server/src/api/heats.py`
+    - `apps/server/tests/test_heats_api.py`
+    - `apps/web/src/api/heat.ts`
+    - `apps/web/src/stores/heat.ts`
+    - `apps/web/src/views/HeatDetailView.vue`
+    - `apps/web/e2e/issue-acceptance.spec.ts`
+    - `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`
+- 本轮本地修复点：
+  - compare 响应已显式输出 `context_start_time / context_end_time`
+  - live compare 已优先使用炉次 item 自带 context 窗口，不再默认只靠旧 `±60 分钟` display window
+  - 前端详情页 compare 图已拆成：
+    - 核心窗口：`start_time / end_time`
+    - 展示窗口：`context_start_time / context_end_time`
+  - compare 图已直接显示完整 `metric_curves[*].current_curve`
+  - 图上已通过边界线标出当前炉次核心窗口
+  - 旧 `current.value.powerCurve` compare fallback 已移除，不再把缺上下文数据伪装成“只有当前炉次”
+- 本轮本地验证：
+  - `python3 -m pytest -q tests/test_heats_api.py -k 'compare'`
+    - `16 passed`
+  - `pnpm --dir apps/web build`
+    - 通过
+  - `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail compare chart keeps extended current curves and exposes context window"`
+    - `1 passed`
+- 当前结论：
+  - 本地代码下，炉次详情 compare 已恢复显示前后文，不再裁回核心炉次本体
+  - compare 口径现在是“显示上下文，但核心炉次边界可识别”，且 UAT 文档已同步
+  - 当前仍没有新的公网验证结论
+- 下一步：
+  - 重新部署当前工作区到公网
+  - 部署后优先复验：
+    - 历史炉次 compare 是否显示前后文
+    - 当前炉次 compare 是否仍保持核心窗口边界识别
+    - 页面是否未退化成全天污染
+
+## 2026-04-08 偏离度后端真源化已在本地代码层完成，尚未重新部署公网（最新交接摘要，优先于下面旧记录）
+
+- 当前代码状态：
+  - 本地工作区已完成偏离度主链改造，尚未形成新的公网部署结论
+  - 受影响文件：
+    - `apps/server/src/services/heat_deviation_analysis_service.py`
+    - `apps/server/src/services/formal_heat_service.py`
+    - `apps/server/src/services/heat_runtime_types.py`
+    - `apps/server/src/api/heats.py`
+    - `apps/server/src/schemas/heat.py`
+    - `apps/server/tests/test_formal_heat_api.py`
+    - `apps/server/tests/test_heats_api.py`
+- 本轮本地修复点：
+  - 已新增统一偏离度分析服务，统一负责基线曲线加载、窗口对齐、偏离度计算与 `deviation_details_json`
+  - `compile_runtime_candidates(...)` 现在会先计算 `baseline_bindings`，再生成 `preseal_payload`
+  - `append_sealed_heats(...) / replace_heat_range(...)` 已直接消费预先算好的 binding 分析结果
+  - live refresh 现在会把 `active / previous / sealed` 候选统一先走编译链
+  - `previous_runtime` 已改成冻结语义：`active` 不换代时不再持续重算
+  - `GET /api/heats/{id}/compare` 不再现场补算偏离度，只读 binding 结果
+  - `POST /api/heats/{id}/analyze` 及相关 schema/export 已删除
+- 本轮本地验证：
+  - `python3 -m pytest -q tests/test_formal_heat_api.py tests/test_heats_api.py`
+    - `60 passed`
+  - `python3 -m pytest -q tests/test_heat_replay_api.py tests/test_formal_heat_api.py tests/test_heats_api.py tests/test_tasks_reports_settings_api.py tests/test_deviation_service.py`
+    - `83 passed`
+  - `python3 -m pytest -q`
+    - `125 passed`
+  - `git diff --check`
+    - 通过
+- 当前结论：
+  - 本地代码已不再存在“列表空、compare 现算有值、DB 仍是 pending/null”的旧分裂口径
+  - 本地代码也已验证 `previous_runtime` 在 `active` 不换代时不会继续漂移
+  - 当前还没有新的公网验证结论，公网仍需重新部署后再核对真实源表现
+- 下一步：
+  - 把当前工作区修复部署到公网
+  - 部署后优先复验：
+    - `/api/heats` 的偏离度是否自动出现
+    - `/api/heats/{id}/compare` 是否只读 binding，不再 fallback 现算
+    - live refresh 下 `previous_runtime` 是否保持冻结
+
 ## 2026-04-07 replay job 取消锁库与 replay/head 重叠展示已在本地代码层修复，尚未重新部署公网（最新交接摘要，优先于下面旧记录）
 
 - 当前代码状态：

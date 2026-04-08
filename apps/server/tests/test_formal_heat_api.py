@@ -536,6 +536,49 @@ async def test_persist_sealed_heat_candidates_allows_overlapping_windows(
 
 
 @pytest.mark.asyncio
+async def test_prepare_runtime_candidates_persists_ready_binding_analysis(
+    reset_test_database,
+) -> None:
+    await _insert_formal_heat_fixture()
+    start_time = datetime.now().replace(microsecond=0, second=0)
+    candidate = {
+        "id": "heat-analysis-001",
+        "heat_no": "HANALYSIS-001",
+        "description": "偏离度正式固化样本",
+        "start_time": start_time,
+        "end_time": start_time + timedelta(minutes=30),
+        "context_start_time": start_time - timedelta(minutes=30),
+        "context_end_time": start_time + timedelta(minutes=60),
+        "record_source": "live_inferred",
+        "cut_reason": "test",
+        "cut_status": "normal",
+        "status": "normal",
+        "created_at": start_time,
+        "power_curve": [
+            CurvePoint(timestamp=to_timestamp_ms(start_time), value=470.0),
+            CurvePoint(timestamp=to_timestamp_ms(start_time + timedelta(minutes=30)), value=495.0),
+        ],
+        "voltage_curve": [
+            CurvePoint(timestamp=to_timestamp_ms(start_time), value=222.0),
+            CurvePoint(timestamp=to_timestamp_ms(start_time + timedelta(minutes=30)), value=228.0),
+        ],
+    }
+
+    prepared = await prepare_runtime_candidates_for_persist([candidate], trigger_source="test")
+    binding = prepared[0]["baseline_bindings"][0]
+    assert binding["analysis_status"] == "ready"
+    assert binding["deviation_percent"] is not None
+    assert binding["avg_deviation_percent"] is not None
+    assert binding["deviation_details_json"]
+
+    persisted = await persist_sealed_heat_candidates(prepared)
+    persisted_binding = persisted["heat-analysis-001"]["baseline_bindings"][0]
+    assert persisted_binding["analysis_status"] == "ready"
+    assert persisted_binding["deviation_percent"] == pytest.approx(binding["deviation_percent"])
+    assert persisted_binding["avg_deviation_percent"] == pytest.approx(binding["avg_deviation_percent"])
+
+
+@pytest.mark.asyncio
 async def test_resume_history_heat_writes_formal_tables(client) -> None:
     heat_id = await _insert_formal_heat_fixture()
     async with async_session_maker() as session:
@@ -569,27 +612,40 @@ async def test_resume_history_heat_writes_formal_tables(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_analyze_history_heat_uses_formal_tables_only(client, monkeypatch) -> None:
+async def test_history_compare_does_not_fallback_when_binding_analysis_pending(client, monkeypatch) -> None:
     heat_id = await _insert_formal_heat_fixture()
+    async with async_session_maker() as session:
+        binding = await session.get(
+            HeatBaselineBinding,
+            {
+                "heat_id": heat_id,
+                "baseline_definition_id": "def-history-001",
+                "baseline_item": "001",
+            },
+        )
+        assert binding is not None
+        binding.analysis_status = "pending"
+        binding.deviation_percent = None
+        binding.avg_deviation_percent = None
+        binding.deviation_details_json = None
+        await session.commit()
 
     async def fail_channel_curves(**_kwargs):
-        raise AssertionError("历史 analyze 不应请求实时通道曲线")
+        raise AssertionError("历史 compare 不应请求实时通道曲线")
 
     async def fail_heat_curves(_item):
-        raise AssertionError("历史 analyze 不应请求实时炉次曲线")
+        raise AssertionError("历史 compare 不应请求实时炉次曲线")
 
     monkeypatch.setattr("src.api.heats._load_channel_curves_from_edc", fail_channel_curves)
     monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fail_heat_curves)
 
-    response = await client.post(f"/api/heats/{heat_id}/analyze", json={})
+    response = await client.get(f"/api/heats/{heat_id}/compare")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["baseline_id"] == "def-history-001:001"
-    assert payload["max_deviation"] >= 0
-
-    detail = await client.get(f"/api/heats/{heat_id}")
-    assert detail.status_code == 200
-    assert detail.json()["deviation_percent"] == pytest.approx(payload["max_deviation"])
+    assert payload["max_deviation"] is None
+    assert payload["avg_deviation"] is None
+    assert payload["deviation_ranges"] == []
+    assert payload["baselines"][0]["max_deviation"] is None
 
 
 def test_future_published_baseline_does_not_fallback_to_past_heat() -> None:

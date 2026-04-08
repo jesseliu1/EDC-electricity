@@ -27,8 +27,6 @@ from ..schemas import (
     CuttingTimelineEvent,
     CuttingTimelineResponse,
     DeviationRange,
-    HeatAnalyzeRequest,
-    HeatAnalyzeResponse,
     HeatCompareResponse,
     HeatListResponse,
     HeatReplayJobCreateRequest,
@@ -45,14 +43,12 @@ from ..schemas.heat import BaselineWithCurveSimple
 from ..services import (
     append_sealed_heats,
     compile_runtime_candidates,
-    DeviationService,
     EDCClient,
     EDCClientError,
     encode_baseline_id,
     get_formal_heat_record,
     list_formal_heat_records,
     resume_formal_heat_cutting,
-    save_formal_heat_analysis,
     update_formal_heat_record,
 )
 from ..services.heat_cutting_service import (
@@ -76,6 +72,7 @@ from ..services.heat_runtime_types import (
     RuntimeHeatBinding,
     RuntimeHeatFacts,
     RuntimeMetricSeries,
+    RuntimePresealPayload,
     RuntimeProcessingMeta,
 )
 from ..time_utils import (
@@ -98,7 +95,6 @@ from .settings import (
 )
 
 router = APIRouter(prefix="/heats", tags=["Heats"])
-deviation_service = DeviationService()
 
 _LIVE_HEAT_CACHE_TTL_SECONDS = 30
 _LIVE_HEAT_GAP_MINUTES = 3
@@ -162,6 +158,24 @@ def _build_heat_compare_cache_key(item: dict[str, Any], baseline_ids: list[str])
                 ]
             )
         )
+    binding_tokens: list[str] = []
+    baseline_bindings = item.get("baseline_bindings")
+    if isinstance(baseline_bindings, list):
+        for binding in baseline_bindings:
+            if not isinstance(binding, dict):
+                continue
+            binding_tokens.append(
+                ":".join(
+                    [
+                        _as_cache_token(binding.get("baseline_id")),
+                        _as_cache_token(binding.get("analysis_status")),
+                        _as_cache_token(binding.get("deviation_percent")),
+                        _as_cache_token(binding.get("avg_deviation_percent")),
+                        _as_cache_token(binding.get("deviation_details_json")),
+                    ]
+                )
+            )
+        binding_tokens.sort()
 
     return "|".join(
         [
@@ -172,6 +186,7 @@ def _build_heat_compare_cache_key(item: dict[str, Any], baseline_ids: list[str])
             _as_cache_token(item.get("cut_status")),
             _as_cache_token(item.get("baseline_id")),
             ",".join(baseline_tokens),
+            ",".join(binding_tokens),
         ]
     )
 
@@ -442,8 +457,18 @@ def _curve_window_ms(start_time: datetime, end_time: datetime) -> tuple[int, int
 
 
 def _resolve_compare_display_window(
-    start_time: datetime, end_time: datetime
+    start_time: datetime,
+    end_time: datetime,
+    *,
+    context_start_time: datetime | None = None,
+    context_end_time: datetime | None = None,
 ) -> tuple[datetime, datetime]:
+    if (
+        context_start_time is not None
+        and context_end_time is not None
+        and context_start_time <= context_end_time
+    ):
+        return min(context_start_time, start_time), max(context_end_time, end_time)
     padding = timedelta(minutes=_HEAT_COMPARE_CONTEXT_PADDING_MINUTES)
     return start_time - padding, end_time + padding
 
@@ -1429,32 +1454,63 @@ async def refresh_heat_runtime_state(
         await persist_runtime_state(*_runtime_heat_sections())
         return _build_heat_runtime_refresh_meta_snapshot()
 
+    raw_runtime_candidates = [
+        candidate
+        for candidate in [active_candidate, previous_candidate, *sealed_candidates]
+        if candidate is not None
+    ]
+    prepared_runtime_candidates = await compile_runtime_candidates(
+        raw_runtime_candidates,
+        processing_mode="live_incremental",
+        trigger_source=reason,
+    )
+    prepared_runtime_candidate_map = {
+        str(candidate["id"]): candidate for candidate in prepared_runtime_candidates
+    }
+    prepared_active_candidate = (
+        prepared_runtime_candidate_map.get(str(active_candidate["id"]))
+        if active_candidate is not None
+        else None
+    )
+    prepared_previous_candidate = (
+        prepared_runtime_candidate_map.get(str(previous_candidate["id"]))
+        if previous_candidate is not None
+        else None
+    )
+    prepared_sealed_candidates = [
+        prepared_runtime_candidate_map[str(candidate["id"])]
+        for candidate in sealed_candidates
+        if str(candidate["id"]) in prepared_runtime_candidate_map
+    ]
+
     next_active_runtime: dict[str, dict[str, Any]] = {}
     next_previous_runtime: dict[str, dict[str, Any]] = {}
-    if active_candidate is not None:
+    existing_active_item = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
+    existing_previous_item = next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)
+    if prepared_active_candidate is not None:
         active_runtime = _build_current_heat_runtime(
-            active_candidate,
+            prepared_active_candidate,
             trigger_source=reason,
             processing_mode="live_incremental",
         )
         active_item = _mark_active_runtime(active_runtime.to_runtime_item())
         next_active_runtime[str(active_item["id"])] = active_item
-    if previous_candidate is not None:
-        previous_runtime = _build_current_heat_runtime(
-            previous_candidate,
-            trigger_source=reason,
-            processing_mode="live_incremental",
-        )
-        previous_item = _mark_previous_runtime(previous_runtime.to_runtime_item())
+    previous_item = _choose_next_previous_runtime(
+        existing_active_item=existing_active_item if isinstance(existing_active_item, dict) else None,
+        existing_previous_item=(
+            existing_previous_item if isinstance(existing_previous_item, dict) else None
+        ),
+        next_active_candidate_id=(
+            str(prepared_active_candidate["id"]) if prepared_active_candidate is not None else None
+        ),
+        prepared_previous_candidate=prepared_previous_candidate,
+        reason=reason,
+    )
+    if previous_item is not None:
         next_previous_runtime[str(previous_item["id"])] = previous_item
 
     next_history_items: dict[str, dict[str, Any]] = {}
     if not is_replay_active_for_channel(str(context["channel_key"])):
-        prepared_sealed_candidates = await compile_runtime_candidates(
-            sealed_candidates,
-            processing_mode="live_incremental",
-            trigger_source=reason,
-        )
         next_history_items = await append_sealed_heats(prepared_sealed_candidates)
 
     previous_runtime_items = [
@@ -1660,9 +1716,8 @@ def _build_heat_list_view(
     item: dict[str, Any],
     *,
     hydrated_baseline_item: dict[str, Any] | None = None,
-    recompute_live_inferred_deviation: bool = False,
 ) -> dict[str, Any]:
-    """列表接口只返回轻量字段，不在此处触发基线 hydrate 或实时取数。"""
+    """轻量视图只透传已存好的业务结果，不再在请求阶段现场补算偏离度。"""
     response_item = dict(item)
     baseline_id = _resolve_primary_baseline_id(item)
     response_item["baseline_id"] = baseline_id
@@ -1672,55 +1727,9 @@ def _build_heat_list_view(
         response_item["baseline_curve_source"] = str(
             baseline_item.get("curve_source") or item.get("baseline_curve_source") or "none"
         )
-
-    if str(response_item.get("record_source") or "") == "sealed_history":
-        return response_item
-
-    if response_item.get("status") == "pending":
-        return response_item
-
-    preserve_pending_live_inferred_deviation = (
-        str(response_item.get("record_source") or "").strip().lower() == "live_inferred"
-        and response_item.get("deviation_percent") is None
-        and response_item.get("avg_deviation_percent") is None
-        and not recompute_live_inferred_deviation
-    )
-    if preserve_pending_live_inferred_deviation:
-        return response_item
-
-    baseline_power_curve = _rebase_curve_points_to_window(
-        (baseline_item or {}).get("power_curve") or response_item.get("baseline_power_curve"),
-        target_start_time=response_item["start_time"],
-        target_end_time=response_item["end_time"],
-    )
-    current_power_curve = _coerce_curve_points(response_item.get("power_curve"))
-    if not baseline_power_curve or not current_power_curve:
-        return response_item
-
-    tolerance = float((baseline_item or {}).get("tolerance_percent") or 15.0)
-    result = deviation_service.calculate_deviation(
-        baseline_curve=[
-            (float(point.timestamp), float(point.value)) for point in baseline_power_curve
-        ],
-        current_curve=[
-            (float(point.timestamp), float(point.value)) for point in current_power_curve
-        ],
-        tolerance=tolerance,
-    )
-    response_item["deviation_percent"] = result["max_deviation"]
-    response_item["avg_deviation_percent"] = result["avg_deviation"]
-    response_item["status"] = (
-        "abnormal"
-        if response_item.get("status") == "abnormal" or result["status"] == "abnormal"
-        else "normal"
-    )
     return response_item
 
-async def _build_heat_list_views(
-    items: list[dict[str, Any]],
-    *,
-    recompute_live_inferred_deviation: bool = False,
-) -> list[dict[str, Any]]:
+async def _build_heat_list_views(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     baseline_ids = sorted(
         {
             baseline_id
@@ -1733,14 +1742,13 @@ async def _build_heat_list_views(
         _build_heat_list_view(
             item,
             hydrated_baseline_item=hydrated_baselines.get(_resolve_primary_baseline_id(item) or ""),
-            recompute_live_inferred_deviation=recompute_live_inferred_deviation,
         )
         for item in items
     ]
 
 
 async def _build_heat_response_view(item: dict[str, Any]) -> dict[str, Any]:
-    """按默认黄金基线整理炉次响应视图。"""
+    """按默认黄金基线整理炉次响应视图，不在详情请求里重算业务偏离结果。"""
     response_item = dict(item)
     baseline_id = _resolve_primary_baseline_id(item)
     response_item["baseline_id"] = baseline_id
@@ -1760,36 +1768,17 @@ async def _build_heat_response_view(item: dict[str, Any]) -> dict[str, Any]:
 
     baseline_power_curve = _coerce_curve_points(hydrated_baseline.get("power_curve"))
     baseline_voltage_curve = _coerce_curve_points(hydrated_baseline.get("voltage_curve"))
-    current_power_curve = _coerce_curve_points(response_item.get("power_curve"))
 
     if baseline_power_curve:
         response_item["baseline_power_curve"] = baseline_power_curve
     if baseline_voltage_curve:
         response_item["baseline_voltage_curve"] = baseline_voltage_curve
     response_item["baseline_curve_source"] = str(hydrated_baseline.get("curve_source") or "none")
-
-    if str(response_item.get("record_source") or "") == "sealed_history":
-        return response_item
-
-    if item.get("status") == "pending" or not baseline_power_curve or not current_power_curve:
-        return response_item
-
-    result = deviation_service.calculate_deviation(
-        baseline_curve=[
-            (float(point.timestamp), float(point.value)) for point in baseline_power_curve
-        ],
-        current_curve=[
-            (float(point.timestamp), float(point.value)) for point in current_power_curve
-        ],
-        tolerance=float(baseline_item.get("tolerance_percent") or 15.0),
-    )
-    response_item["deviation_percent"] = result["max_deviation"]
-    response_item["avg_deviation_percent"] = result["avg_deviation"]
     return response_item
 
 
 def _build_heat_compare_view(item: dict[str, Any]) -> dict[str, Any]:
-    """compare 路径复用已 hydrate 的主基线，不重复触发基线取数。"""
+    """compare 路径复用已 hydrate 的主基线，不再现场重算偏离结果。"""
     response_item = dict(item)
     baseline_id = _resolve_primary_baseline_id(item)
     response_item["baseline_id"] = baseline_id
@@ -1809,7 +1798,6 @@ def _build_heat_compare_view(item: dict[str, Any]) -> dict[str, Any]:
     baseline_voltage_curve = _coerce_curve_points(
         response_item.get("baseline_voltage_curve") or baseline_item.get("voltage_curve")
     )
-    current_power_curve = _coerce_curve_points(response_item.get("power_curve"))
 
     if baseline_power_curve:
         response_item["baseline_power_curve"] = baseline_power_curve
@@ -1818,24 +1806,6 @@ def _build_heat_compare_view(item: dict[str, Any]) -> dict[str, Any]:
     response_item["baseline_curve_source"] = str(
         item.get("baseline_curve_source") or baseline_item.get("curve_source") or "none"
     )
-
-    if str(response_item.get("record_source") or "") == "sealed_history":
-        return response_item
-
-    if item.get("status") == "pending" or not baseline_power_curve or not current_power_curve:
-        return response_item
-
-    result = deviation_service.calculate_deviation(
-        baseline_curve=[
-            (float(point.timestamp), float(point.value)) for point in baseline_power_curve
-        ],
-        current_curve=[
-            (float(point.timestamp), float(point.value)) for point in current_power_curve
-        ],
-        tolerance=float(baseline_item.get("tolerance_percent") or 15.0),
-    )
-    response_item["deviation_percent"] = result["max_deviation"]
-    response_item["avg_deviation_percent"] = result["avg_deviation"]
     return response_item
 
 
@@ -2253,28 +2223,6 @@ async def _hydrate_compare_baselines(
     return hydrated
 
 
-def _ensure_deviation_ranges(
-    item: dict[str, Any], deviation_ranges: list[DeviationRange]
-) -> list[DeviationRange]:
-    """异常炉次至少返回一段可展示的异常区间。"""
-    if deviation_ranges or item.get("status") != "abnormal":
-        return deviation_ranges
-
-    power_curve = _coerce_curve_points(item.get("power_curve"))
-    if not power_curve:
-        return deviation_ranges
-    mid_index = max(len(power_curve) // 2, 1)
-    start_point = power_curve[max(mid_index - 5, 0)]
-    end_point = power_curve[min(mid_index + 4, len(power_curve) - 1)]
-    return [
-        DeviationRange(
-            start=int(start_point.timestamp),
-            end=int(end_point.timestamp),
-            deviation=round(float(item.get("deviation_percent") or 12.0), 2),
-        )
-    ]
-
-
 def _binding_by_baseline_id(item: dict[str, Any]) -> dict[str, dict[str, Any]]:
     bindings = item.get("baseline_bindings")
     if not isinstance(bindings, list):
@@ -2608,6 +2556,61 @@ def _build_runtime_metric_series_payload(
 
 
 def _build_runtime_bindings(item: dict[str, Any]) -> list[RuntimeHeatBinding]:
+    existing_bindings = item.get("baseline_bindings")
+    if isinstance(existing_bindings, list) and existing_bindings:
+        normalized: list[RuntimeHeatBinding] = []
+        for binding in existing_bindings:
+            if not isinstance(binding, dict):
+                continue
+            baseline_definition_id = str(binding.get("baseline_definition_id") or "")
+            baseline_item = str(binding.get("baseline_item") or "")
+            baseline_id = str(binding.get("baseline_id") or "")
+            if not baseline_definition_id or not baseline_item or not baseline_id:
+                continue
+            normalized.append(
+                RuntimeHeatBinding(
+                    heat_id=str(item["id"]),
+                    baseline_id=baseline_id,
+                    baseline_definition_id=baseline_definition_id,
+                    baseline_item=baseline_item,
+                    is_primary=bool(binding.get("is_primary")),
+                    baseline_effective_from=binding.get("baseline_effective_from"),
+                    tolerance_percent=(
+                        float(binding.get("tolerance_percent"))
+                        if binding.get("tolerance_percent") is not None
+                        else None
+                    ),
+                    analysis_status=str(binding.get("analysis_status") or "pending"),
+                    deviation_percent=(
+                        float(binding.get("deviation_percent"))
+                        if binding.get("deviation_percent") is not None
+                        else None
+                    ),
+                    avg_deviation_percent=(
+                        float(binding.get("avg_deviation_percent"))
+                        if binding.get("avg_deviation_percent") is not None
+                        else None
+                    ),
+                    deviation_details_json=(
+                        str(binding.get("deviation_details_json"))
+                        if binding.get("deviation_details_json") is not None
+                        else None
+                    ),
+                    time_offset_percent=(
+                        float(binding.get("time_offset_percent"))
+                        if binding.get("time_offset_percent") is not None
+                        else None
+                    ),
+                    mismatch_duration_minutes=(
+                        float(binding.get("mismatch_duration_minutes"))
+                        if binding.get("mismatch_duration_minutes") is not None
+                        else None
+                    ),
+                )
+            )
+        if normalized:
+            return normalized
+
     applicable = _list_applicable_runtime_baselines(item["start_time"])
     if not applicable:
         return []
@@ -2646,6 +2649,7 @@ def _build_runtime_bindings(item: dict[str, Any]) -> list[RuntimeHeatBinding]:
                 analysis_status="ready" if analysis_ready else "pending",
                 deviation_percent=item.get("deviation_percent") if should_seed else None,
                 avg_deviation_percent=item.get("avg_deviation_percent") if should_seed else None,
+                deviation_details_json=None,
                 time_offset_percent=item.get("time_offset_percent") if should_seed else None,
                 mismatch_duration_minutes=(
                     item.get("mismatch_duration_minutes") if should_seed else None
@@ -2703,17 +2707,54 @@ def _build_current_heat_runtime(
         )
         if payload is not None:
             metric_series.append(payload)
-    processing_meta = RuntimeProcessingMeta(
-        processing_mode=processing_mode,
-        trigger_source=trigger_source,
-        request_anchor_time=start_time,
-        batch_cursor=None,
-        last_processed_heat_id=facts.heat_id,
+    raw_processing_meta = item.get("processing_meta")
+    if isinstance(raw_processing_meta, dict):
+        processing_meta = RuntimeProcessingMeta(
+            processing_mode=str(raw_processing_meta.get("processing_mode") or processing_mode),
+            trigger_source=str(raw_processing_meta.get("trigger_source") or trigger_source),
+            request_anchor_time=raw_processing_meta.get("request_anchor_time") or start_time,
+            batch_cursor=(
+                str(raw_processing_meta.get("batch_cursor"))
+                if raw_processing_meta.get("batch_cursor") is not None
+                else None
+            ),
+            last_processed_heat_id=(
+                str(raw_processing_meta.get("last_processed_heat_id"))
+                if raw_processing_meta.get("last_processed_heat_id") is not None
+                else facts.heat_id
+            ),
+        )
+    else:
+        processing_meta = RuntimeProcessingMeta(
+            processing_mode=processing_mode,
+            trigger_source=trigger_source,
+            request_anchor_time=start_time,
+            batch_cursor=None,
+            last_processed_heat_id=facts.heat_id,
+        )
+    raw_preseal_payload = item.get("preseal_payload")
+    preseal_payload = (
+        RuntimePresealPayload(
+            heat_payload=dict(raw_preseal_payload.get("heat_payload") or {}),
+            binding_payloads=[
+                dict(binding_payload)
+                for binding_payload in (raw_preseal_payload.get("binding_payloads") or [])
+                if isinstance(binding_payload, dict)
+            ],
+            metric_series_payloads=[
+                dict(metric_payload)
+                for metric_payload in (raw_preseal_payload.get("metric_series_payloads") or [])
+                if isinstance(metric_payload, dict)
+            ],
+        )
+        if isinstance(raw_preseal_payload, dict)
+        else None
     )
     return CurrentHeatRuntime(
         facts=facts,
         bindings=_build_runtime_bindings(item),
         metric_series=metric_series,
+        preseal_payload=preseal_payload,
         processing_meta=processing_meta,
         refresh_meta={},
         power_curve=_coerce_curve_points(item.get("power_curve")),
@@ -2748,6 +2789,45 @@ def _mark_history_runtime(item: dict[str, Any]) -> dict[str, Any]:
     history_item["record_source"] = "sealed_history"
     history_item["sealed_at"] = utc_now()
     return history_item
+
+
+def _choose_next_previous_runtime(
+    *,
+    existing_active_item: dict[str, Any] | None,
+    existing_previous_item: dict[str, Any] | None,
+    next_active_candidate_id: str | None,
+    prepared_previous_candidate: dict[str, Any] | None,
+    reason: str,
+) -> dict[str, Any] | None:
+    existing_active_id = (
+        str(existing_active_item.get("id") or "") if isinstance(existing_active_item, dict) else None
+    )
+    active_rollover = bool(existing_active_id) and existing_active_id != (next_active_candidate_id or "")
+
+    if active_rollover:
+        if prepared_previous_candidate is not None:
+            previous_runtime = _build_current_heat_runtime(
+                prepared_previous_candidate,
+                trigger_source=reason,
+                processing_mode="live_incremental",
+            )
+            return _mark_previous_runtime(previous_runtime.to_runtime_item())
+        if isinstance(existing_active_item, dict):
+            return _mark_previous_runtime(dict(existing_active_item))
+        return None
+
+    if isinstance(existing_previous_item, dict):
+        return dict(existing_previous_item)
+
+    if prepared_previous_candidate is None:
+        return None
+
+    previous_runtime = _build_current_heat_runtime(
+        prepared_previous_candidate,
+        trigger_source=reason,
+        processing_mode="live_incremental",
+    )
+    return _mark_previous_runtime(previous_runtime.to_runtime_item())
 
 
 def _build_runtime_lookup_store() -> dict[str, dict[str, Any]]:
@@ -2953,12 +3033,16 @@ def _is_realtime_current_heat(item: dict[str, Any], *, now: datetime | None = No
 
 def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
     current_time = utc_now()
+    context_start_time = item.get("context_start_time") or item["start_time"]
+    context_end_time = item.get("context_end_time") or item["end_time"]
     return HeatResponse(
         id=item["id"],
         heat_no=item["heat_no"],
         description=item.get("description"),
         start_time=item["start_time"],
         end_time=item["end_time"],
+        context_start_time=context_start_time,
+        context_end_time=context_end_time,
         is_manually_adjusted=bool(item.get("is_manually_adjusted") or False),
         completion_status=str(item.get("completion_status") or "completed"),
         last_point_at=item.get("last_point_at"),
@@ -3549,6 +3633,8 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
     compare_display_start, compare_display_end = _resolve_compare_display_window(
         item["start_time"],
         item["end_time"],
+        context_start_time=item.get("context_start_time"),
+        context_end_time=item.get("context_end_time"),
     )
     compare_channels = _collect_compare_metric_channels(baseline_ids)
     is_sealed_history = str(item.get("record_source") or "") == "sealed_history"
@@ -3641,7 +3727,6 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
 
     response_item = _build_heat_compare_view(item)
     heat = _to_heat_with_curve(response_item)
-    current_power_curve = _coerce_curve_points(response_item.get("power_curve"))
     binding_map = _binding_by_baseline_id(item)
     baseline_compares: list[BaselineCompareItem] = []
     for idx, baseline_id in enumerate(baseline_ids):
@@ -3668,46 +3753,19 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         baseline_curve_points = _select_metric_curve(metric_curves, "power")
         baseline_voltage_curve_points = _select_metric_curve(metric_curves, "voltage")
 
-        baseline_curve = _curve_points_to_pairs(baseline_curve_points)
-        current_curve = _curve_points_to_pairs(current_power_curve)
         tolerance = float(
             (binding_summary or {}).get("tolerance_percent")
             or (baseline_item or {}).get("tolerance_percent")
             or 15.0
         )
-        computed_result = deviation_service.calculate_deviation(
-            baseline_curve=baseline_curve,
-            current_curve=current_curve,
-            tolerance=tolerance,
-        )
-
-        if (
-            is_sealed_history
-            and binding_summary is not None
-            and str(binding_summary.get("analysis_status") or "") == "ready"
-        ):
+        if binding_summary is not None and str(binding_summary.get("analysis_status") or "") == "ready":
             deviation_ranges = _binding_deviation_ranges(binding_summary)
-            deviation_ranges = _ensure_deviation_ranges(
-                {
-                    **response_item,
-                    "deviation_percent": binding_summary.get("deviation_percent"),
-                },
-                deviation_ranges,
-            )
             max_deviation = binding_summary.get("deviation_percent")
             avg_deviation = binding_summary.get("avg_deviation_percent")
         else:
-            deviation_ranges = [
-                DeviationRange(
-                    start=int(item_range["start"]),
-                    end=int(item_range["end"]),
-                    deviation=float(item_range["deviation"]),
-                )
-                for item_range in computed_result["abnormal_ranges"]
-            ]
-            deviation_ranges = _ensure_deviation_ranges(response_item, deviation_ranges)
-            max_deviation = computed_result["max_deviation"]
-            avg_deviation = computed_result["avg_deviation"]
+            deviation_ranges = []
+            max_deviation = None
+            avg_deviation = None
 
         baseline_compares.append(
             BaselineCompareItem(
@@ -3748,109 +3806,3 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         duration_ms=round((perf_counter() - started_at) * 1000, 1),
     )
     return response
-
-
-@router.post("/{heat_id}/analyze", response_model=HeatAnalyzeResponse)
-async def analyze_heat(heat_id: str, data: HeatAnalyzeRequest) -> HeatAnalyzeResponse:
-    """触发炉次偏差分析。"""
-    await _ensure_formal_baseline_mirrors_loaded()
-    item = await _get_or_404(heat_id)
-    await _ensure_formal_baseline_mirrors_loaded(
-        definition_id=str(item.get("baseline_definition_id") or "") or None,
-        baseline_id=_resolve_primary_baseline_id(item),
-    )
-    canonical_heat_id = str(item["id"])
-    baseline_id = data.baseline_id or _resolve_primary_baseline_id(item)
-    if not baseline_id:
-        raise HTTPException(status_code=400, detail="炉次未绑定基线，无法执行偏差分析。")
-
-    if str(item.get("record_source") or "") == "sealed_history":
-        binding_summary = _binding_by_baseline_id(item).get(baseline_id)
-        if binding_summary is None:
-            raise HTTPException(status_code=400, detail="指定基线未绑定到该炉次。")
-        hydrated_baselines = await _hydrate_compare_baselines([baseline_id])
-        baseline_item = hydrated_baselines.get(baseline_id) or _BASELINE_STORE.get(baseline_id)
-        if not baseline_item:
-            raise HTTPException(status_code=400, detail="指定基线不存在或尚未准备完成。")
-        baseline_curve_points = _rebase_curve_points_to_window(
-            baseline_item.get("power_curve"),
-            target_start_time=item["start_time"],
-            target_end_time=item["end_time"],
-        )
-        current_curve_points = _coerce_curve_points(item.get("power_curve"))
-        if not baseline_curve_points or not current_curve_points:
-            raise HTTPException(status_code=400, detail="当前炉次或基线曲线数据不足，无法执行偏差分析。")
-        result = deviation_service.calculate_deviation(
-            baseline_curve=[
-                (float(point.timestamp), float(point.value)) for point in baseline_curve_points
-            ],
-            current_curve=[
-                (float(point.timestamp), float(point.value)) for point in current_curve_points
-            ],
-            tolerance=float(
-                binding_summary.get("tolerance_percent")
-                or baseline_item.get("tolerance_percent")
-                or 15.0
-            ),
-        )
-        if await save_formal_heat_analysis(
-            canonical_heat_id,
-            baseline_id=baseline_id,
-            max_deviation=result["max_deviation"],
-            avg_deviation=result["avg_deviation"],
-            status=result["status"],
-            abnormal_ranges=result["abnormal_ranges"],
-        ) is None:
-            raise HTTPException(status_code=404, detail="炉次不存在")
-        invalidate_compare_runtime_caches(canonical_heat_id)
-        return HeatAnalyzeResponse(
-            heat_id=canonical_heat_id,
-            baseline_id=baseline_id,
-            max_deviation=result["max_deviation"],
-            avg_deviation=result["avg_deviation"],
-            status=result["status"],
-            deviation_ranges=[
-                DeviationRange(
-                    start=int(item_range["start"]),
-                    end=int(item_range["end"]),
-                    deviation=float(item_range["deviation"]),
-                )
-                for item_range in result["abnormal_ranges"]
-            ],
-        )
-
-    item = _ensure_persisted_heat(item)
-    await _hydrate_heat_item(item)
-
-    baseline_curve = [
-        (float(point.timestamp), float(point.value)) for point in item["baseline_power_curve"]
-    ]
-    current_curve = [(float(point.timestamp), float(point.value)) for point in item["power_curve"]]
-    result = deviation_service.calculate_deviation(
-        baseline_curve=baseline_curve,
-        current_curve=current_curve,
-        tolerance=15.0,
-    )
-
-    item["baseline_id"] = baseline_id
-    item["deviation_percent"] = result["max_deviation"]
-    item["avg_deviation_percent"] = result["avg_deviation"]
-    item["status"] = result["status"]
-    await persist_runtime_state(*_runtime_heat_sections())
-    invalidate_compare_runtime_caches(canonical_heat_id)
-
-    return HeatAnalyzeResponse(
-        heat_id=canonical_heat_id,
-        baseline_id=baseline_id,
-        max_deviation=result["max_deviation"],
-        avg_deviation=result["avg_deviation"],
-        status=result["status"],
-        deviation_ranges=[
-            DeviationRange(
-                start=int(item_range["start"]),
-                end=int(item_range["end"]),
-                deviation=float(item_range["deviation"]),
-            )
-            for item_range in result["abnormal_ranges"]
-        ],
-    )

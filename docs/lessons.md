@@ -21,6 +21,20 @@
 
 ## 记录
 
+### 2026-04-08 compare 接口必须显式给出上下文窗口，前端不能再靠裁曲线或猜点范围决定显示口径
+
+- **错误模式**: 后端 compare 已返回更宽的 `current_curve`，但接口没有把 `context_start_time / context_end_time` 作为显式契约带出来，前端于是继续把“摘要判断逻辑”和“图表显示逻辑”混在一起，最终把上下文曲线又裁回当前炉次本体。
+- **正确做法**: compare 这类“核心窗口 + 展示上下文窗口”并存的接口，必须显式输出上下文边界。前端图表直接显示上下文曲线，只在局部业务判断里按核心窗口裁剪；不要再让 UI 靠点集范围猜窗口，也不要用核心曲线做 silent fallback。
+- **适用场景**: 炉次详情 compare、任何同时存在“业务本体时间窗”和“展示上下文时间窗”的图表接口、需要前后文但又要保留核心边界识别的工业时序页面。
+- **相关文档**: `apps/server/src/api/heats.py`, `apps/server/src/schemas/heat.py`, `apps/web/src/views/HeatDetailView.vue`, `docs/heat-compare-context-display-plan.md`
+
+### 2026-04-08 炉次偏离度不能继续挂在详情/compare 请求阶段现场补算
+
+- **错误模式**: 正式炉次和 runtime 里只存了 `pending / null`，列表字段、详情 compare、甚至任务快照却又在请求阶段按曲线现场重算偏离度。结果就是“列表空、详情有值、DB 还是空”，同一业务事实在不同 API 上分裂成两套口径。
+- **正确做法**: 偏离度必须在后端主链里统一计算并落到 binding 上，再由列表 / 详情 / compare / 任务等接口只读透传。`compare` 最多负责组装展示曲线，不能再承担业务真源补算；如果 binding 还是 `pending`，接口就应明确返回空分析结果，而不是偷偷 fallback 现算。
+- **适用场景**: 运行态 + 正式表并存、需要列表/详情/任务共享同一业务分析字段、任何“用户点进详情页才把业务结果算出来”的后端设计。
+- **相关文档**: `apps/server/src/services/heat_deviation_analysis_service.py`, `apps/server/src/services/formal_heat_service.py`, `apps/server/src/api/heats.py`
+
 ### 2026-04-07 SQLite 上的长任务状态查询不能每次都直读正式表
 
 - **错误模式**: replay job 正在运行或刚收到取消时，前台轮询 `GET /api/heats/replay-jobs/{job_id}` 仍然每次都去 SQLite 读正式表；与此同时后台 worker 也在同一张 `heat_replay_jobs` 表上 commit 进度或最终状态。SQLite 单文件锁下，读轮询会反向把写 commit 卡住，最后表面看起来像“取消时写 cancelled 失败”。

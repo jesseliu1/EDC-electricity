@@ -158,7 +158,7 @@ const primaryComparisonMetric = computed<{
     unit: 'kW',
     color: '#409EFF',
     baseline_curve: current.value?.baselinePowerCurve || [],
-    current_curve: current.value?.powerCurve || [],
+    current_curve: [],
   }
   if (comparisonMetricCurves.value.length > 0) {
     return (
@@ -358,7 +358,17 @@ function clipCurveToWindow(
   return curve.filter((point) => point.timestamp >= start && point.timestamp <= end)
 }
 
-const compareCoreWindow = computed(() => {
+function inferCurveWindow(curves: Array<Array<{ timestamp: number; value: number }>>) {
+  const timestamps = curves.flatMap((curve) => curve.map((point) => point.timestamp))
+  if (timestamps.length === 0) return null
+
+  return {
+    start: Math.min(...timestamps),
+    end: Math.max(...timestamps),
+  }
+}
+
+const heatCoreWindow = computed(() => {
   if (!current.value) return null
   const heatEnd = isInProgress.value
     ? current.value.base.lastPointAt || Date.now()
@@ -367,6 +377,32 @@ const compareCoreWindow = computed(() => {
     start: current.value.base.startTime,
     end: heatEnd,
   }
+})
+
+const compareContextWindow = computed(() => {
+  if (!current.value) return null
+  const explicitStart = normalizedTimestamp(current.value.base.contextStartTime)
+  const explicitEnd = normalizedTimestamp(current.value.base.contextEndTime)
+  if (
+    explicitStart !== null &&
+    explicitEnd !== null &&
+    explicitStart <= explicitEnd &&
+    heatCoreWindow.value
+  ) {
+    return {
+      start: Math.min(explicitStart, heatCoreWindow.value.start),
+      end: Math.max(explicitEnd, heatCoreWindow.value.end),
+    }
+  }
+
+  const metricCurves =
+    comparisonMetricCurves.value.length > 0
+      ? comparisonMetricCurves.value
+      : [primaryComparisonMetric.value]
+  return (
+    inferCurveWindow(metricCurves.map((metric) => metric.current_curve)) ||
+    heatCoreWindow.value
+  )
 })
 
 const endTimeDisplay = computed(() => {
@@ -391,11 +427,11 @@ const shouldShowSourceBanner = computed(() => {
 const selectedComparisonOverlap = computed(() => {
   if (!selectedComparison.value) return null
   const primaryMetric = primaryComparisonMetric.value
-  const clippedCurrentCurve = compareCoreWindow.value
+  const clippedCurrentCurve = heatCoreWindow.value
     ? clipCurveToWindow(
         primaryMetric.current_curve,
-        compareCoreWindow.value.start,
-        compareCoreWindow.value.end
+        heatCoreWindow.value.start,
+        heatCoreWindow.value.end
       )
     : primaryMetric.current_curve
   if (!areCurvesFullyOverlapped(primaryMetric.baseline_curve, clippedCurrentCurve)) {
@@ -420,26 +456,8 @@ const compareOption = computed<EChartsOption>(() => {
     comparisonMetricCurves.value.length > 0
       ? comparisonMetricCurves.value
       : [primaryComparisonMetric.value]
-  const clippedMetricCurves = metricCurves.map((metric) => ({
-    ...metric,
-    current_curve: compareCoreWindow.value
-      ? clipCurveToWindow(
-          metric.current_curve,
-          compareCoreWindow.value.start,
-          compareCoreWindow.value.end
-        )
-      : metric.current_curve,
-  }))
-  const units = Array.from(new Set(clippedMetricCurves.map((item) => item.unit)))
-  const firstCurrentCurve =
-    clippedMetricCurves[0]?.current_curve ||
-    (compareCoreWindow.value
-      ? clipCurveToWindow(
-          current.value.powerCurve,
-          compareCoreWindow.value.start,
-          compareCoreWindow.value.end
-        )
-      : current.value.powerCurve)
+  const units = Array.from(new Set(metricCurves.map((item) => item.unit)))
+  const firstCurrentCurve = metricCurves[0]?.current_curve || []
   const deviationRanges =
     selectedComparison.value?.deviation_ranges || current.value.deviationRanges
 
@@ -456,8 +474,8 @@ const compareOption = computed<EChartsOption>(() => {
     },
     xAxis: {
       type: 'time',
-      min: compareCoreWindow.value?.start,
-      max: compareCoreWindow.value?.end,
+      min: compareContextWindow.value?.start,
+      max: compareContextWindow.value?.end,
       axisLabel: {
         formatter: (value: number) => formatTimestamp(value, 'HH:mm'),
       },
@@ -469,7 +487,7 @@ const compareOption = computed<EChartsOption>(() => {
       offset: index > 1 ? Math.floor((index - 1) / 2) * 56 : 0,
       splitLine: index === 0 ? { lineStyle: { color: '#e2e8f0' } } : { show: false },
     })),
-    series: clippedMetricCurves.flatMap((metric, index) => [
+    series: metricCurves.flatMap((metric, index) => [
       {
         name: `${metric.metric_name}-${t('dashboard.chart.goldenBaseline')}`,
         type: 'line',
@@ -503,6 +521,22 @@ const compareOption = computed<EChartsOption>(() => {
                 ]),
               }
             : undefined,
+        markLine:
+          index === 0 && heatCoreWindow.value
+            ? {
+                symbol: 'none',
+                label: { show: false },
+                lineStyle: {
+                  color: 'rgba(15, 23, 42, 0.42)',
+                  type: 'dashed',
+                  width: 1.5,
+                },
+                data: [
+                  { xAxis: heatCoreWindow.value.start },
+                  { xAxis: heatCoreWindow.value.end },
+                ],
+              }
+            : undefined,
         data: metric.current_curve.map((point) => [point.timestamp, point.value]),
       },
     ]),
@@ -513,6 +547,13 @@ const compareOption = computed<EChartsOption>(() => {
 const compareRuntimeSeriesSummary = computed(() =>
   JSON.stringify(summarizeChartSeries(compareOption.value))
 )
+
+const compareChartWindowAttrs = computed(() => ({
+  displayStart: compareContextWindow.value?.start ?? '',
+  displayEnd: compareContextWindow.value?.end ?? '',
+  coreStart: heatCoreWindow.value?.start ?? '',
+  coreEnd: heatCoreWindow.value?.end ?? '',
+}))
 
 const manualAdjustContext = computed(() => {
   if (!current.value) {
@@ -1232,6 +1273,10 @@ onBeforeUnmount(() => {
             :data-runtime-series-summary="compareRuntimeSeriesSummary"
             :data-active-baseline-id="selectedComparison?.baseline.id || ''"
             :data-active-baseline-name="selectedComparison?.baseline.name || ''"
+            :data-display-start="compareChartWindowAttrs.displayStart"
+            :data-display-end="compareChartWindowAttrs.displayEnd"
+            :data-core-start="compareChartWindowAttrs.coreStart"
+            :data-core-end="compareChartWindowAttrs.coreEnd"
           />
         </div>
 

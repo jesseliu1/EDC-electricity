@@ -282,6 +282,8 @@ async function mockHeatAcceptance(
   page: Page,
   options?: { cutReason?: string; useExtendedCompareCurrentCurve?: boolean }
 ) {
+  const heatStart = toTimestampMs('2026-03-13T08:36:00Z')
+  const heatEnd = toTimestampMs('2026-03-13T09:21:00Z')
   const powerCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 438, 6)
   const voltageCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 386, 1.5)
   const temperatureCurve = buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 1462, 6)
@@ -298,6 +300,8 @@ async function mockHeatAcceptance(
   const comparePressureCurve = options?.useExtendedCompareCurrentCurve
     ? buildCurvePoints('2026-03-13T07:36:00Z', 166, 1, 0.82, 0.03)
     : pressureCurve
+  const contextStart = comparePowerCurve[0]?.timestamp ?? heatStart
+  const contextEnd = comparePowerCurve[comparePowerCurve.length - 1]?.timestamp ?? heatEnd
   const cutReason = options?.cutReason || 'time_offset_exceed'
 
   await page.route('**/api/heats/issue-heat', async (route) => {
@@ -305,8 +309,10 @@ async function mockHeatAcceptance(
       id: 'issue-heat',
       heat_no: 'H20260313-001',
       description: null,
-      start_time: '2026-03-13T08:36:00Z',
-      end_time: '2026-03-13T09:21:00Z',
+      start_time: heatStart,
+      end_time: heatEnd,
+      context_start_time: contextStart,
+      context_end_time: contextEnd,
       baseline_id: 'baseline-001',
       deviation_percent: 18.5,
       avg_deviation_percent: 9.2,
@@ -319,7 +325,7 @@ async function mockHeatAcceptance(
       blocked_by_issue: false,
       status: 'abnormal',
       temperature: 1458,
-      created_at: '2026-03-13T08:36:00Z',
+      created_at: heatStart,
     })
   })
 
@@ -328,8 +334,10 @@ async function mockHeatAcceptance(
       id: 'issue-heat',
       heat_no: 'H20260313-001',
       description: null,
-      start_time: '2026-03-13T08:36:00Z',
-      end_time: '2026-03-13T09:21:00Z',
+      start_time: heatStart,
+      end_time: heatEnd,
+      context_start_time: contextStart,
+      context_end_time: contextEnd,
       baseline_id: 'baseline-001',
       deviation_percent: 18.5,
       avg_deviation_percent: 9.2,
@@ -342,7 +350,7 @@ async function mockHeatAcceptance(
       blocked_by_issue: false,
       status: 'abnormal',
       temperature: 1458,
-      created_at: '2026-03-13T08:36:00Z',
+      created_at: heatStart,
       power_curve: powerCurve,
       voltage_curve: voltageCurve,
     })
@@ -354,8 +362,10 @@ async function mockHeatAcceptance(
         id: 'issue-heat',
         heat_no: 'H20260313-001',
         description: null,
-        start_time: '2026-03-13T08:36:00Z',
-        end_time: '2026-03-13T09:21:00Z',
+        start_time: heatStart,
+        end_time: heatEnd,
+        context_start_time: contextStart,
+        context_end_time: contextEnd,
         baseline_id: 'baseline-001',
         deviation_percent: 18.5,
         avg_deviation_percent: 9.2,
@@ -368,7 +378,7 @@ async function mockHeatAcceptance(
         blocked_by_issue: false,
         status: 'abnormal',
         temperature: 1458,
-        created_at: '2026-03-13T08:36:00Z',
+        created_at: heatStart,
         power_curve: powerCurve,
         voltage_curve: voltageCurve,
       },
@@ -570,8 +580,10 @@ async function mockHeatAcceptance(
         id: 'issue-heat',
         heat_no: 'H20260313-001',
         description: null,
-        start_time: payload.start_time || '2026-03-13T08:36:00Z',
-        end_time: payload.end_time || '2026-03-13T09:21:00Z',
+        start_time: payload.start_time || heatStart,
+        end_time: payload.end_time || heatEnd,
+        context_start_time: contextStart,
+        context_end_time: contextEnd,
         baseline_id: 'baseline-001',
         deviation_percent: 18.5,
         avg_deviation_percent: 9.2,
@@ -584,7 +596,7 @@ async function mockHeatAcceptance(
         blocked_by_issue: false,
         status: 'abnormal',
         temperature: 1458,
-        created_at: '2026-03-13T08:36:00Z',
+        created_at: heatStart,
       })
       return
     }
@@ -856,22 +868,38 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(chartRoot).toHaveAttribute('data-series-count', '8')
   })
 
-  test('heat detail compare chart clips extended current curves to the heat window', async ({
+  test('heat detail compare chart keeps extended current curves and exposes context window', async ({
     page,
   }) => {
     await mockHeatAcceptance(page, { useExtendedCompareCurrentCurve: true })
     await page.goto('heats/issue-heat')
 
     await expect(page.getByTestId('heat-detail-page')).toBeVisible()
+    await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute(
+      'data-display-start',
+      String(toTimestampMs('2026-03-13T07:36:00Z'))
+    )
+    await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute(
+      'data-display-end',
+      String(toTimestampMs('2026-03-13T10:21:00Z'))
+    )
+    await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute(
+      'data-core-start',
+      String(toTimestampMs('2026-03-13T08:36:00Z'))
+    )
+    await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute(
+      'data-core-end',
+      String(toTimestampMs('2026-03-13T09:21:00Z'))
+    )
 
     const defaultSeries = await readChartRuntimeSeriesSummary(page, 'heat-compare-chart')
     expect(defaultSeries[0]?.pointCount).toBe(46)
-    expect(defaultSeries[1]?.pointCount).toBe(46)
+    expect(defaultSeries[1]?.pointCount).toBe(166)
 
     await page.getByRole('tab', { name: '高功率基线' }).click()
     const alternateSeries = await readChartRuntimeSeriesSummary(page, 'heat-compare-chart')
     expect(alternateSeries[0]?.pointCount).toBe(46)
-    expect(alternateSeries[1]?.pointCount).toBe(46)
+    expect(alternateSeries[1]?.pointCount).toBe(166)
   })
 
   test('heat detail localizes abnormal range labels and inferred cut reasons', async ({ page }) => {

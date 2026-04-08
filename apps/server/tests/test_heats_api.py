@@ -650,6 +650,52 @@ async def test_heat_compare_prefers_edc_curves_when_available(client, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_heat_compare_exposes_context_window_and_prefers_runtime_context_for_display_curves(
+    client, monkeypatch
+) -> None:
+    import src.api.heats as heats_module
+
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heat_id = _seed_runtime_heat()
+    runtime_item = heats_module._ACTIVE_HEAT_RUNTIME[heat_id]
+    runtime_item["context_start_time"] = runtime_item["start_time"] - timedelta(minutes=40)
+    runtime_item["context_end_time"] = runtime_item["end_time"] + timedelta(minutes=25)
+
+    observed_windows: list[tuple[datetime, datetime]] = []
+
+    async def fake_load_channel_curves_from_edc(*, start_time, end_time, **_kwargs):
+        observed_windows.append((start_time, end_time))
+        return {
+            "2349:199": [
+                CurvePoint(timestamp=1000, value=501.0),
+                CurvePoint(timestamp=2000, value=502.0),
+            ],
+            "2349:128": [
+                CurvePoint(timestamp=1000, value=331.0),
+                CurvePoint(timestamp=2000, value=332.0),
+            ],
+        }
+
+    monkeypatch.setattr(
+        "src.api.heats._load_channel_curves_from_edc",
+        fake_load_channel_curves_from_edc,
+    )
+
+    compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
+    assert compare_resp.status_code == 200
+    payload = compare_resp.json()
+    assert payload["heat"]["context_start_time"] == int(
+        runtime_item["context_start_time"].timestamp() * 1000
+    )
+    assert payload["heat"]["context_end_time"] == int(
+        runtime_item["context_end_time"].timestamp() * 1000
+    )
+    assert len(observed_windows) == 2
+    assert observed_windows[1][0] == runtime_item["context_start_time"]
+    assert observed_windows[1][1] == runtime_item["context_end_time"]
+
+
+@pytest.mark.asyncio
 async def test_get_heat_curve_prefers_live_heat_curves(client, monkeypatch) -> None:
     import src.api.heats as heats_module
 
@@ -1169,20 +1215,12 @@ async def test_cutting_timeline_uses_abnormal_outcome_for_abnormal_heat(client) 
 
 
 @pytest.mark.asyncio
-async def test_analyze_heat_updates_status(client) -> None:
+async def test_analyze_route_is_removed(client) -> None:
     list_resp = await client.get("/api/heats", params={"page_size": 1})
     heat_id = list_resp.json()["items"][0]["id"]
 
     analyze_resp = await client.post(f"/api/heats/{heat_id}/analyze", json={})
-    assert analyze_resp.status_code == 200
-    analyze_data = analyze_resp.json()
-    assert analyze_data["heat_id"] == heat_id
-    assert analyze_data["status"] in {"normal", "abnormal"}
-
-    detail_resp = await client.get(f"/api/heats/{heat_id}")
-    assert detail_resp.status_code == 200
-    detail_data = detail_resp.json()
-    assert detail_data["status"] == analyze_data["status"]
+    assert analyze_resp.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -1383,8 +1421,8 @@ async def test_list_heats_does_not_alias_stale_live_record_into_all_current_rows
     assert len(runtime_items) == 2
     assert all(from_timestamp_ms(item["start_time"]).date() == datetime(2026, 3, 23).date() for item in runtime_items)
     assert history_items
-    assert all(item["deviation_percent"] is None for item in runtime_items)
-    assert all(item["avg_deviation_percent"] is None for item in runtime_items)
+    assert all(item["deviation_percent"] is not None for item in runtime_items)
+    assert all(item["avg_deviation_percent"] is not None for item in runtime_items)
     assert all(item["deviation_percent"] != 697.4947 for item in runtime_items)
     assert all(item["avg_deviation_percent"] != 697.4947 for item in runtime_items)
 
@@ -1559,10 +1597,9 @@ async def test_active_runtime_ids_remain_resolvable_across_detail_compare_and_ti
     compare_response = await client.get(f"/api/heats/{active_item['id']}/compare")
     assert compare_response.status_code == 200
     assert compare_response.json()["heat"]["id"] == active_item["id"]
-
-    analyze_response = await client.post(f"/api/heats/{active_item['id']}/analyze", json={})
-    assert analyze_response.status_code == 200
-    assert analyze_response.json()["heat_id"] == active_item["id"]
+    assert compare_response.json()["max_deviation"] == pytest.approx(
+        active_item["deviation_percent"]
+    )
 
     timeline_response = await client.get(f"/api/heats/{active_item['id']}/cutting-timeline")
     assert timeline_response.status_code == 200
@@ -1667,6 +1704,65 @@ async def test_previous_runtime_id_stays_resolvable_after_rollover(
         f"/api/heats/{previous_runtime_item['id']}/cutting-timeline"
     )
     assert timeline_response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_previous_runtime_deviation_stays_frozen_while_active_id_is_unchanged(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    base_points = _build_live_power_points_with_heat_count(datetime(2026, 3, 19, 8, 0), 3)
+    current_points = list(base_points)
+
+    async def fake_load_live_heat_inference_power_points(_channel):
+        return current_points
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+    heats_module._HEAT_ID_ALIAS_STORE.clear()
+
+    await heats_module.refresh_heat_runtime_state(reason="test")
+    first_payload = (await client.get("/api/heats", params={"page_size": 20})).json()
+    first_active_item = next(
+        item for item in first_payload["items"] if item["record_source"] == "active_runtime"
+    )
+    first_previous_item = next(
+        item for item in first_payload["items"] if item["record_source"] == "previous_runtime"
+    )
+    assert first_previous_item["deviation_percent"] is not None
+
+    current_points = [
+        CurvePoint(timestamp=int(point.timestamp), value=float(point.value) + 20.0)
+        for point in base_points
+    ]
+    await heats_module.refresh_heat_runtime_state(reason="test")
+
+    second_payload = (await client.get("/api/heats", params={"page_size": 20})).json()
+    second_active_item = next(
+        item for item in second_payload["items"] if item["record_source"] == "active_runtime"
+    )
+    second_previous_item = next(
+        item for item in second_payload["items"] if item["record_source"] == "previous_runtime"
+    )
+
+    assert second_active_item["id"] == first_active_item["id"]
+    assert second_previous_item["id"] == first_previous_item["id"]
+    assert second_previous_item["deviation_percent"] == pytest.approx(
+        first_previous_item["deviation_percent"]
+    )
 
 @pytest.mark.asyncio
 async def test_create_baseline_from_runtime_heat_id_keeps_same_source_heat_id(

@@ -7,6 +7,7 @@ from .edc_client import (
     close_shared_edc_clients,
     get_shared_edc_client,
 )
+from .heat_deviation_analysis_service import HeatDeviationAnalysisService
 from .formal_baseline_service import (
     add_definition_metric,
     create_baseline_record,
@@ -44,7 +45,6 @@ from .formal_heat_service import (
     persist_sealed_heat_candidates,
     replace_heat_range,
     resume_formal_heat_cutting,
-    save_formal_heat_analysis,
     update_formal_heat_record,
 )
 
@@ -54,6 +54,7 @@ __all__ = [
     "EDCClientError",
     "close_shared_edc_clients",
     "get_shared_edc_client",
+    "HeatDeviationAnalysisService",
     "add_definition_metric",
     "create_baseline_record",
     "create_definition_record",
@@ -88,6 +89,5 @@ __all__ = [
     "persist_sealed_heat_candidates",
     "replace_heat_range",
     "resume_formal_heat_cutting",
-    "save_formal_heat_analysis",
     "update_formal_heat_record",
 ]

@@ -21,6 +21,8 @@ class HeatResponse(BaseModel):
     description: str | None = Field(default=None, description="炉次描述")
     start_time: TimestampMs = Field(..., description="开始时间")
     end_time: TimestampMs = Field(..., description="结束时间")
+    context_start_time: OptionalTimestampMs = Field(default=None, description="上下文开始时间")
+    context_end_time: OptionalTimestampMs = Field(default=None, description="上下文结束时间")
     is_manually_adjusted: bool = Field(default=False, description="是否已被用户手动修改")
     completion_status: str = Field(default="completed", description="完成状态: completed/in_progress")
     last_point_at: OptionalTimestampMs = Field(default=None, description="当前已采样到的最后时间")
@@ -121,23 +123,6 @@ class HeatListResponse(BaseModel):
     )
     refresh_error: str | None = Field(default=None, description="最近一次刷新错误")
     refresh_failure_count: int = Field(default=0, description="连续刷新失败次数")
-
-
-class HeatAnalyzeRequest(BaseModel):
-    """炉次分析请求"""
-
-    baseline_id: str | None = Field(default=None, description="指定基线ID，为空则使用当前激活基线")
-
-
-class HeatAnalyzeResponse(BaseModel):
-    """炉次分析响应"""
-
-    heat_id: str = Field(..., description="炉次ID")
-    baseline_id: str = Field(..., description="使用的基线ID")
-    max_deviation: float = Field(..., description="最大偏差百分比")
-    avg_deviation: float = Field(..., description="平均偏差百分比")
-    status: str = Field(..., description="分析结果状态")
-    deviation_ranges: list[DeviationRange] = Field(..., description="偏差区间列表")
 
 
 class HeatUpdate(BaseModel):

@@ -75,6 +75,7 @@ class RuntimeHeatBinding:
     analysis_status: str
     deviation_percent: float | None
     avg_deviation_percent: float | None
+    deviation_details_json: str | None
     time_offset_percent: float | None
     mismatch_duration_minutes: float | None
 
@@ -91,6 +92,7 @@ class RuntimeHeatBinding:
             "analysis_status": self.analysis_status,
             "deviation_percent": self.deviation_percent,
             "avg_deviation_percent": self.avg_deviation_percent,
+            "deviation_details_json": self.deviation_details_json,
             "time_offset_percent": self.time_offset_percent,
             "mismatch_duration_minutes": self.mismatch_duration_minutes,
         }
