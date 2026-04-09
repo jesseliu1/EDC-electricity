@@ -382,13 +382,12 @@ apps/server/
 | 5 | `effective_from_snapshot` | `int64(timestamp_ms)` | 否 | 否 | 绑定时的基线生效时间快照 |
 | 6 | `tolerance_percent_snapshot` | `float` | 否 | 否 | 绑定时容许误差快照 |
 | 7 | `analysis_status` | `string(20)` | 否 | 是 | 分析状态，`pending / ready` |
-| 8 | `deviation_percent` | `float` | 否 | 否 | 该绑定的最大偏离度 |
-| 9 | `avg_deviation_percent` | `float` | 否 | 否 | 该绑定的平均偏离度 |
-| 10 | `deviation_details_json` | `text` | 否 | 否 | 该绑定的偏离详情 JSON |
-| 11 | `time_offset_percent` | `float` | 否 | 否 | 该绑定的时间偏移比例 |
-| 12 | `mismatch_duration_minutes` | `float` | 否 | 否 | 该绑定的连续不一致时长 |
-| 13 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
-| 14 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
+| 8 | `deviation_score` | `float` | 否 | 否 | 该绑定的统一偏离分数 |
+| 9 | `avg_deviation_score` | `float` | 否 | 否 | 该绑定的平均偏离分数 |
+| 10 | `analysis_details_json` | `text` | 否 | 否 | 该绑定的统一分析详情 JSON |
+| 11 | `abnormal_duration_minutes` | `float` | 否 | 否 | 该绑定的连续异常时长 |
+| 12 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 13 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
 
 样例：
 
@@ -401,15 +400,14 @@ apps/server/
   "effective_from_snapshot": 1775222160000,
   "tolerance_percent_snapshot": 15,
   "analysis_status": "ready",
-  "deviation_percent": 12.8,
-  "avg_deviation_percent": 7.3,
-  "deviation_details_json": {
+  "deviation_score": 3.82,
+  "avg_deviation_score": 2.47,
+  "analysis_details_json": {
     "abnormal_ranges": [
-      { "start": 1775219220000, "end": 1775219460000, "deviation": 16.2 }
+      { "start": 1775219220000, "end": 1775219460000, "score": 4.16 }
     ]
   },
-  "time_offset_percent": 4.2,
-  "mismatch_duration_minutes": 3,
+  "abnormal_duration_minutes": 3,
   "created_at": 1775220720000,
   "updated_at": 1775220780000
 }
@@ -475,7 +473,7 @@ apps/server/
 - 自动固化路径应尽量按时间顺序生成炉次，通常不会自然产生重复炉次
 - 若用户在页面上手动修正并保存某条炉次，允许该炉次与相邻炉次在 `start_time / end_time` 上出现合法 overlap
 - `is_manually_adjusted=1` 表示该炉次已经被用户手动保存过修改
-- 列表摘要里的 `baseline_id / deviation_percent / mismatch_duration_minutes` 由 `heat_baseline_bindings.is_primary=1` 派生
+- 列表摘要里的 `baseline_id / deviation_score / abnormal_duration_minutes` 由 `heat_baseline_bindings.is_primary=1` 派生
 
 ### 2.8 `tasks`
 
@@ -486,8 +484,8 @@ apps/server/
 | 3 | `heat_id` | `string(36)` | 否 | 是 | 对应炉次 ID |
 | 4 | `baseline_definition_id_snapshot` | `string(36)` | 否 | 否 | 任务创建时基线定义快照 |
 | 5 | `baseline_item_snapshot` | `string(3)` | 否 | 否 | 任务创建时基线版本项快照 |
-| 6 | `deviation_percent` | `float` | 否 | 是 | 偏离度快照 |
-| 7 | `deviation_snapshot_json` | `text` | 否 | 是 | 偏离详情快照 |
+| 6 | `deviation_score` | `float` | 否 | 否 | 偏离分数快照 |
+| 7 | `analysis_snapshot_json` | `text` | 否 | 是 | 统一分析详情快照 |
 | 8 | `cause_analysis` | `text` | 否 | 否 | 原因分析 |
 | 9 | `improvement` | `text` | 否 | 否 | 改善措施 |
 | 10 | `prevention` | `text` | 否 | 否 | 预防措施 |
@@ -601,7 +599,7 @@ erDiagram
   - `baseline_ids`
   - `baseline_bindings`
   - `is_primary`
-  - `analysis_status / deviation_percent / avg_deviation_percent`
+  - `analysis_status / deviation_score / avg_deviation_score`
 - 当前炉次 `metric_series` 保留与正式 `metric_series` 相同的结构：
   - `owner_key`
   - `item`

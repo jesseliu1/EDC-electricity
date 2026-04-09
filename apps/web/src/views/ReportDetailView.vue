@@ -102,7 +102,7 @@ watch(
             <span class="material-symbols-outlined text-slate-200 text-3xl group-hover:text-orange-500 transition-colors">trending_up</span>
           </div>
           <div class="mt-2 text-3xl font-bold text-slate-800">
-            {{ detail.avgDeviation }}%
+            {{ detail.avgDeviationScore }}
           </div>
         </div>
 

@@ -36,11 +36,11 @@ class Task(Base):
     baseline_item_snapshot: Mapped[str | None] = mapped_column(
         String(3), nullable=True, comment="任务创建时基线版本项快照"
     )
-    deviation_percent: Mapped[float] = mapped_column(
-        Float, nullable=False, comment="任务创建时偏离度快照"
+    deviation_score: Mapped[float | None] = mapped_column(
+        Float, nullable=True, comment="任务创建时偏离分数快照"
     )
-    deviation_snapshot_json: Mapped[str] = mapped_column(
-        Text, nullable=False, comment="偏离详情快照JSON"
+    analysis_snapshot_json: Mapped[str] = mapped_column(
+        Text, nullable=False, comment="统一分析详情快照JSON"
     )
     cause_analysis: Mapped[str | None] = mapped_column(Text, nullable=True, comment="原因分析")
     improvement: Mapped[str | None] = mapped_column(Text, nullable=True, comment="改善措施")

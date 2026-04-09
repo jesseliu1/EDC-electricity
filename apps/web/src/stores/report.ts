@@ -7,7 +7,7 @@ export interface ReportItem {
   totalHeats: number
   normalHeats: number
   abnormalHeats: number
-  avgDeviation: number
+  avgDeviationScore: number
   pendingTasks: number
   completedTasks: number
   generatedAt: string | null
@@ -16,7 +16,7 @@ export interface ReportItem {
 export interface ReportDetail extends ReportItem {
   normalRate: number
   effectiveHours: number
-  topDeviations: Array<{ heatNo: string; deviation: number }>
+  topDeviations: Array<{ heatNo: string; deviationScore: number }>
 }
 
 function resolveErrorMessage(error: unknown): string {
@@ -44,7 +44,7 @@ function mapSummary(item: DailyReportSummary): ReportItem {
     totalHeats: item.total_heats,
     normalHeats: item.normal_heats,
     abnormalHeats: item.abnormal_heats,
-    avgDeviation: item.avg_deviation,
+    avgDeviationScore: item.avg_deviation_score,
     pendingTasks: item.pending_tasks,
     completedTasks: item.completed_tasks,
     generatedAt: item.generated_at
@@ -62,7 +62,7 @@ function mapDetail(item: DailyReportDetail): ReportDetail {
       .filter(row => typeof row?.heat_no === 'string')
       .map(row => ({
         heatNo: row.heat_no,
-        deviation: Number(row.deviation ?? 0)
+        deviationScore: Number(row.deviation_score ?? 0)
       }))
   }
 }

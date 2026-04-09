@@ -5,7 +5,7 @@ export interface DailyReportSummary {
   total_heats: number
   normal_heats: number
   abnormal_heats: number
-  avg_deviation: number
+  avg_deviation_score: number
   pending_tasks: number
   completed_tasks: number
   generated_at: string | null
@@ -19,7 +19,7 @@ export interface DailyReportListResponse {
 export interface DailyReportDetail extends DailyReportSummary {
   normal_rate: number
   effective_hours: number
-  top_deviations: Array<{ heat_no: string; deviation: number }>
+  top_deviations: Array<{ heat_no: string; deviation_score: number }>
 }
 
 export const reportApi = {

@@ -237,10 +237,9 @@ async function mockReportsAndInbox(page: Page) {
           start_time: '2026-03-19T13:15:00Z',
           end_time: '2026-03-19T14:00:00Z',
           baseline_id: 'baseline-001',
-          deviation_percent: 24.6,
-          avg_deviation_percent: 11.2,
-          time_offset_percent: 5.8,
-          mismatch_duration_minutes: 4,
+          deviation_score: 24.6,
+          avg_deviation_score: 11.2,
+          abnormal_duration_minutes: 4,
           schedule_tag: 'work',
           cut_reason: 'time_offset_exceed',
           cut_status: 'normal',
@@ -269,10 +268,9 @@ async function mockReportsAndInbox(page: Page) {
         start_time: '2026-03-19T13:15:00Z',
         end_time: '2026-03-19T14:00:00Z',
         baseline_id: 'baseline-001',
-        deviation_percent: 24.6,
-        avg_deviation_percent: 11.2,
-        time_offset_percent: 5.8,
-        mismatch_duration_minutes: 4,
+        deviation_score: 24.6,
+        avg_deviation_score: 11.2,
+        abnormal_duration_minutes: 4,
         schedule_tag: 'work',
         cut_reason: 'time_offset_exceed',
         cut_status: 'normal',
@@ -445,7 +443,7 @@ async function mockTaskWorkflow(page: Page) {
     task_no: 'T20260312-001',
     heat_id: 'heat-001',
     heat_no: 'H20260312-001',
-    deviation_percent: 18.2,
+    deviation_score: 18.2,
     status: 'in_progress',
     created_at: '2026-03-11T10:00:00Z',
     updated_at: '2026-03-12T10:00:00Z',
@@ -453,7 +451,7 @@ async function mockTaskWorkflow(page: Page) {
     cause_analysis: '',
     improvement: '',
     prevention: '',
-    deviation_snapshot: {}
+    analysis_snapshot: {}
   }
 
   const taskListBodies = {
@@ -463,7 +461,7 @@ async function mockTaskWorkflow(page: Page) {
           id: 'mock-task-1',
           task_no: 'T20260312-001',
           heat_id: 'heat-001',
-          deviation_percent: 18.2,
+          deviation_score: 18.2,
           cause_analysis: null,
           improvement: null,
           prevention: null,
@@ -476,7 +474,7 @@ async function mockTaskWorkflow(page: Page) {
           id: 'mock-task-2',
           task_no: 'T20260312-002',
           heat_id: 'heat-002',
-          deviation_percent: 12.4,
+          deviation_score: 12.4,
           cause_analysis: null,
           improvement: null,
           prevention: null,
@@ -489,7 +487,7 @@ async function mockTaskWorkflow(page: Page) {
           id: 'mock-task-3',
           task_no: 'T20260312-003',
           heat_id: 'heat-special-003',
-          deviation_percent: null,
+          deviation_score: null,
           cause_analysis: null,
           improvement: null,
           prevention: null,
@@ -509,7 +507,7 @@ async function mockTaskWorkflow(page: Page) {
           id: 'mock-task-1',
           task_no: 'T20260312-001',
           heat_id: 'heat-001',
-          deviation_percent: 18.2,
+          deviation_score: 18.2,
           cause_analysis: null,
           improvement: null,
           prevention: null,
@@ -611,7 +609,7 @@ async function mockDashboardOverview(page: Page) {
           start_time: '2026-03-20T08:00:00Z',
           end_time: '2026-03-20T08:35:00Z',
           status: 'abnormal',
-          deviation_percent: 18.2
+          deviation_score: 18.2
         }
       ]
     })
@@ -1061,10 +1059,9 @@ test.describe('EDC web extended coverage', () => {
             start_time: '2026-03-25T08:00:00Z',
             end_time: '2026-03-25T08:40:00Z',
             baseline_id: 'baseline-001',
-            deviation_percent: null,
-            avg_deviation_percent: null,
-            time_offset_percent: null,
-            mismatch_duration_minutes: null,
+            deviation_score: null,
+            avg_deviation_score: null,
+            abnormal_duration_minutes: null,
             schedule_tag: 'work',
             cut_reason: null,
             cut_status: 'normal',
@@ -1124,7 +1121,7 @@ test.describe('EDC web extended coverage', () => {
             start_time: '2026-03-25T08:00:00Z',
             end_time: '2026-03-25T08:40:00Z',
             status: 'abnormal',
-            deviation_percent: null
+            deviation_score: null
           }
         ]
       })
@@ -1147,10 +1144,9 @@ test.describe('EDC web extended coverage', () => {
             start_time: '2026-03-25T08:00:00Z',
             end_time: '2026-03-25T08:40:00Z',
             baseline_id: 'baseline-001',
-            deviation_percent: null,
-            avg_deviation_percent: null,
-            time_offset_percent: null,
-            mismatch_duration_minutes: null,
+            deviation_score: null,
+            avg_deviation_score: null,
+            abnormal_duration_minutes: null,
             schedule_tag: 'work',
             cut_reason: 'live_inferred',
             cut_status: 'normal',

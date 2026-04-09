@@ -20,6 +20,208 @@ FORMAL_PRIMARY_BASELINE_ID = "def-001:001"
 FORMAL_SECONDARY_BASELINE_ID = "def-002:001"
 
 
+def _build_runtime_metric_series_entry(
+    *,
+    heat_id: str,
+    item: str,
+    metric_key: str,
+    metric_name: str,
+    unit: str,
+    color: str,
+    source_channel_id: str,
+    source_channel_name: str,
+    source_channel_label: str,
+    points: list[CurvePoint],
+    sort_order: int,
+) -> dict[str, object]:
+    return {
+        "owner_key": heat_id,
+        "item": item,
+        "owner_type": "heat",
+        "metric_key": metric_key,
+        "metric_name": metric_name,
+        "unit": unit,
+        "color": color,
+        "sort_order": sort_order,
+        "source_channel_id": source_channel_id,
+        "source_channel_name": source_channel_name,
+        "source_channel_label": source_channel_label,
+        "series_json": {"points": [point.model_dump() for point in points]},
+        "stat_json": {},
+    }
+
+
+def _build_runtime_definition_metric_snapshots(
+    *,
+    definition_id: str,
+) -> list[dict[str, object]]:
+    if definition_id == "def-002":
+        return [
+            {
+                "item": "001",
+                "metric_key": "power",
+                "metric_name": "A相有功功率",
+                "unit": "kW",
+                "color": "#f97316",
+                "sort_order": 1,
+                "edc_channel_id": "2349-142",
+                "source_channel_name": "A相有功功率",
+                "source_channel_label": "测试设备 / A相有功功率 / kW",
+                "enabled": True,
+            },
+            {
+                "item": "002",
+                "metric_key": "voltage",
+                "metric_name": "B相电压",
+                "unit": "V",
+                "color": "#ef4444",
+                "sort_order": 2,
+                "edc_channel_id": "2349-130",
+                "source_channel_name": "B相电压",
+                "source_channel_label": "测试设备 / B相电压 / V",
+                "enabled": True,
+            },
+        ]
+    return [
+        {
+            "item": "001",
+            "metric_key": "power",
+            "metric_name": "总有功功率",
+            "unit": "kW",
+            "color": "#1152d4",
+            "sort_order": 1,
+            "edc_channel_id": "2349-199",
+            "source_channel_name": "总有功功率",
+            "source_channel_label": "测试设备 / 总有功功率 / kW",
+            "enabled": True,
+        },
+        {
+            "item": "002",
+            "metric_key": "voltage",
+            "metric_name": "A相电压",
+            "unit": "V",
+            "color": "#67C23A",
+            "sort_order": 2,
+            "edc_channel_id": "2349-128",
+            "source_channel_name": "A相电压",
+            "source_channel_label": "测试设备 / A相电压 / V",
+            "enabled": True,
+        },
+    ]
+
+
+def _build_runtime_baseline_curve_snapshots(
+    *,
+    baseline_id: str,
+    start_time: datetime,
+) -> list[dict[str, object]]:
+    definition_id = str(baseline_id).split(":", 1)[0]
+    definitions = _build_runtime_definition_metric_snapshots(definition_id=definition_id)
+    snapshots: list[dict[str, object]] = []
+    for snapshot in definitions:
+        metric_key = str(snapshot["metric_key"])
+        base_value = 410.0 if metric_key == "power" else 220.0
+        snapshots.append(
+            {
+                "baseline_id": baseline_id,
+                "metric_key": metric_key,
+                "curve_source": "baseline_metric_series",
+                "points": [
+                    {
+                        "timestamp": int(start_time.timestamp() * 1000),
+                        "value": base_value,
+                    },
+                    {
+                        "timestamp": int((start_time + timedelta(minutes=30)).timestamp() * 1000),
+                        "value": base_value + (12.0 if metric_key == "power" else 4.0),
+                    },
+                ],
+            }
+        )
+    return snapshots
+
+
+def _build_runtime_metric_series(
+    *,
+    heat_id: str,
+    baseline_id: str,
+    start_time: datetime,
+) -> list[dict[str, object]]:
+    definition_id = str(baseline_id).split(":", 1)[0]
+    power_points = [
+        CurvePoint(timestamp=int((start_time + timedelta(minutes=index * 10)).timestamp() * 1000), value=430.0 + index)
+        for index in range(4)
+    ]
+    if definition_id == "def-002":
+        voltage_metric_name = "B相电压"
+        voltage_channel_id = "2349-130"
+        voltage_channel_name = "B相电压"
+        voltage_channel_label = "测试设备 / B相电压 / V"
+    else:
+        voltage_metric_name = "A相电压"
+        voltage_channel_id = "2349-128"
+        voltage_channel_name = "A相电压"
+        voltage_channel_label = "测试设备 / A相电压 / V"
+    voltage_points = [
+        CurvePoint(timestamp=int((start_time + timedelta(minutes=index * 10)).timestamp() * 1000), value=221.0 + index)
+        for index in range(4)
+    ]
+    return [
+        _build_runtime_metric_series_entry(
+            heat_id=heat_id,
+            item="001",
+            metric_key="power",
+            metric_name="总有功功率" if definition_id == "def-001" else "A相有功功率",
+            unit="kW",
+            color="#1152d4" if definition_id == "def-001" else "#f97316",
+            source_channel_id="2349-199" if definition_id == "def-001" else "2349-142",
+            source_channel_name="总有功功率" if definition_id == "def-001" else "A相有功功率",
+            source_channel_label="测试设备 / 总有功功率 / kW" if definition_id == "def-001" else "测试设备 / A相有功功率 / kW",
+            points=power_points,
+            sort_order=1,
+        ),
+        _build_runtime_metric_series_entry(
+            heat_id=heat_id,
+            item="002",
+            metric_key="voltage",
+            metric_name=voltage_metric_name,
+            unit="V",
+            color="#67C23A" if definition_id == "def-001" else "#ef4444",
+            source_channel_id=voltage_channel_id,
+            source_channel_name=voltage_channel_name,
+            source_channel_label=voltage_channel_label,
+            points=voltage_points,
+            sort_order=2,
+        ),
+    ]
+
+
+@pytest.fixture(autouse=True)
+def _patch_runtime_metric_curve_loader(monkeypatch):
+    async def fake_load_runtime_metric_curves(
+        metrics: list[dict[str, object]],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> dict[str, list[CurvePoint]]:
+        curves: dict[str, list[CurvePoint]] = {}
+        for metric in metrics:
+            metric_id = str(metric.get("id") or "")
+            metric_key = str(metric.get("metric_key") or "")
+            if metric_key == "power":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=int(start_time.timestamp() * 1000), value=430.0),
+                    CurvePoint(timestamp=int(end_time.timestamp() * 1000), value=438.0),
+                ]
+            elif metric_key == "voltage":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=int(start_time.timestamp() * 1000), value=221.0),
+                    CurvePoint(timestamp=int(end_time.timestamp() * 1000), value=226.0),
+                ]
+        return curves
+
+    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", fake_load_runtime_metric_curves)
+
+
 def _build_live_power_points(start: datetime) -> list[CurvePoint]:
     points: list[CurvePoint] = []
 
@@ -111,6 +313,12 @@ def _seed_runtime_heat(
     import src.api.heats as heats_module
 
     runtime_start = start_time or datetime(2026, 3, 19, 8, 0, 0)
+    definition_id = str(baseline_id).split(":", 1)[0]
+    runtime_metric_series = _build_runtime_metric_series(
+        heat_id=heat_id,
+        baseline_id=baseline_id,
+        start_time=runtime_start,
+    )
     item = {
         "id": heat_id,
         "heat_no": f"H{runtime_start.strftime('%Y%m%d-%H%M')}",
@@ -125,10 +333,9 @@ def _seed_runtime_heat(
         "baseline_version_id": baseline_id,
         "baseline_effective_from": _formal_baseline_effective_from(baseline_id),
         "baseline_ids": [baseline_id],
-        "deviation_percent": None,
-        "avg_deviation_percent": None,
-        "time_offset_percent": None,
-        "mismatch_duration_minutes": None,
+        "deviation_score": None,
+        "avg_deviation_score": None,
+        "abnormal_duration_minutes": None,
         "schedule_tag": "work",
         "cut_reason": record_source,
         "cut_status": "normal",
@@ -138,24 +345,42 @@ def _seed_runtime_heat(
         "temperature": None,
         "record_source": record_source,
         "current_curve_source": "live_edc",
-        "baseline_curve_source": "none",
+        "baseline_curve_source": "runtime_snapshot",
         "created_at": runtime_start,
         "power_curve": [
-            CurvePoint(
-                timestamp=int((runtime_start + timedelta(minutes=index)).timestamp() * 1000),
-                value=430.0 + index,
-            )
-            for index in range(4)
+            CurvePoint(**point)
+            for point in runtime_metric_series[0]["series_json"]["points"]
         ],
         "voltage_curve": [
-            CurvePoint(
-                timestamp=int((runtime_start + timedelta(minutes=index)).timestamp() * 1000),
-                value=221.0 + index,
-            )
-            for index in range(4)
+            CurvePoint(**point)
+            for point in runtime_metric_series[1]["series_json"]["points"]
         ],
         "baseline_power_curve": [],
         "baseline_voltage_curve": [],
+        "runtime_metric_series": runtime_metric_series,
+        "definition_metric_snapshots": _build_runtime_definition_metric_snapshots(
+            definition_id=definition_id
+        ),
+        "baseline_curve_snapshots": _build_runtime_baseline_curve_snapshots(
+            baseline_id=baseline_id,
+            start_time=runtime_start,
+        ),
+        "baseline_bindings": [
+            {
+                "heat_id": heat_id,
+                "baseline_id": baseline_id,
+                "baseline_definition_id": definition_id,
+                "baseline_item": "001",
+                "is_primary": True,
+                "baseline_effective_from": _formal_baseline_effective_from(baseline_id),
+                "tolerance_percent": 15.0,
+                "analysis_status": "ready",
+                "deviation_score": 1.2,
+                "avg_deviation_score": 0.8,
+                "analysis_details_json": "{\"abnormal_ranges\":[]}",
+                "abnormal_duration_minutes": 0.0,
+            }
+        ],
     }
 
     if record_source == "previous_runtime":
@@ -179,11 +404,10 @@ def test_build_current_heat_runtime_reads_birth_context_snapshots() -> None:
         "baseline_effective_from": start_time,
         "tolerance_percent": 5.0,
         "analysis_status": "ready",
-        "deviation_percent": 1.2,
-        "avg_deviation_percent": 0.8,
-        "deviation_details_json": None,
-        "time_offset_percent": 0.1,
-        "mismatch_duration_minutes": 0.0,
+        "deviation_score": 1.2,
+        "avg_deviation_score": 0.8,
+        "analysis_details_json": None,
+        "abnormal_duration_minutes": 0.0,
     }
     item = {
         "id": "runtime-heat-ctx",
@@ -349,10 +573,9 @@ async def test_list_heats_includes_active_runtime_item(client) -> None:
         "baseline_version_id": FORMAL_PRIMARY_BASELINE_ID,
         "baseline_effective_from": _formal_baseline_effective_from(),
         "baseline_ids": [FORMAL_PRIMARY_BASELINE_ID],
-        "deviation_percent": None,
-        "avg_deviation_percent": None,
-        "time_offset_percent": None,
-        "mismatch_duration_minutes": None,
+        "deviation_score": None,
+        "avg_deviation_score": None,
+        "abnormal_duration_minutes": None,
         "schedule_tag": "work",
         "cut_reason": "active_runtime",
         "cut_status": "normal",
@@ -407,10 +630,9 @@ async def test_list_heats_marks_active_runtime_as_stale_when_watermark_is_old(cl
         "baseline_version_id": FORMAL_PRIMARY_BASELINE_ID,
         "baseline_effective_from": _formal_baseline_effective_from(),
         "baseline_ids": [FORMAL_PRIMARY_BASELINE_ID],
-        "deviation_percent": None,
-        "avg_deviation_percent": None,
-        "time_offset_percent": None,
-        "mismatch_duration_minutes": None,
+        "deviation_score": None,
+        "avg_deviation_score": None,
+        "abnormal_duration_minutes": None,
         "schedule_tag": "work",
         "cut_reason": "active_runtime",
         "cut_status": "normal",
@@ -461,10 +683,9 @@ async def test_list_heats_marks_active_runtime_as_untrusted_after_repeated_refre
         "baseline_version_id": FORMAL_PRIMARY_BASELINE_ID,
         "baseline_effective_from": _formal_baseline_effective_from(),
         "baseline_ids": [FORMAL_PRIMARY_BASELINE_ID],
-        "deviation_percent": None,
-        "avg_deviation_percent": None,
-        "time_offset_percent": None,
-        "mismatch_duration_minutes": None,
+        "deviation_score": None,
+        "avg_deviation_score": None,
+        "abnormal_duration_minutes": None,
         "schedule_tag": "work",
         "cut_reason": "active_runtime",
         "cut_status": "normal",
@@ -517,10 +738,9 @@ async def test_active_runtime_state_persists_and_restores(client) -> None:
         "baseline_version_id": FORMAL_PRIMARY_BASELINE_ID,
         "baseline_effective_from": _formal_baseline_effective_from(),
         "baseline_ids": [FORMAL_PRIMARY_BASELINE_ID],
-        "deviation_percent": None,
-        "avg_deviation_percent": None,
-        "time_offset_percent": None,
-        "mismatch_duration_minutes": None,
+        "deviation_score": None,
+        "avg_deviation_score": None,
+        "abnormal_duration_minutes": None,
         "schedule_tag": "work",
         "cut_reason": "active_runtime",
         "cut_status": "normal",
@@ -549,10 +769,9 @@ async def test_active_runtime_state_persists_and_restores(client) -> None:
         "baseline_version_id": FORMAL_PRIMARY_BASELINE_ID,
         "baseline_effective_from": _formal_baseline_effective_from(),
         "baseline_ids": [FORMAL_PRIMARY_BASELINE_ID],
-        "deviation_percent": None,
-        "avg_deviation_percent": None,
-        "time_offset_percent": None,
-        "mismatch_duration_minutes": None,
+        "deviation_score": None,
+        "avg_deviation_score": None,
+        "abnormal_duration_minutes": None,
         "schedule_tag": "work",
         "cut_reason": "previous_runtime",
         "cut_status": "normal",
@@ -696,7 +915,7 @@ async def test_heat_list_and_compare_follow_active_default_baseline(client, monk
     assert list_resp.status_code == 200
     heat_item = list_resp.json()["items"][0]
     assert heat_item["baseline_id"] != baseline_id
-    assert heat_item["deviation_percent"] is not None
+    assert heat_item["deviation_score"] is not None
 
     compare_resp = await client.get(f"/api/heats/{heat_item['id']}/compare")
     assert compare_resp.status_code == 200
@@ -1726,8 +1945,8 @@ async def test_list_heats_does_not_alias_stale_live_record_into_all_current_rows
     stale_item = next(iter(stale_items.values()))
     heats_module._HEAT_STORE[stale_item["id"]] = {
         **stale_item,
-        "deviation_percent": 697.4947,
-        "avg_deviation_percent": 697.4947,
+        "deviation_score": 697.4947,
+        "avg_deviation_score": 697.4947,
     }
 
     await heats_module.refresh_heat_runtime_state(reason="test")
@@ -1742,10 +1961,10 @@ async def test_list_heats_does_not_alias_stale_live_record_into_all_current_rows
     assert len(runtime_items) == 2
     assert all(from_timestamp_ms(item["start_time"]).date() == datetime(2026, 3, 23).date() for item in runtime_items)
     assert history_items
-    assert all(item["deviation_percent"] is not None for item in runtime_items)
-    assert all(item["avg_deviation_percent"] is not None for item in runtime_items)
-    assert all(item["deviation_percent"] != 697.4947 for item in runtime_items)
-    assert all(item["avg_deviation_percent"] != 697.4947 for item in runtime_items)
+    assert all(item["deviation_score"] is not None for item in runtime_items)
+    assert all(item["avg_deviation_score"] is not None for item in runtime_items)
+    assert all(item["deviation_score"] != 697.4947 for item in runtime_items)
+    assert all(item["avg_deviation_score"] != 697.4947 for item in runtime_items)
 
 
 @pytest.mark.asyncio
@@ -1918,8 +2137,8 @@ async def test_active_runtime_ids_remain_resolvable_across_detail_compare_and_ti
     compare_response = await client.get(f"/api/heats/{active_item['id']}/compare")
     assert compare_response.status_code == 200
     assert compare_response.json()["heat"]["id"] == active_item["id"]
-    assert compare_response.json()["max_deviation"] == pytest.approx(
-        active_item["deviation_percent"]
+    assert compare_response.json()["deviation_score"] == pytest.approx(
+        active_item["deviation_score"]
     )
 
     timeline_response = await client.get(f"/api/heats/{active_item['id']}/cutting-timeline")
@@ -2063,7 +2282,7 @@ async def test_previous_runtime_deviation_stays_frozen_while_active_id_is_unchan
     first_previous_item = next(
         item for item in first_payload["items"] if item["record_source"] == "previous_runtime"
     )
-    assert first_previous_item["deviation_percent"] is not None
+    assert first_previous_item["deviation_score"] is not None
 
     current_points = [
         CurvePoint(timestamp=int(point.timestamp), value=float(point.value) + 20.0)
@@ -2081,8 +2300,8 @@ async def test_previous_runtime_deviation_stays_frozen_while_active_id_is_unchan
 
     assert second_active_item["id"] == first_active_item["id"]
     assert second_previous_item["id"] == first_previous_item["id"]
-    assert second_previous_item["deviation_percent"] == pytest.approx(
-        first_previous_item["deviation_percent"]
+    assert second_previous_item["deviation_score"] == pytest.approx(
+        first_previous_item["deviation_score"]
     )
 
 @pytest.mark.asyncio
@@ -2310,10 +2529,9 @@ async def test_list_heats_filters_by_stored_status_without_compare_recompute(
                 "baseline_version_id": FORMAL_PRIMARY_BASELINE_ID,
                 "baseline_effective_from": _formal_baseline_effective_from(),
                 "baseline_ids": [FORMAL_PRIMARY_BASELINE_ID],
-                "deviation_percent": None,
-                "avg_deviation_percent": None,
-                "time_offset_percent": 0.0,
-                "mismatch_duration_minutes": 0,
+                "deviation_score": None,
+                "avg_deviation_score": None,
+                "abnormal_duration_minutes": 0,
                 "schedule_tag": "work",
                 "cut_reason": "within_tolerance",
                 "cut_status": "normal",
@@ -2344,7 +2562,7 @@ async def test_list_heats_filters_by_stored_status_without_compare_recompute(
     assert payload["total"] == 1
     assert payload["items"][0]["id"] == "heat-live-1"
     assert payload["items"][0]["status"] == "abnormal"
-    assert payload["items"][0]["deviation_percent"] is None
+    assert payload["items"][0]["deviation_score"] is None
 
 
 @pytest.mark.asyncio
@@ -2457,11 +2675,10 @@ async def test_heat_compare_runtime_prefers_runtime_snapshots_without_request_ti
         "baseline_effective_from": start_time,
         "tolerance_percent": 5.0,
         "analysis_status": "ready",
-        "deviation_percent": 1.5,
-        "avg_deviation_percent": 0.7,
-        "deviation_details_json": None,
-        "time_offset_percent": 0.0,
-        "mismatch_duration_minutes": 0.0,
+        "deviation_score": 1.5,
+        "avg_deviation_score": 0.7,
+        "analysis_details_json": None,
+        "abnormal_duration_minutes": 0.0,
     }
     runtime_power_curve = [
         CurvePoint(timestamp=int((context_start_time + timedelta(minutes=index)).timestamp() * 1000), value=500.0 + index)
@@ -2500,10 +2717,9 @@ async def test_heat_compare_runtime_prefers_runtime_snapshots_without_request_ti
         "baseline_effective_from": start_time,
         "baseline_ids": [FORMAL_PRIMARY_BASELINE_ID],
         "baseline_bindings": [binding_payload],
-        "deviation_percent": 1.5,
-        "avg_deviation_percent": 0.7,
-        "time_offset_percent": 0.0,
-        "mismatch_duration_minutes": 0.0,
+        "deviation_score": 1.5,
+        "avg_deviation_score": 0.7,
+        "abnormal_duration_minutes": 0.0,
         "schedule_tag": "work",
         "cut_reason": "live_inferred",
         "cut_status": "normal",

@@ -35,10 +35,9 @@ export interface HeatItem {
   baselineId: string | null
   baselineVersionId: string | null
   baselineEffectiveFrom: number | null
-  deviationPercent: number | null
-  avgDeviationPercent: number | null
-  timeOffsetPercent: number | null
-  mismatchDurationMinutes: number | null
+  deviationScore: number | null
+  avgDeviationScore: number | null
+  abnormalDurationMinutes: number | null
   scheduleTag: 'work' | 'break' | 'off_shift'
   cutReason: string | null
   cutStatus: 'normal' | 'major_issue' | 'blocked'
@@ -111,8 +110,8 @@ export interface HeatDetail {
   baselinePowerCurve: CurvePoint[]
   baselineComparisons: BaselineCompareItem[]
   deviationRanges: DeviationRange[]
-  maxDeviation: number | null
-  avgDeviation: number | null
+  deviationScore: number | null
+  avgDeviationScore: number | null
   cuttingTimeline: CuttingTimelineEvent[]
 }
 
@@ -156,10 +155,9 @@ function mapHeat(item: HeatResponseItem): HeatItem {
     baselineId: item.baseline_id,
     baselineVersionId: item.baseline_version_id,
     baselineEffectiveFrom: item.baseline_effective_from,
-    deviationPercent: item.deviation_percent,
-    avgDeviationPercent: item.avg_deviation_percent,
-    timeOffsetPercent: item.time_offset_percent,
-    mismatchDurationMinutes: item.mismatch_duration_minutes,
+    deviationScore: item.deviation_score,
+    avgDeviationScore: item.avg_deviation_score,
+    abnormalDurationMinutes: item.abnormal_duration_minutes,
     scheduleTag: item.schedule_tag,
     cutReason: item.cut_reason,
     cutStatus: item.cut_status,
@@ -184,8 +182,8 @@ function mapDetail(
             baseline: compare.baseline,
             metric_curves: [],
             deviation_ranges: compare.deviation_ranges,
-            max_deviation: compare.max_deviation,
-            avg_deviation: compare.avg_deviation
+            deviation_score: compare.deviation_score,
+            avg_deviation_score: compare.avg_deviation_score
           }
         ]
       : [])
@@ -198,8 +196,8 @@ function mapDetail(
     baselinePowerCurve: comparisons[0]?.baseline.power_curve || [],
     baselineComparisons: comparisons,
     deviationRanges: comparisons[0]?.deviation_ranges || [],
-    maxDeviation: comparisons[0]?.max_deviation || null,
-    avgDeviation: comparisons[0]?.avg_deviation || null,
+    deviationScore: comparisons[0]?.deviation_score || null,
+    avgDeviationScore: comparisons[0]?.avg_deviation_score || null,
     cuttingTimeline: timeline
   }
 }

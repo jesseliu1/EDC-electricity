@@ -100,11 +100,11 @@ onMounted(async () => {
                 :data-testid="`inbox-deviation-${item.id}`"
                 :class="[
                   'px-2 rounded-md',
-                  item.deviationPercent === null
+                  item.deviationScore === null
                     ? 'text-sm font-semibold text-slate-600 bg-slate-100'
                     : 'text-lg font-bold text-red-600 bg-red-50 font-mono',
                 ]"
-              >{{ formatDeviation(item.deviationPercent) }}</span>
+              >{{ formatDeviation(item.deviationScore) }}</span>
             </div>
              
             <!-- Action Button -->

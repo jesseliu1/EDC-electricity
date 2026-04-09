@@ -9,7 +9,7 @@ class DashboardStats(BaseModel):
     """仪表盘统计数据"""
 
     today_heats: int = Field(..., description="当日炉次数")
-    avg_deviation: float = Field(..., description="平均偏差百分比")
+    avg_deviation_score: float = Field(..., description="平均偏离分数")
     pending_tasks: int = Field(..., description="待处理任务数")
     active_baseline: str | None = Field(default=None, description="当前激活基线名称")
     normal_rate: float = Field(..., description="正常率百分比")
@@ -33,7 +33,7 @@ class RecentHeat(BaseModel):
     start_time: TimestampMs = Field(..., description="开始时间")
     end_time: TimestampMs = Field(..., description="结束时间")
     status: str = Field(..., description="状态")
-    deviation_percent: float | None = Field(default=None, description="偏差百分比")
+    deviation_score: float | None = Field(default=None, description="偏离分数")
 
 
 class RecentHeatsResponse(BaseModel):

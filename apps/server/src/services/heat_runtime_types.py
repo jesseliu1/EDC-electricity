@@ -177,11 +177,10 @@ class RuntimeHeatBinding:
     baseline_effective_from: datetime | None
     tolerance_percent: float | None
     analysis_status: str
-    deviation_percent: float | None
-    avg_deviation_percent: float | None
-    deviation_details_json: str | None
-    time_offset_percent: float | None
-    mismatch_duration_minutes: float | None
+    deviation_score: float | None
+    avg_deviation_score: float | None
+    analysis_details_json: str | None
+    abnormal_duration_minutes: float | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -194,11 +193,10 @@ class RuntimeHeatBinding:
             "baseline_effective_from": self.baseline_effective_from,
             "tolerance_percent": self.tolerance_percent,
             "analysis_status": self.analysis_status,
-            "deviation_percent": self.deviation_percent,
-            "avg_deviation_percent": self.avg_deviation_percent,
-            "deviation_details_json": self.deviation_details_json,
-            "time_offset_percent": self.time_offset_percent,
-            "mismatch_duration_minutes": self.mismatch_duration_minutes,
+            "deviation_score": self.deviation_score,
+            "avg_deviation_score": self.avg_deviation_score,
+            "analysis_details_json": self.analysis_details_json,
+            "abnormal_duration_minutes": self.abnormal_duration_minutes,
         }
 
 
@@ -294,17 +292,14 @@ class CurrentHeatRuntime:
         )
         item["baseline_ids"] = [binding.baseline_id for binding in self.bindings]
         item["baseline_bindings"] = [binding.to_dict() for binding in self.bindings]
-        item["deviation_percent"] = (
-            primary_binding.deviation_percent if primary_binding else None
+        item["deviation_score"] = (
+            primary_binding.deviation_score if primary_binding else None
         )
-        item["avg_deviation_percent"] = (
-            primary_binding.avg_deviation_percent if primary_binding else None
+        item["avg_deviation_score"] = (
+            primary_binding.avg_deviation_score if primary_binding else None
         )
-        item["time_offset_percent"] = (
-            primary_binding.time_offset_percent if primary_binding else None
-        )
-        item["mismatch_duration_minutes"] = (
-            primary_binding.mismatch_duration_minutes if primary_binding else None
+        item["abnormal_duration_minutes"] = (
+            primary_binding.abnormal_duration_minutes if primary_binding else None
         )
         item["runtime_metric_series"] = [series.to_dict() for series in self.metric_series]
         item["birth_context"] = (

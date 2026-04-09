@@ -26,7 +26,7 @@ class DailyReportSummary(BaseModel):
     total_heats: int = Field(..., description="总炉次数")
     normal_heats: int = Field(..., description="正常炉次数")
     abnormal_heats: int = Field(..., description="异常炉次数")
-    avg_deviation: float = Field(..., description="平均偏差百分比")
+    avg_deviation_score: float = Field(..., description="平均偏离分数")
     pending_tasks: int = Field(..., description="待处理任务数")
     completed_tasks: int = Field(..., description="已完成任务数")
     generated_at: OptionalTimestampMs = Field(default=None, description="生成时间")
@@ -67,14 +67,14 @@ def _top_deviations_for_heats(heats: list[dict[str, Any]]) -> list[dict[str, Any
     sortable = [
         item
         for item in heats
-        if isinstance(item.get("deviation_percent"), (float, int))
+        if isinstance(item.get("deviation_score"), (float, int))
         and item.get("heat_no")
     ]
-    sortable.sort(key=lambda item: float(item["deviation_percent"]), reverse=True)
+    sortable.sort(key=lambda item: float(item["deviation_score"]), reverse=True)
     return [
         {
             "heat_no": str(item["heat_no"]),
-            "deviation": round(float(item["deviation_percent"]), 3),
+            "deviation_score": round(float(item["deviation_score"]), 3),
         }
         for item in sortable[:3]
     ]
@@ -98,9 +98,9 @@ def _build_daily_report(
 
     scoped_tasks = [item for item in tasks if _task_anchor_date(item) == report_date]
     deviations = [
-        float(item["deviation_percent"])
+        float(item["deviation_score"])
         for item in scoped_heats
-        if isinstance(item.get("deviation_percent"), (float, int))
+        if isinstance(item.get("deviation_score"), (float, int))
     ]
     normal_heats = sum(1 for item in scoped_heats if item.get("status") == "normal")
     abnormal_heats = sum(1 for item in scoped_heats if item.get("status") == "abnormal")
@@ -129,7 +129,7 @@ def _build_daily_report(
         total_heats=total_heats,
         normal_heats=normal_heats,
         abnormal_heats=abnormal_heats,
-        avg_deviation=round(sum(deviations) / len(deviations), 3) if deviations else 0.0,
+        avg_deviation_score=round(sum(deviations) / len(deviations), 3) if deviations else 0.0,
         pending_tasks=sum(
             1 for item in scoped_tasks if item.get("status") in {"pending", "in_progress"}
         ),

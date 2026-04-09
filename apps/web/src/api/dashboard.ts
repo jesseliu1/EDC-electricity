@@ -9,7 +9,7 @@ export interface CurvePoint {
 
 export interface DashboardStatsResponse {
   today_heats: number
-  avg_deviation: number
+  avg_deviation_score: number
   pending_tasks: number
   active_baseline: string | null
   normal_rate: number
@@ -33,7 +33,7 @@ export interface RecentHeatResponseItem {
   start_time: number
   end_time: number
   status: 'normal' | 'abnormal' | 'pending'
-  deviation_percent: number | null
+  deviation_score: number | null
 }
 
 export interface RecentHeatsResponse {

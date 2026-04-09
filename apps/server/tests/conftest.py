@@ -411,23 +411,22 @@ async def _seed_formal_reference_records() -> None:
                 effective_from_snapshot=datetime(2026, 3, 12, 11, 0, 0),
                 tolerance_percent_snapshot=15.0,
                 analysis_status="ready",
-                deviation_percent=18.5,
-                avg_deviation_percent=9.2,
-                deviation_details_json=json.dumps(
+                deviation_score=18.5,
+                avg_deviation_score=9.2,
+                analysis_details_json=json.dumps(
                     {
                         "abnormal_ranges": [
                             {
                                 "start": int((heat_start + timedelta(minutes=18)).timestamp() * 1000),
                                 "end": int((heat_start + timedelta(minutes=23)).timestamp() * 1000),
-                                "deviation": 18.5,
+                                "score": 18.5,
                             }
                         ]
                     },
                     ensure_ascii=False,
                     separators=(",", ":"),
                 ),
-                time_offset_percent=4.8,
-                mismatch_duration_minutes=4.0,
+                abnormal_duration_minutes=4.0,
                 created_at=now,
                 updated_at=now,
             )

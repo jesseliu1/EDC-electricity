@@ -37,10 +37,9 @@ export interface HeatResponseItem {
   baseline_id: string | null
   baseline_version_id: string | null
   baseline_effective_from: number | null
-  deviation_percent: number | null
-  avg_deviation_percent: number | null
-  time_offset_percent: number | null
-  mismatch_duration_minutes: number | null
+  deviation_score: number | null
+  avg_deviation_score: number | null
+  abnormal_duration_minutes: number | null
   schedule_tag: 'work' | 'break' | 'off_shift'
   cut_reason: string | null
   cut_status: 'normal' | 'major_issue' | 'blocked'
@@ -103,7 +102,7 @@ export interface MetricCompareSeries {
 export interface DeviationRange {
   start: number
   end: number
-  deviation: number
+  score: number
 }
 
 export interface HeatWithCurveResponse extends HeatResponseItem {
@@ -116,8 +115,8 @@ export interface HeatCompareResponse {
   baseline: BaselineCurveSimple | null
   baselines?: BaselineCompareItem[]
   deviation_ranges: DeviationRange[]
-  max_deviation: number | null
-  avg_deviation: number | null
+  deviation_score: number | null
+  avg_deviation_score: number | null
 }
 
 export interface CuttingTimelineEvent {
@@ -136,8 +135,8 @@ export interface BaselineCompareItem {
   baseline: BaselineCurveSimple
   metric_curves: MetricCompareSeries[]
   deviation_ranges: DeviationRange[]
-  max_deviation: number | null
-  avg_deviation: number | null
+  deviation_score: number | null
+  avg_deviation_score: number | null
 }
 
 export interface HeatUpdatePayload {

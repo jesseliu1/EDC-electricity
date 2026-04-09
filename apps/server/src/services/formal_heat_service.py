@@ -194,11 +194,10 @@ def _binding_to_dict(binding: HeatBaselineBinding) -> dict[str, Any]:
         "baseline_effective_from": binding.effective_from_snapshot,
         "tolerance_percent": binding.tolerance_percent_snapshot,
         "analysis_status": binding.analysis_status,
-        "deviation_percent": binding.deviation_percent,
-        "avg_deviation_percent": binding.avg_deviation_percent,
-        "deviation_details_json": binding.deviation_details_json,
-        "time_offset_percent": binding.time_offset_percent,
-        "mismatch_duration_minutes": binding.mismatch_duration_minutes,
+        "deviation_score": binding.deviation_score,
+        "avg_deviation_score": binding.avg_deviation_score,
+        "analysis_details_json": binding.analysis_details_json,
+        "abnormal_duration_minutes": binding.abnormal_duration_minutes,
         "created_at": binding.created_at,
         "updated_at": binding.updated_at,
     }
@@ -277,17 +276,14 @@ def _heat_model_to_dict(
         ),
         "baseline_ids": [binding["baseline_id"] for binding in binding_views],
         "baseline_bindings": binding_views,
-        "deviation_percent": (
-            primary_binding.deviation_percent if primary_binding is not None else None
+        "deviation_score": (
+            primary_binding.deviation_score if primary_binding is not None else None
         ),
-        "avg_deviation_percent": (
-            primary_binding.avg_deviation_percent if primary_binding is not None else None
+        "avg_deviation_score": (
+            primary_binding.avg_deviation_score if primary_binding is not None else None
         ),
-        "time_offset_percent": (
-            primary_binding.time_offset_percent if primary_binding is not None else None
-        ),
-        "mismatch_duration_minutes": (
-            primary_binding.mismatch_duration_minutes if primary_binding is not None else None
+        "abnormal_duration_minutes": (
+            primary_binding.abnormal_duration_minutes if primary_binding is not None else None
         ),
         "schedule_tag": "work",
         "cut_reason": heat.cut_reason,
@@ -503,13 +499,9 @@ async def resume_formal_heat_cutting(
         heat.updated_at = utc_now()
 
         if primary_binding is not None:
-            primary_binding.mismatch_duration_minutes = min(
-                primary_binding.mismatch_duration_minutes or 0,
+            primary_binding.abnormal_duration_minutes = min(
+                primary_binding.abnormal_duration_minutes or 0,
                 4,
-            )
-            primary_binding.time_offset_percent = min(
-                primary_binding.time_offset_percent or 0.0,
-                8.0,
             )
             primary_binding.updated_at = utc_now()
 
@@ -863,10 +855,10 @@ def _seed_binding_analysis(
     baseline: Any,
     primary_baseline: Any | None,
     candidate_baseline_id: str | None,
-    candidate_deviation_percent: float | None,
-    candidate_avg_deviation_percent: float | None,
-    candidate_time_offset_percent: float | None,
-    candidate_mismatch_duration_minutes: float | None,
+    candidate_deviation_score: float | None,
+    candidate_avg_deviation_score: float | None,
+    candidate_abnormal_duration_minutes: float | None,
+    candidate_analysis_details_json: str | None,
 ) -> dict[str, Any]:
     baseline_id = encode_baseline_id(
         str(_baseline_field(baseline, "definition_id") or ""),
@@ -889,19 +881,19 @@ def _seed_binding_analysis(
     if not should_seed:
         return {
             "analysis_status": "pending",
-            "deviation_percent": None,
-            "avg_deviation_percent": None,
-            "time_offset_percent": None,
-            "mismatch_duration_minutes": None,
+            "deviation_score": None,
+            "avg_deviation_score": None,
+            "abnormal_duration_minutes": None,
+            "analysis_details_json": None,
         }
 
-    analysis_status = "ready" if candidate_deviation_percent is not None else "pending"
+    analysis_status = "ready" if candidate_deviation_score is not None else "pending"
     return {
         "analysis_status": analysis_status,
-        "deviation_percent": candidate_deviation_percent,
-        "avg_deviation_percent": candidate_avg_deviation_percent,
-        "time_offset_percent": candidate_time_offset_percent,
-        "mismatch_duration_minutes": candidate_mismatch_duration_minutes,
+        "deviation_score": candidate_deviation_score,
+        "avg_deviation_score": candidate_avg_deviation_score,
+        "abnormal_duration_minutes": candidate_abnormal_duration_minutes,
+        "analysis_details_json": candidate_analysis_details_json,
     }
 
 
@@ -935,11 +927,10 @@ def _build_binding_payloads(
                     "effective_from_snapshot": binding.get("baseline_effective_from"),
                     "tolerance_percent_snapshot": binding.get("tolerance_percent"),
                     "analysis_status": str(binding.get("analysis_status") or "pending"),
-                    "deviation_percent": binding.get("deviation_percent"),
-                    "avg_deviation_percent": binding.get("avg_deviation_percent"),
-                    "deviation_details_json": binding.get("deviation_details_json"),
-                    "time_offset_percent": binding.get("time_offset_percent"),
-                    "mismatch_duration_minutes": binding.get("mismatch_duration_minutes"),
+                    "deviation_score": binding.get("deviation_score"),
+                    "avg_deviation_score": binding.get("avg_deviation_score"),
+                    "analysis_details_json": binding.get("analysis_details_json"),
+                    "abnormal_duration_minutes": binding.get("abnormal_duration_minutes"),
                     "created_at": created_at,
                     "updated_at": updated_at,
                 }
@@ -962,10 +953,10 @@ def _build_binding_payloads(
             baseline=baseline,
             primary_baseline=primary_baseline,
             candidate_baseline_id=candidate_baseline_id,
-            candidate_deviation_percent=candidate.get("deviation_percent"),
-            candidate_avg_deviation_percent=candidate.get("avg_deviation_percent"),
-            candidate_time_offset_percent=candidate.get("time_offset_percent"),
-            candidate_mismatch_duration_minutes=candidate.get("mismatch_duration_minutes"),
+            candidate_deviation_score=candidate.get("deviation_score"),
+            candidate_avg_deviation_score=candidate.get("avg_deviation_score"),
+            candidate_abnormal_duration_minutes=candidate.get("abnormal_duration_minutes"),
+            candidate_analysis_details_json=candidate.get("analysis_details_json"),
         )
         payloads.append(
             {
@@ -982,11 +973,10 @@ def _build_binding_payloads(
                 "effective_from_snapshot": _baseline_field(baseline, "effective_from"),
                 "tolerance_percent_snapshot": _baseline_field(baseline, "tolerance_percent"),
                 "analysis_status": str(seeded["analysis_status"]),
-                "deviation_percent": seeded["deviation_percent"],
-                "avg_deviation_percent": seeded["avg_deviation_percent"],
-                "deviation_details_json": None,
-                "time_offset_percent": seeded["time_offset_percent"],
-                "mismatch_duration_minutes": seeded["mismatch_duration_minutes"],
+                "deviation_score": seeded["deviation_score"],
+                "avg_deviation_score": seeded["avg_deviation_score"],
+                "analysis_details_json": seeded["analysis_details_json"],
+                "abnormal_duration_minutes": seeded["abnormal_duration_minutes"],
                 "created_at": created_at,
                 "updated_at": updated_at,
             }
@@ -1262,6 +1252,11 @@ async def compile_runtime_candidates(
                     definition_id=primary_definition_id,
                 )
                 raise ValueError("definition_metric_templates_missing")
+        prepared_candidate = await hydrate_candidate_runtime_metric_series(
+            prepared_candidate,
+            definition_templates=definition_templates,
+            metric_curve_loader=metric_curve_loader,
+        )
         binding_analyses = _heat_deviation_analysis_service.analyze_candidate_bindings(
             candidate=prepared_candidate,
             applicable_baselines=candidate_applicable_baselines,
@@ -1303,11 +1298,6 @@ async def compile_runtime_candidates(
                 birth_snapshot.baseline_curve_snapshots
             )
             definition_templates = list(birth_snapshot.definition_metric_snapshots)
-        prepared_candidate = await hydrate_candidate_runtime_metric_series(
-            prepared_candidate,
-            definition_templates=definition_templates,
-            metric_curve_loader=metric_curve_loader,
-        )
         processing_meta = dict(prepared_candidate.get("processing_meta") or {})
         if not processing_meta:
             processing_meta = {

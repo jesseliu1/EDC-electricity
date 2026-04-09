@@ -311,7 +311,7 @@
     "cutStatusmajor_issue": "重大事故",
     "cutStatusblocked": "已阻斷",
     "timeOffsetPercent": "時間偏移",
-    "mismatchDurationMinutes": "連續不一致時長",
+    "abnormalDurationMinutes": "連續不一致時長",
     "scheduleTagLabel": "班次視窗",
     "cutReasonLabel": "切割原因",
     "timelineAbnormalReason": "異常原因",

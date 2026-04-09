@@ -47,20 +47,17 @@ class HeatBaselineBinding(Base):
     analysis_status: Mapped[str] = mapped_column(
         String(20), default="pending", nullable=False, comment="分析状态"
     )
-    deviation_percent: Mapped[float | None] = mapped_column(
-        Float, nullable=True, comment="最大偏离度"
+    deviation_score: Mapped[float | None] = mapped_column(
+        Float, nullable=True, comment="统一偏离分数"
     )
-    avg_deviation_percent: Mapped[float | None] = mapped_column(
-        Float, nullable=True, comment="平均偏离度"
+    avg_deviation_score: Mapped[float | None] = mapped_column(
+        Float, nullable=True, comment="平均偏离分数"
     )
-    deviation_details_json: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="偏离详情JSON"
+    analysis_details_json: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="统一分析详情JSON"
     )
-    time_offset_percent: Mapped[float | None] = mapped_column(
-        Float, nullable=True, comment="时间偏移比例"
-    )
-    mismatch_duration_minutes: Mapped[float | None] = mapped_column(
-        Float, nullable=True, comment="连续不一致时长"
+    abnormal_duration_minutes: Mapped[float | None] = mapped_column(
+        Float, nullable=True, comment="连续异常时长"
     )
     created_at: Mapped[datetime] = mapped_column(
         TimestampMsType(), default=utc_now, nullable=False, comment="创建时间"

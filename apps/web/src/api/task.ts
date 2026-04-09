@@ -6,7 +6,7 @@ export interface TaskItemResponse {
   id: string
   task_no: string
   heat_id: string
-  deviation_percent: number | null
+  deviation_score: number | null
   cause_analysis: string | null
   improvement: string | null
   prevention: string | null
@@ -24,7 +24,7 @@ export interface TaskListResponse {
 }
 
 export interface TaskDetailResponse extends TaskItemResponse {
-  deviation_snapshot: Record<string, unknown>
+  analysis_snapshot: Record<string, unknown>
   heat_no: string
 }
 
@@ -44,10 +44,9 @@ export interface TaskCreatePayload {
   heat_id: string
   baseline_id?: string
   heat_no?: string
-  deviation_percent?: number | null
-  avg_deviation_percent?: number | null
-  time_offset_percent?: number | null
-  mismatch_duration_minutes?: number | null
+  deviation_score?: number | null
+  avg_deviation_score?: number | null
+  abnormal_duration_minutes?: number | null
 }
 
 export const taskApi = {

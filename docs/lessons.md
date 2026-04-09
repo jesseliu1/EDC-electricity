@@ -1015,3 +1015,17 @@
 - **正确做法**: 公网 blank 后重新接真实源，必须按完整顺序执行：`source-switch -> runtime_state_admin --mode deploy-refresh -> restart edc-backend.service -> 再看 runtime-status`。只有重启后，后端才会从 SQLite 重新加载 `runtime_host_channels / runtime_channel_role_bindings / runtime_host_connectivity_status`，真正进入 `overall_code = ready`。
 - **适用场景**: 服务器 blank 部署后重新接 EDC 真源、切换数据源、需要让宿主通道目录和角色绑定自动重建的运维场景。
 - **相关文档**: docs/DEPLOYMENT.md, docs/session_handoff.md, apps/server/src/runtime_state.py, apps/server/src/runtime_state_admin.py
+
+### 2026-04-08 runtime 统一分析：必须先 hydrate 真源再算 binding
+
+- **错误模式**: 在 `compile_runtime_candidates()` 里先根据旧 `power_curve` 做 binding 分析，再去 hydrate `runtime_metric_series`。这样“分析只吃 runtime/formal 真源”在代码上并不成立，运行态仍然会偷吃旧快照。
+- **正确做法**: 先按 definition metrics hydrate 完整 `runtime_metric_series`，再执行统一分析策略，最后再生成 `baseline_bindings / preseal_payload / birth_context`。分析层不得回退到固定 `power/voltage` 字段。
+- **适用场景**: 任何 runtime 实时分析、formal 固化前回填、以及需要保证分析输入真源可审计的工业监控链路。
+- **相关文档**: docs/BACKEND_STRUCTURE.md, apps/server/src/services/formal_heat_service.py, apps/server/src/services/heat_deviation_analysis_service.py
+
+### 2026-04-09 SQLite 结构调整：默认直接清库重建，不做数据移行方案
+
+- **错误模式**: 一看到表结构或字段语义变化，就默认补 Alembic migration、历史数据兼容和移行方案，导致实现和评审长期背着并不需要的历史包袱。
+- **正确做法**: 当前项目的 SQLite 结构调整默认口径是“删除现有数据 / 重建库 / 按最新模型初始化”。后续方案和实现不要再把数据移行作为默认必选项；只有用户明确要求保留历史数据时，才单独设计迁移方案。
+- **适用场景**: 本地开发库、测试库、可整体重置的数据环境，以及本项目当前明确允许清空重建的后端结构调整。
+- **相关文档**: AGENTS.md, docs/BACKEND_STRUCTURE.md

@@ -6801,3 +6801,14 @@ EDC 前端（apps/web，/edc/）
   - [x] 旧日志里的唯一键报错来自先前进程 / 旧运行态窗口，不代表当前 blank 后重新接源的现行行为
 - [!] 待后续观察
   - [!] 当前 `/api/heats` 在 replay 后会同时看到 `sealed_history` 与 `previous_runtime`，存在短时重叠展示；这不影响正式入库，但是否需要进一步收口列表展示语义，后续再评估
+- [x] 2026-04-08 已启动统一分析分数改造 Phase A
+  - [x] 新增 `apps/server/src/services/heat_analysis/` 策略层，默认策略改为“单 baseline、多指标、MAD 标准化、统一 score 聚合”，后续替换算法时无需改 runtime/persist/API 主链
+  - [x] `compile_runtime_candidates()` 已改为先 hydrate `runtime_metric_series` 真源，再执行 binding 分析，避免分析阶段继续吃旧 `power_curve` 快照
+  - [x] binding / heat / task 主字段已切到 `deviation_score / avg_deviation_score / analysis_details_json / abnormal_duration_minutes`
+  - [x] 旧 `time_offset_percent` 已从正式分析字段移除；compare 区间点值也改为 `score`
+  - [x] 已补 Alembic 迁移 `5c6b9a7d0e41_unify_heat_analysis_score_fields.py`
+  - [x] 已同步更新 `docs/BACKEND_STRUCTURE.md`
+  - [x] 最小验证：
+    - [x] Python 直接 `import` 关键后端模块通过
+    - [x] `pnpm --dir apps/web exec tsc --noEmit` 通过
+    - [!] `pytest` 未执行：当前环境缺少 `pytest_asyncio`

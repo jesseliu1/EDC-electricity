@@ -10,7 +10,7 @@ class DeviationRange(BaseModel):
 
     start: int = Field(..., description="开始时间戳(毫秒)")
     end: int = Field(..., description="结束时间戳(毫秒)")
-    deviation: float = Field(..., description="偏差百分比")
+    score: float = Field(..., description="区间分数")
 
 
 class HeatResponse(BaseModel):
@@ -31,10 +31,9 @@ class HeatResponse(BaseModel):
     baseline_id: str | None = Field(default=None, description="对比基线ID")
     baseline_version_id: str | None = Field(default=None, description="绑定的基线版本ID")
     baseline_effective_from: OptionalTimestampMs = Field(default=None, description="绑定基线的生效时间")
-    deviation_percent: float | None = Field(default=None, description="最大偏差百分比")
-    avg_deviation_percent: float | None = Field(default=None, description="平均偏差百分比")
-    time_offset_percent: float | None = Field(default=None, description="时间偏移百分比")
-    mismatch_duration_minutes: int | None = Field(default=None, description="持续不一致分钟数")
+    deviation_score: float | None = Field(default=None, description="统一偏离分数")
+    avg_deviation_score: float | None = Field(default=None, description="平均偏离分数")
+    abnormal_duration_minutes: int | None = Field(default=None, description="连续异常分钟数")
     schedule_tag: str = Field(default="work", description="班次标签: work/break/off_shift")
     cut_reason: str | None = Field(default=None, description="切割状态原因")
     cut_status: str = Field(default="normal", description="切割状态: normal/major_issue/blocked")
@@ -80,8 +79,8 @@ class HeatCompareResponse(BaseModel):
         default_factory=list, description="多基线对比数据"
     )
     deviation_ranges: list[DeviationRange] = Field(default_factory=list, description="偏差区间列表")
-    max_deviation: float | None = Field(default=None, description="最大偏差百分比")
-    avg_deviation: float | None = Field(default=None, description="平均偏差百分比")
+    deviation_score: float | None = Field(default=None, description="统一偏离分数")
+    avg_deviation_score: float | None = Field(default=None, description="平均偏离分数")
 
 
 class BaselineWithCurveSimple(BaseModel):
@@ -100,8 +99,8 @@ class BaselineCompareItem(BaseModel):
     baseline: BaselineWithCurveSimple = Field(..., description="基线数据")
     metric_curves: list[MetricCompareSeries] = Field(default_factory=list, description="多指标曲线")
     deviation_ranges: list[DeviationRange] = Field(default_factory=list, description="偏差区间")
-    max_deviation: float | None = Field(default=None, description="最大偏差百分比")
-    avg_deviation: float | None = Field(default=None, description="平均偏差百分比")
+    deviation_score: float | None = Field(default=None, description="统一偏离分数")
+    avg_deviation_score: float | None = Field(default=None, description="平均偏离分数")
 
 
 class HeatListResponse(BaseModel):

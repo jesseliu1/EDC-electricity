@@ -124,7 +124,7 @@ watch(
         <div class="flex justify-between items-center py-1 border-t border-slate-50 pt-3 mt-1">
           <span class="text-slate-500">{{ t('task.deviation') }}</span>
           <span class="font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">
-            {{ formatDeviation(task.deviationPercent) }}
+            {{ formatDeviation(task.deviationScore) }}
           </span>
         </div>
       </div>

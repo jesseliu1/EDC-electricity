@@ -169,7 +169,7 @@ onMounted(() => {
                 {{ item.taskNo }} : 纠偏任务
               </p>
               <p class="text-xs text-slate-400 mt-1">
-                偏差: {{ formatDeviation(item.deviationPercent) }}
+                偏差: {{ formatDeviation(item.deviationScore) }}
               </p>
             </div>
           </div>

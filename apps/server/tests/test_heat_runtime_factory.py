@@ -28,11 +28,10 @@ def test_factory_builds_birth_snapshot_from_candidate_and_templates() -> None:
                 "baseline_effective_from": datetime(2026, 3, 19, 8, 0),
                 "tolerance_percent": 12.0,
                 "analysis_status": "ready",
-                "deviation_percent": 1.5,
-                "avg_deviation_percent": 0.8,
-                "deviation_details_json": None,
-                "time_offset_percent": 0.0,
-                "mismatch_duration_minutes": 0.0,
+                "deviation_score": 1.5,
+                "avg_deviation_score": 0.8,
+                "analysis_details_json": None,
+                "abnormal_duration_minutes": 0.0,
             }
         ],
     }

@@ -14,7 +14,7 @@ import type { TaskItemResponse, TaskStatus } from '@/api/task'
 
 interface DashboardStats {
   todayHeats: number
-  avgDeviation: number
+  avgDeviationScore: number
   pendingTasks: number
   activeBaseline: string | null
   normalRate: number
@@ -38,21 +38,21 @@ export interface RecentHeatItem {
   startTime: number
   endTime: number
   status: 'normal' | 'abnormal' | 'pending'
-  deviationPercent: number | null
+  deviationScore: number | null
 }
 
 export interface DashboardTaskPreviewItem {
   id: string
   taskNo: string
   heatId: string
-  deviationPercent: number | null
+  deviationScore: number | null
   status: TaskStatus
   updatedAt: number
 }
 
 const defaultStats: DashboardStats = {
   todayHeats: 0,
-  avgDeviation: 0,
+  avgDeviationScore: 0,
   pendingTasks: 0,
   activeBaseline: null,
   normalRate: 0
@@ -73,7 +73,7 @@ const defaultRealtime: RealtimeData = {
 function mapStats(data: DashboardStatsResponse): DashboardStats {
   return {
     todayHeats: data.today_heats,
-    avgDeviation: Number(data.avg_deviation.toFixed(1)),
+    avgDeviationScore: Number(data.avg_deviation_score.toFixed(1)),
     pendingTasks: data.pending_tasks,
     activeBaseline: data.active_baseline,
     normalRate: Number(data.normal_rate.toFixed(1))
@@ -101,7 +101,7 @@ function mapRecentHeats(data: RecentHeatsResponse): RecentHeatItem[] {
     startTime: item.start_time,
     endTime: item.end_time,
     status: item.status,
-    deviationPercent: item.deviation_percent
+    deviationScore: item.deviation_score
   }))
 }
 
@@ -110,7 +110,7 @@ function mapTaskPreview(item: TaskItemResponse): DashboardTaskPreviewItem {
     id: item.id,
     taskNo: item.task_no,
     heatId: item.heat_id,
-    deviationPercent: item.deviation_percent,
+    deviationScore: item.deviation_score,
     status: item.status,
     updatedAt: item.updated_at
   }

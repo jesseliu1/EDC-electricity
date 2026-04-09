@@ -135,22 +135,21 @@ async def _insert_formal_heat_fixture() -> str:
                 effective_from_snapshot=now - timedelta(minutes=10),
                 tolerance_percent_snapshot=15.0,
                 analysis_status="ready",
-                deviation_percent=12.3,
-                avg_deviation_percent=8.1,
-                deviation_details_json=json.dumps(
+                deviation_score=12.3,
+                avg_deviation_score=8.1,
+                analysis_details_json=json.dumps(
                     {
                         "abnormal_ranges": [
                             {
                                 "start": int((now - timedelta(minutes=12)).timestamp() * 1000),
                                 "end": int((now - timedelta(minutes=9)).timestamp() * 1000),
-                                "deviation": 12.3,
+                                "score": 12.3,
                             }
                         ]
                     },
                     ensure_ascii=False,
                 ),
-                time_offset_percent=4.2,
-                mismatch_duration_minutes=3.0,
+                abnormal_duration_minutes=3.0,
                 created_at=now,
                 updated_at=now,
             )
@@ -277,7 +276,7 @@ async def test_list_heats_reads_history_from_formal_tables(client) -> None:
     assert item["record_source"] == "sealed_history"
     assert item["current_curve_source"] == "formal_db"
     assert item["baseline_id"] == "def-history-001:001"
-    assert item["deviation_percent"] == pytest.approx(12.3)
+    assert item["deviation_score"] == pytest.approx(12.3)
 
 
 @pytest.mark.asyncio
@@ -568,15 +567,15 @@ async def test_prepare_runtime_candidates_persists_ready_binding_analysis(
     prepared = await prepare_runtime_candidates_for_persist([candidate], trigger_source="test")
     binding = prepared[0]["baseline_bindings"][0]
     assert binding["analysis_status"] == "ready"
-    assert binding["deviation_percent"] is not None
-    assert binding["avg_deviation_percent"] is not None
-    assert binding["deviation_details_json"]
+    assert binding["deviation_score"] is not None
+    assert binding["avg_deviation_score"] is not None
+    assert binding["analysis_details_json"]
 
     persisted = await persist_sealed_heat_candidates(prepared)
     persisted_binding = persisted["heat-analysis-001"]["baseline_bindings"][0]
     assert persisted_binding["analysis_status"] == "ready"
-    assert persisted_binding["deviation_percent"] == pytest.approx(binding["deviation_percent"])
-    assert persisted_binding["avg_deviation_percent"] == pytest.approx(binding["avg_deviation_percent"])
+    assert persisted_binding["deviation_score"] == pytest.approx(binding["deviation_score"])
+    assert persisted_binding["avg_deviation_score"] == pytest.approx(binding["avg_deviation_score"])
 
 
 @pytest.mark.asyncio
@@ -842,8 +841,7 @@ async def test_resume_history_heat_writes_formal_tables(client) -> None:
             },
         )
         assert binding is not None
-        binding.time_offset_percent = 16.0
-        binding.mismatch_duration_minutes = 9.0
+        binding.abnormal_duration_minutes = 9.0
         await session.commit()
 
     response = await client.post(
@@ -854,7 +852,6 @@ async def test_resume_history_heat_writes_formal_tables(client) -> None:
     payload = response.json()
     assert payload["cut_status"] == "normal"
     assert payload["status"] == "normal"
-    assert payload["time_offset_percent"] == pytest.approx(8.0)
 
 
 @pytest.mark.asyncio
@@ -871,9 +868,9 @@ async def test_history_compare_does_not_fallback_when_binding_analysis_pending(c
         )
         assert binding is not None
         binding.analysis_status = "pending"
-        binding.deviation_percent = None
-        binding.avg_deviation_percent = None
-        binding.deviation_details_json = None
+        binding.deviation_score = None
+        binding.avg_deviation_score = None
+        binding.analysis_details_json = None
         await session.commit()
 
     async def fail_channel_curves(**_kwargs):
@@ -888,10 +885,10 @@ async def test_history_compare_does_not_fallback_when_binding_analysis_pending(c
     response = await client.get(f"/api/heats/{heat_id}/compare")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["max_deviation"] is None
-    assert payload["avg_deviation"] is None
+    assert payload["deviation_score"] is None
+    assert payload["avg_deviation_score"] is None
     assert payload["deviation_ranges"] == []
-    assert payload["baselines"][0]["max_deviation"] is None
+    assert payload["baselines"][0]["deviation_score"] is None
 
 
 def test_future_published_baseline_does_not_fallback_to_past_heat() -> None:

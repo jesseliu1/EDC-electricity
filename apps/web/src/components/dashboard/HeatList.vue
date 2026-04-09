@@ -13,7 +13,7 @@ interface HeatItem {
   heatNo: string
   startTime: number
   duration?: string
-  deviationPercent: number | null
+  deviationScore: number | null
   status: HeatStatus
 }
 
@@ -142,9 +142,9 @@ const handleViewDetail = (heatId: string) => {
             <td class="px-4 py-3.5">
               <span
                 :data-testid="`dashboard-recent-heat-deviation-${heat.id}`"
-                :class="['text-sm', getDeviationClass(heat.deviationPercent)]"
+                :class="['text-sm', getDeviationClass(heat.deviationScore)]"
               >
-                {{ formatDeviation(heat.deviationPercent) }}
+                {{ formatDeviation(heat.deviationScore) }}
               </span>
             </td>
             <td class="px-4 py-3.5">

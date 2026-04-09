@@ -921,10 +921,9 @@ async function handleCreateTask() {
       heat_id: heatId.value,
       baseline_id: selectedComparison.value?.baseline.id,
       heat_no: heatSnapshot?.heatNo,
-      deviation_percent: heatSnapshot?.deviationPercent ?? null,
-      avg_deviation_percent: heatSnapshot?.avgDeviationPercent ?? null,
-      time_offset_percent: heatSnapshot?.timeOffsetPercent ?? null,
-      mismatch_duration_minutes: heatSnapshot?.mismatchDurationMinutes ?? null,
+      deviation_score: heatSnapshot?.deviationScore ?? null,
+      avg_deviation_score: heatSnapshot?.avgDeviationScore ?? null,
+      abnormal_duration_minutes: heatSnapshot?.abnormalDurationMinutes ?? null,
     })
     if (!createdTask.id) {
       throw new Error('Task creation response missing id')
@@ -1315,7 +1314,7 @@ onBeforeUnmount(() => {
                 <span class="text-xs text-red-500 font-semibold">
                   {{ t('heat.deviation') }}
                 </span>
-                <span class="text-lg font-bold text-red-600">{{ range.deviation }}%</span>
+                <span class="text-lg font-bold text-red-600">{{ range.score }}</span>
               </div>
             </div>
           </div>
@@ -1410,11 +1409,11 @@ onBeforeUnmount(() => {
               }}</span>
             </div>
             <div class="flex justify-between items-center py-1">
-              <span class="text-slate-500">{{ t('heat.mismatchDurationMinutes') }}</span>
+              <span class="text-slate-500">{{ t('heat.abnormalDurationMinutes') }}</span>
               <span class="font-semibold text-orange-600">{{
-                current.base.mismatchDurationMinutes === null
+                current.base.abnormalDurationMinutes === null
                   ? '--'
-                  : `${current.base.mismatchDurationMinutes}m`
+                  : `${current.base.abnormalDurationMinutes}m`
               }}</span>
             </div>
             <div class="flex justify-between items-center py-1">

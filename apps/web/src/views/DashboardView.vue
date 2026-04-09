@@ -50,7 +50,7 @@ const stats = computed(() => [
   {
     id: 2,
     title: t('dashboard.avgDeviation'),
-    value: statsPending.value || statsUnavailable.value ? '--' : dashboardStore.stats.avgDeviation,
+    value: statsPending.value || statsUnavailable.value ? '--' : dashboardStore.stats.avgDeviationScore,
     unit: statsPending.value || statsUnavailable.value ? '' : t('dashboard.unit.percent'),
     trend: 0,
     description: statsUnavailable.value ? t('dashboard.statsLoadFailedHint') : '',
@@ -336,7 +336,7 @@ onMounted(() => {
                     'text-xs px-2 py-0.5 rounded font-medium',
                     taskStatusClass(item.status),
                   ]"
-                >{{ taskStatusLabel(item.status) }} · {{ formatTaskDeviation(item.deviationPercent) }}</span>
+                >{{ taskStatusLabel(item.status) }} · {{ formatTaskDeviation(item.deviationScore) }}</span>
               </div>
             </div>
           </div>

@@ -173,7 +173,7 @@ function getPreviewPower(item: HeatItem) {
   if (cached && cached.length > 0) {
     return cached.map(point => point.value)
   }
-  return buildSeries(item.id, 430 + (item.deviationPercent || 0), 22)
+  return buildSeries(item.id, 430 + (item.deviationScore || 0), 22)
 }
 
 function getPreviewTemperature(item: HeatItem) {
@@ -525,15 +525,15 @@ onBeforeUnmount(() => {
                     <span class="text-xs text-slate-400">偏离度</span>
                     <span
                       :data-testid="`heat-deviation-${item.id}`"
-                      :class="['text-sm', getDeviationClass(item.deviationPercent)]"
+                      :class="['text-sm', getDeviationClass(item.deviationScore)]"
                     >
-                      {{ formatDeviation(item.deviationPercent) }}
+                      {{ formatDeviation(item.deviationScore) }}
                     </span>
                   </div>
                   <div class="w-20 h-1 bg-slate-200 rounded-full mt-1 overflow-hidden">
                     <div
                       class="h-1 rounded-full transition-all"
-                      :class="getDeviationBarClass(item.deviationPercent)"
+                      :class="getDeviationBarClass(item.deviationScore)"
                     />
                   </div>
                 </td>
@@ -662,7 +662,7 @@ onBeforeUnmount(() => {
                               平均偏差
                             </div>
                             <div class="mt-2 text-2xl font-bold text-slate-900">
-                              {{ formatDeviation(item.avgDeviationPercent) }}
+                              {{ formatDeviation(item.avgDeviationScore) }}
                             </div>
                             <div class="mt-1 text-xs text-slate-500">
                               与默认黄金基线对比

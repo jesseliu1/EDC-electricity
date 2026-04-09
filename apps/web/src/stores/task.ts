@@ -31,7 +31,7 @@ export interface TaskItem {
   id: string
   taskNo: string
   heatId: string
-  deviationPercent: number | null
+  deviationScore: number | null
   status: TaskStatus
   createdAt: number
   updatedAt: number
@@ -43,7 +43,7 @@ export interface TaskDetail extends TaskItem {
   causeAnalysis: string
   improvement: string
   prevention: string
-  deviationSnapshot: Record<string, unknown>
+  analysisSnapshot: Record<string, unknown>
 }
 
 export type TaskFilterKey = 'all' | TaskStatus
@@ -71,7 +71,7 @@ function mapTask(item: TaskItemResponse): TaskItem {
     id: item.id,
     taskNo: item.task_no,
     heatId: item.heat_id,
-    deviationPercent: item.deviation_percent,
+    deviationScore: item.deviation_score,
     status: item.status,
     createdAt: item.created_at,
     updatedAt: item.updated_at,
@@ -86,7 +86,7 @@ function mapTaskDetail(item: TaskDetailResponse): TaskDetail {
     causeAnalysis: item.cause_analysis || '',
     improvement: item.improvement || '',
     prevention: item.prevention || '',
-    deviationSnapshot: item.deviation_snapshot
+    analysisSnapshot: item.analysis_snapshot
   }
 }
 

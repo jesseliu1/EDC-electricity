@@ -311,7 +311,7 @@
     "cutStatusmajor_issue": "重大事故",
     "cutStatusblocked": "停止中",
     "timeOffsetPercent": "時間ずれ",
-    "mismatchDurationMinutes": "連続不一致時間",
+    "abnormalDurationMinutes": "連続不一致時間",
     "scheduleTagLabel": "シフトウィンドウ",
     "cutReasonLabel": "切り分け理由",
     "timelineAbnormalReason": "異常理由",

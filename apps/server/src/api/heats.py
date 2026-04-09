@@ -183,9 +183,9 @@ def _build_heat_compare_cache_key(item: dict[str, Any], baseline_ids: list[str])
                     [
                         _as_cache_token(binding.get("baseline_id")),
                         _as_cache_token(binding.get("analysis_status")),
-                        _as_cache_token(binding.get("deviation_percent")),
-                        _as_cache_token(binding.get("avg_deviation_percent")),
-                        _as_cache_token(binding.get("deviation_details_json")),
+                        _as_cache_token(binding.get("deviation_score")),
+                        _as_cache_token(binding.get("avg_deviation_score")),
+                        _as_cache_token(binding.get("analysis_details_json")),
                     ]
                 )
             )
@@ -872,10 +872,9 @@ def _build_live_heat_item(
         "baseline_ids": [baseline_id] if baseline_id else [],
         "completion_status": "completed",
         "last_point_at": end_time,
-        "deviation_percent": None,
-        "avg_deviation_percent": None,
-        "time_offset_percent": None,
-        "mismatch_duration_minutes": None,
+        "deviation_score": None,
+        "avg_deviation_score": None,
+        "abnormal_duration_minutes": None,
         "schedule_tag": schedule_tag,
         "cut_reason": "live_inferred",
         "cut_status": "normal",
@@ -2289,6 +2288,49 @@ def _resolve_runtime_current_curves(
     return {metric_key: points for metric_key, points in curves.items() if points}
 
 
+def _metric_series_compare_keys(
+    *,
+    metric_key: str,
+    source_channel_id: str | None,
+) -> list[str]:
+    keys: list[str] = []
+    normalized_metric_key = str(metric_key or "").strip()
+    if normalized_metric_key:
+        keys.append(normalized_metric_key)
+    normalized_channel_id = str(source_channel_id or "").strip()
+    if normalized_channel_id and "-" in normalized_channel_id:
+        suid, cuid = normalized_channel_id.split("-", 1)
+        if suid and cuid:
+            keys.append(f"{suid}:{cuid}")
+    return keys
+
+
+def _resolve_formal_current_curves(
+    item: dict[str, Any],
+) -> dict[str, list[CurvePoint]]:
+    curves: dict[str, list[CurvePoint]] = {}
+    raw_metric_series = item.get("metric_series")
+    if not isinstance(raw_metric_series, list):
+        return curves
+    for series in raw_metric_series:
+        if not isinstance(series, dict):
+            continue
+        metric_key = str(series.get("metric_key") or "").strip()
+        points = _coerce_curve_points(_runtime_series_payload(series).get("points"))
+        if not metric_key or not points:
+            continue
+        for cache_key in _metric_series_compare_keys(
+            metric_key=metric_key,
+            source_channel_id=(
+                str(series.get("source_channel_id"))
+                if series.get("source_channel_id") is not None
+                else None
+            ),
+        ):
+            curves[cache_key] = points
+    return curves
+
+
 def _resolve_runtime_baseline_curve_snapshots(
     item: dict[str, Any],
 ) -> dict[tuple[str, str], RuntimeBaselineCurveSnapshot]:
@@ -2402,7 +2444,10 @@ async def _build_metric_curve_series(
             target_end_time=end_time,
         )
         current_metric_curve = (
-            current_curves_by_channel.get(_channel_curve_cache_key(host_channel) or "", [])
+            (
+                current_curves_by_channel.get(_channel_curve_cache_key(host_channel) or "", [])
+                or current_curves_by_channel.get(metric_key, [])
+            )
             if current_curves_by_channel is not None
             else real_current_curves.get(metric_id)
         )
@@ -2511,7 +2556,7 @@ def _binding_by_baseline_id(item: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _binding_deviation_ranges(binding: dict[str, Any]) -> list[DeviationRange]:
-    raw_payload = binding.get("deviation_details_json")
+    raw_payload = binding.get("analysis_details_json")
     if not isinstance(raw_payload, str) or not raw_payload.strip():
         return []
     try:
@@ -2527,14 +2572,14 @@ def _binding_deviation_ranges(binding: dict[str, Any]) -> list[DeviationRange]:
             continue
         start = item.get("start")
         end = item.get("end")
-        deviation = item.get("deviation")
-        if start is None or end is None or deviation is None:
+        score = item.get("score")
+        if start is None or end is None or score is None:
             continue
         normalized.append(
             DeviationRange(
                 start=int(start),
                 end=int(end),
-                deviation=float(deviation),
+                score=float(score),
             )
         )
     return normalized
@@ -2564,7 +2609,7 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
 
         schedule_tag = _schedule_tag_of(start_time, config)
         mismatch_minutes = 3 + (idx % 6)
-        time_offset_percent = round((idx % 7) * 1.6, 2)
+        time_window_offset_percent = round((idx % 7) * 1.6, 2)
         cut_reason: str | None = None
         cut_status = "normal"
         major_issue = False
@@ -2573,7 +2618,7 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
         if group == 1:
             status = "abnormal" if idx % 6 == 0 else "normal"
             mismatch_minutes = 4 + (idx % 4)
-            time_offset_percent = round((idx % 5) * 1.4, 2)
+            time_window_offset_percent = round((idx % 5) * 1.4, 2)
         else:
             mismatch_minutes = 6 + (idx % 7)
             if idx == 34:
@@ -2584,20 +2629,20 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
             blocked_by_issue = True
             status = "pending"
             cut_reason = "schedule_window"
-            time_offset_percent = None
+            time_window_offset_percent = None
         elif major_issue_triggered:
             cut_status = "blocked"
             blocked_by_issue = True
             status = "pending"
             cut_reason = "major_issue_lock"
-            time_offset_percent = None
+            time_window_offset_percent = None
         elif mismatch_minutes >= config.major_issue_duration_minutes:
             cut_status = "major_issue"
             major_issue = True
             status = "abnormal"
             cut_reason = "continuous_mismatch"
             major_issue_triggered = True
-        elif time_offset_percent > config.time_tolerance_percent:
+        elif time_window_offset_percent > config.time_tolerance_percent:
             status = "abnormal"
             cut_reason = "time_offset_exceed"
         else:
@@ -2625,10 +2670,9 @@ def _seed_heats() -> dict[str, dict[str, Any]]:
             "baseline_version_id": "baseline-001" if status != "pending" else None,
             "baseline_effective_from": None,
             "baseline_ids": ["baseline-001", "baseline-002"] if status != "pending" else [],
-            "deviation_percent": max_dev,
-            "avg_deviation_percent": avg_dev,
-            "time_offset_percent": time_offset_percent,
-            "mismatch_duration_minutes": mismatch_minutes,
+            "deviation_score": max_dev,
+            "avg_deviation_score": avg_dev,
+            "abnormal_duration_minutes": mismatch_minutes,
             "schedule_tag": schedule_tag,
             "cut_reason": cut_reason,
             "cut_status": cut_status,
@@ -2831,29 +2875,24 @@ def _build_runtime_bindings(item: dict[str, Any]) -> list[RuntimeHeatBinding]:
                         else None
                     ),
                     analysis_status=str(binding.get("analysis_status") or "pending"),
-                    deviation_percent=(
-                        float(binding.get("deviation_percent"))
-                        if binding.get("deviation_percent") is not None
+                    deviation_score=(
+                        float(binding.get("deviation_score"))
+                        if binding.get("deviation_score") is not None
                         else None
                     ),
-                    avg_deviation_percent=(
-                        float(binding.get("avg_deviation_percent"))
-                        if binding.get("avg_deviation_percent") is not None
+                    avg_deviation_score=(
+                        float(binding.get("avg_deviation_score"))
+                        if binding.get("avg_deviation_score") is not None
                         else None
                     ),
-                    deviation_details_json=(
-                        str(binding.get("deviation_details_json"))
-                        if binding.get("deviation_details_json") is not None
+                    analysis_details_json=(
+                        str(binding.get("analysis_details_json"))
+                        if binding.get("analysis_details_json") is not None
                         else None
                     ),
-                    time_offset_percent=(
-                        float(binding.get("time_offset_percent"))
-                        if binding.get("time_offset_percent") is not None
-                        else None
-                    ),
-                    mismatch_duration_minutes=(
-                        float(binding.get("mismatch_duration_minutes"))
-                        if binding.get("mismatch_duration_minutes") is not None
+                    abnormal_duration_minutes=(
+                        float(binding.get("abnormal_duration_minutes"))
+                        if binding.get("abnormal_duration_minutes") is not None
                         else None
                     ),
                 )
@@ -2882,7 +2921,7 @@ def _build_runtime_bindings(item: dict[str, Any]) -> list[RuntimeHeatBinding]:
             should_seed = True
         elif candidate_baseline_id is None and primary_baseline_id == baseline_id:
             should_seed = True
-        analysis_ready = should_seed and item.get("deviation_percent") is not None
+        analysis_ready = should_seed and item.get("deviation_score") is not None
         bindings.append(
             RuntimeHeatBinding(
                 heat_id=str(item["id"]),
@@ -2897,12 +2936,11 @@ def _build_runtime_bindings(item: dict[str, Any]) -> list[RuntimeHeatBinding]:
                     else None
                 ),
                 analysis_status="ready" if analysis_ready else "pending",
-                deviation_percent=item.get("deviation_percent") if should_seed else None,
-                avg_deviation_percent=item.get("avg_deviation_percent") if should_seed else None,
-                deviation_details_json=None,
-                time_offset_percent=item.get("time_offset_percent") if should_seed else None,
-                mismatch_duration_minutes=(
-                    item.get("mismatch_duration_minutes") if should_seed else None
+                deviation_score=item.get("deviation_score") if should_seed else None,
+                avg_deviation_score=item.get("avg_deviation_score") if should_seed else None,
+                analysis_details_json=None,
+                abnormal_duration_minutes=(
+                    item.get("abnormal_duration_minutes") if should_seed else None
                 ),
             )
         )
@@ -3482,10 +3520,9 @@ def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
         baseline_id=item["baseline_id"],
         baseline_version_id=item.get("baseline_version_id"),
         baseline_effective_from=item.get("baseline_effective_from"),
-        deviation_percent=item["deviation_percent"],
-        avg_deviation_percent=item["avg_deviation_percent"],
-        time_offset_percent=item.get("time_offset_percent"),
-        mismatch_duration_minutes=item.get("mismatch_duration_minutes"),
+        deviation_score=item["deviation_score"],
+        avg_deviation_score=item["avg_deviation_score"],
+        abnormal_duration_minutes=item.get("abnormal_duration_minutes"),
         schedule_tag=item.get("schedule_tag", "work"),
         cut_reason=item.get("cut_reason"),
         cut_status=item.get("cut_status", "normal"),
@@ -3569,7 +3606,7 @@ def _build_ingested_heat() -> dict[str, Any]:
 
     schedule_tag = _schedule_tag_of(start_time, config)
     mismatch_minutes = 3 + (_NEXT_MOCK_HEAT_INDEX % 9)
-    time_offset_percent = round((_NEXT_MOCK_HEAT_INDEX % 8) * 1.7, 2)
+    time_window_offset_percent = round((_NEXT_MOCK_HEAT_INDEX % 8) * 1.7, 2)
 
     has_major_issue_lock = any(
         item.get("cut_status") == "major_issue" or item.get("cut_reason") == "major_issue_lock"
@@ -3587,19 +3624,19 @@ def _build_ingested_heat() -> dict[str, Any]:
         status = "pending"
         blocked_by_issue = True
         cut_reason = "schedule_window"
-        time_offset_percent = None
+        time_window_offset_percent = None
     elif has_major_issue_lock:
         cut_status = "blocked"
         status = "pending"
         blocked_by_issue = True
         cut_reason = "major_issue_lock"
-        time_offset_percent = None
+        time_window_offset_percent = None
     elif mismatch_minutes >= config.major_issue_duration_minutes:
         cut_status = "major_issue"
         status = "abnormal"
         major_issue = True
         cut_reason = "continuous_mismatch"
-    elif time_offset_percent > config.time_tolerance_percent:
+    elif time_window_offset_percent > config.time_tolerance_percent:
         status = "abnormal"
         cut_reason = "time_offset_exceed"
 
@@ -3637,10 +3674,9 @@ def _build_ingested_heat() -> dict[str, Any]:
         "baseline_version_id": "baseline-001" if status != "pending" else None,
         "baseline_effective_from": None,
         "baseline_ids": ["baseline-001", "baseline-002"] if status != "pending" else [],
-        "deviation_percent": max_dev,
-        "avg_deviation_percent": avg_dev,
-        "time_offset_percent": time_offset_percent,
-        "mismatch_duration_minutes": mismatch_minutes,
+        "deviation_score": max_dev,
+        "avg_deviation_score": avg_dev,
+        "abnormal_duration_minutes": mismatch_minutes,
         "schedule_tag": schedule_tag,
         "cut_reason": cut_reason,
         "cut_status": cut_status,
@@ -3922,10 +3958,9 @@ async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatRe
     item["blocked_by_issue"] = False
     item["cut_reason"] = "manual_resume"
     item["schedule_tag"] = "work"
-    item["mismatch_duration_minutes"] = min(item.get("mismatch_duration_minutes") or 0, 4)
+    item["abnormal_duration_minutes"] = min(item.get("abnormal_duration_minutes") or 0, 4)
     if item["status"] == "pending":
         item["status"] = "normal"
-    item["time_offset_percent"] = min(item.get("time_offset_percent") or 0.0, 8.0)
 
     if data.adjust_subsequent:
         current_start = item["start_time"]
@@ -3938,10 +3973,9 @@ async def resume_cutting(heat_id: str, data: HeatResumeCuttingRequest) -> HeatRe
                 other["major_issue"] = False
                 other["cut_reason"] = "manual_resume_followup"
                 other["schedule_tag"] = "work"
-                other["mismatch_duration_minutes"] = 4
+                other["abnormal_duration_minutes"] = 4
                 if other["status"] == "pending":
                     other["status"] = "normal"
-                other["time_offset_percent"] = 6.0
 
     await persist_runtime_state(*_runtime_heat_sections())
     invalidate_compare_runtime_caches(canonical_heat_id)
@@ -3968,7 +4002,7 @@ async def get_cutting_timeline(heat_id: str) -> CuttingTimelineResponse:
             event_type="window_check",
             title="窗口判定",
             detail=(
-                f"连续不一致 {item.get('mismatch_duration_minutes') or 0} 分钟，"
+                f"连续不一致 {item.get('abnormal_duration_minutes') or 0} 分钟，"
                 f"阈值 {config.major_issue_duration_minutes} 分钟"
             ),
         ),
@@ -4114,8 +4148,8 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
                     item["baseline_curve_source"] = baseline_voltage_snapshot.curve_source
     elif is_sealed_history:
         hydrated_baselines = await _hydrate_compare_baselines(baseline_ids)
-        shared_current_curves = {}
-        display_current_curves = {}
+        shared_current_curves = _resolve_formal_current_curves(item)
+        display_current_curves = dict(shared_current_curves)
         historical_context_curves = {
             "power": _coerce_curve_points(item.get("power_curve")),
             "voltage": _coerce_curve_points(item.get("voltage_curve")),
@@ -4208,12 +4242,12 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
             )
             if binding_summary is not None and str(binding_summary.get("analysis_status") or "") == "ready":
                 deviation_ranges = _binding_deviation_ranges(binding_summary)
-                max_deviation = binding_summary.get("deviation_percent")
-                avg_deviation = binding_summary.get("avg_deviation_percent")
+                deviation_score = binding_summary.get("deviation_score")
+                avg_deviation_score = binding_summary.get("avg_deviation_score")
             else:
                 deviation_ranges = []
-                max_deviation = None
-                avg_deviation = None
+                deviation_score = None
+                avg_deviation_score = None
 
             baseline_compares.append(
                 BaselineCompareItem(
@@ -4226,8 +4260,8 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
                     ),
                     metric_curves=metric_curves,
                     deviation_ranges=deviation_ranges,
-                    max_deviation=max_deviation,
-                    avg_deviation=avg_deviation,
+                    deviation_score=deviation_score,
+                    avg_deviation_score=avg_deviation_score,
                 )
             )
     except ValueError as exc:
@@ -4241,16 +4275,16 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
 
     baseline = baseline_compares[0].baseline if baseline_compares else None
     deviation_ranges = baseline_compares[0].deviation_ranges if baseline_compares else []
-    max_deviation = baseline_compares[0].max_deviation if baseline_compares else None
-    avg_deviation = baseline_compares[0].avg_deviation if baseline_compares else None
+    deviation_score = baseline_compares[0].deviation_score if baseline_compares else None
+    avg_deviation_score = baseline_compares[0].avg_deviation_score if baseline_compares else None
 
     response = HeatCompareResponse(
         heat=heat,
         baseline=baseline,
         baselines=baseline_compares,
         deviation_ranges=deviation_ranges,
-        max_deviation=max_deviation,
-        avg_deviation=avg_deviation,
+        deviation_score=deviation_score,
+        avg_deviation_score=avg_deviation_score,
     )
     _set_cached_heat_compare(cache_key=cache_key, heat_id=canonical_heat_id, response=response)
     log_event(

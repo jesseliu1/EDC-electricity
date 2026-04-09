@@ -75,14 +75,14 @@ async def test_tasks_crud_and_pdf(client) -> None:
     assert create_resp.status_code == 201
     created_id = create_resp.json()["id"]
     assert create_resp.json()["heat_id"] == "heat-001"
-    assert create_resp.json()["deviation_percent"] is not None
+    assert create_resp.json()["deviation_score"] is not None
 
     created_detail_resp = await client.get(f"/api/tasks/{created_id}")
     assert created_detail_resp.status_code == 200
     assert created_detail_resp.json()["heat_no"] == heat_resp.json()["heat_no"]
     assert (
-        created_detail_resp.json()["deviation_snapshot"]["max_deviation"]
-        == create_resp.json()["deviation_percent"]
+        created_detail_resp.json()["analysis_snapshot"]["deviation_score"]
+        == create_resp.json()["deviation_score"]
     )
 
     update_resp = await client.patch(
@@ -113,23 +113,21 @@ async def test_task_create_uses_frontend_snapshot_to_skip_live_heat_lookup(clien
         json={
             "heat_id": "live-heat-fast-001",
             "heat_no": "H20260328-FAST",
-            "deviation_percent": 18.5,
-            "avg_deviation_percent": 9.2,
-            "time_offset_percent": 4.8,
-            "mismatch_duration_minutes": 4,
+            "deviation_score": 18.5,
+            "avg_deviation_score": 9.2,
+            "abnormal_duration_minutes": 4,
         },
     )
     assert create_resp.status_code == 201
     payload = create_resp.json()
     assert payload["heat_id"] == "live-heat-fast-001"
-    assert payload["deviation_percent"] == 18.5
+    assert payload["deviation_score"] == 18.5
     get_heat_or_404.assert_not_awaited()
 
     created_detail_resp = await client.get(f"/api/tasks/{payload['id']}")
     assert created_detail_resp.status_code == 200
     assert created_detail_resp.json()["heat_no"] == "H20260328-FAST"
-    assert created_detail_resp.json()["deviation_snapshot"]["avg_deviation"] == 9.2
-    assert created_detail_resp.json()["deviation_snapshot"]["time_offset_percent"] == 4.8
+    assert created_detail_resp.json()["analysis_snapshot"]["avg_deviation_score"] == 9.2
 
 
 @pytest.mark.asyncio

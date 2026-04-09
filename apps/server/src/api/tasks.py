@@ -45,12 +45,12 @@ def _seed_tasks() -> dict[str, dict[str, Any]]:
             "task_no": f"T{plant_now.strftime('%Y%m%d')}-{idx + 1:03d}",
             "heat_id": f"heat-{idx + 1:03d}",
             "heat_no": f"H{plant_now.strftime('%Y%m%d')}-{idx + 1:03d}",
-            "deviation_percent": round(8 + (idx % 9) * 1.9, 3),
-            "deviation_snapshot": {
-                "max_deviation": round(12 + (idx % 7) * 2.1, 3),
-                "avg_deviation": round(5 + (idx % 6) * 1.2, 3),
-                "deviation_ranges": [
-                    {"start": 20000 + idx * 80, "end": 26000 + idx * 80, "deviation": 16.5}
+            "deviation_score": round(8 + (idx % 9) * 1.9, 3),
+            "analysis_snapshot": {
+                "deviation_score": round(12 + (idx % 7) * 2.1, 3),
+                "avg_deviation_score": round(5 + (idx % 6) * 1.2, 3),
+                "abnormal_ranges": [
+                    {"start": 20000 + idx * 80, "end": 26000 + idx * 80, "score": 16.5}
                 ],
             },
             "cause_analysis": "温度波动导致功率异常" if status != "pending" else None,
@@ -77,7 +77,7 @@ def _to_task_response(item: dict[str, Any]) -> TaskResponse:
         id=item["id"],
         task_no=item["task_no"],
         heat_id=item["heat_id"],
-        deviation_percent=item["deviation_percent"],
+        deviation_score=item["deviation_score"],
         cause_analysis=item["cause_analysis"],
         improvement=item["improvement"],
         prevention=item["prevention"],
@@ -91,9 +91,40 @@ def _to_task_response(item: dict[str, Any]) -> TaskResponse:
 def _to_task_detail(item: dict[str, Any]) -> TaskDetailResponse:
     return TaskDetailResponse(
         **_to_task_response(item).model_dump(),
-        deviation_snapshot=item["deviation_snapshot"],
+        analysis_snapshot=item["analysis_snapshot"],
         heat_no=item["heat_no"],
     )
+
+
+def _resolve_task_snapshot_binding(
+    heat_record: dict[str, Any],
+    *,
+    baseline_id: str | None = None,
+) -> dict[str, Any] | None:
+    bindings = heat_record.get("baseline_bindings")
+    if not isinstance(bindings, list):
+        return None
+    if baseline_id is not None:
+        return next(
+            (
+                binding
+                for binding in bindings
+                if isinstance(binding, dict)
+                and str(binding.get("baseline_id") or "") == str(baseline_id)
+            ),
+            None,
+        )
+    primary_binding = next(
+        (
+            binding
+            for binding in bindings
+            if isinstance(binding, dict) and binding.get("is_primary") is True
+        ),
+        None,
+    )
+    if primary_binding is not None:
+        return primary_binding
+    return next((binding for binding in bindings if isinstance(binding, dict)), None)
 
 
 def _get_or_404(task_id: str) -> dict[str, Any]:
@@ -153,36 +184,32 @@ async def create_task(data: TaskCreate) -> TaskResponse:
     if data.baseline_id:
         heat_record = await _get_heat_or_404(data.heat_id)
         heat_item = _build_heat_list_view(heat_record)
-        bindings = heat_record.get("baseline_bindings")
-        if isinstance(bindings, list):
-            matched_binding = next(
-                (
-                    binding
-                    for binding in bindings
-                    if isinstance(binding, dict)
-                    and str(binding.get("baseline_id") or "") == str(data.baseline_id)
-                ),
-                None,
-            )
-            if matched_binding is not None:
-                heat_item = {
-                    **heat_item,
-                    "deviation_percent": matched_binding.get("deviation_percent"),
-                    "avg_deviation_percent": matched_binding.get("avg_deviation_percent"),
-                    "time_offset_percent": matched_binding.get("time_offset_percent"),
-                    "mismatch_duration_minutes": matched_binding.get("mismatch_duration_minutes"),
-                }
+        matched_binding = _resolve_task_snapshot_binding(heat_record, baseline_id=data.baseline_id)
+        if matched_binding is not None:
+            heat_item = {
+                **heat_item,
+                "deviation_score": matched_binding.get("deviation_score"),
+                "avg_deviation_score": matched_binding.get("avg_deviation_score"),
+                "abnormal_duration_minutes": matched_binding.get("abnormal_duration_minutes"),
+                "analysis_details_json": matched_binding.get("analysis_details_json"),
+            }
     elif data.heat_no:
         heat_item = {
             "heat_no": data.heat_no,
-            "deviation_percent": data.deviation_percent,
-            "avg_deviation_percent": data.avg_deviation_percent,
-            "time_offset_percent": data.time_offset_percent,
-            "mismatch_duration_minutes": data.mismatch_duration_minutes,
+            "deviation_score": data.deviation_score,
+            "avg_deviation_score": data.avg_deviation_score,
+            "abnormal_duration_minutes": data.abnormal_duration_minutes,
+            "analysis_details_json": None,
         }
     else:
         heat_record = await _get_heat_or_404(data.heat_id)
         heat_item = _build_heat_list_view(heat_record)
+        primary_binding = _resolve_task_snapshot_binding(heat_record)
+        if primary_binding is not None:
+            heat_item = {
+                **heat_item,
+                "analysis_details_json": primary_binding.get("analysis_details_json"),
+            }
     task_id = f"task-{uuid4()}"
     plant_now = to_plant_datetime(now, get_plant_timezone())
     item = {
@@ -190,13 +217,13 @@ async def create_task(data: TaskCreate) -> TaskResponse:
         "task_no": f"T{plant_now.strftime('%Y%m%d')}-{plant_now.strftime('%H%M%S')}",
         "heat_id": data.heat_id,
         "heat_no": heat_item["heat_no"],
-        "deviation_percent": heat_item.get("deviation_percent"),
-        "deviation_snapshot": {
-            "max_deviation": heat_item.get("deviation_percent"),
-            "avg_deviation": heat_item.get("avg_deviation_percent"),
-            "deviation_ranges": [],
-            "time_offset_percent": heat_item.get("time_offset_percent"),
-            "mismatch_duration_minutes": heat_item.get("mismatch_duration_minutes"),
+        "deviation_score": heat_item.get("deviation_score"),
+        "analysis_snapshot": {
+            "deviation_score": heat_item.get("deviation_score"),
+            "avg_deviation_score": heat_item.get("avg_deviation_score"),
+            "abnormal_ranges": [],
+            "abnormal_duration_minutes": heat_item.get("abnormal_duration_minutes"),
+            "analysis_details_json": heat_item.get("analysis_details_json"),
         },
         "cause_analysis": None,
         "improvement": None,

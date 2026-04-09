@@ -93,7 +93,7 @@ onMounted(() => {
 
           <div class="flex items-center gap-4 shrink-0">
             <StatusBadge type="info">
-              {{ t('dashboard.avgDeviation') }}: {{ item.avgDeviation }}%
+              {{ t('dashboard.avgDeviation') }}: {{ item.avgDeviationScore }}
             </StatusBadge>
             <span class="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors text-[20px]">chevron_right</span>
           </div>

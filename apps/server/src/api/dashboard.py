@@ -156,9 +156,9 @@ async def get_dashboard_stats() -> DashboardStats:
     today_heats = [item for item in heats if plant_date_of(item["start_time"], timezone_name) == today]
     scoped_heats = today_heats or heats
     deviations = [
-        float(item["deviation_percent"])
+        float(item["deviation_score"])
         for item in scoped_heats
-        if item.get("deviation_percent") is not None
+        if item.get("deviation_score") is not None
     ]
     normal_count = sum(1 for item in scoped_heats if item.get("status") == "normal")
     pending_tasks = sum(
@@ -169,7 +169,7 @@ async def get_dashboard_stats() -> DashboardStats:
 
     return DashboardStats(
         today_heats=len(today_heats),
-        avg_deviation=round(sum(deviations) / len(deviations), 3) if deviations else 0.0,
+        avg_deviation_score=round(sum(deviations) / len(deviations), 3) if deviations else 0.0,
         pending_tasks=pending_tasks,
         active_baseline=sources["baseline_name"],
         normal_rate=round((normal_count / len(scoped_heats)) * 100, 2) if scoped_heats else 0.0,
@@ -285,9 +285,9 @@ async def get_recent_heats(limit: int = 10) -> RecentHeatsResponse:
             start_time=item["start_time"],
             end_time=item["end_time"],
             status=str(item["status"]),
-            deviation_percent=(
-                float(item["deviation_percent"])
-                if item.get("deviation_percent") is not None
+            deviation_score=(
+                float(item["deviation_score"])
+                if item.get("deviation_score") is not None
                 else None
             ),
         )
