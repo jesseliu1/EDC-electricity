@@ -33,6 +33,32 @@ from src.services import (
 from src.time_utils import from_timestamp_ms, to_timestamp_ms
 
 
+@pytest.fixture(autouse=True)
+def _patch_runtime_metric_curve_loader(monkeypatch):
+    async def fake_load_runtime_metric_curves(
+        metrics: list[dict[str, object]],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> dict[str, list[CurvePoint]]:
+        curves: dict[str, list[CurvePoint]] = {}
+        for metric in metrics:
+            metric_id = str(metric.get("id") or "")
+            metric_key = str(metric.get("metric_key") or "")
+            if metric_key == "power":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=to_timestamp_ms(start_time), value=430.0),
+                    CurvePoint(timestamp=to_timestamp_ms(end_time), value=438.0),
+                ]
+            elif metric_key == "voltage":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=to_timestamp_ms(start_time), value=221.0),
+                    CurvePoint(timestamp=to_timestamp_ms(end_time), value=226.0),
+                ]
+        return curves
+
+    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", fake_load_runtime_metric_curves)
+
+
 async def _insert_formal_heat_fixture() -> str:
     now = datetime.now().replace(microsecond=0)
     heat_id = "heat-history-001"
@@ -340,7 +366,7 @@ async def test_get_heat_compare_for_history_avoids_live_edc(client, monkeypatch)
     payload = response.json()
     assert payload["heat"]["current_curve_source"] == "formal_db"
     assert payload["heat"]["baseline_curve_source"] == "formal_db"
-    assert len(payload["heat"]["power_curve"]) == 2
+    assert len(payload["heat"]["power_curve"]) == 3
     assert len(payload["baselines"][0]["metric_curves"][0]["current_curve"]) == 3
 
 
@@ -369,16 +395,8 @@ async def test_get_heat_compare_for_history_with_missing_metric_still_never_fall
     monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fail_heat_curves)
 
     response = await client.get(f"/api/heats/{heat_id}/compare")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["heat"]["current_curve_source"] == "formal_db"
-    assert payload["heat"]["voltage_curve"] == []
-    voltage_metric = next(
-        item
-        for item in payload["baselines"][0]["metric_curves"]
-        if item["metric_key"] == "voltage"
-    )
-    assert voltage_metric["current_curve"] == []
+    assert response.status_code == 409
+    assert response.json()["detail"] == "compare_current_metric_curve_missing:voltage"
 
 
 @pytest.mark.asyncio
@@ -539,16 +557,156 @@ async def test_persist_sealed_heat_candidates_allows_overlapping_windows(
 async def test_prepare_runtime_candidates_persists_ready_binding_analysis(
     reset_test_database,
 ) -> None:
-    await _insert_formal_heat_fixture()
+    definition_id = "def-analysis-ready-001"
+    baseline_id = f"{definition_id}:001"
     start_time = datetime.now().replace(microsecond=0, second=0)
+    end_time = start_time + timedelta(minutes=30)
+    context_start_time = start_time - timedelta(minutes=30)
+    context_end_time = end_time + timedelta(minutes=30)
+    baseline_series_payload = json.dumps(
+        {
+            "points": [
+                {"timestamp": to_timestamp_ms(start_time), "value": 410.0},
+                {"timestamp": to_timestamp_ms(end_time), "value": 425.0},
+                {
+                    "timestamp": to_timestamp_ms(end_time + timedelta(minutes=15)),
+                    "value": 430.0,
+                },
+            ]
+        },
+        ensure_ascii=False,
+    )
+    async with async_session_maker() as session:
+        session.add(
+            BaselineDefinition(
+                id=definition_id,
+                definition_name="统一分析 ready 定义",
+                description="验证 runtime 分析结果可落库",
+                expected_duration_minutes=30,
+                status="active",
+                created_by="tester",
+                updated_by="tester",
+                created_at=start_time,
+                updated_at=start_time,
+            )
+        )
+        session.add_all(
+            [
+                BaselineDefinitionMetric(
+                    definition_id=definition_id,
+                    item="001",
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#409EFF",
+                    sort_order=1,
+                    edc_channel_id="2349-199",
+                    enabled=True,
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+                BaselineDefinitionMetric(
+                    definition_id=definition_id,
+                    item="002",
+                    item_kind="metric_item",
+                    metric_key="voltage",
+                    metric_name="A相电压",
+                    unit="V",
+                    color="#67C23A",
+                    sort_order=2,
+                    edc_channel_id="2349-128",
+                    enabled=True,
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+            ]
+        )
+        session.add(
+            Baseline(
+                definition_id=definition_id,
+                item="001",
+                item_kind="baseline_version",
+                name="统一分析 ready 基线",
+                description="测试",
+                status="published",
+                is_default=True,
+                source_heat_id="heat-analysis-ready-seed",
+                selected_start_time=start_time,
+                selected_end_time=end_time,
+                effective_from=start_time - timedelta(minutes=5),
+                tolerance_percent=15.0,
+                created_by="tester",
+                updated_by="tester",
+                created_at=start_time,
+                updated_at=start_time,
+                published_at=start_time,
+            )
+        )
+        session.add_all(
+            [
+                MetricSeries(
+                    owner_key=baseline_id,
+                    item="001",
+                    owner_type="baseline",
+                    definition_id=definition_id,
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#409EFF",
+                    sort_order=1,
+                    source_channel_id="2349-199",
+                    source_channel_name="总有功功率",
+                    source_channel_label="测试设备 / 总有功功率 / kW",
+                    series_json=baseline_series_payload,
+                    stat_json=json.dumps({"avg": 421.5}, ensure_ascii=False),
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+                MetricSeries(
+                    owner_key=baseline_id,
+                    item="002",
+                    owner_type="baseline",
+                    definition_id=definition_id,
+                    item_kind="metric_item",
+                    metric_key="voltage",
+                    metric_name="A相电压",
+                    unit="V",
+                    color="#67C23A",
+                    sort_order=2,
+                    source_channel_id="2349-128",
+                    source_channel_name="A相电压",
+                    source_channel_label="测试设备 / A相电压 / V",
+                    series_json=json.dumps(
+                        {
+                            "points": [
+                                {"timestamp": to_timestamp_ms(start_time), "value": 220.0},
+                                {"timestamp": to_timestamp_ms(end_time), "value": 224.0},
+                                {
+                                    "timestamp": to_timestamp_ms(end_time + timedelta(minutes=15)),
+                                    "value": 226.0,
+                                },
+                            ]
+                        },
+                        ensure_ascii=False,
+                    ),
+                    stat_json=json.dumps({"avg": 223.3}, ensure_ascii=False),
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+            ]
+        )
+        await session.commit()
+
     candidate = {
         "id": "heat-analysis-001",
         "heat_no": "HANALYSIS-001",
         "description": "偏离度正式固化样本",
         "start_time": start_time,
-        "end_time": start_time + timedelta(minutes=30),
-        "context_start_time": start_time - timedelta(minutes=30),
-        "context_end_time": start_time + timedelta(minutes=60),
+        "end_time": end_time,
+        "context_start_time": context_start_time,
+        "context_end_time": context_end_time,
         "record_source": "live_inferred",
         "cut_reason": "test",
         "cut_status": "normal",
@@ -564,7 +722,35 @@ async def test_prepare_runtime_candidates_persists_ready_binding_analysis(
         ],
     }
 
-    prepared = await prepare_runtime_candidates_for_persist([candidate], trigger_source="test")
+    async def fake_metric_curve_loader(
+        metrics: list[dict[str, object]],
+        loader_start_time: datetime,
+        loader_end_time: datetime,
+    ) -> dict[str, list[CurvePoint]]:
+        curves: dict[str, list[CurvePoint]] = {}
+        for metric in metrics:
+            metric_id = str(metric.get("id") or "")
+            metric_key = str(metric.get("metric_key") or "")
+            if metric_key == "power":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=to_timestamp_ms(loader_start_time), value=470.0),
+                    CurvePoint(timestamp=to_timestamp_ms(start_time + timedelta(minutes=15)), value=482.0),
+                    CurvePoint(timestamp=to_timestamp_ms(loader_end_time), value=495.0),
+                ]
+            elif metric_key == "voltage":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=to_timestamp_ms(loader_start_time), value=222.0),
+                    CurvePoint(timestamp=to_timestamp_ms(start_time + timedelta(minutes=15)), value=225.0),
+                    CurvePoint(timestamp=to_timestamp_ms(loader_end_time), value=228.0),
+                ]
+        return curves
+
+    candidate["baseline_id"] = baseline_id
+    prepared = await compile_runtime_candidates(
+        [candidate],
+        trigger_source="test",
+        metric_curve_loader=fake_metric_curve_loader,
+    )
     binding = prepared[0]["baseline_bindings"][0]
     assert binding["analysis_status"] == "ready"
     assert binding["deviation_score"] is not None

@@ -2309,7 +2309,9 @@ def _resolve_formal_current_curves(
     item: dict[str, Any],
 ) -> dict[str, list[CurvePoint]]:
     curves: dict[str, list[CurvePoint]] = {}
-    raw_metric_series = item.get("metric_series")
+    raw_metric_series = item.get("runtime_metric_series")
+    if not isinstance(raw_metric_series, list):
+        raw_metric_series = item.get("metric_series")
     if not isinstance(raw_metric_series, list):
         return curves
     for series in raw_metric_series:

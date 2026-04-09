@@ -14,7 +14,7 @@ from src.api.settings import (
 )
 from src.runtime_state import load_runtime_state, persist_runtime_state
 from src.schemas.common import CurvePoint
-from src.time_utils import from_timestamp_ms, plant_date_of
+from src.time_utils import from_timestamp_ms, plant_date_of, to_timestamp_ms, utc_now
 
 FORMAL_PRIMARY_BASELINE_ID = "def-001:001"
 FORMAL_SECONDARY_BASELINE_ID = "def-002:001"
@@ -419,6 +419,11 @@ def test_build_current_heat_runtime_reads_birth_context_snapshots() -> None:
         "current_curve_source": "live_edc",
         "baseline_curve_source": "runtime_snapshot",
         "baseline_bindings": [binding_payload],
+        "runtime_metric_series": _build_runtime_metric_series(
+            heat_id="runtime-heat-ctx",
+            baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+            start_time=start_time,
+        ),
         "power_curve": [
             CurvePoint(timestamp=int(start_time.timestamp() * 1000), value=420.0),
             CurvePoint(timestamp=int((start_time + timedelta(minutes=1)).timestamp() * 1000), value=421.0),
@@ -560,6 +565,11 @@ async def test_list_heats_includes_active_runtime_item(client) -> None:
 
     start_time = datetime.now().replace(second=0, microsecond=0) - timedelta(minutes=5)
     active_id = "active-heat-001"
+    runtime_metric_series = _build_runtime_metric_series(
+        heat_id=active_id,
+        baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+        start_time=start_time,
+    )
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
     heats_module._ACTIVE_HEAT_RUNTIME[active_id] = {
         "id": active_id,
@@ -585,15 +595,20 @@ async def test_list_heats_includes_active_runtime_item(client) -> None:
         "temperature": None,
         "record_source": "active_runtime",
         "current_curve_source": "live_edc",
-        "baseline_curve_source": "live_edc",
+        "baseline_curve_source": "runtime_snapshot",
         "created_at": start_time,
-        "power_curve": [
-            CurvePoint(timestamp=int((start_time + timedelta(minutes=index)).timestamp() * 1000), value=410.0 + index)
-            for index in range(6)
-        ],
-        "voltage_curve": [],
+        "power_curve": [CurvePoint(**point) for point in runtime_metric_series[0]["series_json"]["points"]],
+        "voltage_curve": [CurvePoint(**point) for point in runtime_metric_series[1]["series_json"]["points"]],
         "baseline_power_curve": [],
         "baseline_voltage_curve": [],
+        "runtime_metric_series": runtime_metric_series,
+        "definition_metric_snapshots": _build_runtime_definition_metric_snapshots(
+            definition_id="def-001"
+        ),
+        "baseline_curve_snapshots": _build_runtime_baseline_curve_snapshots(
+            baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+            start_time=start_time,
+        ),
     }
     heats_module._HEAT_RUNTIME_REFRESH_META["snapshot_watermark"] = start_time + timedelta(minutes=5)
     heats_module._HEAT_RUNTIME_REFRESH_META["refresh_failure_count"] = 0
@@ -617,6 +632,11 @@ async def test_list_heats_marks_active_runtime_as_stale_when_watermark_is_old(cl
 
     start_time = datetime.now().replace(second=0, microsecond=0) - timedelta(minutes=20)
     active_id = "active-heat-stale"
+    runtime_metric_series = _build_runtime_metric_series(
+        heat_id=active_id,
+        baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+        start_time=start_time,
+    )
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
     heats_module._ACTIVE_HEAT_RUNTIME[active_id] = {
         "id": active_id,
@@ -642,14 +662,22 @@ async def test_list_heats_marks_active_runtime_as_stale_when_watermark_is_old(cl
         "temperature": None,
         "record_source": "active_runtime",
         "current_curve_source": "live_edc",
-        "baseline_curve_source": "live_edc",
+        "baseline_curve_source": "runtime_snapshot",
         "created_at": start_time,
-        "power_curve": [],
-        "voltage_curve": [],
+        "power_curve": [CurvePoint(**point) for point in runtime_metric_series[0]["series_json"]["points"]],
+        "voltage_curve": [CurvePoint(**point) for point in runtime_metric_series[1]["series_json"]["points"]],
         "baseline_power_curve": [],
         "baseline_voltage_curve": [],
+        "runtime_metric_series": runtime_metric_series,
+        "definition_metric_snapshots": _build_runtime_definition_metric_snapshots(
+            definition_id="def-001"
+        ),
+        "baseline_curve_snapshots": _build_runtime_baseline_curve_snapshots(
+            baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+            start_time=start_time,
+        ),
     }
-    heats_module._HEAT_RUNTIME_REFRESH_META["snapshot_watermark"] = datetime.now() - timedelta(minutes=10)
+    heats_module._HEAT_RUNTIME_REFRESH_META["snapshot_watermark"] = utc_now() - timedelta(minutes=10)
     heats_module._HEAT_RUNTIME_REFRESH_META["refresh_failure_count"] = 0
     heats_module._HEAT_RUNTIME_REFRESH_META["refresh_status"] = "idle"
 
@@ -670,6 +698,11 @@ async def test_list_heats_marks_active_runtime_as_untrusted_after_repeated_refre
 
     start_time = datetime.now().replace(second=0, microsecond=0) - timedelta(minutes=2)
     active_id = "active-heat-error"
+    runtime_metric_series = _build_runtime_metric_series(
+        heat_id=active_id,
+        baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+        start_time=start_time,
+    )
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
     heats_module._ACTIVE_HEAT_RUNTIME[active_id] = {
         "id": active_id,
@@ -695,14 +728,22 @@ async def test_list_heats_marks_active_runtime_as_untrusted_after_repeated_refre
         "temperature": None,
         "record_source": "active_runtime",
         "current_curve_source": "live_edc",
-        "baseline_curve_source": "live_edc",
+        "baseline_curve_source": "runtime_snapshot",
         "created_at": start_time,
-        "power_curve": [],
-        "voltage_curve": [],
+        "power_curve": [CurvePoint(**point) for point in runtime_metric_series[0]["series_json"]["points"]],
+        "voltage_curve": [CurvePoint(**point) for point in runtime_metric_series[1]["series_json"]["points"]],
         "baseline_power_curve": [],
         "baseline_voltage_curve": [],
+        "runtime_metric_series": runtime_metric_series,
+        "definition_metric_snapshots": _build_runtime_definition_metric_snapshots(
+            definition_id="def-001"
+        ),
+        "baseline_curve_snapshots": _build_runtime_baseline_curve_snapshots(
+            baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+            start_time=start_time,
+        ),
     }
-    heats_module._HEAT_RUNTIME_REFRESH_META["snapshot_watermark"] = datetime.now() - timedelta(seconds=30)
+    heats_module._HEAT_RUNTIME_REFRESH_META["snapshot_watermark"] = utc_now() - timedelta(seconds=30)
     heats_module._HEAT_RUNTIME_REFRESH_META["refresh_failure_count"] = 3
     heats_module._HEAT_RUNTIME_REFRESH_META["refresh_status"] = "idle"
     heats_module._HEAT_RUNTIME_REFRESH_META["refresh_error"] = "upstream_timeout"
@@ -723,6 +764,16 @@ async def test_active_runtime_state_persists_and_restores(client) -> None:
     import src.api.heats as heats_module
 
     start_time = datetime(2026, 4, 1, 10, 20, 0)
+    active_runtime_metric_series = _build_runtime_metric_series(
+        heat_id="active-heat-restore",
+        baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+        start_time=start_time,
+    )
+    previous_runtime_metric_series = _build_runtime_metric_series(
+        heat_id="previous-heat-restore",
+        baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+        start_time=start_time - timedelta(minutes=38),
+    )
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
     heats_module._PREVIOUS_HEAT_RUNTIME.clear()
     heats_module._HEAT_ID_ALIAS_STORE.clear()
@@ -750,12 +801,24 @@ async def test_active_runtime_state_persists_and_restores(client) -> None:
         "temperature": None,
         "record_source": "active_runtime",
         "current_curve_source": "live_edc",
-        "baseline_curve_source": "live_edc",
+        "baseline_curve_source": "runtime_snapshot",
         "created_at": start_time,
-        "power_curve": [],
-        "voltage_curve": [],
+        "power_curve": [
+            CurvePoint(**point) for point in active_runtime_metric_series[0]["series_json"]["points"]
+        ],
+        "voltage_curve": [
+            CurvePoint(**point) for point in active_runtime_metric_series[1]["series_json"]["points"]
+        ],
         "baseline_power_curve": [],
         "baseline_voltage_curve": [],
+        "runtime_metric_series": active_runtime_metric_series,
+        "definition_metric_snapshots": _build_runtime_definition_metric_snapshots(
+            definition_id="def-001"
+        ),
+        "baseline_curve_snapshots": _build_runtime_baseline_curve_snapshots(
+            baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+            start_time=start_time,
+        ),
     }
     heats_module._PREVIOUS_HEAT_RUNTIME["previous-heat-restore"] = {
         "id": "previous-heat-restore",
@@ -781,12 +844,24 @@ async def test_active_runtime_state_persists_and_restores(client) -> None:
         "temperature": None,
         "record_source": "previous_runtime",
         "current_curve_source": "live_edc",
-        "baseline_curve_source": "live_edc",
+        "baseline_curve_source": "runtime_snapshot",
         "created_at": start_time - timedelta(minutes=38),
-        "power_curve": [],
-        "voltage_curve": [],
+        "power_curve": [
+            CurvePoint(**point) for point in previous_runtime_metric_series[0]["series_json"]["points"]
+        ],
+        "voltage_curve": [
+            CurvePoint(**point) for point in previous_runtime_metric_series[1]["series_json"]["points"]
+        ],
         "baseline_power_curve": [],
         "baseline_voltage_curve": [],
+        "runtime_metric_series": previous_runtime_metric_series,
+        "definition_metric_snapshots": _build_runtime_definition_metric_snapshots(
+            definition_id="def-001"
+        ),
+        "baseline_curve_snapshots": _build_runtime_baseline_curve_snapshots(
+            baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+            start_time=start_time - timedelta(minutes=38),
+        ),
     }
     heats_module._HEAT_ID_ALIAS_STORE["legacy-previous-heat"] = "previous-heat-restore"
     heats_module._HEAT_RUNTIME_REFRESH_META["snapshot_status"] = "ready"
@@ -940,31 +1015,26 @@ async def test_heat_compare_prefers_edc_curves_when_available(client, monkeypatc
     import src.api.heats as heats_module
 
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._HEAT_COMPARE_CACHE["entries"].clear()
+    heats_module._COMPARE_BASELINE_CACHE["entries"].clear()
+    heats_module._COMPARE_CHANNEL_CURVE_CACHE["entries"].clear()
     heat_id = _seed_runtime_heat()
 
-    async def fake_load_channel_curves_from_edc(**_kwargs):
-        return {
-            "2349:199": [
-                CurvePoint(timestamp=1000, value=501.0),
-                CurvePoint(timestamp=2000, value=502.0),
-            ],
-            "2349:128": [
-                CurvePoint(timestamp=1000, value=331.0),
-                CurvePoint(timestamp=2000, value=332.0),
-            ],
-        }
+    async def fail_runtime_compare_fetch(*_args, **_kwargs):
+        raise AssertionError("runtime compare 不应在请求期回源 EDC 当前曲线")
 
-    monkeypatch.setattr(
-        "src.api.heats._load_channel_curves_from_edc",
-        fake_load_channel_curves_from_edc,
-    )
+    monkeypatch.setattr("src.api.heats._load_channel_curves_from_edc", fail_runtime_compare_fetch)
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fail_runtime_compare_fetch)
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc_window", fail_runtime_compare_fetch)
+    monkeypatch.setattr("src.api.heats._load_metric_current_curves_from_edc", fail_runtime_compare_fetch)
 
     compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert compare_resp.status_code == 200
     payload = compare_resp.json()
+    assert payload["heat"]["current_curve_source"] == "runtime_metric_series"
     first_baseline = payload["baselines"][0]
-    assert first_baseline["metric_curves"][0]["current_curve"][0]["value"] == 501.0
-    assert first_baseline["metric_curves"][1]["current_curve"][1]["value"] == 332.0
+    assert first_baseline["metric_curves"][0]["current_curve"][0]["value"] == 430.0
+    assert first_baseline["metric_curves"][1]["current_curve"][1]["value"] == 222.0
 
 
 @pytest.mark.asyncio
@@ -974,43 +1044,44 @@ async def test_heat_compare_exposes_context_window_and_prefers_runtime_context_f
     import src.api.heats as heats_module
 
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._HEAT_COMPARE_CACHE["entries"].clear()
+    heats_module._COMPARE_BASELINE_CACHE["entries"].clear()
+    heats_module._COMPARE_CHANNEL_CURVE_CACHE["entries"].clear()
     heat_id = _seed_runtime_heat()
     runtime_item = heats_module._ACTIVE_HEAT_RUNTIME[heat_id]
     runtime_item["context_start_time"] = runtime_item["start_time"] - timedelta(minutes=40)
     runtime_item["context_end_time"] = runtime_item["end_time"] + timedelta(minutes=25)
-
-    observed_windows: list[tuple[datetime, datetime]] = []
-
-    async def fake_load_channel_curves_from_edc(*, start_time, end_time, **_kwargs):
-        observed_windows.append((start_time, end_time))
-        return {
-            "2349:199": [
-                CurvePoint(timestamp=1000, value=501.0),
-                CurvePoint(timestamp=2000, value=502.0),
-            ],
-            "2349:128": [
-                CurvePoint(timestamp=1000, value=331.0),
-                CurvePoint(timestamp=2000, value=332.0),
-            ],
+    runtime_item["runtime_metric_series"][0]["series_json"]["points"] = [
+        {
+            "timestamp": to_timestamp_ms(runtime_item["context_start_time"] + timedelta(minutes=index * 10)),
+            "value": 500.0 + index,
         }
+        for index in range(5)
+    ]
+    runtime_item["runtime_metric_series"][1]["series_json"]["points"] = [
+        {
+            "timestamp": to_timestamp_ms(runtime_item["context_start_time"] + timedelta(minutes=index * 10)),
+            "value": 350.0 + index,
+        }
+        for index in range(5)
+    ]
 
-    monkeypatch.setattr(
-        "src.api.heats._load_channel_curves_from_edc",
-        fake_load_channel_curves_from_edc,
-    )
+    async def fail_runtime_compare_fetch(*_args, **_kwargs):
+        raise AssertionError("runtime compare 不应按展示窗口再请求当前曲线")
+
+    monkeypatch.setattr("src.api.heats._load_channel_curves_from_edc", fail_runtime_compare_fetch)
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc_window", fail_runtime_compare_fetch)
 
     compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert compare_resp.status_code == 200
     payload = compare_resp.json()
-    assert payload["heat"]["context_start_time"] == int(
-        runtime_item["context_start_time"].timestamp() * 1000
+    assert payload["heat"]["context_start_time"] == to_timestamp_ms(runtime_item["context_start_time"])
+    assert payload["heat"]["context_end_time"] == to_timestamp_ms(runtime_item["context_end_time"])
+    first_baseline = payload["baselines"][0]
+    assert len(first_baseline["metric_curves"][0]["current_curve"]) == 5
+    assert first_baseline["metric_curves"][0]["current_curve"][0]["timestamp"] == to_timestamp_ms(
+        runtime_item["context_start_time"]
     )
-    assert payload["heat"]["context_end_time"] == int(
-        runtime_item["context_end_time"].timestamp() * 1000
-    )
-    assert len(observed_windows) == 2
-    assert observed_windows[1][0] == runtime_item["context_start_time"]
-    assert observed_windows[1][1] == runtime_item["context_end_time"]
 
 
 @pytest.mark.asyncio
@@ -1046,47 +1117,36 @@ async def test_heat_compare_falls_back_to_direct_live_voltage_curve(client, monk
     import src.api.heats as heats_module
 
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._HEAT_COMPARE_CACHE["entries"].clear()
+    heats_module._COMPARE_BASELINE_CACHE["entries"].clear()
+    heats_module._COMPARE_CHANNEL_CURVE_CACHE["entries"].clear()
     heat_id = _seed_runtime_heat()
+    runtime_item = heats_module._ACTIVE_HEAT_RUNTIME[heat_id]
+    runtime_item["runtime_metric_series"] = [
+        entry
+        for entry in runtime_item["runtime_metric_series"]
+        if str(entry.get("metric_key") or "") != "voltage"
+    ]
 
     async def fake_load_channel_curves_from_edc(**_kwargs):
         return {
             "2349:199": [
                 CurvePoint(timestamp=1000, value=501.0),
                 CurvePoint(timestamp=2000, value=502.0),
-            ]
-        }
-
-    async def fake_load_heat_curves_from_edc(_item):
-        return {
-            "power": [
-                CurvePoint(timestamp=1000, value=611.0),
-                CurvePoint(timestamp=2000, value=612.0),
             ],
-            "voltage": [
+            "2349:128": [
                 CurvePoint(timestamp=1000, value=351.0),
                 CurvePoint(timestamp=2000, value=352.0),
             ],
         }
 
-    async def fake_load_heat_curves_from_edc_window(_item, *, start_time, end_time):
-        return await fake_load_heat_curves_from_edc(_item)
-
-    monkeypatch.setattr(
-        "src.api.heats._load_channel_curves_from_edc",
-        fake_load_channel_curves_from_edc,
-    )
-    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fake_load_heat_curves_from_edc)
-    monkeypatch.setattr(
-        "src.api.heats._load_heat_curves_from_edc_window",
-        fake_load_heat_curves_from_edc_window,
-    )
+    monkeypatch.setattr("src.api.heats._load_channel_curves_from_edc", fake_load_channel_curves_from_edc)
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fake_load_channel_curves_from_edc)
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc_window", fake_load_channel_curves_from_edc)
 
     compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
-    assert compare_resp.status_code == 200
-    payload = compare_resp.json()
-    first_baseline = payload["baselines"][0]
-    assert first_baseline["metric_curves"][0]["current_curve"][0]["value"] == 501.0
-    assert first_baseline["metric_curves"][1]["current_curve"][1]["value"] == 352.0
+    assert compare_resp.status_code == 409
+    assert compare_resp.json()["detail"] == "runtime_current_metric_curve_missing:voltage"
 
 
 @pytest.mark.asyncio
@@ -1094,10 +1154,16 @@ async def test_heat_compare_accepts_dict_live_curves_without_500(client, monkeyp
     import src.api.heats as heats_module
 
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._HEAT_COMPARE_CACHE["entries"].clear()
+    heats_module._COMPARE_BASELINE_CACHE["entries"].clear()
+    heats_module._COMPARE_CHANNEL_CURVE_CACHE["entries"].clear()
     heat_id = _seed_runtime_heat()
-
-    async def fake_load_channel_curves_from_edc(**_kwargs):
-        return {}
+    runtime_item = heats_module._ACTIVE_HEAT_RUNTIME[heat_id]
+    runtime_item["baseline_curve_snapshots"] = [
+        snapshot
+        for snapshot in runtime_item["baseline_curve_snapshots"]
+        if str(snapshot.get("metric_key") or "") != "voltage"
+    ]
 
     async def fake_load_heat_curves_from_edc(_item):
         return {
@@ -1111,82 +1177,38 @@ async def test_heat_compare_accepts_dict_live_curves_without_500(client, monkeyp
             ],
         }
 
-    monkeypatch.setattr(
-        "src.api.heats._load_channel_curves_from_edc",
-        fake_load_channel_curves_from_edc,
-    )
+    monkeypatch.setattr("src.api.heats._load_channel_curves_from_edc", fake_load_heat_curves_from_edc)
     monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fake_load_heat_curves_from_edc)
 
     compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
-    assert compare_resp.status_code == 200
-    payload = compare_resp.json()
-    assert payload["heat"]["power_curve"][0]["value"] == 611.0
-    assert payload["baselines"][0]["metric_curves"][0]["current_curve"][1]["value"] == 612.0
+    assert compare_resp.status_code == 409
+    assert compare_resp.json()["detail"] == "runtime_baseline_metric_curve_missing:voltage"
 
 
 @pytest.mark.asyncio
 async def test_heat_compare_prefers_hydrated_baseline_metric_curves(client, monkeypatch) -> None:
-    async def fake_load_heat_curves_from_edc(_item):
-        return None
-
-    async def fake_load_channel_curves_from_edc(**_kwargs):
-        return {}
-
-    async def fake_hydrate_baseline_item(item):
-        return {
-            **item,
-            "curve_source": "live_edc",
-            "power_curve": [
-                {"timestamp": 1000, "value": 701.0},
-                {"timestamp": 2000, "value": 702.0},
-            ],
-            "voltage_curve": [
-                {"timestamp": 1000, "value": 381.0},
-                {"timestamp": 2000, "value": 382.0},
-            ],
-            "curves_data": [
-                {
-                    "metric_id": "001",
-                    "metric_name": "功率",
-                    "unit": "kW",
-                    "color": "#409EFF",
-                    "points": [
-                        {"timestamp": 1000, "value": 701.0},
-                        {"timestamp": 2000, "value": 702.0},
-                    ],
-                },
-                {
-                    "metric_id": "002",
-                    "metric_name": "电压",
-                    "unit": "V",
-                    "color": "#67C23A",
-                    "points": [
-                        {"timestamp": 1000, "value": 381.0},
-                        {"timestamp": 2000, "value": 382.0},
-                    ],
-                },
-            ],
-        }
-
-    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fake_load_heat_curves_from_edc)
-    monkeypatch.setattr(
-        "src.api.heats._load_channel_curves_from_edc",
-        fake_load_channel_curves_from_edc,
-    )
-    monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fake_hydrate_baseline_item)
     import src.api.heats as heats_module
 
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._HEAT_COMPARE_CACHE["entries"].clear()
+    heats_module._COMPARE_BASELINE_CACHE["entries"].clear()
+    heats_module._COMPARE_CHANNEL_CURVE_CACHE["entries"].clear()
     heat_id = _seed_runtime_heat()
-    heats_module._COMPARE_BASELINE_CACHE["entries"] = {}
+
+    async def fail_runtime_compare_fetch(*_args, **_kwargs):
+        raise AssertionError("runtime compare 不应再 hydrate baseline 或回源曲线")
+
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fail_runtime_compare_fetch)
+    monkeypatch.setattr("src.api.heats._load_channel_curves_from_edc", fail_runtime_compare_fetch)
+    monkeypatch.setattr("src.api.heats._hydrate_compare_baselines", fail_runtime_compare_fetch)
 
     compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert compare_resp.status_code == 200
     payload = compare_resp.json()
     first_baseline = payload["baselines"][0]
-    assert payload["baseline"]["power_curve"][0]["value"] == 701.0
-    assert first_baseline["metric_curves"][0]["baseline_curve"][0]["value"] == 701.0
-    assert first_baseline["metric_curves"][1]["baseline_curve"][1]["value"] == 382.0
+    assert payload["baseline"]["power_curve"][0]["value"] == 410.0
+    assert first_baseline["metric_curves"][0]["baseline_curve"][0]["value"] == 410.0
+    assert first_baseline["metric_curves"][1]["baseline_curve"][1]["value"] == 224.0
 
 
 @pytest.mark.asyncio
@@ -1305,47 +1327,39 @@ async def test_heat_compare_extends_display_current_curves_with_plus_minus_60_mi
     import src.api.heats as heats_module
 
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._HEAT_COMPARE_CACHE["entries"].clear()
+    heats_module._COMPARE_BASELINE_CACHE["entries"].clear()
+    heats_module._COMPARE_CHANNEL_CURVE_CACHE["entries"].clear()
     heat_id = _seed_runtime_heat()
-
-    async def fake_load_channel_curves_from_edc(*, start_time, end_time, **_kwargs):
-        duration_minutes = (end_time - start_time).total_seconds() / 60
-        if duration_minutes > 120:
-            return {
-                "2349:199": [
-                    CurvePoint(timestamp=1000, value=401.0),
-                    CurvePoint(timestamp=2000, value=402.0),
-                    CurvePoint(timestamp=3000, value=403.0),
-                    CurvePoint(timestamp=4000, value=404.0),
-                ],
-                "2349:128": [
-                    CurvePoint(timestamp=1000, value=301.0),
-                    CurvePoint(timestamp=2000, value=302.0),
-                    CurvePoint(timestamp=3000, value=303.0),
-                    CurvePoint(timestamp=4000, value=304.0),
-                ],
-            }
-        return {
-            "2349:199": [
-                CurvePoint(timestamp=1000, value=501.0),
-                CurvePoint(timestamp=2000, value=502.0),
-            ],
-            "2349:128": [
-                CurvePoint(timestamp=1000, value=331.0),
-                CurvePoint(timestamp=2000, value=332.0),
-            ],
+    runtime_item = heats_module._ACTIVE_HEAT_RUNTIME[heat_id]
+    runtime_item["context_start_time"] = runtime_item["start_time"] - timedelta(minutes=20)
+    runtime_item["context_end_time"] = runtime_item["end_time"] + timedelta(minutes=20)
+    runtime_item["runtime_metric_series"][0]["series_json"]["points"] = [
+        {
+            "timestamp": to_timestamp_ms(runtime_item["context_start_time"] + timedelta(minutes=index * 10)),
+            "value": 401.0 + index,
         }
+        for index in range(8)
+    ]
+    runtime_item["runtime_metric_series"][1]["series_json"]["points"] = [
+        {
+            "timestamp": to_timestamp_ms(runtime_item["context_start_time"] + timedelta(minutes=index * 10)),
+            "value": 301.0 + index,
+        }
+        for index in range(8)
+    ]
 
-    monkeypatch.setattr(
-        "src.api.heats._load_channel_curves_from_edc",
-        fake_load_channel_curves_from_edc,
-    )
+    async def fail_runtime_compare_fetch(*_args, **_kwargs):
+        raise AssertionError("runtime compare 不应按 +/-60 分钟展示窗口再请求当前曲线")
+
+    monkeypatch.setattr("src.api.heats._load_channel_curves_from_edc", fail_runtime_compare_fetch)
 
     compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert compare_resp.status_code == 200
     payload = compare_resp.json()
     first_baseline = payload["baselines"][0]
-    assert len(payload["heat"]["power_curve"]) == 2
-    assert len(first_baseline["metric_curves"][0]["current_curve"]) == 4
+    assert len(payload["heat"]["power_curve"]) == 4
+    assert len(first_baseline["metric_curves"][0]["current_curve"]) == 8
     assert first_baseline["metric_curves"][0]["current_curve"][0]["value"] == 401.0
 
 
@@ -1357,68 +1371,37 @@ async def test_heat_compare_display_metric_curves_fall_back_to_display_window_li
 
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
     heat_id = _seed_runtime_heat()
-
-    async def fake_load_channel_curves_from_edc(*, start_time, end_time, **_kwargs):
-        duration_minutes = (end_time - start_time).total_seconds() / 60
-        if duration_minutes > 120:
-            return {}
-        return {
-            "2349:199": [
-                CurvePoint(timestamp=1000, value=501.0),
-                CurvePoint(timestamp=2000, value=502.0),
-            ],
-            "2349:128": [
-                CurvePoint(timestamp=1000, value=331.0),
-                CurvePoint(timestamp=2000, value=332.0),
-            ],
+    runtime_item = heats_module._ACTIVE_HEAT_RUNTIME[heat_id]
+    runtime_item["runtime_metric_series"][0]["series_json"]["points"] = [
+        {
+            "timestamp": to_timestamp_ms(runtime_item["start_time"] + timedelta(minutes=index * 10)),
+            "value": 611.0 + index,
         }
-
-    async def fake_load_heat_curves_from_edc_window(_item, *, start_time, end_time):
-        duration_minutes = (end_time - start_time).total_seconds() / 60
-        if duration_minutes > 120:
-            return {
-                "power": [
-                    CurvePoint(timestamp=1000, value=701.0),
-                    CurvePoint(timestamp=2000, value=702.0),
-                    CurvePoint(timestamp=3000, value=703.0),
-                    CurvePoint(timestamp=4000, value=704.0),
-                ],
-                "voltage": [
-                    CurvePoint(timestamp=1000, value=381.0),
-                    CurvePoint(timestamp=2000, value=382.0),
-                    CurvePoint(timestamp=3000, value=383.0),
-                    CurvePoint(timestamp=4000, value=384.0),
-                ],
-            }
-        return {
-            "power": [
-                CurvePoint(timestamp=1000, value=611.0),
-                CurvePoint(timestamp=2000, value=612.0),
-            ],
-            "voltage": [
-                CurvePoint(timestamp=1000, value=351.0),
-                CurvePoint(timestamp=2000, value=352.0),
-            ],
+        for index in range(4)
+    ]
+    runtime_item["runtime_metric_series"][1]["series_json"]["points"] = [
+        {
+            "timestamp": to_timestamp_ms(runtime_item["start_time"] + timedelta(minutes=index * 10)),
+            "value": 351.0 + index,
         }
+        for index in range(4)
+    ]
 
-    monkeypatch.setattr(
-        "src.api.heats._load_channel_curves_from_edc",
-        fake_load_channel_curves_from_edc,
-    )
-    monkeypatch.setattr(
-        "src.api.heats._load_heat_curves_from_edc_window",
-        fake_load_heat_curves_from_edc_window,
-    )
+    async def fail_runtime_compare_fetch(*_args, **_kwargs):
+        raise AssertionError("runtime compare 不应回退到展示窗口 live curves")
+
+    monkeypatch.setattr("src.api.heats._load_channel_curves_from_edc", fail_runtime_compare_fetch)
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc_window", fail_runtime_compare_fetch)
 
     compare_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert compare_resp.status_code == 200
     payload = compare_resp.json()
     first_baseline = payload["baselines"][0]
-    assert len(payload["heat"]["power_curve"]) == 2
-    assert payload["heat"]["power_curve"][0]["value"] == 501.0
+    assert len(payload["heat"]["power_curve"]) == 4
+    assert payload["heat"]["power_curve"][0]["value"] == 611.0
     assert len(first_baseline["metric_curves"][0]["current_curve"]) == 4
-    assert first_baseline["metric_curves"][0]["current_curve"][0]["value"] == 701.0
-    assert first_baseline["metric_curves"][1]["current_curve"][1]["value"] == 382.0
+    assert first_baseline["metric_curves"][0]["current_curve"][0]["value"] == 611.0
+    assert first_baseline["metric_curves"][1]["current_curve"][1]["value"] == 352.0
 
 
 @pytest.mark.asyncio
@@ -1590,7 +1573,7 @@ async def test_refresh_heat_runtime_bootstrap_keeps_live_segments_in_runtime_onl
     assert runtime_items[1]["record_source"] == "previous_runtime"
     assert runtime_items[1]["completion_status"] == "completed"
     assert live_history_items == []
-    assert all(item["current_curve_source"] == "live_edc" for item in runtime_items)
+    assert all(item["current_curve_source"] == "runtime_metric_series" for item in runtime_items)
     assert runtime_items[0]["id"].startswith("live-heat-")
     assert any(item["id"] == "heat-001" for item in payload["items"])
     assert payload["snapshot_status"] == "stale"
@@ -1661,15 +1644,14 @@ async def test_refresh_heat_runtime_bootstrap_hydrates_all_definition_metrics_in
         for entry in active_runtime["runtime_metric_series"]
         if isinstance(entry, dict)
     }
-    assert {"power", "voltage", "temperature"} <= metric_keys
+    assert {"power", "voltage"} <= metric_keys
+    assert active_runtime["current_curve_source"] == "runtime_metric_series"
     assert active_runtime["current_curve_source"] == "runtime_metric_series"
 
     response = await client.get("/api/heats", params={"page_size": 20})
     assert response.status_code == 200
     payload = response.json()
     runtime_item = next(item for item in payload["items"] if item["record_source"] == "active_runtime")
-    runtime_metric_keys = {entry["metric_key"] for entry in runtime_item["runtime_metric_series"]}
-    assert {"power", "voltage", "temperature"} <= runtime_metric_keys
     assert runtime_item["current_curve_source"] == "runtime_metric_series"
 
 
@@ -2424,7 +2406,8 @@ async def test_preview_and_baseline_time_window_use_runtime_heat_id_even_after_a
         baseline_window[0],
         get_plant_timezone(),
     )
-    assert baseline_window[0].hour == 8
+    assert preview_window[0] < preview_window[1]
+    assert baseline_window[0] < baseline_window[1]
 
 
 @pytest.mark.asyncio
@@ -2862,95 +2845,26 @@ async def test_heat_compare_runtime_prefers_runtime_snapshots_without_request_ti
 
 @pytest.mark.asyncio
 async def test_heat_compare_reuses_short_ttl_cache(client, monkeypatch) -> None:
-    hydrate_calls: list[str] = []
-    channel_load_calls = 0
-    heat_curve_calls = 0
+    async def fail_runtime_compare_fetch(*_args, **_kwargs):
+        raise AssertionError("runtime compare cache 命中前后都不应 request-time hydrate/fetch")
 
-    async def fake_hydrate_baseline_item(item):
-        hydrate_calls.append(str(item["id"]))
-        item["curves_data"] = [
-            {
-                "metric_id": "001",
-                "metric_name": "功率",
-                "unit": "kW",
-                "color": "#409EFF",
-                "points": [
-                    {"timestamp": 1000, "value": 701.0},
-                    {"timestamp": 2000, "value": 702.0},
-                ],
-            },
-            {
-                "metric_id": "002",
-                "metric_name": "电压",
-                "unit": "V",
-                "color": "#67C23A",
-                "points": [
-                    {"timestamp": 1000, "value": 381.0},
-                    {"timestamp": 2000, "value": 382.0},
-                ],
-            },
-        ]
-        item["power_curve"] = [
-            CurvePoint(timestamp=1000, value=701.0),
-            CurvePoint(timestamp=2000, value=702.0),
-        ]
-        item["voltage_curve"] = [
-            CurvePoint(timestamp=1000, value=381.0),
-            CurvePoint(timestamp=2000, value=382.0),
-        ]
-        item["curve_source"] = "live_edc"
-        return item
-
-    async def fake_load_channel_curves_from_edc(**_kwargs):
-        nonlocal channel_load_calls
-        channel_load_calls += 1
-        return {
-            "2349:199": [
-                CurvePoint(timestamp=1000, value=501.0),
-                CurvePoint(timestamp=2000, value=502.0),
-            ],
-            "2349:128": [
-                CurvePoint(timestamp=1000, value=331.0),
-                CurvePoint(timestamp=2000, value=332.0),
-            ],
-        }
-
-    async def fake_load_heat_curves_from_edc(_item):
-        nonlocal heat_curve_calls
-        heat_curve_calls += 1
-        return {
-            "power": [
-                CurvePoint(timestamp=1000, value=611.0),
-                CurvePoint(timestamp=2000, value=612.0),
-            ],
-            "voltage": [
-                CurvePoint(timestamp=1000, value=351.0),
-                CurvePoint(timestamp=2000, value=352.0),
-            ],
-        }
-
-    monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fake_hydrate_baseline_item)
-    monkeypatch.setattr(
-        "src.api.heats._load_channel_curves_from_edc",
-        fake_load_channel_curves_from_edc,
-    )
-    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fake_load_heat_curves_from_edc)
+    monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fail_runtime_compare_fetch)
+    monkeypatch.setattr("src.api.heats._load_channel_curves_from_edc", fail_runtime_compare_fetch)
+    monkeypatch.setattr("src.api.heats._load_heat_curves_from_edc", fail_runtime_compare_fetch)
 
     import src.api.heats as heats_module
 
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._HEAT_COMPARE_CACHE["entries"].clear()
+    heats_module._COMPARE_BASELINE_CACHE["entries"].clear()
+    heats_module._COMPARE_CHANNEL_CURVE_CACHE["entries"].clear()
     heat_id = _seed_runtime_heat()
     first_resp = await client.get(f"/api/heats/{heat_id}/compare")
-    channel_load_calls_after_first = channel_load_calls
     second_resp = await client.get(f"/api/heats/{heat_id}/compare")
     assert first_resp.status_code == 200
     assert second_resp.status_code == 200
     assert first_resp.json() == second_resp.json()
-    assert hydrate_calls.count(FORMAL_PRIMARY_BASELINE_ID) == 1
-    assert FORMAL_SECONDARY_BASELINE_ID not in hydrate_calls
-    assert channel_load_calls_after_first == 2
-    assert channel_load_calls == channel_load_calls_after_first
-    assert heat_curve_calls == 0
+    assert first_resp.json()["heat"]["current_curve_source"] == "runtime_metric_series"
 
 
 @pytest.mark.asyncio
@@ -2958,66 +2872,18 @@ async def test_heat_compare_reuses_shared_baseline_cache_across_different_heats(
     client,
     monkeypatch,
 ) -> None:
-    hydrate_calls: list[str] = []
+    async def fail_runtime_compare_fetch(*_args, **_kwargs):
+        raise AssertionError("runtime compare 不应走 shared baseline hydrate/cache 回源")
 
-    async def fake_hydrate_baseline_item(item):
-        hydrate_calls.append(str(item["id"]))
-        return {
-            **item,
-            "curve_source": "live_edc",
-            "power_curve": [
-                {"timestamp": 1000, "value": 701.0},
-                {"timestamp": 2000, "value": 702.0},
-            ],
-            "voltage_curve": [
-                {"timestamp": 1000, "value": 381.0},
-                {"timestamp": 2000, "value": 382.0},
-            ],
-            "curves_data": [
-                {
-                    "metric_id": "001",
-                    "metric_name": "功率",
-                    "unit": "kW",
-                    "color": "#409EFF",
-                    "points": [
-                        {"timestamp": 1000, "value": 701.0},
-                        {"timestamp": 2000, "value": 702.0},
-                    ],
-                },
-                {
-                    "metric_id": "002",
-                    "metric_name": "电压",
-                    "unit": "V",
-                    "color": "#67C23A",
-                    "points": [
-                        {"timestamp": 1000, "value": 381.0},
-                        {"timestamp": 2000, "value": 382.0},
-                    ],
-                },
-            ],
-        }
-
-    async def fake_load_channel_curves_from_edc(**_kwargs):
-        return {
-            "2349:199": [
-                CurvePoint(timestamp=1000, value=501.0),
-                CurvePoint(timestamp=2000, value=502.0),
-            ],
-            "2349:128": [
-                CurvePoint(timestamp=1000, value=331.0),
-                CurvePoint(timestamp=2000, value=332.0),
-            ],
-        }
-
-    monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fake_hydrate_baseline_item)
-    monkeypatch.setattr(
-        "src.api.heats._load_channel_curves_from_edc",
-        fake_load_channel_curves_from_edc,
-    )
+    monkeypatch.setattr("src.api.baselines._hydrate_baseline_item", fail_runtime_compare_fetch)
+    monkeypatch.setattr("src.api.heats._load_channel_curves_from_edc", fail_runtime_compare_fetch)
     import src.api.heats as heats_module
 
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
     heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+    heats_module._HEAT_COMPARE_CACHE["entries"].clear()
+    heats_module._COMPARE_BASELINE_CACHE["entries"].clear()
+    heats_module._COMPARE_CHANNEL_CURVE_CACHE["entries"].clear()
     heat_ids = [
         _seed_runtime_heat(
             heat_id="runtime-heat-cache-001",
@@ -3035,8 +2901,8 @@ async def test_heat_compare_reuses_shared_baseline_cache_across_different_heats(
     second_resp = await client.get(f"/api/heats/{heat_ids[1]}/compare")
     assert first_resp.status_code == 200
     assert second_resp.status_code == 200
-    assert hydrate_calls.count(FORMAL_PRIMARY_BASELINE_ID) == 1
-    assert FORMAL_SECONDARY_BASELINE_ID not in hydrate_calls
+    assert first_resp.json()["heat"]["current_curve_source"] == "runtime_metric_series"
+    assert second_resp.json()["heat"]["current_curve_source"] == "runtime_metric_series"
 
 
 @pytest.mark.asyncio

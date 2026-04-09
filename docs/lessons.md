@@ -21,6 +21,13 @@
 
 ## 记录
 
+### 2026-04-09 live 炉次推断前置条件未满足时，不能直接累计为 runtime 刷新失败
+
+- **错误模式**: `refresh_heat_runtime_state()` 只要拿不到 `live_heat_inference_context`，就直接记 `live_heat_inference_unavailable` 失败并累计 `refresh_failure_count`。而当前 inference context 又只从 `active/published baselines` 构建，导致系统在“尚未录入任何黄金基线”的正常 blank 冷启动阶段，被误判成后台连续刷新失败。
+- **正确做法**: 必须把“前置业务条件未满足（例如尚无黄金基线）”与“runtime 真刷新失败（例如实时链路异常、请求 EDC 失败）”拆开。前者应进入 `warming / pending / unconfigured` 一类状态，不应累计失败次数，也不应把台账页打成 `error`。
+- **适用场景**: blank 冷启动、首次部署后尚未配置黄金基线、任何依赖业务前置配置才能启动实时推断的页面或后台刷新链路。
+- **相关文档**: `apps/server/src/api/heats.py`, `docs/progress.md`, `docs/BACKEND_STRUCTURE.md`
+
 ### 2026-04-08 runtime compare 切真源时，不能只看 record_source，必须先确认完整快照已经到位
 
 - **错误模式**: 看到记录来源是 `active_runtime / previous_runtime`，就直接把 compare 主链切到“只读 runtime 快照”新路径，结果把还没带齐 `runtime_metric_series / definition_metric_snapshots / baseline_curve_snapshots` 的旧样板 runtime 一起带进去了，瞬间打坏旧回归。
@@ -1029,3 +1036,17 @@
 - **正确做法**: 当前项目的 SQLite 结构调整默认口径是“删除现有数据 / 重建库 / 按最新模型初始化”。后续方案和实现不要再把数据移行作为默认必选项；只有用户明确要求保留历史数据时，才单独设计迁移方案。
 - **适用场景**: 本地开发库、测试库、可整体重置的数据环境，以及本项目当前明确允许清空重建的后端结构调整。
 - **相关文档**: AGENTS.md, docs/BACKEND_STRUCTURE.md
+
+### 2026-04-09 runtime 多指标分析：分析前必须先把 definition metric snapshots 放进 candidate
+
+- **错误模式**: `compile_runtime_candidates()` 里虽然已经先 hydrate 了 `runtime_metric_series`，但在调用统一分析服务前没有把 `definition_metric_snapshots` 放入 candidate，导致非 frozen runtime 在分析器里拿不到指标定义，统一退化成 `metric_inputs_missing -> pending`。
+- **正确做法**: 非 frozen runtime 在进入 `HeatDeviationAnalysisService.analyze_candidate_bindings()` 前，必须先把当前 definition 对应的 metric snapshots 一并写回 candidate。统一分析依赖的是“runtime_metric_series + definition_metric_snapshots + baseline curve payloads”三件套，缺一不可。
+- **适用场景**: runtime 实时分析、seal 前统一分析、以及任何先 hydrate 真源再做策略分析的批处理链路。
+- **相关文档**: apps/server/src/services/formal_heat_service.py, apps/server/src/services/heat_deviation_analysis_service.py
+
+### 2026-04-09 SQLite 测试库：pytest 子集不能并发跑共享 drop/create 测试库
+
+- **错误模式**: 为了提速同时起多个 pytest 进程，但测试夹具会对同一个 SQLite 文件执行 `drop_all/create_all`。并发执行时会互相打断，出现 `no such table`、重复 seed、唯一键冲突这类假失败。
+- **正确做法**: 当前后端测试使用共享 SQLite 文件时，pytest 子集必须串行执行；如果未来要并发跑，必须先把测试库隔离到独立文件或独立进程级目录。
+- **适用场景**: 使用 SQLite 作为测试库、fixture 内会重建 schema、并且同一工作区会并发执行多个 pytest 命令的场景。
+- **相关文档**: docs/testing.md, apps/server/tests/conftest.py

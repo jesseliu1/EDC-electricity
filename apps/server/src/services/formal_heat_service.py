@@ -1257,6 +1257,10 @@ async def compile_runtime_candidates(
             definition_templates=definition_templates,
             metric_curve_loader=metric_curve_loader,
         )
+        if frozen_inputs is None:
+            prepared_candidate["definition_metric_snapshots"] = (
+                _heat_runtime_factory._build_definition_metric_snapshots(definition_templates)
+            )
         binding_analyses = _heat_deviation_analysis_service.analyze_candidate_bindings(
             candidate=prepared_candidate,
             applicable_baselines=candidate_applicable_baselines,

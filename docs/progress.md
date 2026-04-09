@@ -6,6 +6,32 @@
 
 ---
 
+### 2026-04-09（本地 blank 启动问题记录：无黄金基线时炉次台账被误判为连续刷新失败）
+
+**当前阶段**：问题已定位，尚未开始修复；本条仅记录根因与影响范围，避免后续把“无基线初始化状态”误当成“runtime 真刷新失败”
+
+**本轮确认**：
+
+- [x] 本地 blank 启动后、尚未创建/发布任何黄金基线时，炉次浏览会出现：
+  - [x] `后台已连续 10 次刷新失败：live_heat_inference_unavailable`
+- [x] 前端错误横幅不是前端自己放大的问题，而是直接消费后端返回的：
+  - [x] `snapshot_status = error`
+  - [x] `refresh_failure_count > 0`
+  - [x] `refresh_error = live_heat_inference_unavailable`
+- [x] 后端根因已定位到 `apps/server/src/api/heats.py`
+  - [x] `refresh_heat_runtime_state()` 在拿不到 live inference context 时，直接调用 `_mark_heat_runtime_refresh_failure(error="live_heat_inference_unavailable")`
+  - [x] `_resolve_live_heat_inference_context()` 当前只会从 `active baseline + published baselines` 构建 context
+  - [x] 因此系统在“尚无任何黄金基线”的正常冷启动阶段，会被误判成 runtime 刷新失败
+
+**当前结论**：
+
+- [x] 这是后端状态语义问题，不是前端展示问题，不是数据库脏数据问题
+- [x] “无黄金基线 / 前置条件未满足”与“实时刷新链失败”当前被错误混用
+- [ ] 待修方向应为：
+  - [ ] 将“无 baseline / inference context 不可用”的初始化状态从“刷新失败计数”中拆出
+  - [ ] 避免在冷启动阶段累计 `refresh_failure_count`
+  - [ ] 避免把 `snapshot_status` 打成 `error`
+
 ### 2026-04-08（正式多指标主链推进中：runtime / compare / seal 已切到 definition metrics 严格模式）
 
 **当前阶段**：已开始把“正式多指标主链”从双指标兼容逻辑切到 definition metrics 真源；当前代码已收掉 runtime hydrate / compare / formal persist 的多处 hardcode 与 fallback，但还未完成全量回归测试与公网验证
@@ -6806,9 +6832,34 @@ EDC 前端（apps/web，/edc/）
   - [x] `compile_runtime_candidates()` 已改为先 hydrate `runtime_metric_series` 真源，再执行 binding 分析，避免分析阶段继续吃旧 `power_curve` 快照
   - [x] binding / heat / task 主字段已切到 `deviation_score / avg_deviation_score / analysis_details_json / abnormal_duration_minutes`
   - [x] 旧 `time_offset_percent` 已从正式分析字段移除；compare 区间点值也改为 `score`
-  - [x] 已补 Alembic 迁移 `5c6b9a7d0e41_unify_heat_analysis_score_fields.py`
+  - [x] 当时曾补 Alembic 迁移 `5c6b9a7d0e41_unify_heat_analysis_score_fields.py`，已在 2026-04-09 按“清库重建”口径回收
   - [x] 已同步更新 `docs/BACKEND_STRUCTURE.md`
   - [x] 最小验证：
     - [x] Python 直接 `import` 关键后端模块通过
     - [x] `pnpm --dir apps/web exec tsc --noEmit` 通过
     - [!] `pytest` 未执行：当前环境缺少 `pytest_asyncio`
+
+### 2026-04-09（统一分析字段改造补测试与 runtime 顺序修正）
+
+- [x] 清理 SQLite 迁移口径
+  - [x] 删除本轮新增 Alembic migration，后续默认按“清库重建”处理结构调整
+  - [x] 已把该规则写入 `AGENTS.md` 与 `docs/lessons.md`
+- [x] 修正 runtime 多指标分析顺序
+  - [x] `compile_runtime_candidates()` 在调用统一分析服务前，先把 `definition_metric_snapshots` 写回 candidate
+  - [x] 修复了非 frozen runtime 因缺指标定义而统一落成 `metric_inputs_missing/pending` 的问题
+- [x] 测试集已按严格真源口径改写
+  - [x] `apps/server/tests/test_heats_api.py`
+  - [x] `apps/server/tests/test_formal_heat_api.py`
+  - [x] `apps/server/tests/test_heat_runtime_factory.py`
+  - [x] 新增 `apps/server/tests/test_heat_analysis_strategy.py`
+- [x] 本轮测试覆盖点
+  - [x] runtime compare 不再请求期 fallback 到 EDC / baseline hydrate
+  - [x] runtime 缺当前 metric 或缺 baseline snapshot 时返回 `409`
+  - [x] formal compare 只认 formal metric series，缺真源直接失败
+  - [x] runtime refresh 后写入 `runtime_metric_series` 真源并标记 `current_curve_source = runtime_metric_series`
+  - [x] 统一分析策略 `ready/pending` 与 `analysis_details` 结构单测
+- [x] 实际执行验证
+  - [x] `uv run --extra dev pytest -q tests/test_heats_api.py tests/test_formal_heat_api.py tests/test_heat_runtime_factory.py tests/test_heat_analysis_strategy.py`
+  - [x] 结果：`73 passed`
+- [!] 当前备注
+  - [!] 后端 pytest 需串行执行；并发跑多个 pytest 进程会互相打断共享 SQLite 测试库
