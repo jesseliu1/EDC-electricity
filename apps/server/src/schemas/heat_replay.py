@@ -9,8 +9,10 @@ class HeatReplayJobCreateRequest(BaseModel):
     """创建 replay 任务请求。"""
 
     job_kind: str = Field(default="replay_batch", description="任务类型")
-    anchor_time: TimestampMs = Field(..., description="起始时间")
-    end_time: TimestampMs = Field(..., description="结束时间")
+    start_time: TimestampMs = Field(..., description="起始时间")
+    end_time: OptionalTimestampMs = Field(default=None, description="结束时间；为空时默认取当前最新时刻")
+    primary_baseline_id: str = Field(..., description="默认主黄金基线ID")
+    baseline_ids: list[str] = Field(default_factory=list, description="显式选择的黄金基线ID集合")
     force_replace: bool = Field(default=True, description="是否强制替换范围")
 
 

@@ -6,6 +6,75 @@
 
 ---
 
+### 2026-04-09（replay 显式黄金基线初始化链已接通，本地目标回归通过）
+
+**当前阶段**：已完成“批量初始化炉次 = replay job”这条显式黄金基线主链的本地实现；后端 replay 请求、显式 baseline 选择、历史重建、replay 后 head runtime 续接、以及系统设置页入口均已接通。当前仍未完成完整前端 build 与真实用户路径验证，因此本条不是“已完成 UAT”口径
+
+**本轮完成**：
+
+- [x] `apps/server/src/schemas/heat_replay.py`
+  - [x] replay 创建请求正式切到 `start_time`
+  - [x] 新增 `primary_baseline_id / baseline_ids`
+  - [x] `end_time` 改为可空，由后端默认取最新时刻
+- [x] 新增 `apps/server/src/services/replay_baseline_selection_service.py`
+  - [x] 校验显式 baseline 集非空
+  - [x] 校验主基线必须在集合内
+  - [x] 校验基线存在且已发布
+  - [x] 已收紧为单 definition 口径，拒绝跨 definition 混选
+- [x] `apps/server/src/services/formal_heat_service.py`
+  - [x] `compile_runtime_candidates(...)` 已支持显式 baseline 集输入
+  - [x] replay 场景下不再按 `effective_from` 自动挑 published baselines
+- [x] `apps/server/src/services/heat_replay_batch_service.py`
+  - [x] replay 批处理已透传显式 baseline 集与 runtime metric loader
+  - [x] replay latest 边界已改为沿用 `HeatStreamProcessor.finalize_until(..., retain_tail_count=2)` 的 head 语义
+  - [x] 当前口径为：head runtime 保留 `active / previous`，更早 sealed history 落正式库
+- [x] `apps/server/src/api/heats.py`
+  - [x] replay job 创建已改为基于显式 baseline 选择组装 `ReplayContext`
+  - [x] replay 后 head runtime 重建已走显式 baseline 输入
+  - [x] 日常非 replay 的 runtime 刷新默认逻辑保持不变
+- [x] `apps/web/src/views/SettingsView.vue`
+  - [x] 系统设置页已新增“批量初始化炉次”入口
+  - [x] 表单支持 `start_time / primary_baseline_id / baseline_ids`
+  - [x] 前端已收紧为“只展示与主基线同 definition 的已发布 baselines”
+  - [x] 已接通 replay job 提交与状态轮询
+- [x] `apps/web/src/api/heat.ts`
+  - [x] 已补 replay job 创建与查询 API
+- [x] 多语言文案已同步：
+  - [x] `apps/web/src/locales/zh-CN.json`
+  - [x] `apps/web/src/locales/en-US.json`
+  - [x] `apps/web/src/locales/zh-TW.json`
+  - [x] `apps/web/src/locales/ja-JP.json`
+- [x] `apps/server/tests/test_heat_replay_api.py`
+  - [x] 已补显式 baseline replay 成功路径
+  - [x] 已补忽略 `effective_from` 的 replay 路径
+  - [x] 已补 replay 后 head runtime 保留 `active / previous` 的口径
+  - [x] 已补未发布 baseline / 跨 definition baseline 拒绝路径
+
+**本轮验证**：
+
+- [x] `uv run --directory apps/server pytest -q tests/test_heat_replay_api.py`
+  - [x] `6 passed`
+- [x] `uv run --directory apps/server ruff check src/services/heat_replay_batch_service.py src/services/replay_baseline_selection_service.py tests/test_heat_replay_api.py src/api/heats.py src/services/formal_heat_service.py src/schemas/heat_replay.py`
+  - [x] 通过
+- [x] `pnpm --dir apps/web exec tsc --noEmit`
+  - [x] 通过
+- [x] `pnpm --dir apps/web exec vue-tsc --noEmit`
+  - [x] 通过
+- [ ] `pnpm --dir apps/web build`
+  - [ ] 未通过；当前仍被既有 `src/views/ReportDetailView.vue` 的 `item.deviation` 类型错误阻断
+
+**当前结论**：
+
+- [x] replay 显式黄金基线主链已在本地接通
+- [x] 当前业务口径已落为：
+  - [x] replay 只使用用户显式选择的同 definition baseline 集
+  - [x] replay latest 时保留 `active / previous` 作为 head runtime
+  - [x] 更早炉次落正式 history
+- [ ] 尚未完成完整用户路径验证
+  - [ ] 当前前端全量 build 仍被既有 `ReportDetailView.vue` 类型问题阻断
+  - [ ] 因此前轮改动尚未宣称“已验证完成 / 可开始 UAT / 已通过 UAT”
+  - [ ] `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md` 本轮未更新，待完整用户路径验证完成后再决定是否纳入正式验收脚本
+
 ### 2026-04-09（本地 blank 启动问题记录：无黄金基线时炉次台账被误判为连续刷新失败）
 
 **当前阶段**：问题已定位，尚未开始修复；本条仅记录根因与影响范围，避免后续把“无基线初始化状态”误当成“runtime 真刷新失败”

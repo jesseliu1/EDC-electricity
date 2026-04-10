@@ -138,11 +138,11 @@ watch(
               <span class="font-semibold text-slate-800">{{ item.heatNo }}</span>
             </div>
             <div class="flex flex-col items-end gap-1">
-              <span class="font-bold text-red-600 font-mono tracking-tight">{{ item.deviation }}%</span>
+              <span class="font-bold text-red-600 font-mono tracking-tight">{{ item.deviationScore }}%</span>
               <div class="w-32 h-1.5 bg-slate-100 rounded-full overflow-hidden flex justify-end">
                 <div
                   class="h-full bg-red-500 rounded-full"
-                  :style="{ width: `${Math.min(item.deviation, 100)}%` }"
+                  :style="{ width: `${Math.min(item.deviationScore, 100)}%` }"
                 />
               </div>
             </div>

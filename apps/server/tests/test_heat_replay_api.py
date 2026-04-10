@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime
 
 import pytest
+from sqlalchemy import update
 
 from src.api.heats import (
     _ACTIVE_HEAT_RUNTIME,
@@ -11,7 +12,11 @@ from src.api.heats import (
     refresh_heat_runtime_state,
 )
 from src.api.settings import _SETTINGS_STORE
+from src.database import async_session_maker
+from src.models import Baseline
 from src.schemas.common import CurvePoint
+from src.services import decode_baseline_id
+from src.time_utils import to_timestamp_ms
 
 
 def _build_live_power_points(start: datetime) -> list[CurvePoint]:
@@ -49,6 +54,31 @@ def _build_test_live_context() -> dict[str, object]:
     )
 
 
+async def _fake_runtime_metric_curves(metrics, start_time, end_time):
+    payload = {}
+    for metric in metrics:
+        metric_id = str(metric.get("id") or "")
+        metric_key = str(metric.get("metric_key") or "")
+        start_ms = to_timestamp_ms(start_time)
+        end_ms = to_timestamp_ms(end_time)
+        if metric_key == "power":
+            payload[metric_id] = [
+                CurvePoint(timestamp=start_ms, value=420.0),
+                CurvePoint(timestamp=end_ms, value=438.0),
+            ]
+        elif metric_key == "voltage":
+            payload[metric_id] = [
+                CurvePoint(timestamp=start_ms, value=220.0),
+                CurvePoint(timestamp=end_ms, value=226.0),
+            ]
+        elif metric_key == "temperature":
+            payload[metric_id] = [
+                CurvePoint(timestamp=start_ms, value=1540.0),
+                CurvePoint(timestamp=end_ms, value=1566.0),
+            ]
+    return payload
+
+
 async def _wait_for_job(client, job_id: str, *, terminal_statuses: set[str]) -> dict:
     last_payload: dict | None = None
     for _ in range(50):
@@ -77,14 +107,21 @@ async def test_create_replay_job_runs_to_completion_and_replaces_range(client, m
         "src.api.heats._resolve_live_heat_inference_context",
         lambda: _build_test_live_context(),
     )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_replay_inference_channel",
+        lambda: dict(_build_test_live_context()["channel"]),
+    )
+    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", _fake_runtime_metric_curves)
     monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
 
     create_response = await client.post(
         "/api/heats/replay-jobs",
         json={
             "job_kind": "replay_batch",
-            "anchor_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
+            "start_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
             "end_time": int(datetime(2026, 3, 19, 9, 40).timestamp() * 1000),
+            "primary_baseline_id": "def-001:001",
+            "baseline_ids": ["def-001:001"],
             "force_replace": True,
         },
     )
@@ -122,14 +159,21 @@ async def test_cancel_replay_job_marks_job_cancelled(client, monkeypatch) -> Non
         "src.api.heats._resolve_live_heat_inference_context",
         lambda: _build_test_live_context(),
     )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_replay_inference_channel",
+        lambda: dict(_build_test_live_context()["channel"]),
+    )
+    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", _fake_runtime_metric_curves)
     monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
 
     create_response = await client.post(
         "/api/heats/replay-jobs",
         json={
             "job_kind": "replay_batch",
-            "anchor_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
+            "start_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
             "end_time": int(datetime(2026, 3, 19, 20, 0).timestamp() * 1000),
+            "primary_baseline_id": "def-001:001",
+            "baseline_ids": ["def-001:001"],
             "force_replace": True,
         },
     )
@@ -168,6 +212,11 @@ async def test_replay_job_rebuilds_head_runtime_from_previous_anchor(client, mon
         "src.api.heats._resolve_live_heat_inference_context",
         lambda: _build_test_live_context(),
     )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_replay_inference_channel",
+        lambda: dict(_build_test_live_context()["channel"]),
+    )
+    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", _fake_runtime_metric_curves)
     monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
     monkeypatch.setattr("src.api.heats.utc_now", lambda: fake_now)
     monkeypatch.setattr("src.services.live_heat_runtime_service.utc_now", lambda: fake_now)
@@ -186,8 +235,10 @@ async def test_replay_job_rebuilds_head_runtime_from_previous_anchor(client, mon
         "/api/heats/replay-jobs",
         json={
             "job_kind": "replay_batch",
-            "anchor_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
+            "start_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
             "end_time": int(datetime(2026, 3, 19, 9, 20).timestamp() * 1000),
+            "primary_baseline_id": "def-001:001",
+            "baseline_ids": ["def-001:001"],
             "force_replace": True,
         },
     )
@@ -225,6 +276,111 @@ async def test_replay_job_rebuilds_head_runtime_from_previous_anchor(client, mon
         if item["record_source"] == "sealed_history" and item["id"].startswith("live-heat-")
     ]
 
-    assert history_items
-    assert len(runtime_items) == 1
-    assert runtime_items[0]["record_source"] == "active_runtime"
+    assert not history_items
+    assert len(runtime_items) == 2
+    assert {item["record_source"] for item in runtime_items} == {"active_runtime", "previous_runtime"}
+
+
+@pytest.mark.asyncio
+async def test_replay_job_ignores_effective_from_for_explicit_selected_baselines(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    fake_now = datetime(2026, 3, 19, 9, 40)
+    live_points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
+
+    async def fake_load_live_heat_inference_power_points(_channel, start_time=None, end_time=None):
+        if start_time is None or end_time is None:
+            return live_points
+        start_ms = int(start_time.timestamp() * 1000)
+        end_ms = int(end_time.timestamp() * 1000)
+        return [point for point in live_points if start_ms <= int(point.timestamp) <= end_ms]
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_replay_inference_channel",
+        lambda: dict(_build_test_live_context()["channel"]),
+    )
+    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", _fake_runtime_metric_curves)
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+    monkeypatch.setattr("src.api.heats.utc_now", lambda: fake_now)
+
+    definition_id, item = decode_baseline_id("def-001:001")
+    async with async_session_maker() as session:
+        await session.execute(
+            update(Baseline)
+            .where(Baseline.definition_id == definition_id)
+            .where(Baseline.item == item)
+            .values(effective_from=datetime(2026, 3, 20, 8, 0))
+        )
+        await session.commit()
+
+    create_response = await client.post(
+        "/api/heats/replay-jobs",
+        json={
+            "job_kind": "replay_batch",
+            "start_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
+            "primary_baseline_id": "def-001:001",
+            "baseline_ids": ["def-001:001"],
+            "force_replace": True,
+        },
+    )
+    assert create_response.status_code == 201
+    assert create_response.json()["end_time"] == to_timestamp_ms(fake_now)
+
+    finished = await _wait_for_job(client, create_response.json()["id"], terminal_statuses={"completed"})
+    assert finished["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_replay_job_rejects_unpublished_selected_baseline(client) -> None:
+    definition_id, item = decode_baseline_id("def-001:001")
+    async with async_session_maker() as session:
+        await session.execute(
+            update(Baseline)
+            .where(Baseline.definition_id == definition_id)
+            .where(Baseline.item == item)
+            .values(status="draft")
+        )
+        await session.commit()
+
+    create_response = await client.post(
+        "/api/heats/replay-jobs",
+        json={
+            "job_kind": "replay_batch",
+            "start_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
+            "primary_baseline_id": "def-001:001",
+            "baseline_ids": ["def-001:001"],
+            "force_replace": True,
+        },
+    )
+    assert create_response.status_code == 409
+    assert create_response.json()["detail"] == "replay_selected_baseline_not_published"
+
+
+@pytest.mark.asyncio
+async def test_replay_job_rejects_cross_definition_selected_baselines(client) -> None:
+    async with async_session_maker() as session:
+        await session.execute(
+            update(Baseline)
+            .where(Baseline.definition_id == "def-002")
+            .where(Baseline.item == "001")
+            .values(status="published", published_at=datetime(2026, 3, 12, 10, 45))
+        )
+        await session.commit()
+
+    create_response = await client.post(
+        "/api/heats/replay-jobs",
+        json={
+            "job_kind": "replay_batch",
+            "start_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
+            "primary_baseline_id": "def-001:001",
+            "baseline_ids": ["def-001:001", "def-002:001"],
+            "force_replace": True,
+        },
+    )
+    assert create_response.status_code == 409
+    assert create_response.json()["detail"] == "replay_selected_baselines_cross_definition"

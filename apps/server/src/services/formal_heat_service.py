@@ -838,9 +838,26 @@ def _eligible_published_baselines(
 
 def _resolve_primary_baseline(
     baselines: list[Any],
+    *,
+    preferred_baseline_id: str | None = None,
 ) -> Any | None:
     if not baselines:
         return None
+    if preferred_baseline_id:
+        preferred = next(
+            (
+                baseline
+                for baseline in baselines
+                if encode_baseline_id(
+                    str(_baseline_field(baseline, "definition_id") or ""),
+                    str(_baseline_field(baseline, "item") or ""),
+                )
+                == preferred_baseline_id
+            ),
+            None,
+        )
+        if preferred is not None:
+            return preferred
     default_baseline = next(
         (baseline for baseline in baselines if bool(_baseline_field(baseline, "is_default"))),
         None,
@@ -1180,10 +1197,16 @@ async def compile_runtime_candidates(
     trigger_source: str = "background_refresh",
     cutting_config: HeatCuttingConfig | None = None,
     metric_curve_loader: MetricCurveLoader | None = None,
+    explicit_baselines: list[Any] | None = None,
+    explicit_primary_baseline_id: str | None = None,
 ) -> list[dict[str, Any]]:
     if not candidates:
         return []
-    published_baselines = await _list_all_published_baselines()
+    published_baselines = (
+        list(explicit_baselines)
+        if explicit_baselines is not None
+        else await _list_all_published_baselines()
+    )
     definition_ids: set[str] = set()
     applicable_by_candidate: dict[str, list[Baseline]] = {}
     applicable_baselines: list[Baseline] = []
@@ -1191,22 +1214,37 @@ async def compile_runtime_candidates(
         if _heat_runtime_factory.has_frozen_birth_context(candidate):
             continue
         candidate_id = str(candidate["id"])
-        applicable = _eligible_published_baselines(
-            published_baselines,
-            start_time=candidate["start_time"],
+        applicable = (
+            list(published_baselines)
+            if explicit_baselines is not None
+            else _eligible_published_baselines(
+                published_baselines,
+                start_time=candidate["start_time"],
+            )
         )
         if not applicable:
             log_event(
                 "runtime_candidate_compile_error",
                 heat_id=candidate_id,
-                error="published_baselines_missing",
+                error=(
+                    "replay_explicit_baselines_missing"
+                    if explicit_baselines is not None
+                    else "published_baselines_missing"
+                ),
             )
-            raise ValueError("published_baselines_missing")
+            raise ValueError(
+                "replay_explicit_baselines_missing"
+                if explicit_baselines is not None
+                else "published_baselines_missing"
+            )
         applicable_by_candidate[candidate_id] = applicable
         applicable_baselines.extend(applicable)
-        primary_baseline = _resolve_primary_baseline(applicable)
+        primary_baseline = _resolve_primary_baseline(
+            applicable,
+            preferred_baseline_id=explicit_primary_baseline_id,
+        )
         if primary_baseline is not None:
-            definition_ids.add(primary_baseline.definition_id)
+            definition_ids.add(str(_baseline_field(primary_baseline, "definition_id") or ""))
     template_map = await _load_definition_metric_templates(sorted(definition_ids))
     baseline_curve_payloads = await _heat_deviation_analysis_service.load_baseline_curve_payloads(
         applicable_baselines
@@ -1232,10 +1270,13 @@ async def compile_runtime_candidates(
         else:
             candidate_applicable_baselines = applicable_by_candidate[str(candidate["id"])]
             candidate_curve_payloads = baseline_curve_payloads
-            primary_baseline = _resolve_primary_baseline(candidate_applicable_baselines)
+            primary_baseline = _resolve_primary_baseline(
+                candidate_applicable_baselines,
+                preferred_baseline_id=explicit_primary_baseline_id,
+            )
             primary_definition_id = (
                 (
-                    str(primary_baseline.definition_id)
+                    str(_baseline_field(primary_baseline, "definition_id") or "")
                     if primary_baseline is not None
                     else str(prepared_candidate.get("baseline_definition_id") or "").strip()
                 )

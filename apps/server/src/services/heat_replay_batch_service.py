@@ -4,21 +4,22 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
-from typing import Any, Awaitable, Callable
+from typing import Any
 from uuid import uuid4
 
-from ..observability import log_event
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from ..database import async_session_maker
 from ..models import HeatReplayJob
+from ..observability import log_event
 from ..schemas.common import CurvePoint
 from ..services.heat_cutting_service import HeatCuttingConfig
 from ..time_utils import utc_now
-from .formal_heat_service import compile_runtime_candidates, replace_heat_range
+from .formal_heat_service import MetricCurveLoader, compile_runtime_candidates, replace_heat_range
 from .heat_stream_processor import HeatStreamProcessor
 
 _REPLAY_TASKS: dict[str, asyncio.Task[None]] = {}
@@ -40,7 +41,11 @@ class ReplayContext:
     channel_key: str
     context_hash: str
     cache_key: str
+    cutting_config_snapshot: dict[str, Any]
     baseline_id: str | None
+    baseline_ids: list[str]
+    selected_baselines: list[dict[str, Any]]
+    definition_id: str | None
     expected_duration_minutes: int
 
 
@@ -250,6 +255,7 @@ def launch_heat_replay_job(
     cutting_config: HeatCuttingConfig,
     point_loader: LoadPointWindow,
     build_items_from_segments: BuildReplayItems,
+    metric_curve_loader: MetricCurveLoader | None = None,
     threshold_resolver: ThresholdResolver | None = None,
     after_replace: AfterReplaceCallback | None = None,
 ) -> asyncio.Task[None]:
@@ -284,7 +290,17 @@ def launch_heat_replay_job(
                 processing_mode="replay_batch",
                 threshold_resolver=threshold_resolver,
             )
-            generated_candidates: list[dict[str, Any]] = []
+            generated_candidate_map: dict[str, dict[str, Any]] = {}
+
+            def _merge_generated_candidates(candidates: list[dict[str, Any]]) -> None:
+                nonlocal generated_heat_count
+
+                for candidate in candidates:
+                    candidate_id = str(candidate.get("id") or "").strip()
+                    if not candidate_id:
+                        continue
+                    generated_candidate_map[candidate_id] = candidate
+                generated_heat_count = len(generated_candidate_map)
 
             while chunk_start < end_time:
                 chunk_end = min(chunk_start + timedelta(hours=_REPLAY_CHUNK_HOURS), end_time)
@@ -300,8 +316,7 @@ def launch_heat_replay_job(
                 chunk_candidates = build_items_from_segments(
                     [segment.points for segment in result.sealed_segments]
                 )
-                generated_candidates.extend(chunk_candidates)
-                generated_heat_count += len(chunk_candidates)
+                _merge_generated_candidates(chunk_candidates)
                 processed_chunk_count += 1
                 chunk_start = chunk_end
                 await _update_job(
@@ -311,18 +326,20 @@ def launch_heat_replay_job(
                     generated_heat_count=generated_heat_count,
                 )
 
-            final_result = processor.finalize_until(end_time, retain_tail_count=0)
+            final_result = processor.finalize_until(end_time, retain_tail_count=2)
             final_candidates = build_items_from_segments(
                 [segment.points for segment in final_result.sealed_segments]
             )
-            generated_candidates.extend(final_candidates)
-            generated_heat_count += len(final_candidates)
+            _merge_generated_candidates(final_candidates)
 
             compiled_candidates = await compile_runtime_candidates(
-                generated_candidates,
+                list(generated_candidate_map.values()),
                 processing_mode="replay_batch",
                 trigger_source=f"replay_job:{job_id}",
                 cutting_config=cutting_config,
+                explicit_baselines=replay_context.selected_baselines,
+                explicit_primary_baseline_id=replay_context.baseline_id,
+                metric_curve_loader=metric_curve_loader,
             )
             await replace_heat_range(
                 anchor_time=_job_field(job, "anchor_time"),

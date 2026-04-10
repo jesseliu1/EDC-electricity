@@ -1,7 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from 'vue'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  type ComponentPublicInstance
+} from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
+  ElDatePicker,
   ElForm,
   ElFormItem,
   ElInput,
@@ -14,6 +23,8 @@ import {
 } from 'element-plus'
 import PageHeader from '@/components/common/PageHeader.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
+import { baselineApi, type BaselineResponse } from '@/api/baseline'
+import { heatApi, type HeatReplayJobResponse } from '@/api/heat'
 import { useRuntimeStatusStore } from '@/stores/runtimeStatus'
 import { useSettingStore } from '@/stores/setting'
 
@@ -24,12 +35,13 @@ const runtimeStatusStore = useRuntimeStatusStore()
 const hostConnectivity = computed(() => runtimeStatusStore.data.host)
 const edcSummary = computed(() => runtimeStatusStore.data.edc)
 const pageRef = ref<HTMLElement | null>(null)
-type SettingsSectionId = 'hostConnectivity' | 'tolerance' | 'cutting'
+type SettingsSectionId = 'hostConnectivity' | 'replayInitialization' | 'tolerance' | 'cutting'
 
 const activeSection = ref<SettingsSectionId>('hostConnectivity')
 const scrollContainer = ref<HTMLElement | null>(null)
 const sectionRefs: Record<SettingsSectionId, HTMLElement | null> = {
   hostConnectivity: null,
+  replayInitialization: null,
   tolerance: null,
   cutting: null,
 }
@@ -48,6 +60,11 @@ const navigationItems = computed(() => [
     label: t('settings.hostManagedConnection'),
   },
   {
+    id: 'replayInitialization' as const,
+    icon: 'history_toggle_off',
+    label: t('settings.replayInitializationTitle'),
+  },
+  {
     id: 'tolerance' as const,
     icon: 'tune',
     label: t('settings.toleranceSectionTitle'),
@@ -58,6 +75,133 @@ const navigationItems = computed(() => [
     label: t('settings.cuttingConfig'),
   },
 ])
+const replayBaselineOptions = ref<BaselineResponse[]>([])
+const replayInitializationSubmitting = ref(false)
+const replayInitializationJob = ref<HeatReplayJobResponse | null>(null)
+const replayInitializationForm = reactive({
+  startTime: '',
+  primaryBaselineId: '',
+  baselineIds: [] as string[],
+})
+const replayPrimaryBaseline = computed(
+  () =>
+    replayBaselineOptions.value.find(
+      item => item.id === replayInitializationForm.primaryBaselineId
+    ) ?? null
+)
+const replaySelectableBaselineOptions = computed(() => {
+  const definitionId = replayPrimaryBaseline.value?.definition_id
+  if (!definitionId) {
+    return replayBaselineOptions.value
+  }
+  return replayBaselineOptions.value.filter(item => item.definition_id === definitionId)
+})
+
+function syncReplaySelectionToPrimaryDefinition() {
+  const allowedIds = new Set(replaySelectableBaselineOptions.value.map(item => item.id))
+  replayInitializationForm.baselineIds = replayInitializationForm.baselineIds.filter(id =>
+    allowedIds.has(id)
+  )
+  ensureReplayPrimaryInSelection()
+}
+
+function ensureReplayPrimaryInSelection() {
+  const primaryId = replayInitializationForm.primaryBaselineId
+  if (!primaryId) return
+  if (!replayInitializationForm.baselineIds.includes(primaryId)) {
+    replayInitializationForm.baselineIds = [...replayInitializationForm.baselineIds, primaryId]
+  }
+}
+
+function handleReplayPrimaryBaselineChange(value: string) {
+  replayInitializationForm.primaryBaselineId = value
+  syncReplaySelectionToPrimaryDefinition()
+}
+
+function handleReplayBaselineSelectionChange(value: string[]) {
+  const allowedIds = new Set(replaySelectableBaselineOptions.value.map(item => item.id))
+  replayInitializationForm.baselineIds = value.filter(id => allowedIds.has(id))
+  if (
+    replayInitializationForm.primaryBaselineId &&
+    !replayInitializationForm.baselineIds.includes(replayInitializationForm.primaryBaselineId)
+  ) {
+    replayInitializationForm.primaryBaselineId = replayInitializationForm.baselineIds[0] || ''
+  }
+}
+
+async function loadReplayBaselineOptions() {
+  const response = await baselineApi.list('published')
+  replayBaselineOptions.value = response.items
+  const baselineIds = response.items.map(item => item.id)
+  replayInitializationForm.baselineIds = replayInitializationForm.baselineIds.filter(id =>
+    baselineIds.includes(id)
+  )
+  if (
+    replayInitializationForm.primaryBaselineId &&
+    !baselineIds.includes(replayInitializationForm.primaryBaselineId)
+  ) {
+    replayInitializationForm.primaryBaselineId = ''
+  }
+
+  if (!replayInitializationForm.primaryBaselineId) {
+    const defaultBaseline = response.items.find(item => item.is_default) ?? response.items[0]
+    if (defaultBaseline) {
+      replayInitializationForm.primaryBaselineId = defaultBaseline.id
+    }
+  }
+  syncReplaySelectionToPrimaryDefinition()
+}
+
+async function pollReplayInitializationJob(jobId: string) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const job = await heatApi.getReplayJob(jobId)
+    replayInitializationJob.value = job
+    if (['completed', 'failed', 'cancelled'].includes(job.status)) {
+      return job
+    }
+    await new Promise(resolve => window.setTimeout(resolve, 1000))
+  }
+  return replayInitializationJob.value
+}
+
+async function submitReplayInitialization() {
+  if (!replayInitializationForm.startTime) {
+    ElMessage.warning(t('settings.replayInitializationStartRequired'))
+    return
+  }
+  if (!replayInitializationForm.primaryBaselineId) {
+    ElMessage.warning(t('settings.replayInitializationPrimaryRequired'))
+    return
+  }
+  ensureReplayPrimaryInSelection()
+  if (replayInitializationForm.baselineIds.length === 0) {
+    ElMessage.warning(t('settings.replayInitializationBaselineRequired'))
+    return
+  }
+
+  replayInitializationSubmitting.value = true
+  try {
+    const createdJob = await heatApi.createReplayJob({
+      start_time: Number(replayInitializationForm.startTime),
+      primary_baseline_id: replayInitializationForm.primaryBaselineId,
+      baseline_ids: replayInitializationForm.baselineIds,
+      force_replace: true,
+    })
+    replayInitializationJob.value = createdJob
+    ElMessage.success(t('settings.replayInitializationStarted'))
+    const finalJob = await pollReplayInitializationJob(createdJob.id)
+    if (finalJob?.status === 'completed') {
+      await runtimeStatusStore.fetchRuntimeStatus()
+      ElMessage.success(t('settings.replayInitializationCompleted'))
+    } else if (finalJob?.status === 'failed') {
+      ElMessage.error(finalJob.error_message || t('settings.replayInitializationFailed'))
+    } else if (finalJob?.status === 'cancelled') {
+      ElMessage.info(t('settings.replayInitializationCancelled'))
+    }
+  } finally {
+    replayInitializationSubmitting.value = false
+  }
+}
 
 function setSectionRef(
   sectionId: SettingsSectionId,
@@ -149,7 +293,7 @@ onMounted(async () => {
     passive: true,
   })
   window.addEventListener('resize', handleViewportChange)
-  await settingStore.fetchSettings()
+  await Promise.all([settingStore.fetchSettings(), loadReplayBaselineOptions()])
   await nextTick()
   syncActiveSection()
 })
@@ -309,6 +453,123 @@ onBeforeUnmount(() => {
                 {{ hostConnectivity.enabledChannelCount }}
               </p>
             </div>
+          </div>
+        </div>
+
+        <div
+          id="settings-section-replay-initialization"
+          :ref="(element) => setSectionRef('replayInitialization', element)"
+          class="bg-white rounded-xl border border-border-light shadow-card p-6"
+          data-testid="settings-replay-initialization-card"
+        >
+          <div class="flex items-start justify-between gap-4 mb-6">
+            <div>
+              <h3 class="text-lg font-bold text-slate-800">
+                {{ t('settings.replayInitializationTitle') }}
+              </h3>
+              <p class="text-sm text-slate-500 mt-0.5">
+                {{ t('settings.replayInitializationDescription') }}
+              </p>
+            </div>
+            <span class="text-xs px-2.5 py-1 rounded-full border border-slate-200 bg-slate-50 text-slate-600">
+              {{ t('settings.replayInitializationModeLabel') }}
+            </span>
+          </div>
+
+          <div class="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700 mb-6">
+            {{ t('settings.replayInitializationNotice') }}
+          </div>
+
+          <el-form label-position="top" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <el-form-item :label="t('settings.replayInitializationStartTime')">
+              <el-date-picker
+                v-model="replayInitializationForm.startTime"
+                type="datetime"
+                value-format="x"
+                class="!w-full"
+                :placeholder="t('settings.replayInitializationStartPlaceholder')"
+                data-testid="settings-replay-start-time"
+              />
+            </el-form-item>
+            <el-form-item :label="t('settings.replayInitializationPrimaryBaseline')">
+              <el-select
+                v-model="replayInitializationForm.primaryBaselineId"
+                class="!w-full"
+                filterable
+                :placeholder="t('settings.replayInitializationPrimaryPlaceholder')"
+                data-testid="settings-replay-primary-baseline"
+                @change="handleReplayPrimaryBaselineChange"
+              >
+                <el-option
+                  v-for="baseline in replayBaselineOptions"
+                  :key="baseline.id"
+                  :label="baseline.name"
+                  :value="baseline.id"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item
+              :label="t('settings.replayInitializationBaselines')"
+              class="md:col-span-2"
+            >
+              <el-select
+                v-model="replayInitializationForm.baselineIds"
+                multiple
+                collapse-tags
+                collapse-tags-tooltip
+                class="!w-full"
+                :placeholder="t('settings.replayInitializationBaselinesPlaceholder')"
+                data-testid="settings-replay-baseline-ids"
+                @change="handleReplayBaselineSelectionChange"
+              >
+                <el-option
+                  v-for="baseline in replaySelectableBaselineOptions"
+                  :key="baseline.id"
+                  :label="baseline.name"
+                  :value="baseline.id"
+                />
+              </el-select>
+              <div class="mt-1 text-xs text-slate-400">
+                {{ t('settings.replayInitializationBaselinesHint') }}
+              </div>
+            </el-form-item>
+          </el-form>
+
+          <div
+            v-if="replayInitializationJob"
+            class="mt-4 rounded-lg border border-border-light bg-slate-50 px-4 py-3 text-sm text-slate-700"
+            data-testid="settings-replay-job-status"
+          >
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span>{{ t('settings.replayInitializationJobId') }}: {{ replayInitializationJob.id }}</span>
+              <span>{{ t('settings.replayInitializationJobStatus') }}: {{ replayInitializationJob.status }}</span>
+              <span>
+                {{ t('settings.replayInitializationJobProgress') }}:
+                {{ replayInitializationJob.generated_heat_count }}
+              </span>
+            </div>
+            <div
+              v-if="replayInitializationJob.error_message"
+              class="mt-2 text-xs text-red-600"
+            >
+              {{ replayInitializationJob.error_message }}
+            </div>
+          </div>
+
+          <div class="flex justify-end mt-4">
+            <button
+              type="button"
+              data-testid="settings-replay-submit"
+              class="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              :disabled="replayInitializationSubmitting"
+              @click="submitReplayInitialization"
+            >
+              {{
+                replayInitializationSubmitting
+                  ? t('settings.replayInitializationRunning')
+                  : t('settings.replayInitializationSubmit')
+              }}
+            </button>
           </div>
         </div>
 

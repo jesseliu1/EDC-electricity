@@ -146,6 +146,33 @@ export interface HeatUpdatePayload {
   adjust_subsequent?: boolean
 }
 
+export interface HeatReplayJobCreatePayload {
+  job_kind?: string
+  start_time: number
+  end_time?: number | null
+  primary_baseline_id: string
+  baseline_ids: string[]
+  force_replace?: boolean
+}
+
+export interface HeatReplayJobResponse {
+  id: string
+  job_kind: string
+  status: string
+  anchor_time: number
+  end_time: number
+  channel_key: string
+  force_replace: boolean
+  progress_cursor: number | null
+  processed_chunk_count: number
+  generated_heat_count: number
+  error_message: string | null
+  created_at: number
+  started_at: number | null
+  completed_at: number | null
+  updated_at: number
+}
+
 export interface HeatResumeCuttingPayload {
   adjust_subsequent?: boolean
   note?: string
@@ -170,5 +197,8 @@ export const heatApi = {
   update: (id: string, payload: HeatUpdatePayload) =>
     client.patch<HeatResponseItem>(`/heats/${id}`, payload),
   resumeCutting: (id: string, payload: HeatResumeCuttingPayload) =>
-    client.post<HeatResponseItem>(`/heats/${id}/resume-cutting`, payload)
+    client.post<HeatResponseItem>(`/heats/${id}/resume-cutting`, payload),
+  createReplayJob: (payload: HeatReplayJobCreatePayload) =>
+    client.post<HeatReplayJobResponse>('/heats/replay-jobs', payload),
+  getReplayJob: (jobId: string) => client.get<HeatReplayJobResponse>(`/heats/replay-jobs/${jobId}`)
 }

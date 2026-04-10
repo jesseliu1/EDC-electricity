@@ -89,6 +89,10 @@ from ..services.heat_runtime_types import (
 )
 from ..services.heat_runtime_updater import HeatRuntimeUpdater
 from ..services.live_heat_runtime_service import refresh_live_heat_segments
+from ..services.replay_baseline_selection_service import (
+    ReplayBaselineSelection,
+    ReplayBaselineSelectionService,
+)
 from ..time_utils import (
     from_timestamp_ms,
     minutes_since_midnight,
@@ -1044,14 +1048,55 @@ def _resolve_live_heat_inference_context() -> dict[str, Any] | None:
     return _clone_live_heat_context(contexts[0])
 
 
-def _build_replay_context(context: dict[str, Any]) -> ReplayContext:
+def _build_replay_context(
+    context: dict[str, Any],
+    *,
+    baseline_ids: list[str] | None = None,
+    selected_baselines: list[dict[str, Any]] | None = None,
+    definition_id: str | None = None,
+) -> ReplayContext:
     return ReplayContext(
         channel=dict(context["channel"]),
         channel_key=str(context["channel_key"]),
         context_hash=str(context["context_hash"]),
         cache_key=str(context["cache_key"]),
+        cutting_config_snapshot=deepcopy(context.get("cutting_config_snapshot") or {}),
         baseline_id=context.get("baseline_id"),
+        baseline_ids=list(baseline_ids or ([str(context["baseline_id"])] if context.get("baseline_id") else [])),
+        selected_baselines=[dict(item) for item in (selected_baselines or [])],
+        definition_id=definition_id,
         expected_duration_minutes=int(context["expected_duration_minutes"]),
+    )
+
+
+def _resolve_replay_inference_channel() -> dict[str, str] | None:
+    return resolve_channel_role(
+        "live_heat_inference",
+        _CHANNEL_ROLE_BINDING_STORE,
+        _HOST_CHANNEL_STORE,
+    )
+
+
+def _build_replay_context_from_selection(
+    selection: ReplayBaselineSelection,
+    *,
+    cutting_config: HeatCuttingConfig,
+) -> ReplayContext:
+    inference_channel = _resolve_replay_inference_channel()
+    if inference_channel is None:
+        raise ValueError("live_heat_inference_channel_missing")
+
+    live_context = _build_live_heat_context(
+        channel=inference_channel,
+        baseline_id=str(selection.primary_baseline.get("id") or ""),
+        expected_duration_minutes=selection.expected_duration_minutes,
+        cutting_config=cutting_config,
+    )
+    return _build_replay_context(
+        live_context,
+        baseline_ids=[str(item.get("id") or "") for item in selection.selected_baselines],
+        selected_baselines=selection.selected_baselines,
+        definition_id=selection.definition_id,
     )
 
 
@@ -1468,45 +1513,15 @@ async def _rebuild_head_runtime_after_replay(
     )
 
 
-async def _list_heat_store() -> dict[str, dict[str, Any]]:
-    if is_mock_dataset_enabled():
-        return dict(_MOCK_HEAT_STREAM_STORE)
-
-    formal_items = {
-        str(item["id"]): item
-        for item in await list_formal_heat_records()
-    }
-    merged = dict(formal_items)
-    merged.update(
-        _filter_runtime_items_covered_by_formal_history(
-            _PREVIOUS_HEAT_RUNTIME,
-            formal_items=formal_items,
-        )
-    )
-    merged.update(_ACTIVE_HEAT_RUNTIME)
-    return merged
-
-
-async def refresh_heat_runtime_state(
+async def _refresh_heat_runtime_state_from_context(
     *,
     reason: str,
+    context: dict[str, Any],
     force_anchor_time: datetime | None = None,
     force_reset_processor: bool = False,
+    explicit_baselines: list[dict[str, Any]] | None = None,
+    explicit_primary_baseline_id: str | None = None,
 ) -> dict[str, Any]:
-    if is_mock_dataset_enabled():
-        _HEAT_RUNTIME_REFRESH_META.update(
-            {
-                "refresh_status": "idle",
-                "refresh_reason": reason,
-                "refresh_error": None,
-                "refresh_failure_count": 0,
-            }
-        )
-        _sync_heat_runtime_refresh_meta_status()
-        return _build_heat_runtime_refresh_meta_snapshot()
-
-    await _ensure_formal_baseline_mirrors_loaded()
-
     started_at = utc_now()
     _HEAT_RUNTIME_REFRESH_META.update(
         {
@@ -1520,12 +1535,7 @@ async def refresh_heat_runtime_state(
 
     existing_active_item = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
     existing_previous_item = next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)
-    context = _resolve_live_runtime_refresh_context()
     cutting_config = _resolve_live_context_cutting_config(context)
-    if not _is_live_heat_inference_enabled() or not context:
-        _mark_heat_runtime_refresh_failure(error="live_heat_inference_unavailable")
-        await persist_runtime_state(*_runtime_heat_sections())
-        return _build_heat_runtime_refresh_meta_snapshot()
 
     refresh_result = await refresh_live_heat_segments(
         context=context,
@@ -1617,6 +1627,8 @@ async def refresh_heat_runtime_state(
             trigger_source=reason,
             cutting_config=cutting_config,
             metric_curve_loader=_load_runtime_metric_curves,
+            explicit_baselines=explicit_baselines,
+            explicit_primary_baseline_id=explicit_primary_baseline_id,
         )
         if compile_candidates
         else []
@@ -1728,6 +1740,7 @@ async def refresh_heat_runtime_state(
     )
     existing_active_end = _candidate_end_time(existing_active_item)
     next_active_end = _candidate_end_time(prepared_active_candidate)
+
     if not prepared_active_candidate:
         refresh_outcome = "no_new_heat_born"
     elif existing_active_id and next_active_id == existing_active_id:
@@ -1750,6 +1763,97 @@ async def refresh_heat_runtime_state(
     )
     await persist_runtime_state(*_runtime_heat_sections())
     return _build_heat_runtime_refresh_meta_snapshot()
+
+
+async def _rebuild_head_runtime_after_replay_with_context(
+    anchor_time: datetime,
+    end_time: datetime,
+    replay_context: ReplayContext,
+) -> None:
+    rebuild_anchor = _resolve_replay_head_rebuild_anchor(
+        anchor_time=anchor_time,
+        end_time=end_time,
+        channel_key=replay_context.channel_key,
+    )
+    if rebuild_anchor is None:
+        return
+
+    inflight = _HEAT_RUNTIME_REFRESH_INFLIGHT
+    if inflight is not None and not inflight.done():
+        try:
+            await inflight
+        except Exception:
+            pass
+
+    invalidate_compare_runtime_caches(include_shared=True)
+    invalidate_live_heat_runtime_cache()
+    replay_live_context = _build_live_heat_context(
+        channel=dict(replay_context.channel),
+        baseline_id=replay_context.baseline_id,
+        expected_duration_minutes=replay_context.expected_duration_minutes,
+        cutting_config=_resolve_live_context_cutting_config(
+            {"cutting_config_snapshot": replay_context.cutting_config_snapshot}
+        ),
+    )
+    await _refresh_heat_runtime_state_from_context(
+        reason="replay_head_rebuild",
+        context=replay_live_context,
+        force_anchor_time=rebuild_anchor,
+        force_reset_processor=True,
+        explicit_baselines=replay_context.selected_baselines,
+        explicit_primary_baseline_id=replay_context.baseline_id,
+    )
+
+
+async def _list_heat_store() -> dict[str, dict[str, Any]]:
+    if is_mock_dataset_enabled():
+        return dict(_MOCK_HEAT_STREAM_STORE)
+
+    formal_items = {
+        str(item["id"]): item
+        for item in await list_formal_heat_records()
+    }
+    merged = dict(formal_items)
+    merged.update(
+        _filter_runtime_items_covered_by_formal_history(
+            _PREVIOUS_HEAT_RUNTIME,
+            formal_items=formal_items,
+        )
+    )
+    merged.update(_ACTIVE_HEAT_RUNTIME)
+    return merged
+
+
+async def refresh_heat_runtime_state(
+    *,
+    reason: str,
+    force_anchor_time: datetime | None = None,
+    force_reset_processor: bool = False,
+) -> dict[str, Any]:
+    if is_mock_dataset_enabled():
+        _HEAT_RUNTIME_REFRESH_META.update(
+            {
+                "refresh_status": "idle",
+                "refresh_reason": reason,
+                "refresh_error": None,
+                "refresh_failure_count": 0,
+            }
+        )
+        _sync_heat_runtime_refresh_meta_status()
+        return _build_heat_runtime_refresh_meta_snapshot()
+
+    await _ensure_formal_baseline_mirrors_loaded()
+    context = _resolve_live_runtime_refresh_context()
+    if not _is_live_heat_inference_enabled() or not context:
+        _mark_heat_runtime_refresh_failure(error="live_heat_inference_unavailable")
+        await persist_runtime_state(*_runtime_heat_sections())
+        return _build_heat_runtime_refresh_meta_snapshot()
+    return await _refresh_heat_runtime_state_from_context(
+        reason=reason,
+        context=context,
+        force_anchor_time=force_anchor_time,
+        force_reset_processor=force_reset_processor,
+    )
 
 
 def schedule_heat_runtime_refresh(*, reason: str) -> asyncio.Task[dict[str, Any]] | None:
@@ -2730,6 +2834,7 @@ _HEAT_RUNTIME_REFRESH_INFLIGHT: asyncio.Task[dict[str, Any]] | None = None
 _HEAT_RUNTIME_REFRESH_LOOP_TASK: asyncio.Task[None] | None = None
 _HEAT_RUNTIME_FACTORY = HeatRuntimeFactory()
 _HEAT_RUNTIME_UPDATER = HeatRuntimeUpdater()
+_REPLAY_BASELINE_SELECTION_SERVICE = ReplayBaselineSelectionService()
 
 
 def _default_heat_runtime_refresh_meta() -> dict[str, Any]:
@@ -3812,37 +3917,65 @@ async def list_replay_jobs() -> HeatReplayJobListResponse:
 
 @router.post("/replay-jobs", response_model=HeatReplayJobResponse, status_code=201)
 async def create_replay_job(data: HeatReplayJobCreateRequest) -> HeatReplayJobResponse:
-    if data.anchor_time > data.end_time:
+    end_time = data.end_time or utc_now().replace(second=0, microsecond=0)
+    if data.start_time > end_time:
         raise HTTPException(status_code=400, detail="anchor_time_after_end_time")
-
-    context = _resolve_live_heat_inference_context()
-    if context is None:
-        raise HTTPException(status_code=400, detail="live_heat_inference_unavailable")
 
     cutting_config = get_cutting_config()
     try:
+        selection = await _REPLAY_BASELINE_SELECTION_SERVICE.resolve_selection(
+            primary_baseline_id=data.primary_baseline_id,
+            baseline_ids=data.baseline_ids,
+        )
+        replay_context = _build_replay_context_from_selection(
+            selection,
+            cutting_config=cutting_config,
+        )
         job = await create_heat_replay_job_record(
             job_kind=data.job_kind,
-            anchor_time=data.anchor_time,
-            end_time=data.end_time,
-            channel_key=str(context["channel_key"]),
+            anchor_time=data.start_time,
+            end_time=end_time,
+            channel_key=str(replay_context.channel_key),
             cutting_config=cutting_config,
             force_replace=bool(data.force_replace),
         )
+
+        async def _after_replace_with_explicit_baselines(
+            anchor_time: datetime,
+            replay_end_time: datetime,
+            _channel_key: str,
+        ) -> None:
+            await _rebuild_head_runtime_after_replay_with_context(
+                anchor_time,
+                replay_end_time,
+                replay_context,
+            )
+
         launch_heat_replay_job(
             job_id=job.id,
-            replay_context=_build_replay_context(context),
+            replay_context=replay_context,
             cutting_config=cutting_config,
             point_loader=_load_live_heat_inference_power_points,
+            metric_curve_loader=_load_runtime_metric_curves,
             build_items_from_segments=lambda segments: _build_live_heat_items_from_segments(
-                context=context,
+                context={
+                    "channel": dict(replay_context.channel),
+                    "channel_key": replay_context.channel_key,
+                    "context_hash": replay_context.context_hash,
+                    "cache_key": replay_context.cache_key,
+                    "baseline_id": replay_context.baseline_id,
+                    "expected_duration_minutes": replay_context.expected_duration_minutes,
+                    "cutting_config_snapshot": deepcopy(
+                        replay_context.cutting_config_snapshot
+                    ),
+                },
                 segments=segments,
-                baseline_id=context["baseline_id"],
-                expected_duration_minutes=int(context["expected_duration_minutes"]),
+                baseline_id=replay_context.baseline_id,
+                expected_duration_minutes=int(replay_context.expected_duration_minutes),
                 cutting_config=cutting_config,
             ),
             threshold_resolver=_infer_live_activity_threshold,
-            after_replace=_rebuild_head_runtime_after_replay,
+            after_replace=_after_replace_with_explicit_baselines,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
