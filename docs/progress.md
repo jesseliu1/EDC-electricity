@@ -6,6 +6,37 @@
 
 ---
 
+### 2026-04-11（replay runtime aggregate 已补齐 processor snapshot，续接 live refresh 失败问题已修复）
+
+- [x] 已把 replay 后 runtime 重建从“只写 runtime item”收口为“写 runtime aggregate”
+  - [x] replay batch 最终结果现在会连同最终 `processor_snapshot` 一起下发给 after-replace
+  - [x] replay after-replace 现在会同步写回：
+    - [x] `previous_runtime / active_runtime`
+    - [x] `heat_stream_processor_state`
+    - [x] `heat_id_aliases`
+    - [x] `heat_runtime_refresh_meta`
+- [x] 已修复 replay 后 live refresh 续接失败的主因
+  - [x] 之前 replay 虽然写回了 runtime seed，但会把 `heat_stream_processor_state` 清空
+  - [x] 下一轮 live refresh 因拿不到可兼容 snapshot，只能冷启动重猜，随后容易掉进 `no_runtime_heats_inferred`
+  - [x] 当前实现改为把 replay 最终 snapshot 转成 live-compatible config 后写回，后续 live refresh 直接沿 replay 结果续跑
+- [x] 已修复 replay 尾段已闭口时的 runtime aggregate 语义
+  - [x] 当前允许 replay 最终没有 `previous_runtime / active_runtime`
+  - [x] 但只要 `processor_snapshot` 完整，仍按 aggregate 已成功接回处理，不再机械记成 `replay_runtime_seed_missing`
+- [x] 已补 replay 续接定向回归
+  - [x] `apps/server/tests/test_heat_replay_api.py::test_replay_job_rebuilds_processor_snapshot_for_live_continuation`
+  - [x] 覆盖“replay 后第一轮 live refresh 沿 replay snapshot 续跑，不再退回冷启动重猜”
+  - [x] 原有 replay 闭口 / 替换 / 无旧 runtime 回归继续通过
+- [x] 本轮最小代码级验证已执行通过
+  - [x] `uv run --directory apps/server pytest -q tests/test_heat_replay_api.py`
+  - [x] 结果：`8 passed`
+  - [x] `uv run --directory apps/server ruff check src/api/heats.py src/services/heat_replay_batch_service.py tests/test_heat_replay_api.py`
+  - [x] 结果：通过
+- [!] 当前验证边界
+  - [!] 本轮仍是后端定向回归，不是完整用户路径验证
+  - [!] `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md` 本轮未更新；当前修复尚未以正式 UAT 路径复验
+
+---
+
 ### 2026-04-11（definition 业务语义已校正为“指标视角”，DB 表口径已补充说明）
 
 - [x] 已根据最新业务澄清修正文档口径
@@ -15,6 +46,11 @@
 - [x] 已补充 `metric_series` 的 heat 侧语义说明
   - [x] `owner_type='heat'` 应保存该炉次所绑定全部基线视角需要的指标并集
   - [x] `metric_series.item` 已明确为 owner 内部排序项，不再默认等同于某个单独 `definition.item`
+  - [x] `metric_series.item` 的文档备注已进一步收紧为“heat 内部自然序号/稳定排序号”，避免再被理解成 definition 指标号
+- [x] 已补充 `metric_series / heat_baseline_bindings / heats` 的职责边界
+  - [x] `metric_series(owner_type='heat')` 只保存炉次自己的指标曲线真源
+  - [x] `heat_baseline_bindings` 是 `heat + baseline` 粒度分析结果真相源
+  - [x] `heats` 不承担每条基线的分析结果，只保留炉次事实字段
 - [x] 本轮仅更新文档口径，未修改后端运行逻辑或数据库结构
 
 ---

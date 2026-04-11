@@ -8,6 +8,7 @@ from sqlalchemy import update
 
 from src.api.heats import (
     _ACTIVE_HEAT_RUNTIME,
+    _HEAT_STREAM_PROCESSOR_STATE,
     _PREVIOUS_HEAT_RUNTIME,
     refresh_heat_runtime_state,
 )
@@ -33,6 +34,23 @@ def _build_live_power_points(start: datetime) -> list[CurvePoint]:
     append_block(40, 12, 46.0)
     append_block(52, 28, 129.0)
     append_block(80, 10, 38.0)
+    return points
+
+
+def _build_continuing_live_power_points(start: datetime) -> list[CurvePoint]:
+    points: list[CurvePoint] = []
+    normalized_start = start.replace(second=0, microsecond=0)
+
+    def append_block(offset_minutes: int, length_minutes: int, value: float) -> None:
+        for index in range(length_minutes):
+            timestamp = to_timestamp_ms(normalized_start) + (offset_minutes + index) * 60_000
+            points.append(CurvePoint(timestamp=timestamp, value=value))
+
+    append_block(0, 8, 42.0)
+    append_block(8, 24, 124.0)
+    append_block(32, 10, 46.0)
+    append_block(42, 44, 129.0)
+    append_block(86, 8, 38.0)
     return points
 
 
@@ -133,6 +151,7 @@ async def test_create_replay_job_runs_to_completion_and_replaces_range(client, m
 
     list_response = await client.get("/api/heats", params={"page_size": 50})
     assert list_response.status_code == 200
+    assert list_response.json()["snapshot_status"] != "error"
     runtime_items = [
         item
         for item in list_response.json()["items"]
@@ -145,6 +164,7 @@ async def test_create_replay_job_runs_to_completion_and_replaces_range(client, m
     ]
     assert len(live_history_items) >= 1
     assert not runtime_items
+    assert _HEAT_STREAM_PROCESSOR_STATE.get("state", {}).get("bootstrapped") is True
 
 
 @pytest.mark.asyncio
@@ -386,6 +406,78 @@ async def test_replay_job_builds_runtime_seed_without_existing_runtime_or_live_r
     assert not history_items
     assert len(runtime_items) == 2
     assert {item["record_source"] for item in runtime_items} == {"active_runtime", "previous_runtime"}
+    assert _HEAT_STREAM_PROCESSOR_STATE.get("state", {}).get("bootstrapped") is True
+
+
+@pytest.mark.asyncio
+async def test_replay_job_rebuilds_processor_snapshot_for_live_continuation(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    replay_end_time = datetime(2026, 3, 19, 9, 5)
+    refresh_now = datetime(2026, 3, 19, 9, 18)
+    live_points = _build_continuing_live_power_points(datetime(2026, 3, 19, 8, 0))
+
+    async def fake_load_live_heat_inference_power_points(_channel, start_time=None, end_time=None):
+        if start_time is None or end_time is None:
+            return live_points
+        start_ms = to_timestamp_ms(start_time)
+        end_ms = to_timestamp_ms(end_time)
+        return [point for point in live_points if start_ms <= int(point.timestamp) <= end_ms]
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_replay_inference_channel",
+        lambda: dict(_build_test_live_context()["channel"]),
+    )
+    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", _fake_runtime_metric_curves)
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+    heats_module._HEAT_STREAM_PROCESSOR_STATE.clear()
+
+    create_response = await client.post(
+        "/api/heats/replay-jobs",
+        json={
+            "job_kind": "replay_batch",
+            "start_time": to_timestamp_ms(datetime(2026, 3, 19, 8, 0)),
+            "end_time": to_timestamp_ms(replay_end_time),
+            "primary_baseline_id": "def-001:001",
+            "baseline_ids": ["def-001:001"],
+            "force_replace": True,
+        },
+    )
+    assert create_response.status_code == 201
+    finished = await _wait_for_job(client, create_response.json()["id"], terminal_statuses={"completed"})
+    assert finished["status"] == "completed"
+
+    active_before_refresh = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
+    assert active_before_refresh is not None
+    assert _HEAT_STREAM_PROCESSOR_STATE.get("state", {}).get("bootstrapped") is True
+
+    monkeypatch.setattr("src.api.heats.utc_now", lambda: refresh_now)
+    monkeypatch.setattr("src.services.live_heat_runtime_service.utc_now", lambda: refresh_now)
+
+    refresh_meta = await refresh_heat_runtime_state(reason="post_replay_continuation")
+    assert refresh_meta["refresh_error"] is None
+    assert refresh_meta["snapshot_status"] != "error"
+
+    active_after_refresh = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
+    assert active_after_refresh is not None
+    assert active_after_refresh["start_time"] == active_before_refresh["start_time"]
+    assert active_after_refresh["last_point_at"] > active_before_refresh["last_point_at"]
+    assert _HEAT_STREAM_PROCESSOR_STATE.get("state", {}).get("bootstrapped") is True
 
 
 @pytest.mark.asyncio

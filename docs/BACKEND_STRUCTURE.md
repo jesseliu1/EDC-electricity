@@ -90,6 +90,8 @@ apps/server/
 - `baselines.is_default` 表示全系统当前默认黄金基线
 - `baseline_definition_metrics.item` 表示 definition 内部的指标项号；`metric_series.item` 表示 owner 维度内部的指标项号，两者不默认等同于跨 definition 的全局指标身份
 - `baselines.item` 表示“版本号项”
+- `metric_series(owner_type='heat')` 的业务语义是“该炉次绑定到的所有基线所需指标并集”
+- `heat_baseline_bindings` 是 `heat + baseline` 粒度分析结果的真相源；`heats` 不承担每条基线的分析结果
 - 当前炉次运行态缓存应尽量与 `heats + heat_baseline_bindings + metric_series` 同构，避免再做一套单独字段语义
 - 历史炉次的指标值允许保留“前 30 分钟 + 当前炉次区间 + 后 30 分钟”的上下文窗口，便于后续单炉次人工调整
 - 所有未确认的自动回退、自动补全、自动替换都不应进入正式业务链路
@@ -281,7 +283,7 @@ apps/server/
 | Index | 字段 | 类型 | 主键 | 必填 | 用途 |
 |---|---|---:|---:|---:|---|
 | 1 | `owner_key` | `string(80)` | 是 | 是 | 关联键；基线时指向 `{definition_id}:{baseline_item}`，炉次时指向 `heat_id` |
-| 2 | `item` | `string(3)` | 是 | 是 | owner 内部指标项号；对 `baseline` 可对应 definition 内 item，对 `heat` 不要求等于任一单个 definition 的 item |
+| 2 | `item` | `string(3)` | 是 | 是 | owner 内部指标项号；对 `baseline` 可对应 definition 内 item；对 `heat` 仅表示该炉次内部的自然序号/稳定排序号，不得再理解为任一 definition 内的指标项号 |
 | 3 | `owner_type` | `string(20)` | 否 | 是 | 所属对象类型，`baseline / heat` |
 | 4 | `definition_id` | `string(36)` | 否 | 否 | 所属基线定义 ID |
 | 5 | `item_kind` | `string(20)` | 否 | 是 | 固定写 `metric_item`，说明这里的 `item` 是指标项号 |
@@ -370,6 +372,7 @@ apps/server/
 - `owner_type='heat'` 的指标身份以 `metric_key` 为主；`item` 只表示该 `owner_key` 下的稳定排序项，不应再默认解释成“来自 primary definition 的 item 编号”
 - 每条炉次的 `metric_series` 都应自带 `N-1 / N / N+1` 观察余量，便于详情页直接从 DB 拼接显示
 - 不同炉次的 `metric_series` 时间范围允许彼此覆盖，这不代表重复数据错误
+- `metric_series(owner_type='heat')` 只负责保存炉次自己的指标曲线真源，不负责保存每条基线的偏离分析结果
 
 ### 2.6 `heat_baseline_bindings`
 
@@ -426,6 +429,8 @@ apps/server/
 - 一条记录只表达“某炉次绑定某基线”以及该绑定自己的分析结果
 - `is_primary` 由炉次固化时确定，用于列表摘要和详情默认展示
 - 历史炉次的偏离结果真源不再放在 `heats`，而是放在该表
+- 该表按 `heat + baseline` 粒度承载 `analysis_status / deviation_score / avg_deviation_score / abnormal_duration_minutes / analysis_details_json`
+- `heats` 只保留炉次事实字段；若接口需要顶层摘要值，应从 `is_primary=1` 的绑定记录派生，而不是把每条基线分析结果直接并入 `heats`
 
 ### 2.7 `heats`
 
@@ -552,7 +557,13 @@ apps/server/
 - 同一 `channel_key` 同时只允许一个 `running` replay job
 - replay 执行期间，live 链仍可刷新 runtime，但同通道 formal append 应暂停
 - replay 完成后，formal history 与 runtime seed 必须来自同一次 replay 最终切割结果
-- replay 只负责重建 `previous_runtime/current_runtime` 的起点模板；模板写回后，后续仍回到正常 live refresh 增量续接链路
+- replay 完成后必须按同一事务边界重建一组 runtime aggregate，而不只是两条 runtime item
+- 当前 replay runtime aggregate 至少包含：
+  - `previous_runtime / active_runtime`
+  - `heat_stream_processor_state`
+  - `heat_id_aliases`
+  - `heat_runtime_refresh_meta`
+- replay 只负责把系统接回正确的 runtime aggregate 起点；aggregate 写回后，后续仍回到正常 live refresh 增量续接链路
 - replay 当下不得再独立调用一轮 live runtime 重切去“猜” head runtime，否则会导致 formal history 与 runtime 口径分叉
 
 ### 2.11 表关系
@@ -628,6 +639,7 @@ erDiagram
   - `config` 负责保存切割器固定配置
   - `state` 负责保存可变处理状态
   - 业务冻结真源不能继续寄存在 `processor_snapshot`
+  - 但在 replay -> live 续接边界上，`processor_snapshot` 属于 runtime aggregate 的一部分；只重建 `active_runtime / previous_runtime` 而不重建 `processor_snapshot`，会导致后续 live refresh 退回冷启动重猜
 
 处理链约束：
 
@@ -782,6 +794,7 @@ erDiagram
 - `GET /api/heats/{id}/compare` 对 `sealed_history` 必须优先读取正式表/固化曲线，不得再回退到 EDC 直接取全天曲线污染历史窗口
 - 历史 compare 的 `live_curves` 应裁切到炉次真实起止时间；若前端需要上下文展示，可通过单独的 display window 曲线保留扩展窗口
 - replay 场景下，`active_runtime / previous_runtime` 的重建输入应直接来自 replay 最终切割结果里由 processor 最终判定的 `previous_segment / active_segment`；live refresh 只负责 replay 之后的续接，不负责 replay 当下的 head runtime 推断
+- replay 场景下，写回 `active_runtime / previous_runtime` 时必须同步写回一个 live-compatible 的 `heat_stream_processor_state`；后续 live refresh 必须沿这份 snapshot 续跑，不允许再把 replay 结果交给下一轮 live 冷启动去重猜
 
 ### 3.8 API 读写映射
 

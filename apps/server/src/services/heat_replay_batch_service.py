@@ -40,6 +40,7 @@ class ReplayRuntimeSeed:
     active_segment_points: list[CurvePoint] | None
     all_segment_count: int
     history_segment_count: int
+    processor_snapshot: dict[str, Any] | None
 
 
 AfterReplaceCallback = Callable[[datetime, datetime, str, ReplayRuntimeSeed], Awaitable[None]]
@@ -59,7 +60,11 @@ class ReplayContext:
     expected_duration_minutes: int
 
 
-def _build_replay_runtime_seed(result: HeatProcessorResult) -> ReplayRuntimeSeed:
+def _build_replay_runtime_seed(
+    result: HeatProcessorResult,
+    *,
+    processor_snapshot: dict[str, Any] | None,
+) -> ReplayRuntimeSeed:
     all_segments = list(result.all_segments)
     previous_segment_points = (
         list(result.previous_segment.points) if result.previous_segment is not None else None
@@ -71,6 +76,7 @@ def _build_replay_runtime_seed(result: HeatProcessorResult) -> ReplayRuntimeSeed
         active_segment_points=active_segment_points,
         all_segment_count=len(all_segments),
         history_segment_count=max(len(all_segments) - runtime_seed_count, 0),
+        processor_snapshot=processor_snapshot,
     )
 
 
@@ -352,7 +358,10 @@ def launch_heat_replay_job(
                 )
 
             final_result = processor.finalize_until(end_time, retain_tail_count=2)
-            final_runtime_seed = _build_replay_runtime_seed(final_result)
+            final_runtime_seed = _build_replay_runtime_seed(
+                final_result,
+                processor_snapshot=processor.snapshot_state(),
+            )
             final_history_segment_points = [
                 list(segment.points)
                 for segment in final_result.all_segments[: final_runtime_seed.history_segment_count]

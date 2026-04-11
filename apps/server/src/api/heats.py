@@ -1490,6 +1490,54 @@ def _summarize_replay_seed_segment(
     }
 
 
+def _clone_replay_processor_snapshot(snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+    return deepcopy(snapshot) if isinstance(snapshot, dict) else None
+
+
+def _build_live_processor_snapshot_from_replay_seed(
+    *,
+    snapshot: dict[str, Any] | None,
+    live_context: dict[str, Any],
+    cutting_config: HeatCuttingConfig,
+) -> dict[str, Any] | None:
+    state = _replay_processor_snapshot_state(snapshot)
+    if not isinstance(state, dict):
+        return None
+    return {
+        "config": {
+            "cache_key": str(live_context["cache_key"]),
+            "channel_key": str(live_context["channel_key"]),
+            "context_hash": str(live_context["context_hash"]),
+            "expected_duration_minutes": int(live_context["expected_duration_minutes"]),
+            "cutting_config_token": cutting_config.cache_token(),
+            "processing_mode": "live_incremental",
+        },
+        "state": deepcopy(state),
+    }
+
+
+def _replay_processor_snapshot_state(snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(snapshot, dict):
+        return None
+    state = snapshot.get("state")
+    if isinstance(state, dict):
+        return state
+    return snapshot
+
+
+def _replay_processor_last_point_time(snapshot: dict[str, Any] | None) -> datetime | None:
+    state = _replay_processor_snapshot_state(snapshot)
+    if not isinstance(state, dict):
+        return None
+    raw_timestamp = state.get("last_point_timestamp")
+    try:
+        if raw_timestamp is None:
+            return None
+        return from_timestamp_ms(int(raw_timestamp))
+    except (TypeError, ValueError):
+        return None
+
+
 async def _apply_replay_runtime_seed_with_context(
     *,
     anchor_time: datetime,
@@ -1523,6 +1571,8 @@ async def _apply_replay_runtime_seed_with_context(
         if runtime_seed.active_segment_points is not None
         else None
     )
+    raw_processor_snapshot = _clone_replay_processor_snapshot(runtime_seed.processor_snapshot)
+    processor_state = _replay_processor_snapshot_state(raw_processor_snapshot)
     _log_replay_runtime_debug(
         "replay_runtime_seed_summary",
         channel_key=replay_context.channel_key,
@@ -1542,14 +1592,23 @@ async def _apply_replay_runtime_seed_with_context(
             points=active_points,
             plant_timezone=plant_timezone,
         ),
+        processor_bootstrapped=(
+            bool(processor_state.get("bootstrapped")) if isinstance(processor_state, dict) else None
+        ),
+        processor_phase=(
+            str(processor_state.get("processor_phase") or "")
+            if isinstance(processor_state, dict)
+            else None
+        ),
+        processor_last_point_at=_replay_processor_last_point_time(raw_processor_snapshot),
     )
 
-    if active_points is None and previous_points is None:
+    if raw_processor_snapshot is None:
         _HEAT_STREAM_PROCESSOR_STATE.clear()
-        _mark_heat_runtime_refresh_failure(error="replay_runtime_seed_missing")
+        _mark_heat_runtime_refresh_failure(error="replay_runtime_processor_snapshot_missing")
         await persist_runtime_state(*_runtime_heat_sections())
         _log_replay_runtime_debug(
-            "replay_runtime_seed_missing",
+            "replay_runtime_processor_snapshot_missing",
             channel_key=replay_context.channel_key,
             all_segment_count=runtime_seed.all_segment_count,
             history_segment_count=runtime_seed.history_segment_count,
@@ -1562,26 +1621,48 @@ async def _apply_replay_runtime_seed_with_context(
         expected_duration_minutes=replay_context.expected_duration_minutes,
         cutting_config=cutting_config,
     )
+    processor_snapshot = _build_live_processor_snapshot_from_replay_seed(
+        snapshot=raw_processor_snapshot,
+        live_context=replay_live_context,
+        cutting_config=cutting_config,
+    )
+    if processor_snapshot is None:
+        _HEAT_STREAM_PROCESSOR_STATE.clear()
+        _mark_heat_runtime_refresh_failure(error="replay_runtime_processor_snapshot_invalid")
+        await persist_runtime_state(*_runtime_heat_sections())
+        _log_replay_runtime_debug(
+            "replay_runtime_processor_snapshot_invalid",
+            channel_key=replay_context.channel_key,
+        )
+        return _build_heat_runtime_refresh_meta_snapshot()
     runtime_seed_segments: list[list[CurvePoint]] = []
     if previous_points is not None:
         runtime_seed_segments.append(previous_points)
     if active_points is not None:
         runtime_seed_segments.append(active_points)
-    runtime_seed_candidates = _build_live_heat_items_from_segments(
-        context=replay_live_context,
-        segments=runtime_seed_segments,
-        baseline_id=replay_context.baseline_id,
-        expected_duration_minutes=int(replay_context.expected_duration_minutes),
-        cutting_config=cutting_config,
+    runtime_seed_candidates = (
+        _build_live_heat_items_from_segments(
+            context=replay_live_context,
+            segments=runtime_seed_segments,
+            baseline_id=replay_context.baseline_id,
+            expected_duration_minutes=int(replay_context.expected_duration_minutes),
+            cutting_config=cutting_config,
+        )
+        if runtime_seed_segments
+        else []
     )
-    prepared_runtime_candidates = await compile_runtime_candidates(
-        runtime_seed_candidates,
-        processing_mode="live_incremental",
-        trigger_source=reason,
-        cutting_config=cutting_config,
-        metric_curve_loader=_load_runtime_metric_curves,
-        explicit_baselines=replay_context.selected_baselines,
-        explicit_primary_baseline_id=replay_context.baseline_id,
+    prepared_runtime_candidates = (
+        await compile_runtime_candidates(
+            runtime_seed_candidates,
+            processing_mode="live_incremental",
+            trigger_source=reason,
+            cutting_config=cutting_config,
+            metric_curve_loader=_load_runtime_metric_curves,
+            explicit_baselines=replay_context.selected_baselines,
+            explicit_primary_baseline_id=replay_context.baseline_id,
+        )
+        if runtime_seed_candidates
+        else []
     )
     prepared_runtime_candidate_map = {
         str(candidate["id"]): candidate for candidate in prepared_runtime_candidates
@@ -1643,12 +1724,16 @@ async def _apply_replay_runtime_seed_with_context(
 
     _HEAT_STORE.clear()
     _HEAT_STREAM_PROCESSOR_STATE.clear()
+    _HEAT_STREAM_PROCESSOR_STATE.update(processor_snapshot)
     _PREVIOUS_HEAT_RUNTIME.clear()
     _PREVIOUS_HEAT_RUNTIME.update(next_previous_runtime)
     _ACTIVE_HEAT_RUNTIME.clear()
     _ACTIVE_HEAT_RUNTIME.update(next_active_runtime)
 
     watermark_candidates: list[datetime] = [end_time]
+    processor_last_point_time = _replay_processor_last_point_time(processor_snapshot)
+    if processor_last_point_time is not None:
+        watermark_candidates.append(processor_last_point_time)
     for runtime_item in [*next_previous_runtime.values(), *next_active_runtime.values()]:
         watermark = runtime_item.get("last_point_at") or runtime_item.get("end_time")
         if isinstance(watermark, datetime):
@@ -1666,6 +1751,14 @@ async def _apply_replay_runtime_seed_with_context(
         replaced_previous=bool(previous_runtime_items),
         next_previous_id=next(iter(next_previous_runtime.keys()), None),
         next_active_id=next(iter(next_active_runtime.keys()), None),
+        processor_bootstrapped=(
+            bool(processor_state.get("bootstrapped")) if isinstance(processor_state, dict) else None
+        ),
+        processor_phase=(
+            str(processor_state.get("processor_phase") or "")
+            if isinstance(processor_state, dict)
+            else None
+        ),
         snapshot_watermark=max(watermark_candidates) if watermark_candidates else None,
     )
     return _build_heat_runtime_refresh_meta_snapshot()
