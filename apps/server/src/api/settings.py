@@ -14,7 +14,8 @@ from ..channel_roles import (
     reconcile_channel_role_bindings,
     resolve_channel_role,
 )
-from ..config import DEFAULT_EDC_BASE_URL, settings as app_settings
+from ..config import DEFAULT_EDC_BASE_URL
+from ..config import settings as app_settings
 from ..request_mode import is_showtime_mode
 from ..runtime_state import persist_runtime_state
 from ..schemas import (
@@ -72,6 +73,10 @@ _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     "live_heat_inference_enabled": {
         "value": "true",
         "description": "是否启用基于真实功率曲线推断炉次台账",
+    },
+    "replay_runtime_debug_enabled": {
+        "value": "false",
+        "description": "是否输出 replay runtime seed 调试日志",
     },
     "baseline_length_scope_mode": {
         "value": "definition",
@@ -431,8 +436,8 @@ def apply_app_edc_connection_override() -> bool:
 
 def _build_runtime_status_response() -> RuntimeStatusResponse:
     """构建业务页统一消费的运行态摘要。"""
-    from .heats import _resolve_live_heat_inference_context
     from .baselines import _resolve_active_baseline_item
+    from .heats import _resolve_live_heat_inference_context
 
     _reconcile_channel_role_binding_store()
     host_response = _host_connectivity_response()

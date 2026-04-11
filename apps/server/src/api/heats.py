@@ -59,6 +59,7 @@ from ..services.heat_cutting_service import (
 )
 from ..services.heat_replay_batch_service import (
     ReplayContext,
+    ReplayRuntimeSeed,
     is_replay_active_for_channel,
     launch_heat_replay_job,
 )
@@ -1457,60 +1458,217 @@ def _filter_runtime_items_covered_by_formal_history(
     return filtered
 
 
-def _resolve_replay_head_rebuild_anchor(
+def _is_replay_runtime_debug_enabled() -> bool:
+    raw_value = _SETTINGS_STORE.get("replay_runtime_debug_enabled", {}).get("value")
+    return str(raw_value or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _log_replay_runtime_debug(event: str, **fields: Any) -> None:
+    if not _is_replay_runtime_debug_enabled():
+        return
+    log_event(event, **fields)
+
+
+def _summarize_replay_seed_segment(
+    *,
+    prefix: str,
+    points: list[CurvePoint] | None,
+    plant_timezone: str,
+) -> dict[str, Any]:
+    if not points:
+        return {f"{prefix}_exists": False}
+
+    start_time = from_timestamp_ms(points[0].timestamp)
+    end_time = from_timestamp_ms(points[-1].timestamp)
+    return {
+        f"{prefix}_exists": True,
+        f"{prefix}_point_count": len(points),
+        f"{prefix}_start_time_utc": start_time,
+        f"{prefix}_end_time_utc": end_time,
+        f"{prefix}_start_time_plant": to_plant_datetime(start_time, plant_timezone),
+        f"{prefix}_end_time_plant": to_plant_datetime(end_time, plant_timezone),
+    }
+
+
+async def _apply_replay_runtime_seed_with_context(
     *,
     anchor_time: datetime,
     end_time: datetime,
-    channel_key: str,
-) -> datetime | None:
-    replay_window = _runtime_window_probe(start_time=anchor_time, end_time=end_time)
-    overlapping_start_times: list[datetime] = []
-
-    for runtime_store in (_PREVIOUS_HEAT_RUNTIME, _ACTIVE_HEAT_RUNTIME):
-        for item in runtime_store.values():
-            runtime_channel_key = str(
-                item.get("_live_context_key") or item.get("furnace_id") or ""
-            )
-            if runtime_channel_key != channel_key:
-                continue
-            if not _has_overlapping_time_window(item, replay_window):
-                continue
-            start_time = item.get("start_time")
-            if isinstance(start_time, datetime):
-                overlapping_start_times.append(start_time)
-
-    if not overlapping_start_times:
-        return None
-    return min(overlapping_start_times)
-
-
-async def _rebuild_head_runtime_after_replay(
-    anchor_time: datetime,
-    end_time: datetime,
-    channel_key: str,
-) -> None:
-    rebuild_anchor = _resolve_replay_head_rebuild_anchor(
-        anchor_time=anchor_time,
-        end_time=end_time,
-        channel_key=channel_key,
+    replay_context: ReplayContext,
+    runtime_seed: ReplayRuntimeSeed,
+    reason: str = "replay_head_rebuild",
+) -> dict[str, Any]:
+    started_at = utc_now()
+    _HEAT_RUNTIME_REFRESH_META.update(
+        {
+            "refresh_status": "running",
+            "refresh_reason": reason,
+            "refresh_error": None,
+            "last_refresh_started_at": started_at,
+        }
     )
-    if rebuild_anchor is None:
-        return
+    _sync_heat_runtime_refresh_meta_status(now=started_at)
 
-    inflight = _HEAT_RUNTIME_REFRESH_INFLIGHT
-    if inflight is not None and not inflight.done():
-        try:
-            await inflight
-        except Exception:
-            pass
-
-    invalidate_compare_runtime_caches(include_shared=True)
-    invalidate_live_heat_runtime_cache()
-    await refresh_heat_runtime_state(
-        reason="replay_head_rebuild",
-        force_anchor_time=rebuild_anchor,
-        force_reset_processor=True,
+    cutting_config = _resolve_live_context_cutting_config(
+        {"cutting_config_snapshot": replay_context.cutting_config_snapshot}
     )
+    plant_timezone = str(cutting_config.plant_timezone)
+    previous_points = (
+        list(runtime_seed.previous_segment_points)
+        if runtime_seed.previous_segment_points is not None
+        else None
+    )
+    active_points = (
+        list(runtime_seed.active_segment_points)
+        if runtime_seed.active_segment_points is not None
+        else None
+    )
+    _log_replay_runtime_debug(
+        "replay_runtime_seed_summary",
+        channel_key=replay_context.channel_key,
+        anchor_time_utc=anchor_time,
+        end_time_utc=end_time,
+        anchor_time_plant=to_plant_datetime(anchor_time, plant_timezone),
+        end_time_plant=to_plant_datetime(end_time, plant_timezone),
+        all_segment_count=runtime_seed.all_segment_count,
+        history_segment_count=runtime_seed.history_segment_count,
+        **_summarize_replay_seed_segment(
+            prefix="previous",
+            points=previous_points,
+            plant_timezone=plant_timezone,
+        ),
+        **_summarize_replay_seed_segment(
+            prefix="active",
+            points=active_points,
+            plant_timezone=plant_timezone,
+        ),
+    )
+
+    if active_points is None and previous_points is None:
+        _HEAT_STREAM_PROCESSOR_STATE.clear()
+        _mark_heat_runtime_refresh_failure(error="replay_runtime_seed_missing")
+        await persist_runtime_state(*_runtime_heat_sections())
+        _log_replay_runtime_debug(
+            "replay_runtime_seed_missing",
+            channel_key=replay_context.channel_key,
+            all_segment_count=runtime_seed.all_segment_count,
+            history_segment_count=runtime_seed.history_segment_count,
+        )
+        return _build_heat_runtime_refresh_meta_snapshot()
+
+    replay_live_context = _build_live_heat_context(
+        channel=dict(replay_context.channel),
+        baseline_id=replay_context.baseline_id,
+        expected_duration_minutes=replay_context.expected_duration_minutes,
+        cutting_config=cutting_config,
+    )
+    runtime_seed_segments: list[list[CurvePoint]] = []
+    if previous_points is not None:
+        runtime_seed_segments.append(previous_points)
+    if active_points is not None:
+        runtime_seed_segments.append(active_points)
+    runtime_seed_candidates = _build_live_heat_items_from_segments(
+        context=replay_live_context,
+        segments=runtime_seed_segments,
+        baseline_id=replay_context.baseline_id,
+        expected_duration_minutes=int(replay_context.expected_duration_minutes),
+        cutting_config=cutting_config,
+    )
+    prepared_runtime_candidates = await compile_runtime_candidates(
+        runtime_seed_candidates,
+        processing_mode="live_incremental",
+        trigger_source=reason,
+        cutting_config=cutting_config,
+        metric_curve_loader=_load_runtime_metric_curves,
+        explicit_baselines=replay_context.selected_baselines,
+        explicit_primary_baseline_id=replay_context.baseline_id,
+    )
+    prepared_runtime_candidate_map = {
+        str(candidate["id"]): candidate for candidate in prepared_runtime_candidates
+    }
+
+    prepared_previous_candidate: dict[str, Any] | None = None
+    prepared_active_candidate: dict[str, Any] | None = None
+    if previous_points is not None and runtime_seed_candidates:
+        prepared_previous_candidate = prepared_runtime_candidate_map.get(
+            str(runtime_seed_candidates[0]["id"])
+        )
+    if active_points is not None and runtime_seed_candidates:
+        prepared_active_candidate = prepared_runtime_candidate_map.get(
+            str(runtime_seed_candidates[-1]["id"])
+        )
+
+    if (previous_points is not None and prepared_previous_candidate is None) or (
+        active_points is not None and prepared_active_candidate is None
+    ):
+        _HEAT_STREAM_PROCESSOR_STATE.clear()
+        _mark_heat_runtime_refresh_failure(error="replay_runtime_seed_compile_failed")
+        await persist_runtime_state(*_runtime_heat_sections())
+        _log_replay_runtime_debug(
+            "replay_runtime_seed_compile_failed",
+            channel_key=replay_context.channel_key,
+            seed_candidate_ids=[str(candidate.get("id") or "") for candidate in runtime_seed_candidates],
+            prepared_candidate_ids=list(prepared_runtime_candidate_map.keys()),
+        )
+        return _build_heat_runtime_refresh_meta_snapshot()
+
+    previous_runtime_items = [
+        *list(_ACTIVE_HEAT_RUNTIME.values()),
+        *list(_PREVIOUS_HEAT_RUNTIME.values()),
+    ]
+    next_previous_runtime: dict[str, dict[str, Any]] = {}
+    next_active_runtime: dict[str, dict[str, Any]] = {}
+    if prepared_previous_candidate is not None:
+        previous_runtime = _build_current_heat_runtime(
+            prepared_previous_candidate,
+            trigger_source=reason,
+            processing_mode="live_incremental",
+        )
+        previous_item = _mark_previous_runtime(previous_runtime.to_runtime_item())
+        next_previous_runtime[str(previous_item["id"])] = previous_item
+    if prepared_active_candidate is not None:
+        active_runtime = _build_current_heat_runtime(
+            prepared_active_candidate,
+            trigger_source=reason,
+            processing_mode="live_incremental",
+        )
+        active_item = _mark_active_runtime(active_runtime.to_runtime_item())
+        next_active_runtime[str(active_item["id"])] = active_item
+
+    formal_items = {str(item["id"]): item for item in await list_formal_heat_records()}
+    next_runtime_lookup = dict(formal_items)
+    next_runtime_lookup.update(next_previous_runtime)
+    next_runtime_lookup.update(next_active_runtime)
+    _register_runtime_aliases(previous_runtime_items, next_runtime_lookup)
+
+    _HEAT_STORE.clear()
+    _HEAT_STREAM_PROCESSOR_STATE.clear()
+    _PREVIOUS_HEAT_RUNTIME.clear()
+    _PREVIOUS_HEAT_RUNTIME.update(next_previous_runtime)
+    _ACTIVE_HEAT_RUNTIME.clear()
+    _ACTIVE_HEAT_RUNTIME.update(next_active_runtime)
+
+    watermark_candidates: list[datetime] = [end_time]
+    for runtime_item in [*next_previous_runtime.values(), *next_active_runtime.values()]:
+        watermark = runtime_item.get("last_point_at") or runtime_item.get("end_time")
+        if isinstance(watermark, datetime):
+            watermark_candidates.append(watermark)
+
+    _mark_heat_runtime_refresh_success(
+        reason=reason,
+        refresh_outcome="replay_runtime_seed_applied",
+        snapshot_watermark=max(watermark_candidates) if watermark_candidates else None,
+    )
+    await persist_runtime_state(*_runtime_heat_sections())
+    _log_replay_runtime_debug(
+        "replay_runtime_seed_applied",
+        channel_key=replay_context.channel_key,
+        replaced_previous=bool(previous_runtime_items),
+        next_previous_id=next(iter(next_previous_runtime.keys()), None),
+        next_active_id=next(iter(next_active_runtime.keys()), None),
+        snapshot_watermark=max(watermark_candidates) if watermark_candidates else None,
+    )
+    return _build_heat_runtime_refresh_meta_snapshot()
 
 
 async def _refresh_heat_runtime_state_from_context(
@@ -1769,15 +1927,8 @@ async def _rebuild_head_runtime_after_replay_with_context(
     anchor_time: datetime,
     end_time: datetime,
     replay_context: ReplayContext,
+    runtime_seed: ReplayRuntimeSeed,
 ) -> None:
-    rebuild_anchor = _resolve_replay_head_rebuild_anchor(
-        anchor_time=anchor_time,
-        end_time=end_time,
-        channel_key=replay_context.channel_key,
-    )
-    if rebuild_anchor is None:
-        return
-
     inflight = _HEAT_RUNTIME_REFRESH_INFLIGHT
     if inflight is not None and not inflight.done():
         try:
@@ -1787,21 +1938,12 @@ async def _rebuild_head_runtime_after_replay_with_context(
 
     invalidate_compare_runtime_caches(include_shared=True)
     invalidate_live_heat_runtime_cache()
-    replay_live_context = _build_live_heat_context(
-        channel=dict(replay_context.channel),
-        baseline_id=replay_context.baseline_id,
-        expected_duration_minutes=replay_context.expected_duration_minutes,
-        cutting_config=_resolve_live_context_cutting_config(
-            {"cutting_config_snapshot": replay_context.cutting_config_snapshot}
-        ),
-    )
-    await _refresh_heat_runtime_state_from_context(
+    await _apply_replay_runtime_seed_with_context(
+        anchor_time=anchor_time,
+        end_time=end_time,
+        replay_context=replay_context,
+        runtime_seed=runtime_seed,
         reason="replay_head_rebuild",
-        context=replay_live_context,
-        force_anchor_time=rebuild_anchor,
-        force_reset_processor=True,
-        explicit_baselines=replay_context.selected_baselines,
-        explicit_primary_baseline_id=replay_context.baseline_id,
     )
 
 
@@ -3917,7 +4059,7 @@ async def list_replay_jobs() -> HeatReplayJobListResponse:
 
 @router.post("/replay-jobs", response_model=HeatReplayJobResponse, status_code=201)
 async def create_replay_job(data: HeatReplayJobCreateRequest) -> HeatReplayJobResponse:
-    end_time = data.end_time or utc_now().replace(second=0, microsecond=0)
+    end_time = data.end_time or utc_now().replace(microsecond=0)
     if data.start_time > end_time:
         raise HTTPException(status_code=400, detail="anchor_time_after_end_time")
 
@@ -3940,15 +4082,36 @@ async def create_replay_job(data: HeatReplayJobCreateRequest) -> HeatReplayJobRe
             force_replace=bool(data.force_replace),
         )
 
+        def _build_replay_items_from_segments(
+            segments: list[list[CurvePoint]],
+        ) -> list[dict[str, Any]]:
+            return _build_live_heat_items_from_segments(
+                context={
+                    "channel": dict(replay_context.channel),
+                    "channel_key": replay_context.channel_key,
+                    "context_hash": replay_context.context_hash,
+                    "cache_key": replay_context.cache_key,
+                    "baseline_id": replay_context.baseline_id,
+                    "expected_duration_minutes": replay_context.expected_duration_minutes,
+                    "cutting_config_snapshot": deepcopy(replay_context.cutting_config_snapshot),
+                },
+                segments=segments,
+                baseline_id=replay_context.baseline_id,
+                expected_duration_minutes=int(replay_context.expected_duration_minutes),
+                cutting_config=cutting_config,
+            )
+
         async def _after_replace_with_explicit_baselines(
             anchor_time: datetime,
             replay_end_time: datetime,
             _channel_key: str,
+            runtime_seed: ReplayRuntimeSeed,
         ) -> None:
             await _rebuild_head_runtime_after_replay_with_context(
                 anchor_time,
                 replay_end_time,
                 replay_context,
+                runtime_seed,
             )
 
         launch_heat_replay_job(
@@ -3957,23 +4120,7 @@ async def create_replay_job(data: HeatReplayJobCreateRequest) -> HeatReplayJobRe
             cutting_config=cutting_config,
             point_loader=_load_live_heat_inference_power_points,
             metric_curve_loader=_load_runtime_metric_curves,
-            build_items_from_segments=lambda segments: _build_live_heat_items_from_segments(
-                context={
-                    "channel": dict(replay_context.channel),
-                    "channel_key": replay_context.channel_key,
-                    "context_hash": replay_context.context_hash,
-                    "cache_key": replay_context.cache_key,
-                    "baseline_id": replay_context.baseline_id,
-                    "expected_duration_minutes": replay_context.expected_duration_minutes,
-                    "cutting_config_snapshot": deepcopy(
-                        replay_context.cutting_config_snapshot
-                    ),
-                },
-                segments=segments,
-                baseline_id=replay_context.baseline_id,
-                expected_duration_minutes=int(replay_context.expected_duration_minutes),
-                cutting_config=cutting_config,
-            ),
+            build_items_from_segments=_build_replay_items_from_segments,
             threshold_resolver=_infer_live_activity_threshold,
             after_replace=_after_replace_with_explicit_baselines,
         )

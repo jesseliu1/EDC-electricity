@@ -21,12 +21,11 @@ from src.time_utils import to_timestamp_ms
 
 def _build_live_power_points(start: datetime) -> list[CurvePoint]:
     points: list[CurvePoint] = []
+    normalized_start = start.replace(second=0, microsecond=0)
 
     def append_block(offset_minutes: int, length_minutes: int, value: float) -> None:
         for index in range(length_minutes):
-            timestamp = int(
-                (start.replace(second=0, microsecond=0)).timestamp() * 1000
-            ) + (offset_minutes + index) * 60_000
+            timestamp = to_timestamp_ms(normalized_start) + (offset_minutes + index) * 60_000
             points.append(CurvePoint(timestamp=timestamp, value=value))
 
     append_block(0, 10, 42.0)
@@ -118,8 +117,8 @@ async def test_create_replay_job_runs_to_completion_and_replaces_range(client, m
         "/api/heats/replay-jobs",
         json={
             "job_kind": "replay_batch",
-            "start_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
-            "end_time": int(datetime(2026, 3, 19, 9, 40).timestamp() * 1000),
+            "start_time": to_timestamp_ms(datetime(2026, 3, 19, 8, 0)),
+            "end_time": to_timestamp_ms(datetime(2026, 3, 19, 9, 40)),
             "primary_baseline_id": "def-001:001",
             "baseline_ids": ["def-001:001"],
             "force_replace": True,
@@ -134,12 +133,18 @@ async def test_create_replay_job_runs_to_completion_and_replaces_range(client, m
 
     list_response = await client.get("/api/heats", params={"page_size": 50})
     assert list_response.status_code == 200
+    runtime_items = [
+        item
+        for item in list_response.json()["items"]
+        if item["record_source"] in {"active_runtime", "previous_runtime"}
+    ]
     live_history_items = [
         item
         for item in list_response.json()["items"]
         if item["record_source"] == "sealed_history" and item["id"].startswith("live-heat-")
     ]
-    assert len(live_history_items) >= 2
+    assert len(live_history_items) >= 1
+    assert not runtime_items
 
 
 @pytest.mark.asyncio
@@ -170,8 +175,8 @@ async def test_cancel_replay_job_marks_job_cancelled(client, monkeypatch) -> Non
         "/api/heats/replay-jobs",
         json={
             "job_kind": "replay_batch",
-            "start_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
-            "end_time": int(datetime(2026, 3, 19, 20, 0).timestamp() * 1000),
+            "start_time": to_timestamp_ms(datetime(2026, 3, 19, 8, 0)),
+            "end_time": to_timestamp_ms(datetime(2026, 3, 19, 20, 0)),
             "primary_baseline_id": "def-001:001",
             "baseline_ids": ["def-001:001"],
             "force_replace": True,
@@ -188,7 +193,7 @@ async def test_cancel_replay_job_marks_job_cancelled(client, monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
-async def test_replay_job_rebuilds_head_runtime_from_previous_anchor(client, monkeypatch) -> None:
+async def test_replay_job_replaces_existing_runtime_with_replay_seed(client, monkeypatch) -> None:
     _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
     fake_now = datetime(2026, 3, 19, 9, 20)
     live_points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
@@ -196,8 +201,8 @@ async def test_replay_job_rebuilds_head_runtime_from_previous_anchor(client, mon
     async def fake_load_live_heat_inference_power_points(_channel, start_time=None, end_time=None):
         if start_time is None or end_time is None:
             return live_points
-        start_ms = int(start_time.timestamp() * 1000)
-        end_ms = int(end_time.timestamp() * 1000)
+        start_ms = to_timestamp_ms(start_time)
+        end_ms = to_timestamp_ms(end_time)
         return [
             point
             for point in live_points
@@ -235,8 +240,8 @@ async def test_replay_job_rebuilds_head_runtime_from_previous_anchor(client, mon
         "/api/heats/replay-jobs",
         json={
             "job_kind": "replay_batch",
-            "start_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
-            "end_time": int(datetime(2026, 3, 19, 9, 20).timestamp() * 1000),
+            "start_time": to_timestamp_ms(datetime(2026, 3, 19, 8, 0)),
+            "end_time": to_timestamp_ms(datetime(2026, 3, 19, 9, 20)),
             "primary_baseline_id": "def-001:001",
             "baseline_ids": ["def-001:001"],
             "force_replace": True,
@@ -282,18 +287,120 @@ async def test_replay_job_rebuilds_head_runtime_from_previous_anchor(client, mon
 
 
 @pytest.mark.asyncio
-async def test_replay_job_ignores_effective_from_for_explicit_selected_baselines(
+async def test_replay_job_builds_runtime_seed_without_existing_runtime_or_live_recut(
     client, monkeypatch
 ) -> None:
     _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
-    fake_now = datetime(2026, 3, 19, 9, 40)
+    fake_now = datetime(2026, 3, 19, 9, 20)
     live_points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
 
     async def fake_load_live_heat_inference_power_points(_channel, start_time=None, end_time=None):
         if start_time is None or end_time is None:
             return live_points
-        start_ms = int(start_time.timestamp() * 1000)
-        end_ms = int(end_time.timestamp() * 1000)
+        start_ms = to_timestamp_ms(start_time)
+        end_ms = to_timestamp_ms(end_time)
+        return [
+            point
+            for point in live_points
+            if start_ms <= int(point.timestamp) <= end_ms
+        ]
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_replay_inference_channel",
+        lambda: dict(_build_test_live_context()["channel"]),
+    )
+    monkeypatch.setattr(
+        "src.api.heats.refresh_live_heat_segments",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("replay should not recut live runtime after replace")
+        ),
+    )
+    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", _fake_runtime_metric_curves)
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+    monkeypatch.setattr("src.api.heats.utc_now", lambda: fake_now)
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+
+    create_response = await client.post(
+        "/api/heats/replay-jobs",
+        json={
+            "job_kind": "replay_batch",
+            "start_time": to_timestamp_ms(datetime(2026, 3, 19, 8, 0)),
+            "end_time": to_timestamp_ms(datetime(2026, 3, 19, 9, 20)),
+            "primary_baseline_id": "def-001:001",
+            "baseline_ids": ["def-001:001"],
+            "force_replace": True,
+        },
+    )
+    assert create_response.status_code == 201
+    job_id = create_response.json()["id"]
+
+    finished = await _wait_for_job(client, job_id, terminal_statuses={"completed"})
+    assert finished["status"] == "completed"
+
+    rebuilt_active = None
+    rebuilt_previous = None
+    for _ in range(20):
+        rebuilt_active = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
+        rebuilt_previous = next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)
+        if (
+            rebuilt_active is not None
+            and rebuilt_previous is not None
+            and rebuilt_active.get("processing_meta", {}).get("trigger_source")
+            == "replay_head_rebuild"
+        ):
+            break
+        await asyncio.sleep(0.05)
+
+    assert rebuilt_active is not None
+    assert rebuilt_previous is not None
+    assert rebuilt_active["processing_meta"]["trigger_source"] == "replay_head_rebuild"
+    assert rebuilt_previous["record_source"] == "previous_runtime"
+
+    list_response = await client.get("/api/heats", params={"page_size": 50})
+    assert list_response.status_code == 200
+    items = list_response.json()["items"]
+    runtime_items = [
+        item
+        for item in items
+        if item["record_source"] in {"active_runtime", "previous_runtime"}
+    ]
+    history_items = [
+        item
+        for item in items
+        if item["record_source"] == "sealed_history" and item["id"].startswith("live-heat-")
+    ]
+
+    assert not history_items
+    assert len(runtime_items) == 2
+    assert {item["record_source"] for item in runtime_items} == {"active_runtime", "previous_runtime"}
+
+
+@pytest.mark.asyncio
+async def test_replay_job_ignores_effective_from_for_explicit_selected_baselines(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    fake_now = datetime(2026, 3, 19, 9, 40, 37)
+    live_points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
+
+    async def fake_load_live_heat_inference_power_points(_channel, start_time=None, end_time=None):
+        if start_time is None or end_time is None:
+            return live_points
+        start_ms = to_timestamp_ms(start_time)
+        end_ms = to_timestamp_ms(end_time)
         return [point for point in live_points if start_ms <= int(point.timestamp) <= end_ms]
 
     monkeypatch.setattr(
@@ -322,7 +429,7 @@ async def test_replay_job_ignores_effective_from_for_explicit_selected_baselines
         "/api/heats/replay-jobs",
         json={
             "job_kind": "replay_batch",
-            "start_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
+            "start_time": to_timestamp_ms(datetime(2026, 3, 19, 8, 0)),
             "primary_baseline_id": "def-001:001",
             "baseline_ids": ["def-001:001"],
             "force_replace": True,
@@ -351,7 +458,7 @@ async def test_replay_job_rejects_unpublished_selected_baseline(client) -> None:
         "/api/heats/replay-jobs",
         json={
             "job_kind": "replay_batch",
-            "start_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
+            "start_time": to_timestamp_ms(datetime(2026, 3, 19, 8, 0)),
             "primary_baseline_id": "def-001:001",
             "baseline_ids": ["def-001:001"],
             "force_replace": True,
@@ -376,7 +483,7 @@ async def test_replay_job_rejects_cross_definition_selected_baselines(client) ->
         "/api/heats/replay-jobs",
         json={
             "job_kind": "replay_batch",
-            "start_time": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000),
+            "start_time": to_timestamp_ms(datetime(2026, 3, 19, 8, 0)),
             "primary_baseline_id": "def-001:001",
             "baseline_ids": ["def-001:001", "def-002:001"],
             "force_replace": True,

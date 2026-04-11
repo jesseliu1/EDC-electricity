@@ -20,7 +20,7 @@ from ..schemas.common import CurvePoint
 from ..services.heat_cutting_service import HeatCuttingConfig
 from ..time_utils import utc_now
 from .formal_heat_service import MetricCurveLoader, compile_runtime_candidates, replace_heat_range
-from .heat_stream_processor import HeatStreamProcessor
+from .heat_stream_processor import HeatProcessorResult, HeatStreamProcessor
 
 _REPLAY_TASKS: dict[str, asyncio.Task[None]] = {}
 _REPLAY_ACTIVE_CHANNELS: set[str] = set()
@@ -32,7 +32,17 @@ _SQLITE_LOCK_RETRY_DELAY_SECONDS = 0.05
 LoadPointWindow = Callable[[dict[str, str], datetime, datetime], Awaitable[list[CurvePoint]]]
 BuildReplayItems = Callable[[list[list[CurvePoint]]], list[dict[str, Any]]]
 ThresholdResolver = Callable[[list[CurvePoint]], float | None]
-AfterReplaceCallback = Callable[[datetime, datetime, str], Awaitable[None]]
+
+
+@dataclass(slots=True)
+class ReplayRuntimeSeed:
+    previous_segment_points: list[CurvePoint] | None
+    active_segment_points: list[CurvePoint] | None
+    all_segment_count: int
+    history_segment_count: int
+
+
+AfterReplaceCallback = Callable[[datetime, datetime, str, ReplayRuntimeSeed], Awaitable[None]]
 
 
 @dataclass(slots=True)
@@ -47,6 +57,21 @@ class ReplayContext:
     selected_baselines: list[dict[str, Any]]
     definition_id: str | None
     expected_duration_minutes: int
+
+
+def _build_replay_runtime_seed(result: HeatProcessorResult) -> ReplayRuntimeSeed:
+    all_segments = list(result.all_segments)
+    previous_segment_points = (
+        list(result.previous_segment.points) if result.previous_segment is not None else None
+    )
+    active_segment_points = list(result.active_segment.points) if result.active_segment is not None else None
+    runtime_seed_count = int(previous_segment_points is not None) + int(active_segment_points is not None)
+    return ReplayRuntimeSeed(
+        previous_segment_points=previous_segment_points,
+        active_segment_points=active_segment_points,
+        all_segment_count=len(all_segments),
+        history_segment_count=max(len(all_segments) - runtime_seed_count, 0),
+    )
 
 
 def is_replay_active_for_channel(channel_key: str) -> bool:
@@ -327,9 +352,12 @@ def launch_heat_replay_job(
                 )
 
             final_result = processor.finalize_until(end_time, retain_tail_count=2)
-            final_candidates = build_items_from_segments(
-                [segment.points for segment in final_result.sealed_segments]
-            )
+            final_runtime_seed = _build_replay_runtime_seed(final_result)
+            final_history_segment_points = [
+                list(segment.points)
+                for segment in final_result.all_segments[: final_runtime_seed.history_segment_count]
+            ]
+            final_candidates = build_items_from_segments(final_history_segment_points)
             _merge_generated_candidates(final_candidates)
 
             compiled_candidates = await compile_runtime_candidates(
@@ -346,6 +374,21 @@ def launch_heat_replay_job(
                 end_time=end_time,
                 candidates=compiled_candidates,
             )
+            if after_replace is not None:
+                try:
+                    await after_replace(
+                        _job_field(job, "anchor_time"),
+                        end_time,
+                        replay_context.channel_key,
+                        final_runtime_seed,
+                    )
+                except Exception as exc:  # pragma: no cover - 运维补偿失败不影响正式落库
+                    log_event(
+                        "heat_replay_after_replace_error",
+                        job_id=job_id,
+                        channel_key=replay_context.channel_key,
+                        error=str(exc),
+                    )
             await _update_job(
                 job_id,
                 status="completed",
@@ -355,20 +398,6 @@ def launch_heat_replay_job(
                 completed_at=utc_now(),
                 error_message=None,
             )
-            if after_replace is not None:
-                try:
-                    await after_replace(
-                        _job_field(job, "anchor_time"),
-                        end_time,
-                        replay_context.channel_key,
-                    )
-                except Exception as exc:  # pragma: no cover - 运维补偿失败不影响正式落库
-                    log_event(
-                        "heat_replay_after_replace_error",
-                        job_id=job_id,
-                        channel_key=replay_context.channel_key,
-                        error=str(exc),
-                    )
         except asyncio.CancelledError:
             await _update_job(
                 job_id,

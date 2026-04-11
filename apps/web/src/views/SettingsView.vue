@@ -485,6 +485,7 @@ onBeforeUnmount(() => {
               <el-date-picker
                 v-model="replayInitializationForm.startTime"
                 type="datetime"
+                format="YYYY-MM-DD HH:mm:ss"
                 value-format="x"
                 class="!w-full"
                 :placeholder="t('settings.replayInitializationStartPlaceholder')"

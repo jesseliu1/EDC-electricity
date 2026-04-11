@@ -6,6 +6,92 @@
 
 ---
 
+### 2026-04-11（definition 业务语义已校正为“指标视角”，DB 表口径已补充说明）
+
+- [x] 已根据最新业务澄清修正文档口径
+  - [x] `definition` 在当前系统里表示“指标视角 / 分析视角”，不再写成“另一套炉次切割解释器”
+  - [x] 同一生产线下多个 `definition` 共享同一条炉次与同一套切割周期
+  - [x] `expected_duration_minutes` 已改写为同产线一致性元数据/冻结切割口径，不再作为多 `definition` 的主要分叉维度
+- [x] 已补充 `metric_series` 的 heat 侧语义说明
+  - [x] `owner_type='heat'` 应保存该炉次所绑定全部基线视角需要的指标并集
+  - [x] `metric_series.item` 已明确为 owner 内部排序项，不再默认等同于某个单独 `definition.item`
+- [x] 本轮仅更新文档口径，未修改后端运行逻辑或数据库结构
+
+---
+
+### 2026-04-11（replay runtime seed 直连落地，去掉 replay 后二次 live 重切）
+
+- [x] replay batch 最终阶段已改为同时拆分 formal history 与 runtime seed
+  - [x] formal history 继续从 replay 最终切割结果落正式库
+  - [x] runtime seed 不再从 `sealed_segments` 或额外 live 重切推断
+  - [x] 当前实现以 `HeatStreamProcessor` 最终判定的 `previous_segment / active_segment` 作为 runtime seed 真相源
+- [x] replay after-replace 已改为直接应用 replay runtime seed
+  - [x] 不再在 replay 完成当下再调用一轮共享 `refresh_live_heat_segments(...)` 去重切 head runtime
+  - [x] 仍保持日常 live refresh 主链不变，后续续接继续走既有 runtime 增量刷新逻辑
+  - [x] 已复用现有 `_build_current_heat_runtime / _mark_previous_runtime / _mark_active_runtime / persist_runtime_state` 写回 runtime
+- [x] 新增 replay runtime seed 调试开关
+  - [x] 后端 settings 新增 `replay_runtime_debug_enabled`，默认关闭
+  - [x] 打开后会输出 replay seed 摘要、seed 应用结果与失败原因
+- [x] replay 时间输入已收口到秒级显示
+  - [x] `SettingsView` 的 replay 开始时间选择器已显示到 `YYYY-MM-DD HH:mm:ss`
+  - [x] 后端默认 `end_time` 不再向分钟取整，改为保留到秒
+- [x] 已补 replay 回归测试
+  - [x] `apps/server/tests/test_heat_replay_api.py::test_replay_job_builds_runtime_seed_without_existing_runtime_or_live_recut`
+  - [x] 覆盖“没有旧 runtime 时也能直接用 replay seed 新建 previous/active，且 replay 后不再触发 live 重切”
+- [x] 本轮最小代码级验证已执行通过
+  - [x] `uv run --directory apps/server pytest -q tests/test_heat_replay_api.py`
+  - [x] 结果：`7 passed`
+  - [x] `uv run --directory apps/server ruff check src/api/heats.py src/api/settings.py src/services/heat_replay_batch_service.py tests/test_heat_replay_api.py`
+  - [x] 结果：通过
+  - [x] `pnpm --dir apps/web exec vue-tsc --noEmit`
+  - [x] 结果：通过
+- [x] UAT 文档联动判断已完成
+  - [x] 已检查 `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`
+  - [x] 当前正式 UAT 脚本尚未把 replay 初始化/秒级开始时间作为商业验收主路径，因此本轮未直接改动 UAT 脚本
+- [!] 当前验证状态
+  - [!] replay 主链相关代码级回归已通过，但本机尚未补完整后端全量 pytest
+  - [!] 按 `docs/testing.md` 的真实用户路径验证与 UAT 文档联动仍未完成，本条不是“已完成 UAT”口径
+
+---
+
+### 2026-04-10（炉次浏览恢复可见，异常时长前台统一向上取整显示）
+
+**当前阶段**：已修复 `/api/heats` 因 `abnormal_duration_minutes` 类型口径不一致导致的 `500`；炉次浏览主列表已恢复可见。当前只完成了定向回归验证，还没有完成新的完整 UAT
+
+**本轮完成**：
+
+- [x] `apps/server/src/schemas/heat.py`
+  - [x] `HeatResponse.abnormal_duration_minutes` 已从 `int | None` 收口为 `float | None`
+  - [x] 业务语义明确为“连续异常持续时长的原始分析值（分钟）”
+- [x] `apps/server/src/schemas/task.py`
+  - [x] `TaskCreate.abnormal_duration_minutes` 已同步收口为 `float | None`
+  - [x] 避免任务快照在复用该字段时再次压成整数契约
+- [x] 新增 `apps/web/src/utils/heatDisplay.ts`
+  - [x] 统一前台异常时长展示格式化
+  - [x] 规则固定为：空值显示 `--`，非空值统一向上取整
+- [x] `apps/web/src/views/HeatDetailView.vue`
+  - [x] 炉次详情中的“连续异常时长”已改为走统一格式化函数
+  - [x] 前台展示口径固定为整数分钟
+
+**本轮验证**：
+
+- [x] `uv run --directory apps/server pytest -q tests/test_heats_api.py tests/test_heat_replay_api.py`
+  - [x] `60 passed`
+- [x] `uv run --directory apps/server ruff check src/schemas/heat.py src/schemas/task.py`
+  - [x] 通过
+- [x] `pnpm --dir apps/web exec vue-tsc --noEmit`
+  - [x] 通过
+- [x] 本机定向接口验证
+  - [x] `GET /api/heats?page=1&page_size=10` 已从 `500` 恢复为 `200`
+  - [x] `GET /api/heats?page=1&page_size=10&status=abnormal` 已从 `500` 恢复为 `200`
+
+**当前已确认但未纳入本次修复范围**：
+
+- [ ] 当前本机数据库中已无先前那条 `generated_heat_count = 36` 的 replay job 结果；当前库内只剩 1 条正式历史样本与 0 条 replay job 记录
+- [ ] 这说明“炉次浏览列表 500”与“之前 replay 结果是否仍存在当前库中”是两条独立问题，后者需要单独继续排查
+
+---
+
 ### 2026-04-09（replay 显式黄金基线初始化链已接通，本地目标回归通过）
 
 **当前阶段**：已完成“批量初始化炉次 = replay job”这条显式黄金基线主链的本地实现；后端 replay 请求、显式 baseline 选择、历史重建、replay 后 head runtime 续接、以及系统设置页入口均已接通。当前仍未完成完整前端 build 与真实用户路径验证，因此本条不是“已完成 UAT”口径
@@ -6932,3 +7018,18 @@ EDC 前端（apps/web，/edc/）
   - [x] 结果：`73 passed`
 - [!] 当前备注
   - [!] 后端 pytest 需串行执行；并发跑多个 pytest 进程会互相打断共享 SQLite 测试库
+
+### 2026-04-10（replay 后 head runtime 空白场景续接修复）
+
+- [x] 修复 replay 后 head rebuild 对旧 `previous_runtime/current_runtime` 重叠 anchor 的硬依赖
+  - [x] 当旧 runtime 存在且与 replay 窗口重叠时，继续沿用重叠起点作为 rebuild anchor
+  - [x] 当旧 runtime 不存在时，退回到 `replay end_time` 前一个 bootstrap window 作为 fallback anchor
+- [x] 本轮只修改 replay 完成当下的 head runtime 重建
+  - [x] 不改变后续日常 `refresh_heat_runtime_state()` 的默认 published baseline 匹配逻辑
+  - [x] 业务口径保持：如果已有 runtime 就覆盖重建；如果没有 runtime 就直接新建
+- [x] 新增 blank 场景回归测试
+  - [x] `apps/server/tests/test_heat_replay_api.py::test_replay_job_rebuilds_head_runtime_without_existing_runtime`
+  - [x] 覆盖“没有旧 runtime 也能重建出 `active_runtime / previous_runtime`”
+- [!] 当日补充语义收口
+  - [!] 当前实现仍是“replay 落历史后，再单独 live 重切一次 head runtime”，并没有直接复用 replay 结果里的头部两炉
+  - [!] 已锁定后续改造方向：replay 负责用 replay 最终结果重建 `previous_runtime/current_runtime` 的起点模板，之后再回到正常 live runtime 增量续接链路

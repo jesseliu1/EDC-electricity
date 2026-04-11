@@ -88,7 +88,7 @@ apps/server/
 - 历史炉次的指标值统一存入 `metric_series`
 - 基线版本不再把功率、电压等固定指标写死在主表字段里
 - `baselines.is_default` 表示全系统当前默认黄金基线
-- `baseline_definition_metrics.item` 与 `metric_series.item` 表示“指标项号”
+- `baseline_definition_metrics.item` 表示 definition 内部的指标项号；`metric_series.item` 表示 owner 维度内部的指标项号，两者不默认等同于跨 definition 的全局指标身份
 - `baselines.item` 表示“版本号项”
 - 当前炉次运行态缓存应尽量与 `heats + heat_baseline_bindings + metric_series` 同构，避免再做一套单独字段语义
 - 历史炉次的指标值允许保留“前 30 分钟 + 当前炉次区间 + 后 30 分钟”的上下文窗口，便于后续单炉次人工调整
@@ -112,7 +112,7 @@ apps/server/
 | 1 | `id` | `string(36)` | 是 | 是 | 基线定义 ID |
 | 2 | `definition_name` | `string(100)` | 否 | 是 | 基线定义名称 |
 | 3 | `description` | `text` | 否 | 否 | 基线定义说明 |
-| 4 | `expected_duration_minutes` | `int` | 否 | 是 | 预期炉次时长 |
+| 4 | `expected_duration_minutes` | `int` | 否 | 是 | 同产线口径下的预期炉次时长，用于一致性校验与展示 |
 | 5 | `status` | `string(20)` | 否 | 是 | 定义状态，控制该定义是否还能继续创建新基线 |
 | 6 | `created_by` | `string(50)` | 否 | 是 | 创建人 |
 | 7 | `updated_by` | `string(50)` | 否 | 是 | 更新人 |
@@ -134,6 +134,12 @@ apps/server/
   "updated_at": 1775218200000
 }
 ```
+
+业务语义补充：
+
+- `definition` 在当前系统里表示“指标视角 / 分析视角”，不是另一套炉次切割解释器
+- 同一条生产线下的多个 `definition` 共享同一条炉次与同一套切割周期，只是关注的指标集合不同
+- `expected_duration_minutes` 仍保留在 `baseline_definitions`，但当前口径下它应在同产线各 `definition` 间保持一致；它不是区分多 `definition` runtime 的主要维度
 
 ### 2.3 `baseline_definition_metrics`
 
@@ -275,7 +281,7 @@ apps/server/
 | Index | 字段 | 类型 | 主键 | 必填 | 用途 |
 |---|---|---:|---:|---:|---|
 | 1 | `owner_key` | `string(80)` | 是 | 是 | 关联键；基线时指向 `{definition_id}:{baseline_item}`，炉次时指向 `heat_id` |
-| 2 | `item` | `string(3)` | 是 | 是 | 指标项号，对应定义指标项 `001 / 002 / 003` |
+| 2 | `item` | `string(3)` | 是 | 是 | owner 内部指标项号；对 `baseline` 可对应 definition 内 item，对 `heat` 不要求等于任一单个 definition 的 item |
 | 3 | `owner_type` | `string(20)` | 否 | 是 | 所属对象类型，`baseline / heat` |
 | 4 | `definition_id` | `string(36)` | 否 | 否 | 所属基线定义 ID |
 | 5 | `item_kind` | `string(20)` | 否 | 是 | 固定写 `metric_item`，说明这里的 `item` 是指标项号 |
@@ -360,6 +366,8 @@ apps/server/
 补充约束：
 
 - `owner_type='heat'` 的 `metric_series` 表示“这条炉次自己的上下文曲线包”，不是全局时间线的唯一切片
+- `owner_type='heat'` 的 `metric_series` 应保存该炉次所绑定全部基线视角需要的指标并集，例如 `N1={B1,B2,B3}`、`N2={B1,B2,B10}` 时，`heat` 侧应至少保存 `B1/B2/B3/B10`
+- `owner_type='heat'` 的指标身份以 `metric_key` 为主；`item` 只表示该 `owner_key` 下的稳定排序项，不应再默认解释成“来自 primary definition 的 item 编号”
 - 每条炉次的 `metric_series` 都应自带 `N-1 / N / N+1` 观察余量，便于详情页直接从 DB 拼接显示
 - 不同炉次的 `metric_series` 时间范围允许彼此覆盖，这不代表重复数据错误
 
@@ -543,6 +551,9 @@ apps/server/
 - `heat_replay_jobs` 只记录任务生命周期，不作为业务事实台账
 - 同一 `channel_key` 同时只允许一个 `running` replay job
 - replay 执行期间，live 链仍可刷新 runtime，但同通道 formal append 应暂停
+- replay 完成后，formal history 与 runtime seed 必须来自同一次 replay 最终切割结果
+- replay 只负责重建 `previous_runtime/current_runtime` 的起点模板；模板写回后，后续仍回到正常 live refresh 增量续接链路
+- replay 当下不得再独立调用一轮 live runtime 重切去“猜” head runtime，否则会导致 formal history 与 runtime 口径分叉
 
 ### 2.11 表关系
 
@@ -590,6 +601,7 @@ erDiagram
   - `baseline_bindings_snapshot`
   - `definition_metric_snapshots`
   - `baseline_curve_snapshots`
+- 其中 `expected_duration_minutes` 表示当前产线切割口径的冻结值；在当前业务语义下，不应用它区分不同 `definition` 的 runtime
 - 当前炉次 `facts` 保留与 `heats` 相同的关键字段：
   - `id / heat_no / start_time / end_time`
   - `context_start_time / context_end_time`
@@ -769,6 +781,7 @@ erDiagram
 - 若运行态 ID 在切割边界变化后失效，后端应通过 alias 或等效映射把旧 ID 解析到当前有效记录
 - `GET /api/heats/{id}/compare` 对 `sealed_history` 必须优先读取正式表/固化曲线，不得再回退到 EDC 直接取全天曲线污染历史窗口
 - 历史 compare 的 `live_curves` 应裁切到炉次真实起止时间；若前端需要上下文展示，可通过单独的 display window 曲线保留扩展窗口
+- replay 场景下，`active_runtime / previous_runtime` 的重建输入应直接来自 replay 最终切割结果里由 processor 最终判定的 `previous_segment / active_segment`；live refresh 只负责 replay 之后的续接，不负责 replay 当下的 head runtime 推断
 
 ### 3.8 API 读写映射
 

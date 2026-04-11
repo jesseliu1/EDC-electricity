@@ -1050,3 +1050,13 @@
 - **正确做法**: 当前后端测试使用共享 SQLite 文件时，pytest 子集必须串行执行；如果未来要并发跑，必须先把测试库隔离到独立文件或独立进程级目录。
 - **适用场景**: 使用 SQLite 作为测试库、fixture 内会重建 schema、并且同一工作区会并发执行多个 pytest 命令的场景。
 - **相关文档**: docs/testing.md, apps/server/tests/conftest.py
+
+## [2026-04-10] replay 后 runtime 重建语义不能误写成“一次性重建完就结束”
+- **错误模式**: 把 replay 后的 `previous_runtime/current_runtime` 理解成 replay 自己独立重切并一次性产出最终运行态，忽略了它在业务上只是“从 replay 结果重新创建 runtime 起点模板”，后续仍要回到正常 live runtime 增量续接链路。
+- **正确做法**: replay 应直接使用 replay 最终结果里的头部两炉去替代 `previous_runtime` 与 `current_runtime` 模板；完成模板重建后，再交还给日常 live runtime 逻辑继续吃新点、更新当前炉次与后续轮换。
+- **适用场景**: 任何“历史 replay/批量初始化”之后还要把运行态重新接回实时刷新链路的工业监控系统，尤其是 `current_runtime` 可能尚未完整、需要继续增量补点的场景。
+
+## [2026-04-11] 时间相关测试数据不能混用 `datetime.timestamp()` 与项目内 `to_timestamp_ms()`
+- **错误模式**: 在测试里直接对 naive `datetime` 调 `datetime.timestamp()` 构造毫秒值，而项目后端内部时间语义是“UTC naive + `to_timestamp_ms()`”。两套口径一混，replay/live 刷新窗口会在非 UTC 本机时区下整体错位，表现成“明明有点但筛出来是空窗口”。
+- **正确做法**: 只要测试数据、请求参数、窗口过滤要和后端内部时间语义对齐，就统一使用 `src.time_utils.to_timestamp_ms()` 与 `from_timestamp_ms()`；不要在测试里直接把 naive `datetime` 交给 `datetime.timestamp()`。
+- **适用场景**: replay 测试、live runtime 刷新测试、任何需要构造毫秒时间戳并和后端 UTC naive 时间窗口逐点对齐的场景。
