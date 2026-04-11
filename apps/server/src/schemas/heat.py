@@ -33,7 +33,9 @@ class HeatResponse(BaseModel):
     baseline_effective_from: OptionalTimestampMs = Field(default=None, description="绑定基线的生效时间")
     deviation_score: float | None = Field(default=None, description="统一偏离分数")
     avg_deviation_score: float | None = Field(default=None, description="平均偏离分数")
-    abnormal_duration_minutes: int | None = Field(default=None, description="连续异常分钟数")
+    abnormal_duration_minutes: float | None = Field(
+        default=None, description="连续异常持续时长（分钟）"
+    )
     schedule_tag: str = Field(default="work", description="班次标签: work/break/off_shift")
     cut_reason: str | None = Field(default=None, description="切割状态原因")
     cut_status: str = Field(default="normal", description="切割状态: normal/major_issue/blocked")

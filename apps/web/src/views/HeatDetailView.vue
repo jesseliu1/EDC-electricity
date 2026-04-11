@@ -37,6 +37,7 @@ import {
   plantDayRangeFromTimestamp,
   timestampToPlantPickerDate,
 } from '@/utils/time'
+import { formatAbnormalDurationMinutes } from '@/utils/heatDisplay'
 
 use([
   CanvasRenderer,
@@ -1411,9 +1412,7 @@ onBeforeUnmount(() => {
             <div class="flex justify-between items-center py-1">
               <span class="text-slate-500">{{ t('heat.abnormalDurationMinutes') }}</span>
               <span class="font-semibold text-orange-600">{{
-                current.base.abnormalDurationMinutes === null
-                  ? '--'
-                  : `${current.base.abnormalDurationMinutes}m`
+                formatAbnormalDurationMinutes(current.base.abnormalDurationMinutes)
               }}</span>
             </div>
             <div class="flex justify-between items-center py-1">

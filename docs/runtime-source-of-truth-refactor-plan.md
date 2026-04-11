@@ -38,11 +38,19 @@
 
 本轮所有代码修改，都必须满足以下业务语义。
 
+### 3.0 `DefinitionIsMetricViewNotCuttingInterpreter（definition 是指标视角，不是切割解释器）`
+
+- 当前系统里的 `definition（基线定义）` 表示“指标视角 / 分析视角”
+- 同一条生产线下的多个 `definition` 共享同一条炉次与同一套切割周期
+- 不同 `definition` 的主要差异是“关注哪些指标”，不是“按不同尺子切炉次”
+- `expected_duration_minutes` 当前仍保留在 `definition` 主数据里，但业务上应视为同产线一致性元数据；它不是多 `definition` runtime 的分叉维度
+- 因此 runtime / replay / formal history 都应围绕“单炉次事实 + 多基线/多指标视角”建模，而不是围绕“多 definition 多条炉次解释器”建模
+
 ### 3.1 `NewBaselineAffectsNextHeatOnly（新基线只影响下一条新炉次）`
 
 - 新发布的 `baseline（黄金基线）` 不允许立刻影响正在进行中的当前炉次
 - 当前炉次一旦出生，其：
-  - `expected_duration_minutes（预期炉次时长）`
+  - `expected_duration_minutes（当前产线切割口径的冻结值）`
   - `primary_baseline_id（主黄金基线ID）`
   - `baseline_bindings（基线绑定列表）`
   - `baseline_curve_snapshots（基线曲线快照）`
@@ -82,7 +90,8 @@
 
 结果：
 
-- 新默认黄金基线会提前影响当前炉次的推断尺子
+- 当前实现把“默认黄金基线选择”和“切割尺子选择”耦合在了一起
+- 在当前业务语义下，这种耦合是不正确的；不同 `definition` 不应被解释成不同炉次切割器
 
 ### 4.2 `compile_runtime_candidates（运行态候选编译）` 仍按 refresh 时刻重算适用基线
 
@@ -165,7 +174,7 @@
 - `heat_id（炉次ID）`
 - `channel_key（推断通道）`
 - `cutting_mode（切割模式）`
-- `expected_duration_minutes（预期炉次时长）`
+- `expected_duration_minutes（当前产线切割口径）`
 - `plant_timezone（工厂时区）`
 - `primary_baseline_id（主黄金基线ID）`
 - `baseline_bindings_snapshot（基线绑定快照）`

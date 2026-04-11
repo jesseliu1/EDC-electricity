@@ -13,7 +13,9 @@ class TaskCreate(BaseModel):
     heat_no: str | None = Field(default=None, description="关联炉次编号快照")
     deviation_score: float | None = Field(default=None, description="偏离分数快照")
     avg_deviation_score: float | None = Field(default=None, description="平均偏离分数快照")
-    abnormal_duration_minutes: int | None = Field(default=None, description="连续异常时长快照")
+    abnormal_duration_minutes: float | None = Field(
+        default=None, description="连续异常时长快照（分钟）"
+    )
 
 
 class TaskUpdate(BaseModel):
