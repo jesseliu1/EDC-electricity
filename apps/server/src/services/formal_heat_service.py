@@ -194,6 +194,8 @@ def _binding_to_dict(binding: HeatBaselineBinding) -> dict[str, Any]:
         "baseline_effective_from": binding.effective_from_snapshot,
         "tolerance_percent": binding.tolerance_percent_snapshot,
         "analysis_status": binding.analysis_status,
+        "analysis_reason": binding.analysis_reason,
+        "analysis_message": binding.analysis_message,
         "deviation_score": binding.deviation_score,
         "avg_deviation_score": binding.avg_deviation_score,
         "analysis_details_json": binding.analysis_details_json,
@@ -221,7 +223,9 @@ def _heat_model_to_dict(
         if kind not in series_by_kind:
             series_by_kind[kind] = row
 
-    power_curve = _metric_series_points(series_by_kind["power"]) if "power" in series_by_kind else []
+    power_curve = (
+        _metric_series_points(series_by_kind["power"]) if "power" in series_by_kind else []
+    )
     voltage_curve = (
         _metric_series_points(series_by_kind["voltage"]) if "voltage" in series_by_kind else []
     )
@@ -276,6 +280,11 @@ def _heat_model_to_dict(
         ),
         "baseline_ids": [binding["baseline_id"] for binding in binding_views],
         "baseline_bindings": binding_views,
+        "analysis_status": primary_binding.analysis_status if primary_binding is not None else None,
+        "analysis_reason": primary_binding.analysis_reason if primary_binding is not None else None,
+        "analysis_message": (
+            primary_binding.analysis_message if primary_binding is not None else None
+        ),
         "deviation_score": (
             primary_binding.deviation_score if primary_binding is not None else None
         ),
@@ -597,7 +606,90 @@ def _template_series_spec(template: Any) -> dict[str, Any] | None:
     }
 
 
-def _runtime_series_window(candidate: dict[str, Any]) -> tuple[datetime, datetime, datetime, datetime]:
+def _build_baseline_metric_spec_map(
+    *,
+    applicable_baselines: list[Any],
+    template_map: dict[str, list[BaselineDefinitionMetric]],
+) -> dict[str, list[dict[str, Any]]]:
+    baseline_specs: dict[str, list[dict[str, Any]]] = {}
+    for baseline in applicable_baselines:
+        definition_id = str(_baseline_field(baseline, "definition_id") or "").strip()
+        baseline_item = str(_baseline_field(baseline, "item") or "").strip()
+        if not definition_id or not baseline_item:
+            continue
+        baseline_id = encode_baseline_id(definition_id, baseline_item)
+        specs = [
+            spec
+            for template in template_map.get(definition_id, [])
+            if (spec := _template_series_spec(template)) is not None
+        ]
+        if specs:
+            baseline_specs[baseline_id] = specs
+    return baseline_specs
+
+
+def _build_runtime_metric_union_specs(
+    baseline_metric_specs_by_id: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    union_specs: dict[str, dict[str, Any]] = {}
+    for specs in baseline_metric_specs_by_id.values():
+        for spec in specs:
+            metric_key = str(spec.get("metric_key") or "").strip().lower()
+            if not metric_key or metric_key in union_specs:
+                continue
+            union_specs[metric_key] = dict(spec)
+    return list(union_specs.values())
+
+
+def _metric_spec_from_runtime_series_entry(entry: dict[str, Any]) -> dict[str, Any] | None:
+    metric_key = str(entry.get("metric_key") or "").strip().lower()
+    metric_name = str(entry.get("metric_name") or "").strip()
+    color = str(entry.get("color") or "").strip()
+    if not metric_key or not metric_name or not color:
+        return None
+    return {
+        "item": str(entry.get("item") or "").strip() or "001",
+        "metric_key": metric_key,
+        "metric_name": metric_name,
+        "unit": entry.get("unit"),
+        "color": color,
+        "sort_order": int(entry.get("sort_order") or 0),
+        "source_channel_id": entry.get("source_channel_id"),
+        "source_channel_name": entry.get("source_channel_name"),
+        "source_channel_label": entry.get("source_channel_label"),
+    }
+
+
+def _baseline_metric_spec_map_from_runtime_views(
+    baseline_views: list[dict[str, Any]] | None,
+) -> dict[str, list[dict[str, Any]]]:
+    if not isinstance(baseline_views, list):
+        return {}
+
+    baseline_specs: dict[str, list[dict[str, Any]]] = {}
+    for raw_view in baseline_views:
+        if not isinstance(raw_view, dict):
+            continue
+        baseline_id = str(raw_view.get("baseline_id") or "").strip()
+        if not baseline_id:
+            continue
+        raw_series = raw_view.get("current_metric_series")
+        if not isinstance(raw_series, list):
+            continue
+        specs = [
+            spec
+            for entry in raw_series
+            if isinstance(entry, dict)
+            and (spec := _metric_spec_from_runtime_series_entry(entry)) is not None
+        ]
+        if specs:
+            baseline_specs[baseline_id] = specs
+    return baseline_specs
+
+
+def _runtime_series_window(
+    candidate: dict[str, Any],
+) -> tuple[datetime, datetime, datetime, datetime]:
     start_time = candidate["start_time"]
     end_time = candidate["end_time"]
     context_start_time = candidate.get("context_start_time") or start_time
@@ -608,12 +700,12 @@ def _runtime_series_window(candidate: dict[str, Any]) -> tuple[datetime, datetim
 def _build_runtime_metric_series_entries(
     *,
     candidate: dict[str, Any],
-    definition_templates: list[Any],
+    metric_specs: list[Any],
     curves_by_metric: dict[str, list[CurvePoint]],
 ) -> list[dict[str, Any]]:
     context_start_time, start_time, end_time, context_end_time = _runtime_series_window(candidate)
     series_entries: list[dict[str, Any]] = []
-    for template in definition_templates:
+    for index, template in enumerate(metric_specs, start=1):
         spec = _template_series_spec(template)
         if spec is None:
             continue
@@ -623,7 +715,7 @@ def _build_runtime_metric_series_entries(
         series_entries.append(
             {
                 "owner_key": encode_heat_owner_key(str(candidate["id"])),
-                "item": str(spec["item"]),
+                "item": f"{index:03d}",
                 "owner_type": "heat",
                 "metric_key": str(spec["metric_key"]),
                 "metric_name": str(spec["metric_name"]),
@@ -710,11 +802,11 @@ async def _default_metric_curve_loader(
 async def hydrate_candidate_runtime_metric_series(
     candidate: dict[str, Any],
     *,
-    definition_templates: list[Any],
+    metric_specs: list[Any],
     metric_curve_loader: MetricCurveLoader | None = None,
 ) -> dict[str, Any]:
     hydrated = dict(candidate)
-    if not definition_templates:
+    if not metric_specs:
         log_event(
             "runtime_metric_series_hydrate_error",
             heat_id=str(candidate.get("id") or ""),
@@ -727,14 +819,14 @@ async def hydrate_candidate_runtime_metric_series(
     loader = metric_curve_loader or _default_metric_curve_loader
     metric_views = [
         {
-            "id": str(spec["item"]),
+            "id": str(spec["metric_key"]),
             "metric_key": str(spec["metric_key"]),
             "name": str(spec["metric_name"]),
             "unit": spec.get("unit"),
             "color": str(spec["color"]),
             "edc_channel_id": spec.get("source_channel_id"),
         }
-        for template in definition_templates
+        for template in metric_specs
         if (spec := _template_series_spec(template)) is not None
     ]
     loaded_curves = await loader(metric_views, context_start_time, context_end_time)
@@ -748,7 +840,7 @@ async def hydrate_candidate_runtime_metric_series(
 
     required_metric_keys = [
         str(spec["metric_key"])
-        for template in definition_templates
+        for template in metric_specs
         if (spec := _template_series_spec(template)) is not None
     ]
     missing_metric_keys = [
@@ -765,7 +857,7 @@ async def hydrate_candidate_runtime_metric_series(
 
     runtime_metric_series = _build_runtime_metric_series_entries(
         candidate=hydrated,
-        definition_templates=definition_templates,
+        metric_specs=metric_specs,
         curves_by_metric=curves_by_metric,
     )
     hydrated["runtime_metric_series"] = runtime_metric_series
@@ -777,7 +869,82 @@ async def hydrate_candidate_runtime_metric_series(
         hydrated["current_curve_source"] = "runtime_metric_series"
         hydrated["context_start_time"] = context_start_time
         hydrated["context_end_time"] = context_end_time
+        hydrated["last_point_at"] = context_end_time
     return hydrated
+
+
+def _build_runtime_baseline_views(
+    *,
+    candidate: dict[str, Any],
+    applicable_baselines: list[Any],
+    baseline_metric_specs_by_id: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    curves_by_metric = _candidate_metric_curve_map(candidate)
+    binding_map = {
+        str(binding.get("baseline_id") or ""): binding
+        for binding in (candidate.get("baseline_bindings") or [])
+        if isinstance(binding, dict)
+    }
+    views: list[dict[str, Any]] = []
+    for baseline in applicable_baselines:
+        baseline_definition_id = str(_baseline_field(baseline, "definition_id") or "").strip()
+        baseline_item = str(_baseline_field(baseline, "item") or "").strip()
+        if not baseline_definition_id or not baseline_item:
+            continue
+        baseline_id = encode_baseline_id(baseline_definition_id, baseline_item)
+        metric_specs = baseline_metric_specs_by_id.get(baseline_id, [])
+        current_metric_series = _build_runtime_metric_series_entries(
+            candidate=candidate,
+            metric_specs=metric_specs,
+            curves_by_metric=curves_by_metric,
+        )
+        binding = binding_map.get(baseline_id) or {}
+        required_metric_keys = [
+            str(spec.get("metric_key") or "").strip().lower()
+            for spec in metric_specs
+            if str(spec.get("metric_key") or "").strip()
+        ]
+        views.append(
+            {
+                "heat_id": str(candidate.get("id") or ""),
+                "baseline_id": baseline_id,
+                "baseline_definition_id": baseline_definition_id,
+                "baseline_item": baseline_item,
+                "is_primary": bool(
+                    binding.get("is_primary")
+                    if isinstance(binding, dict)
+                    else baseline_id == candidate.get("baseline_id")
+                ),
+                "baseline_effective_from": (
+                    binding.get("baseline_effective_from")
+                    if isinstance(binding, dict)
+                    else _baseline_field(baseline, "effective_from")
+                ),
+                "tolerance_percent": (
+                    binding.get("tolerance_percent")
+                    if isinstance(binding, dict)
+                    else _baseline_field(baseline, "tolerance_percent")
+                ),
+                "required_metric_keys": required_metric_keys,
+                "current_metric_series": current_metric_series,
+                "analysis_status": str(binding.get("analysis_status") or "waiting"),
+                "analysis_reason": (
+                    str(binding.get("analysis_reason"))
+                    if binding.get("analysis_reason") is not None
+                    else None
+                ),
+                "analysis_message": (
+                    str(binding.get("analysis_message"))
+                    if binding.get("analysis_message") is not None
+                    else None
+                ),
+                "deviation_score": binding.get("deviation_score"),
+                "avg_deviation_score": binding.get("avg_deviation_score"),
+                "analysis_details_json": binding.get("analysis_details_json"),
+                "abnormal_duration_minutes": binding.get("abnormal_duration_minutes"),
+            }
+        )
+    return views
 
 
 def _decode_baseline_binding(baseline_id: str | None) -> tuple[str | None, str | None]:
@@ -876,6 +1043,9 @@ def _seed_binding_analysis(
     candidate_avg_deviation_score: float | None,
     candidate_abnormal_duration_minutes: float | None,
     candidate_analysis_details_json: str | None,
+    candidate_analysis_status: str | None,
+    candidate_analysis_reason: str | None,
+    candidate_analysis_message: str | None,
 ) -> dict[str, Any]:
     baseline_id = encode_baseline_id(
         str(_baseline_field(baseline, "definition_id") or ""),
@@ -897,16 +1067,30 @@ def _seed_binding_analysis(
 
     if not should_seed:
         return {
-            "analysis_status": "pending",
+            "analysis_status": "waiting",
+            "analysis_reason": "metric_inputs_missing",
+            "analysis_message": "当前数据尚未准备完成，暂无法计算偏离度",
             "deviation_score": None,
             "avg_deviation_score": None,
             "abnormal_duration_minutes": None,
             "analysis_details_json": None,
         }
 
-    analysis_status = "ready" if candidate_deviation_score is not None else "pending"
+    analysis_status = (
+        str(candidate_analysis_status)
+        if candidate_analysis_status is not None
+        else ("ready" if candidate_deviation_score is not None else "waiting")
+    )
+    analysis_reason = candidate_analysis_reason
+    analysis_message = candidate_analysis_message
+    if analysis_status != "ready" and not analysis_reason:
+        analysis_reason = "metric_inputs_missing"
+    if analysis_status != "ready" and not analysis_message:
+        analysis_message = "当前数据尚未准备完成，暂无法计算偏离度"
     return {
         "analysis_status": analysis_status,
+        "analysis_reason": analysis_reason,
+        "analysis_message": analysis_message,
         "deviation_score": candidate_deviation_score,
         "avg_deviation_score": candidate_avg_deviation_score,
         "abnormal_duration_minutes": candidate_abnormal_duration_minutes,
@@ -943,7 +1127,17 @@ def _build_binding_payloads(
                     "is_primary": bool(binding.get("is_primary")),
                     "effective_from_snapshot": binding.get("baseline_effective_from"),
                     "tolerance_percent_snapshot": binding.get("tolerance_percent"),
-                    "analysis_status": str(binding.get("analysis_status") or "pending"),
+                    "analysis_status": str(binding.get("analysis_status") or "waiting"),
+                    "analysis_reason": (
+                        str(binding.get("analysis_reason"))
+                        if binding.get("analysis_reason") is not None
+                        else None
+                    ),
+                    "analysis_message": (
+                        str(binding.get("analysis_message"))
+                        if binding.get("analysis_message") is not None
+                        else None
+                    ),
                     "deviation_score": binding.get("deviation_score"),
                     "avg_deviation_score": binding.get("avg_deviation_score"),
                     "analysis_details_json": binding.get("analysis_details_json"),
@@ -974,6 +1168,21 @@ def _build_binding_payloads(
             candidate_avg_deviation_score=candidate.get("avg_deviation_score"),
             candidate_abnormal_duration_minutes=candidate.get("abnormal_duration_minutes"),
             candidate_analysis_details_json=candidate.get("analysis_details_json"),
+            candidate_analysis_status=(
+                str(candidate.get("analysis_status"))
+                if candidate.get("analysis_status") is not None
+                else None
+            ),
+            candidate_analysis_reason=(
+                str(candidate.get("analysis_reason"))
+                if candidate.get("analysis_reason") is not None
+                else None
+            ),
+            candidate_analysis_message=(
+                str(candidate.get("analysis_message"))
+                if candidate.get("analysis_message") is not None
+                else None
+            ),
         )
         payloads.append(
             {
@@ -990,6 +1199,8 @@ def _build_binding_payloads(
                 "effective_from_snapshot": _baseline_field(baseline, "effective_from"),
                 "tolerance_percent_snapshot": _baseline_field(baseline, "tolerance_percent"),
                 "analysis_status": str(seeded["analysis_status"]),
+                "analysis_reason": seeded["analysis_reason"],
+                "analysis_message": seeded["analysis_message"],
                 "deviation_score": seeded["deviation_score"],
                 "avg_deviation_score": seeded["avg_deviation_score"],
                 "analysis_details_json": seeded["analysis_details_json"],
@@ -1132,7 +1343,9 @@ def _build_preseal_payload_for_candidate(
     template_map: dict[str, list[BaselineDefinitionMetric]],
     trigger_source: str,
 ) -> RuntimePresealPayload:
-    furnace_id = str(candidate.get("furnace_id") or candidate.get("_live_context_key") or "") or None
+    furnace_id = (
+        str(candidate.get("furnace_id") or candidate.get("_live_context_key") or "") or None
+    )
     now = utc_now()
     heat_payload = {
         "id": str(candidate["id"]),
@@ -1211,15 +1424,22 @@ async def compile_runtime_candidates(
     applicable_by_candidate: dict[str, list[Baseline]] = {}
     applicable_baselines: list[Baseline] = []
     for candidate in candidates:
-        if _heat_runtime_factory.has_frozen_birth_context(candidate):
-            continue
+        frozen_inputs = (
+            _heat_runtime_factory.resolve_frozen_analysis_inputs(candidate)
+            if _heat_runtime_factory.has_frozen_birth_context(candidate)
+            else None
+        )
         candidate_id = str(candidate["id"])
         applicable = (
-            list(published_baselines)
-            if explicit_baselines is not None
-            else _eligible_published_baselines(
-                published_baselines,
-                start_time=candidate["start_time"],
+            list(frozen_inputs.applicable_baselines)
+            if frozen_inputs is not None
+            else (
+                list(published_baselines)
+                if explicit_baselines is not None
+                else _eligible_published_baselines(
+                    published_baselines,
+                    start_time=candidate["start_time"],
+                )
             )
         )
         if not applicable:
@@ -1239,12 +1459,10 @@ async def compile_runtime_candidates(
             )
         applicable_by_candidate[candidate_id] = applicable
         applicable_baselines.extend(applicable)
-        primary_baseline = _resolve_primary_baseline(
-            applicable,
-            preferred_baseline_id=explicit_primary_baseline_id,
-        )
-        if primary_baseline is not None:
-            definition_ids.add(str(_baseline_field(primary_baseline, "definition_id") or ""))
+        for baseline in applicable:
+            definition_id = str(_baseline_field(baseline, "definition_id") or "").strip()
+            if definition_id:
+                definition_ids.add(definition_id)
     template_map = await _load_definition_metric_templates(sorted(definition_ids))
     baseline_curve_payloads = await _heat_deviation_analysis_service.load_baseline_curve_payloads(
         applicable_baselines
@@ -1256,7 +1474,8 @@ async def compile_runtime_candidates(
         frozen_inputs = _heat_runtime_factory.resolve_frozen_analysis_inputs(prepared_candidate)
         candidate_applicable_baselines: list[Any]
         candidate_curve_payloads: dict[str, Any]
-        definition_templates: list[Any]
+        baseline_metric_specs_by_id: dict[str, list[dict[str, Any]]]
+        metric_union_specs: list[dict[str, Any]]
         if frozen_inputs is not None:
             candidate_applicable_baselines = frozen_inputs.applicable_baselines
             candidate_curve_payloads = frozen_inputs.baseline_curve_payloads
@@ -1266,7 +1485,17 @@ async def compile_runtime_candidates(
             prepared_candidate["baseline_curve_snapshots"] = list(
                 frozen_inputs.baseline_curve_snapshots
             )
-            definition_templates = list(frozen_inputs.definition_metric_snapshots)
+            baseline_metric_specs_by_id = _baseline_metric_spec_map_from_runtime_views(
+                prepared_candidate.get("baseline_views")
+            )
+            if not baseline_metric_specs_by_id:
+                baseline_metric_specs_by_id = _build_baseline_metric_spec_map(
+                    applicable_baselines=candidate_applicable_baselines,
+                    template_map=template_map,
+                )
+            metric_union_specs = _build_runtime_metric_union_specs(
+                baseline_metric_specs_by_id
+            ) or list(frozen_inputs.definition_metric_snapshots)
         else:
             candidate_applicable_baselines = applicable_by_candidate[str(candidate["id"])]
             candidate_curve_payloads = baseline_curve_payloads
@@ -1275,17 +1504,18 @@ async def compile_runtime_candidates(
                 preferred_baseline_id=explicit_primary_baseline_id,
             )
             primary_definition_id = (
-                (
-                    str(_baseline_field(primary_baseline, "definition_id") or "")
-                    if primary_baseline is not None
-                    else str(prepared_candidate.get("baseline_definition_id") or "").strip()
-                )
-                or None
-            )
+                str(_baseline_field(primary_baseline, "definition_id") or "")
+                if primary_baseline is not None
+                else str(prepared_candidate.get("baseline_definition_id") or "").strip()
+            ) or None
             if primary_definition_id is not None:
                 prepared_candidate["baseline_definition_id"] = primary_definition_id
-            definition_templates = list(template_map.get(primary_definition_id or "", []))
-            if not definition_templates:
+            baseline_metric_specs_by_id = _build_baseline_metric_spec_map(
+                applicable_baselines=candidate_applicable_baselines,
+                template_map=template_map,
+            )
+            metric_union_specs = _build_runtime_metric_union_specs(baseline_metric_specs_by_id)
+            if not metric_union_specs:
                 log_event(
                     "runtime_candidate_compile_error",
                     heat_id=str(candidate.get("id") or ""),
@@ -1295,13 +1525,17 @@ async def compile_runtime_candidates(
                 raise ValueError("definition_metric_templates_missing")
         prepared_candidate = await hydrate_candidate_runtime_metric_series(
             prepared_candidate,
-            definition_templates=definition_templates,
+            metric_specs=metric_union_specs,
             metric_curve_loader=metric_curve_loader,
         )
-        if frozen_inputs is None:
-            prepared_candidate["definition_metric_snapshots"] = (
-                _heat_runtime_factory._build_definition_metric_snapshots(definition_templates)
-            )
+        prepared_candidate["definition_metric_snapshots"] = (
+            _heat_runtime_factory._build_definition_metric_snapshots(metric_union_specs)
+        )
+        prepared_candidate["baseline_views"] = _build_runtime_baseline_views(
+            candidate=prepared_candidate,
+            applicable_baselines=candidate_applicable_baselines,
+            baseline_metric_specs_by_id=baseline_metric_specs_by_id,
+        )
         binding_analyses = _heat_deviation_analysis_service.analyze_candidate_bindings(
             candidate=prepared_candidate,
             applicable_baselines=candidate_applicable_baselines,
@@ -1311,6 +1545,11 @@ async def compile_runtime_candidates(
             candidate=prepared_candidate,
             binding_analyses=binding_analyses,
         )
+        prepared_candidate["baseline_views"] = _build_runtime_baseline_views(
+            candidate=prepared_candidate,
+            applicable_baselines=candidate_applicable_baselines,
+            baseline_metric_specs_by_id=baseline_metric_specs_by_id,
+        )
         if frozen_inputs is None:
             primary_definition_id = (
                 str(prepared_candidate.get("baseline_definition_id") or "").strip() or None
@@ -1318,7 +1557,7 @@ async def compile_runtime_candidates(
             birth_snapshot = _heat_runtime_factory.build_birth_snapshot(
                 prepared_candidate,
                 applicable_baselines=candidate_applicable_baselines,
-                definition_templates=template_map.get(primary_definition_id or "", []),
+                definition_templates=metric_union_specs,
                 baseline_curve_payloads=baseline_curve_payloads,
                 cutting_config=(
                     cutting_config
@@ -1330,7 +1569,9 @@ async def compile_runtime_candidates(
                         work_start_time="00:00",
                         work_end_time="23:59",
                         break_periods=(),
-                        cutting_mode=str(prepared_candidate.get("_live_cutting_mode") or "signal_inference"),
+                        cutting_mode=str(
+                            prepared_candidate.get("_live_cutting_mode") or "signal_inference"
+                        ),
                         fixed_interval_minutes=None,
                     )
                 ),
@@ -1342,7 +1583,6 @@ async def compile_runtime_candidates(
             prepared_candidate["baseline_curve_snapshots"] = list(
                 birth_snapshot.baseline_curve_snapshots
             )
-            definition_templates = list(birth_snapshot.definition_metric_snapshots)
         processing_meta = dict(prepared_candidate.get("processing_meta") or {})
         if not processing_meta:
             processing_meta = {
@@ -1382,9 +1622,7 @@ async def append_sealed_heats(
     candidate_ids = [str(candidate["id"]) for candidate in prepared_candidates]
     async with async_session_maker() as session:
         existing_ids = set(
-            (
-                await session.execute(select(Heat.id).where(Heat.id.in_(candidate_ids)))
-            ).scalars()
+            (await session.execute(select(Heat.id).where(Heat.id.in_(candidate_ids)))).scalars()
         )
     async with async_session_maker() as session:
         seen_new_ids: set[str] = set()
@@ -1459,7 +1697,9 @@ async def replace_heat_range(
                 .where(MetricSeries.owner_key.in_(affected_heat_ids))
             )
             await session.execute(
-                delete(HeatBaselineBinding).where(HeatBaselineBinding.heat_id.in_(affected_heat_ids))
+                delete(HeatBaselineBinding).where(
+                    HeatBaselineBinding.heat_id.in_(affected_heat_ids)
+                )
             )
             await session.execute(delete(Heat).where(Heat.id.in_(affected_heat_ids)))
 

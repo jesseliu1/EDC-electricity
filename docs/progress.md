@@ -6,6 +6,177 @@
 
 ---
 
+### 2026-04-16（runtime 主链专项文档已拆出，主干结构文档与专项文档已互链）
+
+- [x] 已更新 `docs/BACKEND_STRUCTURE.md`
+  - [x] 新增“后端数据链路与职责边界”总述
+  - [x] 明确 `EDC source -> point loader -> processor -> active_runtime -> previous_runtime -> DB -> API -> frontend`
+  - [x] 明确各层只负责什么、不负责什么
+  - [x] 明确 `previous_runtime` 对象存在时，至少应拥有自己的 `N`
+  - [x] 已加入到 `docs/runtime-dataflow.md` 的跳转链接
+- [x] 已新增 `docs/runtime-dataflow.md`
+  - [x] 详细说明 runtime `current -> previous -> db` 主链
+  - [x] 详细说明 `active_runtime / previous_runtime / formal DB / API / frontend` 的业务语义
+  - [x] 详细说明“声明窗口”和“实际曲线覆盖窗口”的区别
+  - [x] 详细说明 seal 的强校验与软校验口径
+  - [x] 已回链到 `docs/BACKEND_STRUCTURE.md` 与 `docs/runtime-current-previous-db-plan.md`
+- [!] 当前边界
+  - [!] 本轮仅更新后端架构文档与专项说明文档，未改代码
+  - [!] 本轮未执行 lint / pytest / 用户路径验证；当前结果属于文档收口，不是功能验证
+
+---
+
+### 2026-04-13（本机前后端已按 factory-reset + blank + 删库重建方式重部署，标准启动脚本已修通）
+
+- [x] 已完成偏离分析状态后端链路第一轮改造
+  - [x] 后端正式引入 `analysis_status / analysis_reason / analysis_message` 三层字段语义
+  - [x] `heat_baseline_bindings` SQLAlchemy 模型已补 `analysis_reason / analysis_message`
+  - [x] runtime binding / baseline view / formal history / compare API 已统一透传三层字段
+  - [x] 当前 `metric_scale_invalid` 已正式映射为 `unsupported`，不再对外标成笼统的 `pending`
+  - [x] 当前 `metric_inputs_missing` 已正式映射为 `waiting`
+- [x] 已补最小后端回归并通过
+  - [x] `uv run --directory apps/server ruff check src/models/heat_baseline_binding.py src/services/heat_analysis src/services/heat_deviation_analysis_service.py src/services/heat_runtime_types.py src/services/formal_heat_service.py src/services/heat_runtime_updater.py src/api/heats.py src/schemas/heat.py tests/test_heat_analysis_strategy.py tests/test_formal_heat_api.py tests/test_heats_api.py`
+  - [x] `uv run --directory apps/server pytest -q tests/test_heat_analysis_strategy.py tests/test_formal_heat_api.py tests/test_heats_api.py -k "normalized_multi_metric_strategy or history_compare_does_not_fallback_when_binding_analysis_not_ready or heat_compare_runtime_uses_each_baseline_view_metric_subset or heat_compare_runtime_prefers_runtime_snapshots_without_request_time_fetch"`
+  - [x] 结果：`6 passed`
+- [!] 当前边界
+  - [!] 本轮只完成后端状态链路，前端展示文案和页面状态还没切到 `waiting / unsupported / failed`
+  - [!] 因为正式表结构已增加 `analysis_reason / analysis_message`，本机若继续跑真实链路，需要按既定规则删库重建 SQLite 后再启动
+
+- [x] 已补充主干文档中的偏离分析状态口径
+  - [x] `docs/BACKEND_STRUCTURE.md` 已将 `heat_baseline_bindings.analysis_status` 正式收口为 `ready / waiting / unsupported / failed`
+  - [x] 已补充 `analysis_reason / analysis_message` 为正式对外字段语义
+  - [x] 已明确 `metric_scale_invalid -> unsupported`，不再继续混入笼统的 `pending`
+  - [x] 已同步运行态同构口径：`baseline_bindings` 结构应包含 `analysis_status / analysis_reason / analysis_message`
+- [x] 已按本机标准顺序完成 blank 重部署
+  - [x] 停止本机 `8000 / 3000 / 3001`
+  - [x] 对 `apps/server/data/asns.db` 执行 `factory-reset`
+  - [x] 确认正式业务表已清空：
+    - [x] `baseline_definitions = 0`
+    - [x] `baseline_definition_metrics = 0`
+    - [x] `baselines = 0`
+    - [x] `heats = 0`
+    - [x] `metric_series = 0`
+    - [x] `tasks = 0`
+  - [x] 确认 runtime blank 状态成立：
+    - [x] `runtime_baseline_definitions = {}`
+    - [x] `runtime_baselines = {}`
+    - [x] `active_baseline_id = null/empty`
+- [x] 本机服务已重新拉起
+  - [x] 后端：`http://127.0.0.1:8000/health` -> `{"status":"ok"}`
+  - [x] 前端：`http://localhost:3000/edc/` -> `200`
+  - [x] 前端代理：`http://localhost:3000/api/health` -> `{"status":"ok"}`
+  - [x] 宿主：`http://localhost:3001/` -> `200`
+  - [x] 宿主代理：`http://localhost:3001/api/health` -> `{"status":"ok"}`
+  - [x] 宿主首页已确认注入 `window.__ASNS_EDC_APP_URL__ = "http://localhost:3000/edc/";`
+  - [x] 后端 `runtime-status.overall_code = host_disconnected`，符合 blank 未接真实源预期
+- [x] 已修复 `scripts/start-local-edc-stack.sh` 在当前 Windows + Git Bash 环境下的执行阻塞
+  - [x] `stop_listener` 现在不会因“端口原本未监听”而把脚本提前打断
+  - [x] 日志清理顺序已改为“先停进程，再删日志”
+  - [x] PowerShell 启动参数已移除反引号续行，避免被 Bash 误吃
+  - [x] PowerShell/Start-Process 已改用 Windows 路径，避免 `/d/...` 路径下找不到 `.venv`
+- [x] 已实际用 Git Bash 重跑 `scripts/start-local-edc-stack.sh`，脚本执行完成并输出 `Local stack is ready.`
+- [!] 当前边界
+  - [!] 本轮是 blank 本机重部署与启动脚本可执行性修复，不是完整用户路径验证
+  - [!] `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md` 本轮未更新；当前结果不能宣称已完成 UAT
+
+---
+
+### 2026-04-13（runtime 主干文档已明确 `source -> current -> previous -> db`，并补充 `metric` 的 `N-1 / N / N+1` 保存口径）
+
+- [x] 已更新主干后端文档 `docs/BACKEND_STRUCTURE.md`
+  - [x] live runtime 数据流转口径明确为 `source -> active_runtime(current) -> previous_runtime -> heats/metric_series/heat_baseline_bindings`
+  - [x] 明确首次冷启动允许 `previous_runtime` 为空
+  - [x] 明确首次只识别出一条炉次时，`active_runtime` 允许只有当前炉次 `N`，不强求带 `N-1`
+  - [x] 明确 `previous_runtime` 是正式入库的直接上游，应持续吸收来自下一条炉次的 `N+1` 上下文
+  - [x] 明确偏离分析只认当前炉次 `N`，`N-1 / N+1` 仅用于显示上下文
+  - [x] 明确 `metric_series` 的保存口径：
+    - [x] `active_runtime.metric_series` 正常续跑应尽量覆盖 `N-1 / N`
+    - [x] `previous_runtime.metric_series` 应持续补齐 `N+1`
+    - [x] 正式 `metric_series(owner_type='heat')` 应保存该炉次自己的 `N-1 / N / N+1`
+- [x] 已新增专项计划文档 `docs/runtime-current-previous-db-plan.md`
+  - [x] 固化了 `source -> current -> previous -> db` runtime 主链
+  - [x] 固化了文件级改造范围、分阶段实施和回归口径
+- [x] runtime 第一阶段代码改造已开始
+  - [x] 新增 `heat_runtime_transition_service.py`
+    - [x] 明确 `active_runtime` 的 `N-1` 只从前一炉次 `start_time` 起算
+    - [x] 明确 `previous_runtime` 的 `context_end_time` 允许跟随当前 `active_runtime` 后推
+  - [x] 新增 `heat_runtime_seal_service.py`
+    - [x] sealed history 已开始优先选择现有 runtime 对象作为正式入库真源
+    - [x] 入库前会基于 runtime 对象重建 `preseal_payload`
+  - [x] `HeatRuntimeUpdater` 已新增“保留已有 binding 分析结果”的更新模式
+  - [x] `heats.py` live refresh 主链已开始接入：
+    - [x] active / previous candidate 的显式 context window 准备
+    - [x] previous runtime 更新时保留分析结果
+    - [x] sealed 入库前优先解析 runtime seal source
+- [x] 本轮最小后端回归已执行通过
+  - [x] `uv run --directory apps/server ruff check src/api/heats.py src/services/heat_runtime_updater.py src/services/heat_runtime_transition_service.py src/services/heat_runtime_seal_service.py tests/test_heats_api.py`
+  - [x] 结果：通过
+  - [x] `uv run --directory apps/server pytest -q tests/test_heats_api.py -k "previous_runtime_id_stays_resolvable_after_rollover or refresh_heat_runtime_updates_existing_active_without_recompiling_same_heat or refresh_heat_runtime_reuses_active_birth_context_after_first_birth or transition_service or seal_service or previous_runtime_deviation_stays_frozen"`
+  - [x] 结果：`6 passed`
+  - [x] `uv run --directory apps/server pytest -q tests/test_formal_heat_api.py -k "persist_sealed_heat_candidates_writes_all_runtime_metrics_to_db or list_heats_prefers_formal_history_over_overlapping_previous_runtime"`
+  - [x] 结果：`2 passed`
+- [!] 当前边界
+  - [!] 本轮仍是后端定向改造与回归，不是完整用户路径验证
+  - [!] `previous_runtime` 补齐 `N+1` 的完整曲线合并逻辑仍在后续阶段，当前先完成生命周期与 seal 真源切换骨架
+  - [!] `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md` 本轮未更新，当前结果不能宣称已完成 UAT
+
+---
+
+### 2026-04-11（runtime 已按“heat 源数据池 + baseline views”收口，多 definition 指标并集链路已打通）
+
+- [x] 已完成 runtime 主链第一轮改造，DB 结构保持不变
+  - [x] `CurrentHeatRuntime` 新增 `baseline_views`
+  - [x] 每个 baseline view 现在保存自己的 `current_metric_series` 子集和分析结果
+  - [x] 顶层 runtime 仍只保留一份 heat 侧 `runtime_metric_series` 作为共享源数据池
+- [x] 已把 runtime 当前曲线加载从“单 definition 模板”改成“绑定基线指标并集”
+  - [x] `formal_heat_service.compile_runtime_candidates()` 现在会先汇总所有适用 baseline 的指标模板
+  - [x] `hydrate_candidate_runtime_metric_series()` 现在按指标并集拉取当前曲线
+  - [x] `metric_series(owner_type='heat')` 的运行态来源已与文档口径一致
+- [x] 已把每条 baseline 的运行态分析收口到各自 view
+  - [x] `heat_deviation_analysis_service` 现在优先按 `baseline_views[].current_metric_series` 做分析
+  - [x] `apply_binding_analysis_to_candidate()` 会把分析结果同步回对应 baseline view
+  - [x] runtime compare 现在优先按每个 baseline view 的 metric 子集组图，不再强依赖共享 definition 快照
+- [x] 已补定向回归测试
+  - [x] `tests/test_formal_heat_api.py::test_compile_runtime_candidates_builds_metric_union_and_baseline_views`
+  - [x] `tests/test_formal_heat_api.py::test_persist_sealed_heat_candidates_writes_all_runtime_metrics_to_db`
+  - [x] `tests/test_heats_api.py::test_heat_compare_runtime_prefers_runtime_snapshots_without_request_time_fetch`
+  - [x] `tests/test_heats_api.py::test_heat_compare_runtime_uses_each_baseline_view_metric_subset`
+- [x] 本轮最小代码级验证已执行通过
+  - [x] `uv run --directory apps/server ruff check src/services/heat_runtime_types.py src/services/formal_heat_service.py src/services/heat_deviation_analysis_service.py src/services/heat_runtime_updater.py src/api/heats.py tests/test_formal_heat_api.py tests/test_heats_api.py`
+  - [x] 结果：通过
+  - [x] `uv run --directory apps/server pytest tests/test_formal_heat_api.py::test_compile_runtime_candidates_builds_metric_union_and_baseline_views tests/test_formal_heat_api.py::test_persist_sealed_heat_candidates_writes_all_runtime_metrics_to_db tests/test_heats_api.py::test_heat_compare_runtime_prefers_runtime_snapshots_without_request_time_fetch tests/test_heats_api.py::test_heat_compare_runtime_uses_each_baseline_view_metric_subset`
+  - [x] 结果：`4 passed`
+- [x] replay 显式基线选择契约已从“单 definition”改为“多 definition 但 duration 必须一致”
+  - [x] `ReplayBaselineSelection` / `ReplayContext` 已移除单 `definition_id` 约束
+  - [x] replay 现在允许同时选择多个 definition 的已发布基线，只校验 `expected_duration_minutes` 一致
+  - [x] 已新增 replay 同时长多 definition 成功回归，确认可落多条 binding，且 heat 侧并集指标可写出额外 metric（如 `temperature`）
+  - [x] 原“跨 definition 失败”回归已改正为“duration 不一致失败”
+- [x] replay 定向回归已执行通过
+  - [x] `uv run --directory apps/server ruff check src/services/replay_baseline_selection_service.py src/services/heat_replay_batch_service.py src/api/heats.py tests/test_heat_replay_api.py`
+  - [x] 结果：通过
+  - [x] `uv run --directory apps/server pytest -q tests/test_heat_replay_api.py`
+  - [x] 结果：`9 passed`
+- [x] Settings 页 replay 初始化交互已对齐新口径
+  - [x] 默认主黄金基线改为只读展示，直接使用当前系统默认已发布基线
+  - [x] 参与初始化的黄金基线改为按 `expected_duration_minutes` 同时长过滤，不再按单一 `definition_id` 过滤
+  - [x] 主基线展示和多选下拉已统一显示“名称 + 描述”
+  - [x] 基线响应已补正式字段 `expected_duration_minutes`，前端不再自行猜测定义时长
+- [x] 本轮前端最小代码级验证已执行通过
+  - [x] `pnpm --dir apps/web lint`
+  - [x] 结果：通过（仍有仓库既有 Vue 风格 warning，非本轮新增阻断）
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] 结果：通过
+  - [x] `pnpm --dir apps/web build`
+  - [x] 结果：通过
+  - [x] `uv run --directory apps/server pytest -q tests/test_baselines_dashboard_api.py`
+  - [x] 结果：包含在本轮串行回归中，已通过
+- [!] 当前边界
+  - [!] 本轮只完成了后端 runtime 定向验证，不是完整用户路径验证
+  - [!] replay 已允许多 definition 显式选择，并复用 runtime 指标并集主链；但前端用户路径和正式 UAT 仍未做
+  - [!] `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md` 本轮未更新；当前结果不能宣称已完成 UAT
+
+---
+
 ### 2026-04-11（replay runtime aggregate 已补齐 processor snapshot，续接 live refresh 失败问题已修复）
 
 - [x] 已把 replay 后 runtime 重建从“只写 runtime item”收口为“写 runtime aggregate”

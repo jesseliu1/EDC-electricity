@@ -177,6 +177,8 @@ class RuntimeHeatBinding:
     baseline_effective_from: datetime | None
     tolerance_percent: float | None
     analysis_status: str
+    analysis_reason: str | None
+    analysis_message: str | None
     deviation_score: float | None
     avg_deviation_score: float | None
     analysis_details_json: str | None
@@ -193,6 +195,8 @@ class RuntimeHeatBinding:
             "baseline_effective_from": self.baseline_effective_from,
             "tolerance_percent": self.tolerance_percent,
             "analysis_status": self.analysis_status,
+            "analysis_reason": self.analysis_reason,
+            "analysis_message": self.analysis_message,
             "deviation_score": self.deviation_score,
             "avg_deviation_score": self.avg_deviation_score,
             "analysis_details_json": self.analysis_details_json,
@@ -225,6 +229,46 @@ class RuntimeMetricSeries:
             "sort_order": self.sort_order,
             "series_json": self.series_json,
             "stat_json": self.stat_json,
+        }
+
+
+@dataclass(slots=True)
+class RuntimeBaselineView:
+    heat_id: str
+    baseline_id: str
+    baseline_definition_id: str
+    baseline_item: str
+    is_primary: bool
+    baseline_effective_from: datetime | None
+    tolerance_percent: float | None
+    required_metric_keys: list[str] = field(default_factory=list)
+    current_metric_series: list[RuntimeMetricSeries] = field(default_factory=list)
+    analysis_status: str = "waiting"
+    analysis_reason: str | None = None
+    analysis_message: str | None = None
+    deviation_score: float | None = None
+    avg_deviation_score: float | None = None
+    analysis_details_json: str | None = None
+    abnormal_duration_minutes: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "heat_id": self.heat_id,
+            "baseline_id": self.baseline_id,
+            "baseline_definition_id": self.baseline_definition_id,
+            "baseline_item": self.baseline_item,
+            "is_primary": self.is_primary,
+            "baseline_effective_from": self.baseline_effective_from,
+            "tolerance_percent": self.tolerance_percent,
+            "required_metric_keys": list(self.required_metric_keys),
+            "current_metric_series": [series.to_dict() for series in self.current_metric_series],
+            "analysis_status": self.analysis_status,
+            "analysis_reason": self.analysis_reason,
+            "analysis_message": self.analysis_message,
+            "deviation_score": self.deviation_score,
+            "avg_deviation_score": self.avg_deviation_score,
+            "analysis_details_json": self.analysis_details_json,
+            "abnormal_duration_minutes": self.abnormal_duration_minutes,
         }
 
 
@@ -266,6 +310,7 @@ class CurrentHeatRuntime:
     birth_context: HeatBirthContext | None = None
     bindings: list[RuntimeHeatBinding] = field(default_factory=list)
     metric_series: list[RuntimeMetricSeries] = field(default_factory=list)
+    baseline_views: list[RuntimeBaselineView] = field(default_factory=list)
     definition_metric_snapshots: list[RuntimeDefinitionMetricSnapshot] = field(default_factory=list)
     baseline_curve_snapshots: list[RuntimeBaselineCurveSnapshot] = field(default_factory=list)
     preseal_payload: RuntimePresealPayload | None = None
@@ -292,9 +337,10 @@ class CurrentHeatRuntime:
         )
         item["baseline_ids"] = [binding.baseline_id for binding in self.bindings]
         item["baseline_bindings"] = [binding.to_dict() for binding in self.bindings]
-        item["deviation_score"] = (
-            primary_binding.deviation_score if primary_binding else None
-        )
+        item["analysis_status"] = primary_binding.analysis_status if primary_binding else None
+        item["analysis_reason"] = primary_binding.analysis_reason if primary_binding else None
+        item["analysis_message"] = primary_binding.analysis_message if primary_binding else None
+        item["deviation_score"] = primary_binding.deviation_score if primary_binding else None
         item["avg_deviation_score"] = (
             primary_binding.avg_deviation_score if primary_binding else None
         )
@@ -302,6 +348,7 @@ class CurrentHeatRuntime:
             primary_binding.abnormal_duration_minutes if primary_binding else None
         )
         item["runtime_metric_series"] = [series.to_dict() for series in self.metric_series]
+        item["baseline_views"] = [view.to_dict() for view in self.baseline_views]
         item["birth_context"] = (
             self.birth_context.to_dict() if self.birth_context is not None else None
         )

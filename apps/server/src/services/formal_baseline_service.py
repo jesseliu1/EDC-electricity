@@ -72,6 +72,7 @@ def _baseline_to_dict(
     baseline: Baseline,
     *,
     definition_name: str = "",
+    expected_duration_minutes: int | None = None,
 ) -> dict[str, Any]:
     return {
         "id": encode_baseline_id(baseline.definition_id, baseline.item),
@@ -79,6 +80,7 @@ def _baseline_to_dict(
         "item": baseline.item,
         "name": baseline.name,
         "description": baseline.description,
+        "expected_duration_minutes": int(expected_duration_minutes or 0),
         "status": baseline.status or "",
         "is_default": bool(baseline.is_default),
         "source_heat_id": baseline.source_heat_id,
@@ -508,7 +510,10 @@ async def list_baseline_records(
 ) -> tuple[list[dict[str, Any]], int]:
     async with async_session_maker() as session:
         definitions = {
-            row.id: row.definition_name
+            row.id: {
+                "definition_name": row.definition_name,
+                "expected_duration_minutes": row.expected_duration_minutes,
+            }
             for row in (
                 await session.execute(select(BaselineDefinition))
             ).scalars()
@@ -532,7 +537,15 @@ async def list_baseline_records(
             ).scalars()
         )
     return [
-        _baseline_to_dict(baseline, definition_name=definitions.get(baseline.definition_id, ""))
+        _baseline_to_dict(
+            baseline,
+            definition_name=str(
+                definitions.get(baseline.definition_id, {}).get("definition_name") or ""
+            ),
+            expected_duration_minutes=definitions.get(baseline.definition_id, {}).get(
+                "expected_duration_minutes"
+            ),
+        )
         for baseline in baselines
     ], total
 
@@ -543,7 +556,13 @@ async def get_baseline_record(definition_id: str, item: str) -> dict[str, Any] |
         if baseline is None:
             return None
         definition = await session.get(BaselineDefinition, definition_id)
-    return _baseline_to_dict(baseline, definition_name=definition.definition_name if definition else "")
+    return _baseline_to_dict(
+        baseline,
+        definition_name=definition.definition_name if definition else "",
+        expected_duration_minutes=(
+            definition.expected_duration_minutes if definition is not None else None
+        ),
+    )
 
 
 async def create_baseline_record(
@@ -750,7 +769,13 @@ async def get_default_baseline_record() -> dict[str, Any] | None:
         if baseline is None:
             return None
         definition = await session.get(BaselineDefinition, baseline.definition_id)
-    return _baseline_to_dict(baseline, definition_name=definition.definition_name if definition else "")
+    return _baseline_to_dict(
+        baseline,
+        definition_name=definition.definition_name if definition else "",
+        expected_duration_minutes=(
+            definition.expected_duration_minutes if definition is not None else None
+        ),
+    )
 
 
 async def set_default_baseline(

@@ -5,8 +5,8 @@ from datetime import datetime
 from sqlalchemy import Boolean, Float, ForeignKeyConstraint, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ..db_types import TimestampMsType
 from ..database import Base
+from ..db_types import TimestampMsType
 from ..time_utils import utc_now
 
 
@@ -45,7 +45,13 @@ class HeatBaselineBinding(Base):
         Float, nullable=True, comment="绑定时的基线容许误差快照"
     )
     analysis_status: Mapped[str] = mapped_column(
-        String(20), default="pending", nullable=False, comment="分析状态"
+        String(20), default="waiting", nullable=False, comment="分析状态"
+    )
+    analysis_reason: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, comment="分析原因码"
+    )
+    analysis_message: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="分析状态消息"
     )
     deviation_score: Mapped[float | None] = mapped_column(
         Float, nullable=True, comment="统一偏离分数"

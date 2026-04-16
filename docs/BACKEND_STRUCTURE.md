@@ -93,7 +93,11 @@ apps/server/
 - `metric_series(owner_type='heat')` 的业务语义是“该炉次绑定到的所有基线所需指标并集”
 - `heat_baseline_bindings` 是 `heat + baseline` 粒度分析结果的真相源；`heats` 不承担每条基线的分析结果
 - 当前炉次运行态缓存应尽量与 `heats + heat_baseline_bindings + metric_series` 同构，避免再做一套单独字段语义
-- 历史炉次的指标值允许保留“前 30 分钟 + 当前炉次区间 + 后 30 分钟”的上下文窗口，便于后续单炉次人工调整
+- 历史炉次的指标值应保留“`N-1 / N / N+1`”上下文窗口，便于后续单炉次人工调整与详情回看
+- live runtime 主链的数据流转语义固定为：`source -> active_runtime(current) -> previous_runtime -> heats/metric_series/heat_baseline_bindings`
+- live 刷新每轮只取一批源数据；源数据需要同步更新 `active_runtime` 与 `previous_runtime`，而不是为 sealed/history 再单独走一条取数与分析主链
+- 冷启动 / 首次识别时允许 `previous_runtime` 为空；此时 `active_runtime` 允许只有当前炉次 `N` 本体，不强求带 `N-1`
+- `previous_runtime` 的职责是承接上一炉次，并持续吸收来自下一炉次的 `N+1` 上下文；正式入库应优先使用已补全上下文的 `previous_runtime`
 - 所有未确认的自动回退、自动补全、自动替换都不应进入正式业务链路
 - live 主链只负责 `runtime + append confirmed sealed heats`
 - 历史初始化 / 历史重算必须显式走 `heat_replay_jobs + replay_batch`，不再复用实时后台 loop
@@ -392,13 +396,15 @@ apps/server/
 | 4 | `is_primary` | `bool` | 否 | 是 | 是否该炉次的主黄金基线 |
 | 5 | `effective_from_snapshot` | `int64(timestamp_ms)` | 否 | 否 | 绑定时的基线生效时间快照 |
 | 6 | `tolerance_percent_snapshot` | `float` | 否 | 否 | 绑定时容许误差快照 |
-| 7 | `analysis_status` | `string(20)` | 否 | 是 | 分析状态，`pending / ready` |
-| 8 | `deviation_score` | `float` | 否 | 否 | 该绑定的统一偏离分数 |
-| 9 | `avg_deviation_score` | `float` | 否 | 否 | 该绑定的平均偏离分数 |
-| 10 | `analysis_details_json` | `text` | 否 | 否 | 该绑定的统一分析详情 JSON |
-| 11 | `abnormal_duration_minutes` | `float` | 否 | 否 | 该绑定的连续异常时长 |
-| 12 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
-| 13 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
+| 7 | `analysis_status` | `string(20)` | 否 | 是 | 分析状态，`ready / waiting / unsupported / failed` |
+| 8 | `analysis_reason` | `string(50)` | 否 | 否 | 稳定机器码，例如 `metric_points_insufficient / metric_scale_invalid / analysis_exception` |
+| 9 | `analysis_message` | `string(255)` | 否 | 否 | 用户可读分析消息，例如“不适用”“数据不足”“分析失败” |
+| 10 | `deviation_score` | `float` | 否 | 否 | 该绑定的统一偏离分数 |
+| 11 | `avg_deviation_score` | `float` | 否 | 否 | 该绑定的平均偏离分数 |
+| 12 | `analysis_details_json` | `text` | 否 | 否 | 该绑定的统一分析详情 JSON |
+| 13 | `abnormal_duration_minutes` | `float` | 否 | 否 | 该绑定的连续异常时长 |
+| 14 | `created_at` | `int64(timestamp_ms)` | 否 | 是 | 创建时间 |
+| 15 | `updated_at` | `int64(timestamp_ms)` | 否 | 是 | 更新时间 |
 
 样例：
 
@@ -411,6 +417,8 @@ apps/server/
   "effective_from_snapshot": 1775222160000,
   "tolerance_percent_snapshot": 15,
   "analysis_status": "ready",
+  "analysis_reason": null,
+  "analysis_message": null,
   "deviation_score": 3.82,
   "avg_deviation_score": 2.47,
   "analysis_details_json": {
@@ -429,8 +437,17 @@ apps/server/
 - 一条记录只表达“某炉次绑定某基线”以及该绑定自己的分析结果
 - `is_primary` 由炉次固化时确定，用于列表摘要和详情默认展示
 - 历史炉次的偏离结果真源不再放在 `heats`，而是放在该表
-- 该表按 `heat + baseline` 粒度承载 `analysis_status / deviation_score / avg_deviation_score / abnormal_duration_minutes / analysis_details_json`
+- 该表按 `heat + baseline` 粒度承载 `analysis_status / analysis_reason / analysis_message / deviation_score / avg_deviation_score / abnormal_duration_minutes / analysis_details_json`
 - `heats` 只保留炉次事实字段；若接口需要顶层摘要值，应从 `is_primary=1` 的绑定记录派生，而不是把每条基线分析结果直接并入 `heats`
+- `analysis_status` 的正式业务语义固定为：
+  - `ready`：已成功完成偏离分析
+  - `waiting`：当前缺数据、缺曲线或缺上下文，后续 refresh/replay 后仍有机会转成 `ready`
+  - `unsupported`：当前模型不适用，继续 refresh 也不会自动转成 `ready`
+  - `failed`：分析执行异常，属于系统错误
+- `analysis_reason` 是稳定机器码；`analysis_message` 是用户可读消息；两者都不应再让前端从 `analysis_details_json` 猜测
+- `metric_scale_invalid` 必须落为 `analysis_status='unsupported'`，不能再继续混入 `waiting`
+- `analysis_details_json` 继续保留完整调试与明细结构，但不再承担对外主状态字段的职责
+- 对外业务状态不再使用笼统的 `pending` 作为正式展示值；若仍保留兼容字段，必须在接口层映射为 `waiting / unsupported / failed / ready`
 
 ### 2.7 `heats`
 
@@ -446,8 +463,8 @@ apps/server/
 | 4 | `furnace_id` | `string(50)` | 否 | 否 | 炉号/设备 ID |
 | 5 | `start_time` | `int64(timestamp_ms)` | 否 | 是 | 开始时间 |
 | 6 | `end_time` | `int64(timestamp_ms)` | 否 | 是 | 结束时间 |
-| 7 | `context_start_time` | `int64(timestamp_ms)` | 否 | 是 | 上下文窗口开始时间，通常为真实开始前 30 分钟 |
-| 8 | `context_end_time` | `int64(timestamp_ms)` | 否 | 是 | 上下文窗口结束时间，通常为真实结束后 30 分钟 |
+| 7 | `context_start_time` | `int64(timestamp_ms)` | 否 | 是 | 上下文窗口开始时间，通常覆盖 `N-1 -> N` 观察区间起点 |
+| 8 | `context_end_time` | `int64(timestamp_ms)` | 否 | 是 | 上下文窗口结束时间，通常覆盖 `N -> N+1` 观察区间终点 |
 | 9 | `is_manually_adjusted` | `bool` | 否 | 是 | 是否已被用户手动修改并保存 |
 | 10 | `sealed_at` | `int64(timestamp_ms)` | 否 | 是 | 固化入库时间 |
 | 11 | `source_kind` | `string(30)` | 否 | 是 | 来源类型 |
@@ -589,22 +606,89 @@ erDiagram
 - `metric_series` 真正存放基线或炉次的指标值
 - `tasks` 绑定业务炉次产生后续纠偏闭环
 
-### 2.11 当前炉次运行态缓存设计
+### 2.12 后端数据链路与职责边界
 
-当前炉次运行态不再单独设计一套与正式表完全不同的字段语义；应尽量与 `heats + heat_baseline_bindings + metric_series` 同构，并聚合为一个“当前炉次 runtime 对象”。
+本系统中，炉次相关 live 主链固定为：
+
+`EDC source -> point loader -> processor -> active_runtime(current) -> previous_runtime -> heats/metric_series/heat_baseline_bindings -> API -> frontend`
+
+职责总览：
+
+- `point loader`
+  - 只负责按时间窗口取原始点
+  - 不负责炉次切割、不负责分析、不负责入库
+- `processor`
+  - 只负责从点流中识别 `active_segment / previous_segment / sealed_signal`
+  - 不负责正式业务对象组装
+- `active_runtime`
+  - 表示当前炉次 `N`
+  - 分析窗口只认自己的 `start_time ~ end_time`
+  - 显示曲线目标是 `N-1 / N`
+- `previous_runtime`
+  - 表示上一炉次
+  - 由上一轮 `active_runtime` 升格而来
+  - 至少应继承自己在 `active_runtime` 阶段已经形成的 `N-1 / N`
+  - 后续继续吸收来自下一条当前炉次的 `N+1`
+  - 是正式入库前的唯一直接上游
+- `heats`
+  - 保存稳定炉次事实，不保存每条 baseline 的分析结果
+- `metric_series(owner_type='heat')`
+  - 保存该炉次正式曲线包
+  - 目标口径是该炉次自己的 `N-1 / N / N+1`
+- `heat_baseline_bindings`
+  - 保存 `heat + baseline` 粒度分析结果
+- `API`
+  - 只负责组装与透传，不在请求阶段偷偷重算业务真相
+- `frontend`
+  - 只消费后端已经定义好的对象语义，不自行猜测 `N-1 / N / N+1`
+
+关键一致性规则：
+
+- `context_start_time / context_end_time` 表示“声明窗口”
+- `runtime_metric_series.series_json.points` 表示“实际曲线覆盖”
+- 这两者不能混成同一个字段语义
+- `previous_runtime == null` 只允许发生在冷启动或当前只识别到一炉时
+- 如果 `previous_runtime` 对象存在，它至少必须拥有自己的 `N`
+- `previous_runtime` 允许缺部分 `N+1`，但不允许缺自己的 `N`
+- 正式入库时，如果 `previous_runtime` 连自己的 `N` 都不完整，应拒绝 seal
+
+专项展开说明见：
+
+- [runtime-dataflow.md](./runtime-dataflow.md)
+
+### 2.13 当前炉次运行态缓存设计
+
+当前炉次运行态不再单独设计一套与正式表完全不同的字段语义；应尽量与 `heats + heat_baseline_bindings + metric_series` 同构，并聚合为一个 `runtime aggregate`。
+
+专项链路说明与职责分层详见：
+
+- [runtime-dataflow.md](./runtime-dataflow.md)
 
 推荐口径：
 
 - 推荐聚合对象：
-  - `current_heat_runtime.birth_context`
-  - `current_heat_runtime.facts`
-  - `current_heat_runtime.bindings`
-  - `current_heat_runtime.metric_series`
-  - `current_heat_runtime.definition_metric_snapshots`
-  - `current_heat_runtime.baseline_curve_snapshots`
-  - `current_heat_runtime.preseal_payload`
-  - `current_heat_runtime.refresh_meta`
-  - `current_heat_runtime.processing_meta`
+  - `active_runtime`
+  - `previous_runtime`
+  - `processor_snapshot`
+  - `heat_runtime_refresh_meta`
+  - `heat_id_aliases`
+- 其中 `active_runtime` / `previous_runtime` 都应尽量与正式 `heats + heat_baseline_bindings + metric_series` 同构，避免维护两套业务字段语义
+- `active_runtime` 表示当前正在发生的炉次：
+  - 分析窗口是当前炉次 `N`
+  - 冷启动时允许只有当前炉次本体，不强求已有 `N-1`
+- `previous_runtime` 表示上一条炉次：
+  - 分析窗口仍然固定为它自己的 `N`
+  - 显示上下文可以继续吸收来自下一条炉次的 `N+1`
+  - 正式入库前应优先把它视作历史炉次的直接上游
+- 冷启动 / 首次识别成功时允许：
+  - `active_runtime != null`
+  - `previous_runtime == null`
+  - 这属于正常状态，不应当作 runtime 刷新失败
+- 数据流转语义固定为：
+  - 源数据先进入 processor 与 `active_runtime`
+  - 当新一条当前炉次出生时，旧 `active_runtime` 升格为 `previous_runtime`
+  - 后续 refresh 继续把新点同步给 `active_runtime` 与 `previous_runtime`
+  - `previous_runtime` 达到封口条件后再固化进入 `heats / metric_series / heat_baseline_bindings`
 - `birth_context` 表示炉次出生时冻结的业务解释上下文：
   - `channel_key / cutting_mode / expected_duration_minutes`
   - `cutting_config_snapshot`
@@ -618,17 +702,44 @@ erDiagram
   - `context_start_time / context_end_time`
   - `is_manually_adjusted`
   - `cut_reason / cut_status / status`
+- 上下文时间语义补充：
+  - `active_runtime.context_start_time`
+    - 正常情况下表示 `N-1 -> N` 的显示起点
+    - 冷启动首次识别时允许等于 `start_time`
+  - `active_runtime.context_end_time`
+    - 只覆盖当前已发生的 `N`
+    - 不要求预先带未来 `N+1`
+  - `previous_runtime.context_end_time`
+    - 允许随下一条 `active_runtime` 的增长持续后推，用于形成 `N -> N+1` 显示上下文
 - 当前炉次 `bindings` 保留与 `heat_baseline_bindings` 同构的结构：
   - `baseline_ids`
   - `baseline_bindings`
   - `is_primary`
-  - `analysis_status / deviation_score / avg_deviation_score`
+  - `analysis_status / analysis_reason / analysis_message`
+  - `deviation_score / avg_deviation_score / abnormal_duration_minutes`
+- 偏离分析语义补充：
+  - `baseline_bindings` 的偏离分析只认当前炉次自身 `start_time ~ end_time`
+  - `N-1 / N+1` 仅用于显示上下文，不应重新参与偏离度计算
+  - 当 `active_runtime` 升格为 `previous_runtime` 时，应优先继承已有 `baseline_bindings` 分析结果，而不是因为补 `N+1` 再重算一遍
 - 当前炉次 `metric_series` 保留与正式 `metric_series` 相同的结构：
   - `owner_key`
   - `item`
   - `metric_key / metric_name / unit`
   - `series_json`
   - `stat_json`
+- `metric_series` 的上下文保存口径补充：
+  - `active_runtime.metric_series`
+    - 目标语义是保存当前炉次可见的上下文曲线包
+    - 正常续跑时应尽量覆盖 `N-1 / N`
+    - 冷启动首次识别时允许暂时只有当前炉次 `N`
+  - `previous_runtime.metric_series`
+    - 目标语义是保存上一炉次的完整显示上下文曲线包
+    - 应随下一条 `active_runtime` 的增长持续补齐 `N+1`
+    - 在理想稳定态下应形成 `N-1 / N / N+1`
+  - 正式入库后的 `metric_series(owner_type='heat')`
+    - 应来自已补齐上下文的 `previous_runtime`
+    - 正式保存口径是该炉次自己的 `N-1 / N / N+1` 曲线包
+    - 不应退化为只保存当前炉次本体 `N`
 - 运行态只额外补少量缓存语义字段，例如：
   - `record_stage=runtime`
   - `last_point_at`
@@ -646,7 +757,7 @@ erDiagram
 - 当前炉次 runtime 的后端组装逻辑，后续必须同时可复用给：
   - 实时增量刷新
   - 从指定时间点开始的批量回放/重算
-- 两类入口共享同一套“识别炉次 -> 组装 runtime -> 生成 preseal payload -> 覆盖写入正式表”逻辑
+- 两类入口共享同一套“识别炉次 -> 组装 runtime aggregate -> 从 `previous_runtime` 生成 preseal payload -> 覆盖写入正式表”逻辑
 - 差异只允许体现在调度方式、批次大小、取数步长，不应复制出两套业务判断逻辑
 
 这样做的目的：
@@ -655,7 +766,7 @@ erDiagram
 - 调试和测试时缓存态/正式态断言尽量一致
 - 避免再维护一套“运行态字段”与一套“正式表字段”
 
-### 2.12 建议索引
+### 2.14 建议索引
 
 `baseline_definitions`
 
@@ -785,6 +896,18 @@ erDiagram
 - `previous_runtime`：仅代表前一个炉次，可短暂待收口，可变
 - `sealed_history`：其余全部为固化历史，不可再被实时重切覆盖
 
+启动与流转口径：
+
+- 首次启动 / 冷启动时允许 `previous_runtime` 为空
+- 首次只识别出一条炉次时，允许 `active_runtime` 只包含当前炉次 `N`，其 `N-1` 上下文为空
+- live 主链的标准流转顺序固定为：
+  - `source -> active_runtime(current) -> previous_runtime -> sealed_history`
+- `previous_runtime` 是 sealed history 的直接上游：
+  - 它在运行态阶段承接上一炉次
+  - 它可以持续吸收来自下一条炉次的 `N+1` 显示上下文
+  - 达到封口条件后，再固化进入正式表
+- `sealed_history` 不应绕过 `previous_runtime`，直接从一份独立 raw segment 临时重建出另一套历史对象
+
 实现约束：
 
 - `/api/heats` 可以把三类记录合并返回，但必须保持语义分明
@@ -795,6 +918,7 @@ erDiagram
 - 历史 compare 的 `live_curves` 应裁切到炉次真实起止时间；若前端需要上下文展示，可通过单独的 display window 曲线保留扩展窗口
 - replay 场景下，`active_runtime / previous_runtime` 的重建输入应直接来自 replay 最终切割结果里由 processor 最终判定的 `previous_segment / active_segment`；live refresh 只负责 replay 之后的续接，不负责 replay 当下的 head runtime 推断
 - replay 场景下，写回 `active_runtime / previous_runtime` 时必须同步写回一个 live-compatible 的 `heat_stream_processor_state`；后续 live refresh 必须沿这份 snapshot 续跑，不允许再把 replay 结果交给下一轮 live 冷启动去重猜
+- 对 `sealed_history` 的正式入库，应优先继承 `previous_runtime` 已有的曲线与分析结果；补充上下文不应触发一次新的偏离分析主链
 
 ### 3.8 API 读写映射
 

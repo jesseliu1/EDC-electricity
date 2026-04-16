@@ -92,6 +92,8 @@ class HeatAnalysisResult:
     """统一分析结果。"""
 
     analysis_status: str
+    analysis_reason: str | None
+    analysis_message: str | None
     deviation_score: float | None
     avg_deviation_score: float | None
     abnormal_duration_minutes: float | None

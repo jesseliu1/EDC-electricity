@@ -11,12 +11,25 @@ asns_dir="$repo_root/docs/Ref/asns（ai-sensory-nervous-system）ai感知神經�
 run_dir="$repo_root/.tmp_run/local"
 db_path="$server_dir/data/asns.db"
 
+server_dir_win="$(cygpath -w "$server_dir")"
+web_dir_win="$(cygpath -w "$web_dir")"
+asns_dir_win="$(cygpath -w "$asns_dir")"
+run_dir_win="$(cygpath -w "$run_dir")"
+db_path_win="$(cygpath -w "$db_path")"
+
 backend_log="$run_dir/backend.log"
 backend_err_log="$run_dir/backend.err.log"
 web_log="$run_dir/web.log"
 web_err_log="$run_dir/web.err.log"
 asns_log="$run_dir/asns.log"
 asns_err_log="$run_dir/asns.err.log"
+
+backend_log_win="$(cygpath -w "$backend_log")"
+backend_err_log_win="$(cygpath -w "$backend_err_log")"
+web_log_win="$(cygpath -w "$web_log")"
+web_err_log_win="$(cygpath -w "$web_err_log")"
+asns_log_win="$(cygpath -w "$asns_log")"
+asns_err_log_win="$(cygpath -w "$asns_err_log")"
 
 require_command() {
   local command_name="$1"
@@ -60,14 +73,14 @@ assert_contains() {
 
 assert_blank_runtime_state() {
   powershell.exe -NoProfile -Command "
-    \$serverDir = '$server_dir'
+    \$serverDir = '$server_dir_win'
     \$python = Join-Path \$serverDir '.venv\\Scripts\\python.exe'
     \$script = @'
 import json
 import sqlite3
 from pathlib import Path
 
-db_path = Path(r'$db_path')
+db_path = Path(r'$db_path_win')
 connection = sqlite3.connect(db_path)
 connection.row_factory = sqlite3.Row
 try:
@@ -112,21 +125,23 @@ stop_listener() {
   local port="$1"
 
   powershell.exe -NoProfile -Command "
+    \$ErrorActionPreference = 'SilentlyContinue'
     \$listener = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -First 1
     if (\$listener) {
       Stop-Process -Id \$listener.OwningProcess -Force
     }
+    exit 0
   " >/dev/null
 }
 
 factory_reset_runtime_state() {
   powershell.exe -NoProfile -Command "
-    \$serverDir = '$server_dir'
+    \$serverDir = '$server_dir_win'
     \$python = Join-Path \$serverDir '.venv\\Scripts\\python.exe'
     if (-not (Test-Path \$python)) {
       throw 'Backend Python not found'
     }
-    & \$python -m src.runtime_state_admin --db '$db_path' --mode factory-reset
+    & \$python -m src.runtime_state_admin --db '$db_path_win' --mode factory-reset
     if (\$LASTEXITCODE -ne 0) {
       exit \$LASTEXITCODE
     }
@@ -135,34 +150,22 @@ factory_reset_runtime_state() {
 
 start_backend() {
   powershell.exe -NoProfile -Command "
-    \$serverDir = '$server_dir'
+    \$serverDir = '$server_dir_win'
     \$python = Join-Path \$serverDir '.venv\\Scripts\\python.exe'
     \$env:ASNS_BOOTSTRAP_MODE = 'blank'
-    Start-Process -FilePath \$python `
-      -ArgumentList '-m','uvicorn','src.main:app','--host','127.0.0.1','--port','8000' `
-      -WorkingDirectory \$serverDir `
-      -RedirectStandardOutput '$backend_log' `
-      -RedirectStandardError '$backend_err_log'
+    Start-Process -FilePath \$python -ArgumentList '-m','uvicorn','src.main:app','--host','127.0.0.1','--port','8000' -WorkingDirectory \$serverDir -RedirectStandardOutput '$backend_log_win' -RedirectStandardError '$backend_err_log_win'
   " >/dev/null
 }
 
 start_web() {
   powershell.exe -NoProfile -Command "
-    Start-Process -FilePath 'pnpm.cmd' `
-      -ArgumentList 'dev','--','--host','0.0.0.0' `
-      -WorkingDirectory '$web_dir' `
-      -RedirectStandardOutput '$web_log' `
-      -RedirectStandardError '$web_err_log'
+    Start-Process -FilePath 'pnpm.cmd' -ArgumentList 'dev','--','--host','0.0.0.0' -WorkingDirectory '$web_dir_win' -RedirectStandardOutput '$web_log_win' -RedirectStandardError '$web_err_log_win'
   " >/dev/null
 }
 
 start_asns() {
   powershell.exe -NoProfile -Command "
-    Start-Process -FilePath 'cmd.exe' `
-      -ArgumentList '/c','set PORT=3001&& set ASNS_BASE_PATH=/&& set ASNS_EDC_API_PORT=8000&& set ASNS_EDC_API_HOST=127.0.0.1&& set ASNS_EDC_APP_URL=http://localhost:3000/edc/&& node server.mjs' `
-      -WorkingDirectory '$asns_dir' `
-      -RedirectStandardOutput '$asns_log' `
-      -RedirectStandardError '$asns_err_log'
+    Start-Process -FilePath 'cmd.exe' -ArgumentList '/c','set PORT=3001&& set ASNS_BASE_PATH=/&& set ASNS_EDC_API_PORT=8000&& set ASNS_EDC_API_HOST=127.0.0.1&& set ASNS_EDC_APP_URL=http://localhost:3000/edc/&& node server.mjs' -WorkingDirectory '$asns_dir_win' -RedirectStandardOutput '$asns_log_win' -RedirectStandardError '$asns_err_log_win'
   " >/dev/null
 }
 
@@ -171,6 +174,7 @@ require_command cmd.exe
 require_command npm
 require_command pnpm
 require_command curl
+require_command cygpath
 
 if [[ ! -d "$server_dir" ]]; then
   echo "Server directory not found: $server_dir" >&2
@@ -188,12 +192,13 @@ if [[ ! -d "$asns_dir" ]]; then
 fi
 
 mkdir -p "$run_dir"
-rm -f "$backend_log" "$backend_err_log" "$web_log" "$web_err_log" "$asns_log" "$asns_err_log"
 
 log_step "Stopping existing local listeners on 8000 / 3000 / 3001"
 stop_listener 8000
 stop_listener 3000
 stop_listener 3001
+
+rm -f "$backend_log" "$backend_err_log" "$web_log" "$web_err_log" "$asns_log" "$asns_err_log"
 
 log_step "Factory-resetting local runtime state before startup"
 factory_reset_runtime_state

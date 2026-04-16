@@ -7,8 +7,8 @@ from statistics import median
 from typing import Any
 
 from ...schemas.common import CurvePoint
+from .status import analysis_message_from_reason, analysis_status_from_reason
 from .strategy import (
-    HeatAnalysisMetricInput,
     HeatAnalysisMetricResult,
     HeatAnalysisPointRange,
     HeatAnalysisRequest,
@@ -276,6 +276,8 @@ class NormalizedMultiMetricStrategy(HeatAnalysisStrategy):
         }
         return HeatAnalysisResult(
             analysis_status="ready",
+            analysis_reason=None,
+            analysis_message=None,
             deviation_score=deviation_score,
             avg_deviation_score=avg_deviation_score,
             abnormal_duration_minutes=abnormal_duration_minutes,
@@ -284,15 +286,18 @@ class NormalizedMultiMetricStrategy(HeatAnalysisStrategy):
         )
 
     def _pending_result(self, reason: str, **extra: Any) -> HeatAnalysisResult:
+        analysis_status = analysis_status_from_reason(reason)
         analysis_details = {
             "version": "v1",
             "summary_method": self.strategy_key,
-            "status": "pending",
+            "status": analysis_status,
             "reason": reason,
         }
         analysis_details.update(extra)
         return HeatAnalysisResult(
-            analysis_status="pending",
+            analysis_status=analysis_status,
+            analysis_reason=reason,
+            analysis_message=analysis_message_from_reason(reason),
             deviation_score=None,
             avg_deviation_score=None,
             abnormal_duration_minutes=None,

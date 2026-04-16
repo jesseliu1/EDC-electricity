@@ -27,8 +27,8 @@ from src.schemas.common import CurvePoint
 from src.services import (
     compile_runtime_candidates,
     get_formal_heat_record,
-    prepare_runtime_candidates_for_persist,
     persist_sealed_heat_candidates,
+    prepare_runtime_candidates_for_persist,
 )
 from src.time_utils import from_timestamp_ms, to_timestamp_ms
 
@@ -56,7 +56,9 @@ def _patch_runtime_metric_curve_loader(monkeypatch):
                 ]
         return curves
 
-    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", fake_load_runtime_metric_curves)
+    monkeypatch.setattr(
+        "src.api.heats._load_runtime_metric_curves", fake_load_runtime_metric_curves
+    )
 
 
 async def _insert_formal_heat_fixture() -> str:
@@ -187,7 +189,10 @@ async def _insert_formal_heat_fixture() -> str:
             "context_end_time": (now + timedelta(minutes=30)).isoformat(),
             "points": [
                 {"timestamp": int((now - timedelta(minutes=55)).timestamp() * 1000), "value": 18.5},
-                {"timestamp": int((now - timedelta(minutes=25)).timestamp() * 1000), "value": 420.0},
+                {
+                    "timestamp": int((now - timedelta(minutes=25)).timestamp() * 1000),
+                    "value": 420.0,
+                },
                 {"timestamp": int(now.timestamp() * 1000), "value": 430.0},
             ],
         }
@@ -210,7 +215,12 @@ async def _insert_formal_heat_fixture() -> str:
                     series_json=json.dumps(
                         {
                             "points": [
-                                {"timestamp": int((now - timedelta(minutes=25)).timestamp() * 1000), "value": 410.0},
+                                {
+                                    "timestamp": int(
+                                        (now - timedelta(minutes=25)).timestamp() * 1000
+                                    ),
+                                    "value": 410.0,
+                                },
                                 {"timestamp": int(now.timestamp() * 1000), "value": 420.0},
                             ]
                         },
@@ -237,7 +247,12 @@ async def _insert_formal_heat_fixture() -> str:
                     series_json=json.dumps(
                         {
                             "points": [
-                                {"timestamp": int((now - timedelta(minutes=25)).timestamp() * 1000), "value": 220.0},
+                                {
+                                    "timestamp": int(
+                                        (now - timedelta(minutes=25)).timestamp() * 1000
+                                    ),
+                                    "value": 220.0,
+                                },
                                 {"timestamp": int(now.timestamp() * 1000), "value": 225.0},
                             ]
                         },
@@ -325,7 +340,9 @@ async def test_list_heats_prefers_formal_history_over_overlapping_previous_runti
     assert response.status_code == 200
     items = response.json()["items"]
 
-    assert any(item["id"] == "heat-001" and item["record_source"] == "sealed_history" for item in items)
+    assert any(
+        item["id"] == "heat-001" and item["record_source"] == "sealed_history" for item in items
+    )
     assert all(item["id"] != "live-heat-overlap-001" for item in items)
 
 
@@ -734,13 +751,17 @@ async def test_prepare_runtime_candidates_persists_ready_binding_analysis(
             if metric_key == "power":
                 curves[metric_id] = [
                     CurvePoint(timestamp=to_timestamp_ms(loader_start_time), value=470.0),
-                    CurvePoint(timestamp=to_timestamp_ms(start_time + timedelta(minutes=15)), value=482.0),
+                    CurvePoint(
+                        timestamp=to_timestamp_ms(start_time + timedelta(minutes=15)), value=482.0
+                    ),
                     CurvePoint(timestamp=to_timestamp_ms(loader_end_time), value=495.0),
                 ]
             elif metric_key == "voltage":
                 curves[metric_id] = [
                     CurvePoint(timestamp=to_timestamp_ms(loader_start_time), value=222.0),
-                    CurvePoint(timestamp=to_timestamp_ms(start_time + timedelta(minutes=15)), value=225.0),
+                    CurvePoint(
+                        timestamp=to_timestamp_ms(start_time + timedelta(minutes=15)), value=225.0
+                    ),
                     CurvePoint(timestamp=to_timestamp_ms(loader_end_time), value=228.0),
                 ]
         return curves
@@ -1010,6 +1031,363 @@ async def test_persist_sealed_heat_candidates_writes_all_runtime_metrics_to_db(
 
 
 @pytest.mark.asyncio
+async def test_compile_runtime_candidates_builds_metric_union_and_baseline_views(
+    reset_test_database,
+) -> None:
+    definition_a = "def-runtime-union-001"
+    definition_b = "def-runtime-union-002"
+    baseline_a_id = f"{definition_a}:001"
+    baseline_b_id = f"{definition_b}:001"
+    start_time = datetime.now().replace(microsecond=0, second=0)
+    end_time = start_time + timedelta(minutes=30)
+    context_start_time = start_time - timedelta(minutes=15)
+    context_end_time = end_time + timedelta(minutes=15)
+
+    baseline_series_payload = json.dumps(
+        {
+            "points": [
+                {"timestamp": to_timestamp_ms(start_time), "value": 410.0},
+                {"timestamp": to_timestamp_ms(end_time), "value": 425.0},
+            ]
+        },
+        ensure_ascii=False,
+    )
+
+    async with async_session_maker() as session:
+        session.add_all(
+            [
+                BaselineDefinition(
+                    id=definition_a,
+                    definition_name="运行态并集定义A",
+                    description="power+voltage",
+                    expected_duration_minutes=30,
+                    status="active",
+                    created_by="tester",
+                    updated_by="tester",
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+                BaselineDefinition(
+                    id=definition_b,
+                    definition_name="运行态并集定义B",
+                    description="power+temperature",
+                    expected_duration_minutes=30,
+                    status="active",
+                    created_by="tester",
+                    updated_by="tester",
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                BaselineDefinitionMetric(
+                    definition_id=definition_a,
+                    item="001",
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#409EFF",
+                    sort_order=1,
+                    edc_channel_id="2349-199",
+                    enabled=True,
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+                BaselineDefinitionMetric(
+                    definition_id=definition_a,
+                    item="002",
+                    item_kind="metric_item",
+                    metric_key="voltage",
+                    metric_name="A相电压",
+                    unit="V",
+                    color="#67C23A",
+                    sort_order=2,
+                    edc_channel_id="2349-128",
+                    enabled=True,
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+                BaselineDefinitionMetric(
+                    definition_id=definition_b,
+                    item="001",
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#409EFF",
+                    sort_order=1,
+                    edc_channel_id="2349-199",
+                    enabled=True,
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+                BaselineDefinitionMetric(
+                    definition_id=definition_b,
+                    item="002",
+                    item_kind="metric_item",
+                    metric_key="temperature",
+                    metric_name="熔炼温度",
+                    unit="℃",
+                    color="#E6A23C",
+                    sort_order=2,
+                    edc_channel_id="2054-128",
+                    enabled=True,
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                Baseline(
+                    definition_id=definition_a,
+                    item="001",
+                    item_kind="baseline_version",
+                    name="运行态并集基线A",
+                    description="A",
+                    status="published",
+                    is_default=True,
+                    source_heat_id="heat-runtime-union-seed-a",
+                    selected_start_time=start_time - timedelta(minutes=30),
+                    selected_end_time=start_time,
+                    effective_from=start_time - timedelta(hours=2),
+                    tolerance_percent=10.0,
+                    created_by="tester",
+                    updated_by="tester",
+                    created_at=start_time,
+                    updated_at=start_time,
+                    published_at=start_time,
+                ),
+                Baseline(
+                    definition_id=definition_b,
+                    item="001",
+                    item_kind="baseline_version",
+                    name="运行态并集基线B",
+                    description="B",
+                    status="published",
+                    is_default=False,
+                    source_heat_id="heat-runtime-union-seed-b",
+                    selected_start_time=start_time - timedelta(minutes=30),
+                    selected_end_time=start_time,
+                    effective_from=start_time - timedelta(hours=2),
+                    tolerance_percent=12.0,
+                    created_by="tester",
+                    updated_by="tester",
+                    created_at=start_time,
+                    updated_at=start_time,
+                    published_at=start_time,
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                MetricSeries(
+                    owner_key=baseline_a_id,
+                    item="001",
+                    owner_type="baseline",
+                    definition_id=definition_a,
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#409EFF",
+                    sort_order=1,
+                    source_channel_id="2349-199",
+                    source_channel_name="总有功功率",
+                    source_channel_label="测试设备 / 总有功功率 / kW",
+                    series_json=baseline_series_payload,
+                    stat_json=json.dumps({"avg": 417.5}, ensure_ascii=False),
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+                MetricSeries(
+                    owner_key=baseline_a_id,
+                    item="002",
+                    owner_type="baseline",
+                    definition_id=definition_a,
+                    item_kind="metric_item",
+                    metric_key="voltage",
+                    metric_name="A相电压",
+                    unit="V",
+                    color="#67C23A",
+                    sort_order=2,
+                    source_channel_id="2349-128",
+                    source_channel_name="A相电压",
+                    source_channel_label="测试设备 / A相电压 / V",
+                    series_json=baseline_series_payload,
+                    stat_json=json.dumps({"avg": 223.0}, ensure_ascii=False),
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+                MetricSeries(
+                    owner_key=baseline_b_id,
+                    item="001",
+                    owner_type="baseline",
+                    definition_id=definition_b,
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#409EFF",
+                    sort_order=1,
+                    source_channel_id="2349-199",
+                    source_channel_name="总有功功率",
+                    source_channel_label="测试设备 / 总有功功率 / kW",
+                    series_json=baseline_series_payload,
+                    stat_json=json.dumps({"avg": 417.5}, ensure_ascii=False),
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+                MetricSeries(
+                    owner_key=baseline_b_id,
+                    item="002",
+                    owner_type="baseline",
+                    definition_id=definition_b,
+                    item_kind="metric_item",
+                    metric_key="temperature",
+                    metric_name="熔炼温度",
+                    unit="℃",
+                    color="#E6A23C",
+                    sort_order=2,
+                    source_channel_id="2054-128",
+                    source_channel_name="热电偶温度采集通道",
+                    source_channel_label="测试设备 / 熔炼温度 / ℃",
+                    series_json=baseline_series_payload,
+                    stat_json=json.dumps({"avg": 1555.0}, ensure_ascii=False),
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+            ]
+        )
+        await session.commit()
+
+    explicit_baselines = [
+        {
+            "id": baseline_a_id,
+            "definition_id": definition_a,
+            "item": "001",
+            "is_default": True,
+            "effective_from": start_time - timedelta(hours=2),
+            "tolerance_percent": 10.0,
+        },
+        {
+            "id": baseline_b_id,
+            "definition_id": definition_b,
+            "item": "001",
+            "is_default": False,
+            "effective_from": start_time - timedelta(hours=2),
+            "tolerance_percent": 12.0,
+        },
+    ]
+
+    async def fake_metric_curve_loader(
+        metrics: list[dict[str, object]],
+        loader_start_time: datetime,
+        loader_end_time: datetime,
+    ) -> dict[str, list[CurvePoint]]:
+        curves: dict[str, list[CurvePoint]] = {}
+        for metric in metrics:
+            metric_id = str(metric.get("id") or "")
+            metric_key = str(metric.get("metric_key") or "")
+            if metric_key == "power":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=to_timestamp_ms(loader_start_time), value=430.0),
+                    CurvePoint(timestamp=to_timestamp_ms(loader_end_time), value=438.0),
+                ]
+            elif metric_key == "voltage":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=to_timestamp_ms(loader_start_time), value=221.0),
+                    CurvePoint(timestamp=to_timestamp_ms(loader_end_time), value=226.0),
+                ]
+            elif metric_key == "temperature":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=to_timestamp_ms(loader_start_time), value=1548.0),
+                    CurvePoint(timestamp=to_timestamp_ms(loader_end_time), value=1566.0),
+                ]
+        return curves
+
+    prepared = await compile_runtime_candidates(
+        [
+            {
+                "id": "heat-runtime-union-001",
+                "heat_no": "HRUNTIME-UNION-001",
+                "description": "运行态并集视图样本",
+                "start_time": start_time,
+                "end_time": end_time,
+                "context_start_time": context_start_time,
+                "context_end_time": context_end_time,
+                "record_source": "live_inferred",
+                "cut_reason": "test",
+                "cut_status": "normal",
+                "status": "normal",
+                "created_at": start_time,
+            }
+        ],
+        trigger_source="test",
+        metric_curve_loader=fake_metric_curve_loader,
+        explicit_baselines=explicit_baselines,
+        explicit_primary_baseline_id=baseline_a_id,
+    )
+
+    assert len(prepared) == 1
+    runtime_metric_keys = {
+        str(entry.get("metric_key") or "")
+        for entry in prepared[0]["runtime_metric_series"]
+        if isinstance(entry, dict)
+    }
+    assert runtime_metric_keys == {"power", "voltage", "temperature"}
+
+    baseline_views = {
+        str(view["baseline_id"]): view
+        for view in prepared[0]["baseline_views"]
+        if isinstance(view, dict)
+    }
+    assert set(baseline_views) == {baseline_a_id, baseline_b_id}
+    assert {
+        str(entry.get("metric_key") or "")
+        for entry in baseline_views[baseline_a_id]["current_metric_series"]
+    } == {"power", "voltage"}
+    assert {
+        str(entry.get("metric_key") or "")
+        for entry in baseline_views[baseline_b_id]["current_metric_series"]
+    } == {"power", "temperature"}
+
+    persisted = await persist_sealed_heat_candidates(prepared)
+    assert "heat-runtime-union-001" in persisted
+    assert len(persisted["heat-runtime-union-001"]["baseline_bindings"]) == 2
+
+    async with async_session_maker() as session:
+        heat_metric_rows = list(
+            (
+                await session.execute(
+                    select(MetricSeries)
+                    .where(MetricSeries.owner_key == "heat-runtime-union-001")
+                    .where(MetricSeries.owner_type == "heat")
+                    .order_by(MetricSeries.sort_order, MetricSeries.item)
+                )
+            ).scalars()
+        )
+        binding_rows = list(
+            (
+                await session.execute(
+                    select(HeatBaselineBinding)
+                    .where(HeatBaselineBinding.heat_id == "heat-runtime-union-001")
+                    .order_by(
+                        HeatBaselineBinding.baseline_definition_id,
+                        HeatBaselineBinding.baseline_item,
+                    )
+                )
+            ).scalars()
+        )
+
+    assert [row.metric_key for row in heat_metric_rows] == ["power", "voltage", "temperature"]
+    assert len(binding_rows) == 2
+
+
+@pytest.mark.asyncio
 async def test_resume_history_heat_writes_formal_tables(client) -> None:
     heat_id = await _insert_formal_heat_fixture()
     async with async_session_maker() as session:
@@ -1041,7 +1419,9 @@ async def test_resume_history_heat_writes_formal_tables(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_history_compare_does_not_fallback_when_binding_analysis_pending(client, monkeypatch) -> None:
+async def test_history_compare_does_not_fallback_when_binding_analysis_not_ready(
+    client, monkeypatch
+) -> None:
     heat_id = await _insert_formal_heat_fixture()
     async with async_session_maker() as session:
         binding = await session.get(
@@ -1053,7 +1433,9 @@ async def test_history_compare_does_not_fallback_when_binding_analysis_pending(c
             },
         )
         assert binding is not None
-        binding.analysis_status = "pending"
+        binding.analysis_status = "unsupported"
+        binding.analysis_reason = "metric_scale_invalid"
+        binding.analysis_message = "该黄金基线包含当前模型不适用的低波动或离散台阶型指标，未计算偏离度"
         binding.deviation_score = None
         binding.avg_deviation_score = None
         binding.analysis_details_json = None
@@ -1074,6 +1456,11 @@ async def test_history_compare_does_not_fallback_when_binding_analysis_pending(c
     assert payload["deviation_score"] is None
     assert payload["avg_deviation_score"] is None
     assert payload["deviation_ranges"] == []
+    assert payload["analysis_status"] == "unsupported"
+    assert payload["analysis_reason"] == "metric_scale_invalid"
+    assert payload["analysis_message"] == "该黄金基线包含当前模型不适用的低波动或离散台阶型指标，未计算偏离度"
+    assert payload["baselines"][0]["analysis_status"] == "unsupported"
+    assert payload["baselines"][0]["analysis_reason"] == "metric_scale_invalid"
     assert payload["baselines"][0]["deviation_score"] is None
 
 
@@ -1202,7 +1589,9 @@ async def test_refresh_runtime_only_keeps_n_minus_1_and_n_in_cache(client, monke
     list_resp = await client.get("/api/heats", params={"page_size": 20})
     assert list_resp.status_code == 200
     items = list_resp.json()["items"]
-    runtime_items = [item for item in items if item["record_source"] in {"active_runtime", "previous_runtime"}]
+    runtime_items = [
+        item for item in items if item["record_source"] in {"active_runtime", "previous_runtime"}
+    ]
     history_items = [item for item in items if item["record_source"] == "sealed_history"]
     live_history_items = [item for item in history_items if item["id"].startswith("live-heat-")]
     assert len(runtime_items) == 2

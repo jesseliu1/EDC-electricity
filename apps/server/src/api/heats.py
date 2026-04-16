@@ -76,10 +76,13 @@ from ..services.heat_replay_batch_service import (
     list_heat_replay_jobs as list_heat_replay_job_records,
 )
 from ..services.heat_runtime_factory import HeatRuntimeFactory
+from ..services.heat_runtime_seal_service import HeatRuntimeSealService
+from ..services.heat_runtime_transition_service import HeatRuntimeTransitionService
 from ..services.heat_runtime_types import (
     CurrentHeatRuntime,
     HeatBirthContext,
     RuntimeBaselineCurveSnapshot,
+    RuntimeBaselineView,
     RuntimeCuttingConfigSnapshot,
     RuntimeDefinitionMetricSnapshot,
     RuntimeHeatBinding,
@@ -141,6 +144,8 @@ _COMPARE_CHANNEL_CURVE_CACHE: dict[str, Any] = {
 
 _LIVE_HEAT_LEGACY_ID_PATTERN = re.compile(r"^live-heat-(\d+)-(\d+)$")
 _LIVE_HEAT_CANONICAL_ID_PATTERN = re.compile(r"^live-heat-([0-9a-f]{8})-(\d+)-(\d+)$")
+
+
 async def _ensure_formal_baseline_mirrors_loaded(
     *,
     definition_id: str | None = None,
@@ -441,7 +446,9 @@ def _curve_points(
     return points
 
 
-def _coerce_curve_points(points: list[CurvePoint] | list[dict[str, Any]] | None) -> list[CurvePoint]:
+def _coerce_curve_points(
+    points: list[CurvePoint] | list[dict[str, Any]] | None,
+) -> list[CurvePoint]:
     """将存储结构统一转换为 CurvePoint 列表。"""
     if not points:
         return []
@@ -465,10 +472,7 @@ def _curve_points_to_pairs(
     points: list[CurvePoint] | list[dict[str, Any]] | None,
 ) -> list[tuple[float, float]]:
     """将曲线点统一转换为偏差计算所需的二元组结构。"""
-    return [
-        (float(point.timestamp), float(point.value))
-        for point in _coerce_curve_points(points)
-    ]
+    return [(float(point.timestamp), float(point.value)) for point in _coerce_curve_points(points)]
 
 
 def _curve_window_ms(start_time: datetime, end_time: datetime) -> tuple[int, int]:
@@ -547,7 +551,7 @@ def _round_duration_to_live_bucket_minutes(duration_minutes: float) -> int:
 
 
 def _live_heat_channel_key(channel: dict[str, str]) -> str:
-    return f'{channel["suid"]}:{channel["cuid"]}'
+    return f"{channel['suid']}:{channel['cuid']}"
 
 
 def _live_heat_context_hash(channel_key: str) -> str:
@@ -652,7 +656,10 @@ def _build_live_refresh_context_from_runtime_item(
         return None
 
     channel_key = str(
-        birth_context.get("channel_key") or item.get("_live_context_key") or item.get("furnace_id") or ""
+        birth_context.get("channel_key")
+        or item.get("_live_context_key")
+        or item.get("furnace_id")
+        or ""
     ).strip()
     expected_duration_minutes = birth_context.get("expected_duration_minutes")
     if not channel_key or expected_duration_minutes is None:
@@ -671,11 +678,7 @@ def _build_live_refresh_context_from_runtime_item(
     return _build_live_heat_context(
         channel=channel,
         baseline_id=(
-            str(
-                birth_context.get("primary_baseline_id")
-                or item.get("baseline_id")
-                or ""
-            )
+            str(birth_context.get("primary_baseline_id") or item.get("baseline_id") or "")
             if (
                 birth_context.get("primary_baseline_id") is not None
                 or item.get("baseline_id") is not None
@@ -699,13 +702,13 @@ def _resolve_live_context_cutting_config(context: dict[str, Any] | None) -> Heat
         fixed_interval_minutes = raw_snapshot.get("fixed_interval_minutes")
         return HeatCuttingConfig(
             time_tolerance_percent=float(raw_snapshot.get("time_tolerance_percent") or 0.0),
-            major_issue_duration_minutes=int(
-                raw_snapshot.get("major_issue_duration_minutes") or 0
-            ),
+            major_issue_duration_minutes=int(raw_snapshot.get("major_issue_duration_minutes") or 0),
             plant_timezone=str(raw_snapshot.get("plant_timezone") or ""),
             work_start_time=str(raw_snapshot.get("work_start_time") or ""),
             work_end_time=str(raw_snapshot.get("work_end_time") or ""),
-            break_periods=tuple(str(period) for period in (raw_snapshot.get("break_periods") or [])),
+            break_periods=tuple(
+                str(period) for period in (raw_snapshot.get("break_periods") or [])
+            ),
             cutting_mode=str(raw_snapshot.get("cutting_mode") or "signal_inference"),
             fixed_interval_minutes=(
                 int(fixed_interval_minutes) if fixed_interval_minutes is not None else None
@@ -807,9 +810,7 @@ def _resolve_primary_baseline_id(item: dict[str, Any]) -> str | None:
     return None
 
 
-def _slice_curve_points(
-    points: list[CurvePoint], start_ts: int, end_ts: int
-) -> list[CurvePoint]:
+def _slice_curve_points(points: list[CurvePoint], start_ts: int, end_ts: int) -> list[CurvePoint]:
     return [point for point in points if start_ts <= point.timestamp <= end_ts]
 
 
@@ -873,7 +874,9 @@ def _build_live_heat_item(
         "end_time": end_time,
         "baseline_id": baseline_id,
         "baseline_version_id": baseline_id,
-        "baseline_effective_from": _baseline_effective_from(_BASELINE_STORE.get(baseline_id)) if baseline_id else None,
+        "baseline_effective_from": _baseline_effective_from(_BASELINE_STORE.get(baseline_id))
+        if baseline_id
+        else None,
         "baseline_ids": [baseline_id] if baseline_id else [],
         "completion_status": "completed",
         "last_point_at": end_time,
@@ -1054,7 +1057,6 @@ def _build_replay_context(
     *,
     baseline_ids: list[str] | None = None,
     selected_baselines: list[dict[str, Any]] | None = None,
-    definition_id: str | None = None,
 ) -> ReplayContext:
     return ReplayContext(
         channel=dict(context["channel"]),
@@ -1063,9 +1065,10 @@ def _build_replay_context(
         cache_key=str(context["cache_key"]),
         cutting_config_snapshot=deepcopy(context.get("cutting_config_snapshot") or {}),
         baseline_id=context.get("baseline_id"),
-        baseline_ids=list(baseline_ids or ([str(context["baseline_id"])] if context.get("baseline_id") else [])),
+        baseline_ids=list(
+            baseline_ids or ([str(context["baseline_id"])] if context.get("baseline_id") else [])
+        ),
         selected_baselines=[dict(item) for item in (selected_baselines or [])],
-        definition_id=definition_id,
         expected_duration_minutes=int(context["expected_duration_minutes"]),
     )
 
@@ -1097,7 +1100,6 @@ def _build_replay_context_from_selection(
         live_context,
         baseline_ids=[str(item.get("id") or "") for item in selection.selected_baselines],
         selected_baselines=selection.selected_baselines,
-        definition_id=selection.definition_id,
     )
 
 
@@ -1208,9 +1210,7 @@ async def _get_live_inferred_heat_store(
             cutting_config=_resolve_live_context_cutting_config(context),
         )
         cache_entry["items"] = inferred_items
-        cache_entry["expires_at"] = utc_now() + timedelta(
-            seconds=_LIVE_HEAT_CACHE_TTL_SECONDS
-        )
+        cache_entry["expires_at"] = utc_now() + timedelta(seconds=_LIVE_HEAT_CACHE_TTL_SECONDS)
         return inferred_items
 
     inflight_task = asyncio.create_task(_refresh_live_items())
@@ -1321,9 +1321,7 @@ def _resolve_item_time_window_ms(item: dict[str, Any]) -> tuple[int, int] | None
     return None
 
 
-def _has_overlapping_time_window(
-    left_item: dict[str, Any], right_item: dict[str, Any]
-) -> bool:
+def _has_overlapping_time_window(left_item: dict[str, Any], right_item: dict[str, Any]) -> bool:
     left_window = _resolve_item_time_window_ms(left_item)
     right_window = _resolve_item_time_window_ms(right_item)
     if not left_window or not right_window:
@@ -1688,7 +1686,9 @@ async def _apply_replay_runtime_seed_with_context(
         _log_replay_runtime_debug(
             "replay_runtime_seed_compile_failed",
             channel_key=replay_context.channel_key,
-            seed_candidate_ids=[str(candidate.get("id") or "") for candidate in runtime_seed_candidates],
+            seed_candidate_ids=[
+                str(candidate.get("id") or "") for candidate in runtime_seed_candidates
+            ],
             prepared_candidate_ids=list(prepared_runtime_candidate_map.keys()),
         )
         return _build_heat_runtime_refresh_meta_snapshot()
@@ -1848,6 +1848,23 @@ async def _refresh_heat_runtime_state_from_context(
             previous_candidate,
             existing_item=existing_active_item,
         )
+    previous_candidate = _HEAT_RUNTIME_TRANSITION_SERVICE.prepare_previous_candidate(
+        previous_candidate,
+        active_candidate=active_candidate,
+        existing_previous_item=(
+            existing_previous_item if isinstance(existing_previous_item, dict) else None
+        ),
+        existing_active_item=(
+            existing_active_item if isinstance(existing_active_item, dict) else None
+        ),
+    )
+    active_candidate = _HEAT_RUNTIME_TRANSITION_SERVICE.prepare_active_candidate(
+        active_candidate,
+        previous_candidate=previous_candidate,
+        existing_previous_item=(
+            existing_previous_item if isinstance(existing_previous_item, dict) else None
+        ),
+    )
 
     if not active_candidate and not previous_candidate and not sealed_candidates:
         _mark_heat_runtime_refresh_failure(error="no_runtime_heats_inferred")
@@ -1869,7 +1886,6 @@ async def _refresh_heat_runtime_state_from_context(
         and not previous_reuses_existing_active
     ):
         compile_candidates.append(previous_candidate)
-    compile_candidates.extend(sealed_candidates)
 
     prepared_runtime_candidates = (
         await compile_runtime_candidates(
@@ -1899,7 +1915,9 @@ async def _refresh_heat_runtime_state_from_context(
                 metric_curve_loader=_load_runtime_metric_curves,
             )
         else:
-            prepared_active_candidate = prepared_runtime_candidate_map.get(str(active_candidate["id"]))
+            prepared_active_candidate = prepared_runtime_candidate_map.get(
+                str(active_candidate["id"])
+            )
 
     prepared_previous_candidate: dict[str, Any] | None = None
     if previous_candidate is not None:
@@ -1911,18 +1929,22 @@ async def _refresh_heat_runtime_state_from_context(
                 processing_mode="live_incremental",
                 request_anchor_time=force_anchor_time or previous_candidate.get("start_time"),
                 metric_curve_loader=_load_runtime_metric_curves,
+                preserve_binding_analysis=True,
             )
         elif previous_reuses_existing and isinstance(existing_previous_item, dict):
-            prepared_previous_candidate = dict(existing_previous_item)
+            prepared_previous_candidate = await _HEAT_RUNTIME_UPDATER.update_existing_runtime(
+                existing_item=existing_previous_item,
+                candidate=previous_candidate,
+                trigger_source=reason,
+                processing_mode="live_incremental",
+                request_anchor_time=force_anchor_time or previous_candidate.get("start_time"),
+                metric_curve_loader=_load_runtime_metric_curves,
+                preserve_binding_analysis=True,
+            )
         else:
             prepared_previous_candidate = prepared_runtime_candidate_map.get(
                 str(previous_candidate["id"])
             )
-    prepared_sealed_candidates = [
-        prepared_runtime_candidate_map[str(candidate["id"])]
-        for candidate in sealed_candidates
-        if str(candidate["id"]) in prepared_runtime_candidate_map
-    ]
 
     next_active_runtime: dict[str, dict[str, Any]] = {}
     next_previous_runtime: dict[str, dict[str, Any]] = {}
@@ -1935,7 +1957,9 @@ async def _refresh_heat_runtime_state_from_context(
         active_item = _mark_active_runtime(active_runtime.to_runtime_item())
         next_active_runtime[str(active_item["id"])] = active_item
     previous_item = _choose_next_previous_runtime(
-        existing_active_item=existing_active_item if isinstance(existing_active_item, dict) else None,
+        existing_active_item=existing_active_item
+        if isinstance(existing_active_item, dict)
+        else None,
         existing_previous_item=(
             existing_previous_item if isinstance(existing_previous_item, dict) else None
         ),
@@ -1950,7 +1974,22 @@ async def _refresh_heat_runtime_state_from_context(
 
     next_history_items: dict[str, dict[str, Any]] = {}
     if not is_replay_active_for_channel(str(context["channel_key"])):
-        next_history_items = await append_sealed_heats(prepared_sealed_candidates)
+        try:
+            seal_sources = _HEAT_RUNTIME_SEAL_SERVICE.resolve_seal_sources(
+                sealed_candidates=[dict(candidate) for candidate in sealed_candidates],
+                existing_previous_item=(
+                    existing_previous_item if isinstance(existing_previous_item, dict) else None
+                ),
+                existing_active_item=(
+                    existing_active_item if isinstance(existing_active_item, dict) else None
+                ),
+                trigger_source=reason,
+            )
+        except ValueError as exc:
+            _mark_heat_runtime_refresh_failure(error=str(exc))
+            await persist_runtime_state(*_runtime_heat_sections())
+            raise
+        next_history_items = await append_sealed_heats(seal_sources)
 
     previous_runtime_items = [
         *list(_ACTIVE_HEAT_RUNTIME.values()),
@@ -2044,10 +2083,7 @@ async def _list_heat_store() -> dict[str, dict[str, Any]]:
     if is_mock_dataset_enabled():
         return dict(_MOCK_HEAT_STREAM_STORE)
 
-    formal_items = {
-        str(item["id"]): item
-        for item in await list_formal_heat_records()
-    }
+    formal_items = {str(item["id"]): item for item in await list_formal_heat_records()}
     merged = dict(formal_items)
     merged.update(
         _filter_runtime_items_covered_by_formal_history(
@@ -2167,15 +2203,27 @@ async def _load_heat_curves_from_edc_window(
         return None
 
     power_metric = next(
-        (metric for index, metric in enumerate(metrics) if _infer_metric_key(metric, index) == "power"),
+        (
+            metric
+            for index, metric in enumerate(metrics)
+            if _infer_metric_key(metric, index) == "power"
+        ),
         None,
     )
     voltage_metric = next(
-        (metric for index, metric in enumerate(metrics) if _infer_metric_key(metric, index) == "voltage"),
+        (
+            metric
+            for index, metric in enumerate(metrics)
+            if _infer_metric_key(metric, index) == "voltage"
+        ),
         None,
     )
-    power_channel = _resolve_host_channel(power_metric.get("edc_channel_id")) if power_metric else None
-    voltage_channel = _resolve_host_channel(voltage_metric.get("edc_channel_id")) if voltage_metric else None
+    power_channel = (
+        _resolve_host_channel(power_metric.get("edc_channel_id")) if power_metric else None
+    )
+    voltage_channel = (
+        _resolve_host_channel(voltage_metric.get("edc_channel_id")) if voltage_metric else None
+    )
     if not power_channel and not voltage_channel:
         return None
 
@@ -2263,12 +2311,15 @@ def _build_heat_list_view(
     baseline_id = _resolve_primary_baseline_id(item)
     response_item["baseline_id"] = baseline_id
 
-    baseline_item = hydrated_baseline_item or (_BASELINE_STORE.get(baseline_id) if baseline_id else None)
+    baseline_item = hydrated_baseline_item or (
+        _BASELINE_STORE.get(baseline_id) if baseline_id else None
+    )
     if baseline_item:
         response_item["baseline_curve_source"] = str(
             baseline_item.get("curve_source") or item.get("baseline_curve_source") or "none"
         )
     return response_item
+
 
 async def _build_heat_list_views(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     baseline_ids = sorted(
@@ -2588,9 +2639,13 @@ def _resolve_heat_curves_from_shared_channels(
 def _is_runtime_compare_source(item: dict[str, Any]) -> bool:
     if str(item.get("record_source") or "") not in {"active_runtime", "previous_runtime"}:
         return False
-    return bool(_runtime_metric_series_entries(item)) and bool(
-        _build_runtime_definition_metric_snapshots(item)
-    ) and bool(_build_runtime_baseline_curve_snapshots(item))
+    return (
+        bool(_runtime_metric_series_entries(item))
+        and bool(
+            _runtime_baseline_view_entries(item) or _build_runtime_definition_metric_snapshots(item)
+        )
+        and bool(_build_runtime_baseline_curve_snapshots(item))
+    )
 
 
 def _runtime_metric_series_entries(item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2687,11 +2742,107 @@ def _resolve_runtime_definition_metric_snapshots(
     return _build_runtime_definition_metric_snapshots(item)
 
 
+def _runtime_baseline_view_entries(item: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_views = item.get("baseline_views")
+    if not isinstance(raw_views, list):
+        return []
+    return [view for view in raw_views if isinstance(view, dict)]
+
+
+def _resolve_runtime_baseline_view(
+    item: dict[str, Any],
+    baseline_id: str,
+) -> dict[str, Any] | None:
+    return next(
+        (
+            view
+            for view in _runtime_baseline_view_entries(item)
+            if str(view.get("baseline_id") or "").strip() == baseline_id
+        ),
+        None,
+    )
+
+
+def _resolve_runtime_baseline_view_current_curves(
+    baseline_view: dict[str, Any],
+) -> dict[str, list[CurvePoint]]:
+    curves: dict[str, list[CurvePoint]] = {}
+    raw_series = baseline_view.get("current_metric_series")
+    if not isinstance(raw_series, list):
+        return curves
+    for entry in raw_series:
+        if not isinstance(entry, dict):
+            continue
+        metric_key = str(entry.get("metric_key") or "").strip()
+        if not metric_key:
+            continue
+        points = _coerce_curve_points(_runtime_series_payload(entry).get("points"))
+        if points:
+            curves[metric_key] = points
+    return curves
+
+
 def _build_runtime_metric_curve_series(
     *,
     item: dict[str, Any],
     baseline_id: str,
 ) -> list[MetricCompareSeries]:
+    baseline_view = _resolve_runtime_baseline_view(item, baseline_id)
+    if baseline_view is not None:
+        current_curves = _resolve_runtime_baseline_view_current_curves(baseline_view)
+        baseline_snapshots = _resolve_runtime_baseline_curve_snapshots(item)
+        raw_series = baseline_view.get("current_metric_series")
+        if not isinstance(raw_series, list) or not raw_series:
+            raise ValueError("runtime_baseline_view_current_metric_series_missing")
+
+        series: list[MetricCompareSeries] = []
+        for entry in sorted(
+            (series for series in raw_series if isinstance(series, dict)),
+            key=lambda value: (int(value.get("sort_order") or 0), str(value.get("item") or "")),
+        ):
+            metric_key = str(entry.get("metric_key") or "").strip()
+            metric_name = str(entry.get("metric_name") or "").strip()
+            color = str(entry.get("color") or "").strip()
+            if not metric_key or not metric_name or not color:
+                continue
+            current_curve = current_curves.get(metric_key)
+            if not current_curve:
+                raise ValueError(f"runtime_current_metric_curve_missing:{metric_key}")
+            baseline_snapshot = baseline_snapshots.get((baseline_id, metric_key))
+            if baseline_snapshot is None or not baseline_snapshot.points:
+                raise ValueError(f"runtime_baseline_metric_curve_missing:{metric_key}")
+            baseline_curve = _rebase_curve_points_to_window(
+                baseline_snapshot.points,
+                target_start_time=item["start_time"],
+                target_end_time=item["end_time"],
+            )
+            series.append(
+                MetricCompareSeries(
+                    metric_key=metric_key,
+                    metric_name=metric_name,
+                    unit=str(entry.get("unit") or "--"),
+                    color=color,
+                    edc_channel_id=(
+                        str(entry.get("source_channel_id"))
+                        if entry.get("source_channel_id") is not None
+                        else None
+                    ),
+                    source_channel_name=(
+                        str(entry.get("source_channel_name"))
+                        if entry.get("source_channel_name") is not None
+                        else None
+                    ),
+                    source_channel_label=(
+                        str(entry.get("source_channel_label"))
+                        if entry.get("source_channel_label") is not None
+                        else None
+                    ),
+                    baseline_curve=baseline_curve,
+                    current_curve=current_curve,
+                )
+            )
+        return series
+
     metric_snapshots = _resolve_runtime_definition_metric_snapshots(item)
     if not metric_snapshots:
         raise ValueError("runtime_definition_metric_snapshots_missing")
@@ -3069,6 +3220,8 @@ _HEAT_RUNTIME_REFRESH_INFLIGHT: asyncio.Task[dict[str, Any]] | None = None
 _HEAT_RUNTIME_REFRESH_LOOP_TASK: asyncio.Task[None] | None = None
 _HEAT_RUNTIME_FACTORY = HeatRuntimeFactory()
 _HEAT_RUNTIME_UPDATER = HeatRuntimeUpdater()
+_HEAT_RUNTIME_TRANSITION_SERVICE = HeatRuntimeTransitionService()
+_HEAT_RUNTIME_SEAL_SERVICE = HeatRuntimeSealService()
 _REPLAY_BASELINE_SELECTION_SERVICE = ReplayBaselineSelectionService()
 
 
@@ -3144,8 +3297,12 @@ def _list_applicable_runtime_baselines(at_time: datetime) -> list[dict[str, Any]
         key=lambda item: (
             bool(item.get("is_default")),
             _baseline_effective_from(item),
-            item.get("published_at") if isinstance(item.get("published_at"), datetime) else datetime.min,
-            item.get("updated_at") if isinstance(item.get("updated_at"), datetime) else datetime.min,
+            item.get("published_at")
+            if isinstance(item.get("published_at"), datetime)
+            else datetime.min,
+            item.get("updated_at")
+            if isinstance(item.get("updated_at"), datetime)
+            else datetime.min,
         ),
         reverse=True,
     )
@@ -3216,7 +3373,17 @@ def _build_runtime_bindings(item: dict[str, Any]) -> list[RuntimeHeatBinding]:
                         if binding.get("tolerance_percent") is not None
                         else None
                     ),
-                    analysis_status=str(binding.get("analysis_status") or "pending"),
+                    analysis_status=str(binding.get("analysis_status") or "waiting"),
+                    analysis_reason=(
+                        str(binding.get("analysis_reason"))
+                        if binding.get("analysis_reason") is not None
+                        else None
+                    ),
+                    analysis_message=(
+                        str(binding.get("analysis_message"))
+                        if binding.get("analysis_message") is not None
+                        else None
+                    ),
                     deviation_score=(
                         float(binding.get("deviation_score"))
                         if binding.get("deviation_score") is not None
@@ -3277,7 +3444,11 @@ def _build_runtime_bindings(item: dict[str, Any]) -> list[RuntimeHeatBinding]:
                     if baseline_item.get("tolerance_percent") is not None
                     else None
                 ),
-                analysis_status="ready" if analysis_ready else "pending",
+                analysis_status="ready" if analysis_ready else "waiting",
+                analysis_reason=None if analysis_ready else "metric_inputs_missing",
+                analysis_message=(
+                    None if analysis_ready else "当前数据尚未准备完成，暂无法计算偏离度"
+                ),
                 deviation_score=item.get("deviation_score") if should_seed else None,
                 avg_deviation_score=item.get("avg_deviation_score") if should_seed else None,
                 analysis_details_json=None,
@@ -3369,6 +3540,89 @@ def _build_runtime_baseline_curve_snapshots(
     return snapshots
 
 
+def _build_runtime_baseline_view_objects(
+    item: dict[str, Any],
+) -> list[RuntimeBaselineView]:
+    raw_views = item.get("baseline_views")
+    if not isinstance(raw_views, list):
+        return []
+
+    views: list[RuntimeBaselineView] = []
+    for raw_view in raw_views:
+        if not isinstance(raw_view, dict):
+            continue
+        baseline_id = str(raw_view.get("baseline_id") or "").strip()
+        baseline_definition_id = str(raw_view.get("baseline_definition_id") or "").strip()
+        baseline_item = str(raw_view.get("baseline_item") or "").strip()
+        if not baseline_id or not baseline_definition_id or not baseline_item:
+            continue
+        metric_series: list[RuntimeMetricSeries] = []
+        raw_metric_series = raw_view.get("current_metric_series")
+        if isinstance(raw_metric_series, list):
+            for entry in raw_metric_series:
+                if not isinstance(entry, dict):
+                    continue
+                payload = _build_runtime_metric_series_from_dict(
+                    owner_key=str(item.get("id") or ""),
+                    entry=entry,
+                )
+                if payload is not None:
+                    metric_series.append(payload)
+        views.append(
+            RuntimeBaselineView(
+                heat_id=str(raw_view.get("heat_id") or item.get("id") or ""),
+                baseline_id=baseline_id,
+                baseline_definition_id=baseline_definition_id,
+                baseline_item=baseline_item,
+                is_primary=bool(raw_view.get("is_primary")),
+                baseline_effective_from=raw_view.get("baseline_effective_from"),
+                tolerance_percent=(
+                    float(raw_view.get("tolerance_percent"))
+                    if raw_view.get("tolerance_percent") is not None
+                    else None
+                ),
+                required_metric_keys=[
+                    str(metric_key)
+                    for metric_key in (raw_view.get("required_metric_keys") or [])
+                    if isinstance(metric_key, str) and metric_key.strip()
+                ],
+                current_metric_series=metric_series,
+                analysis_status=str(raw_view.get("analysis_status") or "waiting"),
+                analysis_reason=(
+                    str(raw_view.get("analysis_reason"))
+                    if raw_view.get("analysis_reason") is not None
+                    else None
+                ),
+                analysis_message=(
+                    str(raw_view.get("analysis_message"))
+                    if raw_view.get("analysis_message") is not None
+                    else None
+                ),
+                deviation_score=(
+                    float(raw_view.get("deviation_score"))
+                    if raw_view.get("deviation_score") is not None
+                    else None
+                ),
+                avg_deviation_score=(
+                    float(raw_view.get("avg_deviation_score"))
+                    if raw_view.get("avg_deviation_score") is not None
+                    else None
+                ),
+                analysis_details_json=(
+                    str(raw_view.get("analysis_details_json"))
+                    if raw_view.get("analysis_details_json") is not None
+                    else None
+                ),
+                abnormal_duration_minutes=(
+                    float(raw_view.get("abnormal_duration_minutes"))
+                    if raw_view.get("abnormal_duration_minutes") is not None
+                    else None
+                ),
+            )
+        )
+    return views
+
+
 def _build_runtime_cutting_config_snapshot(
     item: dict[str, Any],
 ) -> RuntimeCuttingConfigSnapshot | None:
@@ -3384,9 +3638,7 @@ def _build_runtime_cutting_config_snapshot(
         fixed_interval_minutes = raw_snapshot.get("fixed_interval_minutes")
         return RuntimeCuttingConfigSnapshot(
             time_tolerance_percent=float(raw_snapshot.get("time_tolerance_percent") or 0.0),
-            major_issue_duration_minutes=int(
-                raw_snapshot.get("major_issue_duration_minutes") or 0
-            ),
+            major_issue_duration_minutes=int(raw_snapshot.get("major_issue_duration_minutes") or 0),
             plant_timezone=str(raw_snapshot.get("plant_timezone") or ""),
             work_start_time=str(raw_snapshot.get("work_start_time") or ""),
             work_end_time=str(raw_snapshot.get("work_end_time") or ""),
@@ -3478,7 +3730,7 @@ def _build_current_heat_runtime(
         context_end_time=context_end_time,
         is_manually_adjusted=bool(item.get("is_manually_adjusted") or False),
         completion_status=str(item.get("completion_status") or "completed"),
-        last_point_at=item.get("last_point_at") or end_time,
+        last_point_at=item.get("last_point_at") or context_end_time or end_time,
         schedule_tag=str(item.get("schedule_tag") or "work"),
         cut_reason=item.get("cut_reason"),
         cut_status=str(item.get("cut_status") or "normal"),
@@ -3504,6 +3756,7 @@ def _build_current_heat_runtime(
     if not metric_series:
         raise ValueError("runtime_metric_series_missing")
     bindings = _build_runtime_bindings(item)
+    baseline_views = _build_runtime_baseline_view_objects(item)
     definition_metric_snapshots = _build_runtime_definition_metric_snapshots(item)
     baseline_curve_snapshots = _build_runtime_baseline_curve_snapshots(item)
     birth_context = _build_heat_birth_context(
@@ -3560,6 +3813,7 @@ def _build_current_heat_runtime(
         birth_context=birth_context,
         bindings=bindings,
         metric_series=metric_series,
+        baseline_views=baseline_views,
         definition_metric_snapshots=definition_metric_snapshots,
         baseline_curve_snapshots=baseline_curve_snapshots,
         preseal_payload=preseal_payload,
@@ -3575,7 +3829,11 @@ def _build_current_heat_runtime(
 def _mark_active_runtime(item: dict[str, Any]) -> dict[str, Any]:
     active_item = dict(item)
     active_item["completion_status"] = "in_progress"
-    active_item["last_point_at"] = active_item.get("end_time")
+    active_item["last_point_at"] = (
+        active_item.get("last_point_at")
+        or active_item.get("context_end_time")
+        or active_item.get("end_time")
+    )
     active_item["status"] = "pending"
     active_item["record_source"] = "active_runtime"
     return active_item
@@ -3584,7 +3842,11 @@ def _mark_active_runtime(item: dict[str, Any]) -> dict[str, Any]:
 def _mark_previous_runtime(item: dict[str, Any]) -> dict[str, Any]:
     previous_item = dict(item)
     previous_item["completion_status"] = "completed"
-    previous_item["last_point_at"] = previous_item.get("end_time")
+    previous_item["last_point_at"] = (
+        previous_item.get("last_point_at")
+        or previous_item.get("context_end_time")
+        or previous_item.get("end_time")
+    )
     previous_item["record_source"] = "previous_runtime"
     previous_item["sealed_at"] = None
     return previous_item
@@ -3593,7 +3855,11 @@ def _mark_previous_runtime(item: dict[str, Any]) -> dict[str, Any]:
 def _mark_history_runtime(item: dict[str, Any]) -> dict[str, Any]:
     history_item = dict(item)
     history_item["completion_status"] = "completed"
-    history_item["last_point_at"] = history_item.get("end_time")
+    history_item["last_point_at"] = (
+        history_item.get("last_point_at")
+        or history_item.get("context_end_time")
+        or history_item.get("end_time")
+    )
     history_item["record_source"] = "sealed_history"
     history_item["sealed_at"] = utc_now()
     return history_item
@@ -3608,9 +3874,13 @@ def _choose_next_previous_runtime(
     reason: str,
 ) -> dict[str, Any] | None:
     existing_active_id = (
-        str(existing_active_item.get("id") or "") if isinstance(existing_active_item, dict) else None
+        str(existing_active_item.get("id") or "")
+        if isinstance(existing_active_item, dict)
+        else None
     )
-    active_rollover = bool(existing_active_id) and existing_active_id != (next_active_candidate_id or "")
+    active_rollover = bool(existing_active_id) and existing_active_id != (
+        next_active_candidate_id or ""
+    )
 
     if active_rollover:
         if prepared_previous_candidate is not None:
@@ -3624,18 +3894,18 @@ def _choose_next_previous_runtime(
             return _mark_previous_runtime(dict(existing_active_item))
         return None
 
+    if prepared_previous_candidate is not None:
+        previous_runtime = _build_current_heat_runtime(
+            prepared_previous_candidate,
+            trigger_source=reason,
+            processing_mode="live_incremental",
+        )
+        return _mark_previous_runtime(previous_runtime.to_runtime_item())
+
     if isinstance(existing_previous_item, dict):
         return dict(existing_previous_item)
 
-    if prepared_previous_candidate is None:
-        return None
-
-    previous_runtime = _build_current_heat_runtime(
-        prepared_previous_candidate,
-        trigger_source=reason,
-        processing_mode="live_incremental",
-    )
-    return _mark_previous_runtime(previous_runtime.to_runtime_item())
+    return None
 
 
 def _build_runtime_lookup_store() -> dict[str, dict[str, Any]]:
@@ -3756,7 +4026,10 @@ def _runtime_snapshot_watermark() -> datetime | None:
 
 def _has_runtime_snapshot_data() -> bool:
     return bool(
-        _HEAT_STORE or _PREVIOUS_HEAT_RUNTIME or _ACTIVE_HEAT_RUNTIME or _runtime_snapshot_watermark()
+        _HEAT_STORE
+        or _PREVIOUS_HEAT_RUNTIME
+        or _ACTIVE_HEAT_RUNTIME
+        or _runtime_snapshot_watermark()
     )
 
 
@@ -3862,6 +4135,17 @@ def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
         baseline_id=item["baseline_id"],
         baseline_version_id=item.get("baseline_version_id"),
         baseline_effective_from=item.get("baseline_effective_from"),
+        analysis_status=(
+            str(item.get("analysis_status")) if item.get("analysis_status") is not None else None
+        ),
+        analysis_reason=(
+            str(item.get("analysis_reason")) if item.get("analysis_reason") is not None else None
+        ),
+        analysis_message=(
+            str(item.get("analysis_message"))
+            if item.get("analysis_message") is not None
+            else None
+        ),
         deviation_score=item["deviation_score"],
         avg_deviation_score=item["avg_deviation_score"],
         abnormal_duration_minutes=item.get("abnormal_duration_minutes"),
@@ -4550,7 +4834,9 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
             ),
         )
         live_curves = _resolve_heat_curves_from_shared_channels(item, shared_current_curves)
-        display_live_curves = _resolve_heat_curves_from_shared_channels(item, display_current_curves)
+        display_live_curves = _resolve_heat_curves_from_shared_channels(
+            item, display_current_curves
+        )
 
     if live_curves.get("power"):
         item["power_curve"] = _coerce_curve_points(live_curves["power"])
@@ -4615,7 +4901,10 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
                 or (baseline_item or {}).get("tolerance_percent")
                 or 15.0
             )
-            if binding_summary is not None and str(binding_summary.get("analysis_status") or "") == "ready":
+            if (
+                binding_summary is not None
+                and str(binding_summary.get("analysis_status") or "") == "ready"
+            ):
                 deviation_ranges = _binding_deviation_ranges(binding_summary)
                 deviation_score = binding_summary.get("deviation_score")
                 avg_deviation_score = binding_summary.get("avg_deviation_score")
@@ -4634,6 +4923,24 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
                         tolerance_percent=tolerance,
                     ),
                     metric_curves=metric_curves,
+                    analysis_status=(
+                        str(binding_summary.get("analysis_status"))
+                        if binding_summary is not None
+                        and binding_summary.get("analysis_status") is not None
+                        else None
+                    ),
+                    analysis_reason=(
+                        str(binding_summary.get("analysis_reason"))
+                        if binding_summary is not None
+                        and binding_summary.get("analysis_reason") is not None
+                        else None
+                    ),
+                    analysis_message=(
+                        str(binding_summary.get("analysis_message"))
+                        if binding_summary is not None
+                        and binding_summary.get("analysis_message") is not None
+                        else None
+                    ),
                     deviation_ranges=deviation_ranges,
                     deviation_score=deviation_score,
                     avg_deviation_score=avg_deviation_score,
@@ -4657,6 +4964,9 @@ async def get_heat_compare(heat_id: str) -> HeatCompareResponse:
         heat=heat,
         baseline=baseline,
         baselines=baseline_compares,
+        analysis_status=baseline_compares[0].analysis_status if baseline_compares else None,
+        analysis_reason=baseline_compares[0].analysis_reason if baseline_compares else None,
+        analysis_message=baseline_compares[0].analysis_message if baseline_compares else None,
         deviation_ranges=deviation_ranges,
         deviation_score=deviation_score,
         avg_deviation_score=avg_deviation_score,

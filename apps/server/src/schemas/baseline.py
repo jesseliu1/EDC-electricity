@@ -55,6 +55,7 @@ class BaselineResponse(BaseModel):
     description: str | None = Field(default=None, description="基线描述")
     definition_id: str = Field(..., description="所属基线定义ID")
     definition_name: str = Field(default="", description="所属基线定义名称")
+    expected_duration_minutes: int = Field(..., description="所属定义的预期炉次时长（分钟）")
     is_default: bool = Field(default=False, description="是否默认黄金基线")
     source_heat_id: str | None = Field(default=None, description="来源炉次ID，可为空")
     selected_start_time: OptionalTimestampMs = Field(default=None, description="图上选点开始时间")

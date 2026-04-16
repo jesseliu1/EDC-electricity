@@ -8,6 +8,9 @@ from typing import Any
 
 from .formal_heat_service import (
     MetricCurveLoader,
+    _baseline_metric_spec_map_from_runtime_views,
+    _build_runtime_baseline_views,
+    _build_runtime_metric_union_specs,
     build_runtime_preseal_payload,
     hydrate_candidate_runtime_metric_series,
 )
@@ -31,6 +34,7 @@ class HeatRuntimeUpdater:
         processing_mode: str = "live_incremental",
         request_anchor_time: datetime | None = None,
         metric_curve_loader: MetricCurveLoader | None = None,
+        preserve_binding_analysis: bool = False,
     ) -> dict[str, Any]:
         frozen_inputs = self._runtime_factory.resolve_frozen_analysis_inputs(existing_item)
         if frozen_inputs is None:
@@ -46,24 +50,65 @@ class HeatRuntimeUpdater:
         updated["baseline_curve_snapshots"] = deepcopy(
             existing_item.get("baseline_curve_snapshots") or []
         )
+        updated["baseline_views"] = deepcopy(existing_item.get("baseline_views") or [])
+        baseline_metric_specs_by_id = _baseline_metric_spec_map_from_runtime_views(
+            existing_item.get("baseline_views")
+        )
+        if not baseline_metric_specs_by_id:
+            shared_specs = list(frozen_inputs.definition_metric_snapshots)
+            baseline_metric_specs_by_id = {
+                str(baseline.get("id") or ""): shared_specs
+                for baseline in frozen_inputs.applicable_baselines
+                if str(baseline.get("id") or "").strip()
+            }
+        metric_union_specs = _build_runtime_metric_union_specs(baseline_metric_specs_by_id) or list(
+            frozen_inputs.definition_metric_snapshots
+        )
         updated = await hydrate_candidate_runtime_metric_series(
             updated,
-            definition_templates=frozen_inputs.definition_metric_snapshots,
+            metric_specs=metric_union_specs,
             metric_curve_loader=metric_curve_loader,
         )
-
-        binding_analyses = self._analysis_service.analyze_candidate_bindings(
+        updated["definition_metric_snapshots"] = deepcopy(metric_union_specs)
+        updated["baseline_views"] = _build_runtime_baseline_views(
             candidate=updated,
             applicable_baselines=frozen_inputs.applicable_baselines,
-            baseline_curve_payloads=frozen_inputs.baseline_curve_payloads,
+            baseline_metric_specs_by_id=baseline_metric_specs_by_id,
         )
-        updated = self._analysis_service.apply_binding_analysis_to_candidate(
+        if preserve_binding_analysis:
+            updated["baseline_bindings"] = deepcopy(existing_item.get("baseline_bindings") or [])
+            updated["baseline_ids"] = deepcopy(existing_item.get("baseline_ids") or [])
+            for field_name in (
+                "baseline_id",
+                "baseline_version_id",
+                "baseline_definition_id",
+                "baseline_item",
+                "baseline_effective_from",
+                "analysis_status",
+                "analysis_reason",
+                "analysis_message",
+                "deviation_score",
+                "avg_deviation_score",
+                "abnormal_duration_minutes",
+                "status",
+            ):
+                updated[field_name] = deepcopy(existing_item.get(field_name))
+        else:
+            binding_analyses = self._analysis_service.analyze_candidate_bindings(
+                candidate=updated,
+                applicable_baselines=frozen_inputs.applicable_baselines,
+                baseline_curve_payloads=frozen_inputs.baseline_curve_payloads,
+            )
+            updated = self._analysis_service.apply_binding_analysis_to_candidate(
+                candidate=updated,
+                binding_analyses=binding_analyses,
+            )
+        updated["baseline_views"] = _build_runtime_baseline_views(
             candidate=updated,
-            binding_analyses=binding_analyses,
+            applicable_baselines=frozen_inputs.applicable_baselines,
+            baseline_metric_specs_by_id=baseline_metric_specs_by_id,
         )
-        updated["definition_metric_snapshots"] = deepcopy(
-            existing_item.get("definition_metric_snapshots") or []
-        )
+        updated["definition_metric_snapshots"] = deepcopy(metric_union_specs)
         updated["baseline_curve_snapshots"] = deepcopy(
             existing_item.get("baseline_curve_snapshots") or []
         )

@@ -56,7 +56,6 @@ class ReplayContext:
     baseline_id: str | None
     baseline_ids: list[str]
     selected_baselines: list[dict[str, Any]]
-    definition_id: str | None
     expected_duration_minutes: int
 
 

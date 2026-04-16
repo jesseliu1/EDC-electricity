@@ -31,6 +31,9 @@ class HeatResponse(BaseModel):
     baseline_id: str | None = Field(default=None, description="对比基线ID")
     baseline_version_id: str | None = Field(default=None, description="绑定的基线版本ID")
     baseline_effective_from: OptionalTimestampMs = Field(default=None, description="绑定基线的生效时间")
+    analysis_status: str | None = Field(default=None, description="偏离分析状态")
+    analysis_reason: str | None = Field(default=None, description="偏离分析原因码")
+    analysis_message: str | None = Field(default=None, description="偏离分析状态说明")
     deviation_score: float | None = Field(default=None, description="统一偏离分数")
     avg_deviation_score: float | None = Field(default=None, description="平均偏离分数")
     abnormal_duration_minutes: float | None = Field(
@@ -80,6 +83,9 @@ class HeatCompareResponse(BaseModel):
     baselines: list["BaselineCompareItem"] = Field(
         default_factory=list, description="多基线对比数据"
     )
+    analysis_status: str | None = Field(default=None, description="主基线偏离分析状态")
+    analysis_reason: str | None = Field(default=None, description="主基线偏离分析原因码")
+    analysis_message: str | None = Field(default=None, description="主基线偏离分析状态说明")
     deviation_ranges: list[DeviationRange] = Field(default_factory=list, description="偏差区间列表")
     deviation_score: float | None = Field(default=None, description="统一偏离分数")
     avg_deviation_score: float | None = Field(default=None, description="平均偏离分数")
@@ -100,6 +106,9 @@ class BaselineCompareItem(BaseModel):
 
     baseline: BaselineWithCurveSimple = Field(..., description="基线数据")
     metric_curves: list[MetricCompareSeries] = Field(default_factory=list, description="多指标曲线")
+    analysis_status: str | None = Field(default=None, description="偏离分析状态")
+    analysis_reason: str | None = Field(default=None, description="偏离分析原因码")
+    analysis_message: str | None = Field(default=None, description="偏离分析状态说明")
     deviation_ranges: list[DeviationRange] = Field(default_factory=list, description="偏差区间")
     deviation_score: float | None = Field(default=None, description="统一偏离分数")
     avg_deviation_score: float | None = Field(default=None, description="平均偏离分数")

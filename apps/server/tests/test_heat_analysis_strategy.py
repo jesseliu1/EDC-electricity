@@ -2,8 +2,6 @@
 
 from datetime import datetime, timedelta
 
-import pytest
-
 from src.schemas.common import CurvePoint
 from src.services.heat_analysis import (
     HeatAnalysisMetricDefinition,
@@ -92,7 +90,7 @@ def test_normalized_multi_metric_strategy_returns_ready_summary() -> None:
     assert result.analysis_details["abnormal_ranges"]
 
 
-def test_normalized_multi_metric_strategy_returns_pending_when_metric_inputs_missing() -> None:
+def test_normalized_multi_metric_strategy_returns_waiting_when_metric_inputs_missing() -> None:
     strategy = NormalizedMultiMetricStrategy()
 
     result = strategy.analyze(
@@ -102,14 +100,16 @@ def test_normalized_multi_metric_strategy_returns_pending_when_metric_inputs_mis
         )
     )
 
-    assert result.analysis_status == "pending"
+    assert result.analysis_status == "waiting"
+    assert result.analysis_reason == "metric_inputs_missing"
+    assert result.analysis_message == "当前数据尚未准备完成，暂无法计算偏离度"
     assert result.deviation_score is None
     assert result.avg_deviation_score is None
     assert result.abnormal_duration_minutes is None
     assert result.analysis_details["reason"] == "metric_inputs_missing"
 
 
-def test_normalized_multi_metric_strategy_returns_pending_when_scale_invalid() -> None:
+def test_normalized_multi_metric_strategy_returns_unsupported_when_scale_invalid() -> None:
     strategy = NormalizedMultiMetricStrategy()
     start_time = datetime(2026, 4, 9, 8, 0, 0)
 
@@ -133,7 +133,8 @@ def test_normalized_multi_metric_strategy_returns_pending_when_scale_invalid() -
         )
     )
 
-    assert result.analysis_status == "pending"
+    assert result.analysis_status == "unsupported"
+    assert result.analysis_reason == "metric_scale_invalid"
+    assert result.analysis_message == "该黄金基线包含当前模型不适用的低波动或离散台阶型指标，未计算偏离度"
     assert result.analysis_details["reason"] == "metric_scale_invalid"
     assert result.analysis_details["metric_key"] == "power"
-

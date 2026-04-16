@@ -33,8 +33,8 @@ from ..services import (
     load_baseline_metric_series,
     load_baseline_store,
     replace_baseline_metric_series,
-    set_default_baseline,
     set_baseline_status,
+    set_default_baseline,
     update_baseline_record,
 )
 from ..time_utils import plant_date_of, plant_day_bounds_datetime, utc_now
@@ -46,7 +46,12 @@ from .baseline_definitions import (
     _preview_curves_have_points,
     _reload_definition_store,
 )
-from .settings import _HOST_CHANNEL_STORE, _SETTINGS_STORE, get_edc_connection_config, get_plant_timezone
+from .settings import (
+    _HOST_CHANNEL_STORE,
+    _SETTINGS_STORE,
+    get_edc_connection_config,
+    get_plant_timezone,
+)
 
 router = APIRouter(prefix="/baselines", tags=["Baselines"])
 
@@ -236,6 +241,7 @@ def _to_baseline_response(item: dict[str, Any]) -> BaselineResponse:
         description=item["description"],
         definition_id=item["definition_id"],
         definition_name=_get_definition_name(item["definition_id"]),
+        expected_duration_minutes=int(item.get("expected_duration_minutes") or 0),
         is_default=bool(item.get("is_default")),
         source_heat_id=item["source_heat_id"],
         selected_start_time=item.get("selected_start_time"),
@@ -272,6 +278,7 @@ def _to_baseline_with_curve(item: dict[str, Any]) -> BaselineWithCurve:
         description=item["description"],
         definition_id=item["definition_id"],
         definition_name=_get_definition_name(item["definition_id"]),
+        expected_duration_minutes=int(item.get("expected_duration_minutes") or 0),
         is_default=bool(item.get("is_default")),
         source_heat_id=item["source_heat_id"],
         selected_start_time=item.get("selected_start_time"),

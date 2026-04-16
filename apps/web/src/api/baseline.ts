@@ -25,6 +25,7 @@ export interface BaselineResponse {
   description: string | null
   definition_id: string
   definition_name: string
+  expected_duration_minutes: number
   is_default: boolean
   source_heat_id: string | null
   selected_start_time?: number | null

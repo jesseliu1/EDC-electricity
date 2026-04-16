@@ -10,13 +10,15 @@ from typing import Any
 
 from ..observability import log_event
 from ..schemas.common import CurvePoint
+from .formal_baseline_service import encode_baseline_id, load_baseline_metric_series
 from .heat_analysis import (
     HeatAnalysisMetricDefinition,
     HeatAnalysisMetricInput,
     HeatAnalysisRequest,
     NormalizedMultiMetricStrategy,
+    analysis_message_from_reason,
+    analysis_status_from_reason,
 )
-from .formal_baseline_service import encode_baseline_id, load_baseline_metric_series
 
 
 def _baseline_field(baseline: Any, field_name: str) -> Any:
@@ -25,7 +27,9 @@ def _baseline_field(baseline: Any, field_name: str) -> Any:
     return getattr(baseline, field_name)
 
 
-def _coerce_curve_points(points: list[CurvePoint] | list[dict[str, Any]] | None) -> list[CurvePoint]:
+def _coerce_curve_points(
+    points: list[CurvePoint] | list[dict[str, Any]] | None,
+) -> list[CurvePoint]:
     normalized: list[CurvePoint] = []
     for point in points or []:
         if isinstance(point, CurvePoint):
@@ -91,6 +95,13 @@ def _merge_heat_status(existing_status: Any, analyzed_status: str | None) -> str
     return existing_status if existing_status is not None else analyzed_status
 
 
+def _analysis_reason_from_details(details: dict[str, Any] | None) -> str | None:
+    if not isinstance(details, dict):
+        return None
+    reason = details.get("reason")
+    return str(reason).strip() if reason is not None and str(reason).strip() else None
+
+
 @dataclass(slots=True)
 class BaselineCurvePayload:
     curves_by_metric: dict[str, list[CurvePoint]]
@@ -114,6 +125,8 @@ class HeatBindingAnalysis:
     baseline_effective_from: datetime | None
     tolerance_percent: float | None
     analysis_status: str
+    analysis_reason: str | None
+    analysis_message: str | None
     deviation_score: float | None
     avg_deviation_score: float | None
     analysis_details_json: str | None
@@ -130,6 +143,8 @@ class HeatBindingAnalysis:
             "baseline_effective_from": self.baseline_effective_from,
             "tolerance_percent": self.tolerance_percent,
             "analysis_status": self.analysis_status,
+            "analysis_reason": self.analysis_reason,
+            "analysis_message": self.analysis_message,
             "deviation_score": self.deviation_score,
             "avg_deviation_score": self.avg_deviation_score,
             "analysis_details_json": self.analysis_details_json,
@@ -183,8 +198,9 @@ class HeatDeviationAnalysisService:
         current_start_time = candidate["start_time"]
         current_end_time = candidate["end_time"]
         primary_baseline_id = self._resolve_primary_baseline_id(applicable_baselines)
-        metric_inputs_by_key = self._candidate_metric_inputs(candidate)
-        metric_definitions = self._definition_metric_definitions(candidate)
+        shared_metric_inputs_by_key = self._candidate_metric_inputs(candidate)
+        shared_metric_definitions = self._definition_metric_definitions(candidate)
+        baseline_views_by_id = self._candidate_baseline_views(candidate)
 
         analyses: list[HeatBindingAnalysis] = []
         for baseline in applicable_baselines:
@@ -195,7 +211,9 @@ class HeatDeviationAnalysisService:
 
             baseline_id = encode_baseline_id(baseline_definition_id, baseline_item)
             tolerance_percent = _baseline_field(baseline, "tolerance_percent")
-            analysis_status = "pending"
+            analysis_status = "waiting"
+            analysis_reason = "metric_inputs_missing"
+            analysis_message = analysis_message_from_reason(analysis_reason)
             deviation_score = None
             avg_deviation_score = None
             analysis_details_json = None
@@ -204,6 +222,17 @@ class HeatDeviationAnalysisService:
             baseline_payload = baseline_curve_payloads.get(
                 baseline_id,
                 BaselineCurvePayload(curves_by_metric={}, curve_source="none"),
+            )
+            baseline_view = baseline_views_by_id.get(baseline_id)
+            metric_inputs_by_key = (
+                self._baseline_view_metric_inputs(baseline_view)
+                if baseline_view is not None
+                else shared_metric_inputs_by_key
+            )
+            metric_definitions = (
+                self._baseline_view_metric_definitions(baseline_view)
+                if baseline_view is not None
+                else shared_metric_definitions
             )
             strategy_metric_inputs = self._build_strategy_metric_inputs(
                 baseline_id=baseline_id,
@@ -225,9 +254,11 @@ class HeatDeviationAnalysisService:
                         "heat_binding_analysis_pending",
                         heat_id=str(candidate.get("id") or ""),
                         baseline_id=baseline_id,
-                        reason=str(result.analysis_details.get("reason") or "analysis_pending"),
+                        reason=str(result.analysis_reason or "analysis_pending"),
                     )
                 analysis_status = result.analysis_status
+                analysis_reason = result.analysis_reason
+                analysis_message = result.analysis_message
                 deviation_score = result.deviation_score
                 avg_deviation_score = result.avg_deviation_score
                 abnormal_duration_minutes = result.abnormal_duration_minutes
@@ -240,12 +271,15 @@ class HeatDeviationAnalysisService:
                     baseline_id=baseline_id,
                     reason="metric_inputs_missing",
                 )
+                analysis_reason = "metric_inputs_missing"
+                analysis_status = analysis_status_from_reason(analysis_reason)
+                analysis_message = analysis_message_from_reason(analysis_reason)
                 analysis_details_json = _compact_json(
                     {
                         "version": "v1",
                         "summary_method": self._strategy.strategy_key,
-                        "status": "pending",
-                        "reason": "metric_inputs_missing",
+                        "status": analysis_status,
+                        "reason": analysis_reason,
                     }
                 )
 
@@ -260,6 +294,8 @@ class HeatDeviationAnalysisService:
                         float(tolerance_percent) if tolerance_percent is not None else None
                     ),
                     analysis_status=analysis_status,
+                    analysis_reason=analysis_reason,
+                    analysis_message=analysis_message,
                     deviation_score=deviation_score,
                     avg_deviation_score=avg_deviation_score,
                     analysis_details_json=analysis_details_json,
@@ -280,8 +316,39 @@ class HeatDeviationAnalysisService:
             binding.to_runtime_binding() for binding in binding_analyses
         ]
         prepared["baseline_ids"] = [binding.baseline_id for binding in binding_analyses]
+        existing_views = prepared.get("baseline_views")
+        if isinstance(existing_views, list):
+            analysis_by_baseline_id = {binding.baseline_id: binding for binding in binding_analyses}
+            refreshed_views: list[dict[str, Any]] = []
+            for raw_view in existing_views:
+                if not isinstance(raw_view, dict):
+                    continue
+                baseline_id = str(raw_view.get("baseline_id") or "").strip()
+                analysis = analysis_by_baseline_id.get(baseline_id)
+                next_view = dict(raw_view)
+                if analysis is not None:
+                    next_view.update(
+                        {
+                            "baseline_definition_id": analysis.baseline_definition_id,
+                            "baseline_item": analysis.baseline_item,
+                            "is_primary": analysis.is_primary,
+                            "baseline_effective_from": analysis.baseline_effective_from,
+                            "tolerance_percent": analysis.tolerance_percent,
+                            "analysis_status": analysis.analysis_status,
+                            "analysis_reason": analysis.analysis_reason,
+                            "analysis_message": analysis.analysis_message,
+                            "deviation_score": analysis.deviation_score,
+                            "avg_deviation_score": analysis.avg_deviation_score,
+                            "analysis_details_json": analysis.analysis_details_json,
+                            "abnormal_duration_minutes": analysis.abnormal_duration_minutes,
+                        }
+                    )
+                refreshed_views.append(next_view)
+            prepared["baseline_views"] = refreshed_views
 
-        primary_binding = next((binding for binding in binding_analyses if binding.is_primary), None)
+        primary_binding = next(
+            (binding for binding in binding_analyses if binding.is_primary), None
+        )
         if primary_binding is None and binding_analyses:
             primary_binding = binding_analyses[0]
 
@@ -291,6 +358,9 @@ class HeatDeviationAnalysisService:
             prepared["baseline_definition_id"] = primary_binding.baseline_definition_id
             prepared["baseline_item"] = primary_binding.baseline_item
             prepared["baseline_effective_from"] = primary_binding.baseline_effective_from
+            prepared["analysis_status"] = primary_binding.analysis_status
+            prepared["analysis_reason"] = primary_binding.analysis_reason
+            prepared["analysis_message"] = primary_binding.analysis_message
             prepared["deviation_score"] = primary_binding.deviation_score
             prepared["avg_deviation_score"] = primary_binding.avg_deviation_score
             prepared["abnormal_duration_minutes"] = primary_binding.abnormal_duration_minutes
@@ -304,6 +374,9 @@ class HeatDeviationAnalysisService:
             prepared["baseline_definition_id"] = None
             prepared["baseline_item"] = None
             prepared["baseline_effective_from"] = None
+            prepared["analysis_status"] = None
+            prepared["analysis_reason"] = None
+            prepared["analysis_message"] = None
             prepared["deviation_score"] = None
             prepared["avg_deviation_score"] = None
             prepared["abnormal_duration_minutes"] = None
@@ -339,8 +412,74 @@ class HeatDeviationAnalysisService:
                     continue
                 series_payload = entry.get("series_json")
                 if isinstance(series_payload, dict):
-                    curves_by_metric[metric_key] = _coerce_curve_points(series_payload.get("points"))
+                    curves_by_metric[metric_key] = _coerce_curve_points(
+                        series_payload.get("points")
+                    )
         return {metric_key: points for metric_key, points in curves_by_metric.items() if points}
+
+    def _candidate_baseline_views(
+        self,
+        candidate: dict[str, Any],
+    ) -> dict[str, dict[str, Any]]:
+        raw_views = candidate.get("baseline_views")
+        if not isinstance(raw_views, list):
+            return {}
+        return {
+            baseline_id: dict(view)
+            for view in raw_views
+            if isinstance(view, dict)
+            and (baseline_id := str(view.get("baseline_id") or "").strip())
+        }
+
+    def _baseline_view_metric_inputs(
+        self,
+        baseline_view: dict[str, Any],
+    ) -> dict[str, list[CurvePoint]]:
+        curves_by_metric: dict[str, list[CurvePoint]] = {}
+        raw_series = baseline_view.get("current_metric_series")
+        if not isinstance(raw_series, list):
+            return {}
+        for entry in raw_series:
+            if not isinstance(entry, dict):
+                continue
+            metric_key = str(entry.get("metric_key") or "").strip().lower()
+            if not metric_key:
+                continue
+            series_payload = entry.get("series_json")
+            if isinstance(series_payload, dict):
+                points = _coerce_curve_points(series_payload.get("points"))
+                if points:
+                    curves_by_metric[metric_key] = points
+        return curves_by_metric
+
+    def _baseline_view_metric_definitions(
+        self,
+        baseline_view: dict[str, Any],
+    ) -> list[HeatAnalysisMetricDefinition]:
+        definitions: list[HeatAnalysisMetricDefinition] = []
+        raw_series = baseline_view.get("current_metric_series")
+        if not isinstance(raw_series, list):
+            return []
+        for entry in raw_series:
+            if not isinstance(entry, dict):
+                continue
+            metric_item = str(entry.get("item") or "").strip()
+            metric_key = str(entry.get("metric_key") or "").strip().lower()
+            metric_name = str(entry.get("metric_name") or "").strip()
+            color = str(entry.get("color") or "").strip()
+            if not metric_item or not metric_key or not metric_name or not color:
+                continue
+            definitions.append(
+                HeatAnalysisMetricDefinition(
+                    item=metric_item,
+                    metric_key=metric_key,
+                    metric_name=metric_name,
+                    unit=str(entry.get("unit")) if entry.get("unit") is not None else None,
+                    color=color,
+                    sort_order=int(entry.get("sort_order") or 0),
+                )
+            )
+        return sorted(definitions, key=lambda item: (item.sort_order, item.item))
 
     def _definition_metric_definitions(
         self,
@@ -366,11 +505,7 @@ class HeatDeviationAnalysisService:
                     item=metric_item,
                     metric_key=metric_key,
                     metric_name=metric_name,
-                    unit=(
-                        str(snapshot.get("unit"))
-                        if snapshot.get("unit") is not None
-                        else None
-                    ),
+                    unit=(str(snapshot.get("unit")) if snapshot.get("unit") is not None else None),
                     color=color,
                     sort_order=int(snapshot.get("sort_order") or 0),
                 )

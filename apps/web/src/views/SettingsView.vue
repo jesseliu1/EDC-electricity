@@ -83,18 +83,32 @@ const replayInitializationForm = reactive({
   primaryBaselineId: '',
   baselineIds: [] as string[],
 })
+
+function formatReplayBaselineLabel(baseline: BaselineResponse | null | undefined) {
+  if (!baseline) return ''
+  const description = baseline.description?.trim()
+  return description ? `${baseline.name} / ${description}` : baseline.name
+}
+
 const replayPrimaryBaseline = computed(
   () =>
     replayBaselineOptions.value.find(
       item => item.id === replayInitializationForm.primaryBaselineId
     ) ?? null
 )
+
+const replayPrimaryBaselineDisplayLabel = computed(() =>
+  formatReplayBaselineLabel(replayPrimaryBaseline.value)
+)
+
 const replaySelectableBaselineOptions = computed(() => {
-  const definitionId = replayPrimaryBaseline.value?.definition_id
-  if (!definitionId) {
+  const expectedDuration = replayPrimaryBaseline.value?.expected_duration_minutes
+  if (!expectedDuration) {
     return replayBaselineOptions.value
   }
-  return replayBaselineOptions.value.filter(item => item.definition_id === definitionId)
+  return replayBaselineOptions.value.filter(
+    item => item.expected_duration_minutes === expectedDuration
+  )
 })
 
 function syncReplaySelectionToPrimaryDefinition() {
@@ -113,20 +127,10 @@ function ensureReplayPrimaryInSelection() {
   }
 }
 
-function handleReplayPrimaryBaselineChange(value: string) {
-  replayInitializationForm.primaryBaselineId = value
-  syncReplaySelectionToPrimaryDefinition()
-}
-
 function handleReplayBaselineSelectionChange(value: string[]) {
   const allowedIds = new Set(replaySelectableBaselineOptions.value.map(item => item.id))
   replayInitializationForm.baselineIds = value.filter(id => allowedIds.has(id))
-  if (
-    replayInitializationForm.primaryBaselineId &&
-    !replayInitializationForm.baselineIds.includes(replayInitializationForm.primaryBaselineId)
-  ) {
-    replayInitializationForm.primaryBaselineId = replayInitializationForm.baselineIds[0] || ''
-  }
+  ensureReplayPrimaryInSelection()
 }
 
 async function loadReplayBaselineOptions() {
@@ -143,11 +147,11 @@ async function loadReplayBaselineOptions() {
     replayInitializationForm.primaryBaselineId = ''
   }
 
-  if (!replayInitializationForm.primaryBaselineId) {
-    const defaultBaseline = response.items.find(item => item.is_default) ?? response.items[0]
-    if (defaultBaseline) {
-      replayInitializationForm.primaryBaselineId = defaultBaseline.id
-    }
+  const defaultBaseline = response.items.find(item => item.is_default) ?? response.items[0]
+  if (defaultBaseline) {
+    replayInitializationForm.primaryBaselineId = defaultBaseline.id
+  } else {
+    replayInitializationForm.primaryBaselineId = ''
   }
   syncReplaySelectionToPrimaryDefinition()
 }
@@ -480,7 +484,10 @@ onBeforeUnmount(() => {
             {{ t('settings.replayInitializationNotice') }}
           </div>
 
-          <el-form label-position="top" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <el-form
+            label-position="top"
+            class="grid grid-cols-1 md:grid-cols-2 gap-4"
+          >
             <el-form-item :label="t('settings.replayInitializationStartTime')">
               <el-date-picker
                 v-model="replayInitializationForm.startTime"
@@ -493,21 +500,13 @@ onBeforeUnmount(() => {
               />
             </el-form-item>
             <el-form-item :label="t('settings.replayInitializationPrimaryBaseline')">
-              <el-select
-                v-model="replayInitializationForm.primaryBaselineId"
+              <el-input
+                :model-value="replayPrimaryBaselineDisplayLabel"
                 class="!w-full"
-                filterable
                 :placeholder="t('settings.replayInitializationPrimaryPlaceholder')"
                 data-testid="settings-replay-primary-baseline"
-                @change="handleReplayPrimaryBaselineChange"
-              >
-                <el-option
-                  v-for="baseline in replayBaselineOptions"
-                  :key="baseline.id"
-                  :label="baseline.name"
-                  :value="baseline.id"
-                />
-              </el-select>
+                readonly
+              />
             </el-form-item>
             <el-form-item
               :label="t('settings.replayInitializationBaselines')"
@@ -526,7 +525,7 @@ onBeforeUnmount(() => {
                 <el-option
                   v-for="baseline in replaySelectableBaselineOptions"
                   :key="baseline.id"
-                  :label="baseline.name"
+                  :label="formatReplayBaselineLabel(baseline)"
                   :value="baseline.id"
                 />
               </el-select>

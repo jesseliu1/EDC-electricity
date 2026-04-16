@@ -1,10 +1,11 @@
 """炉次 replay API 测试。"""
 
 import asyncio
+import json
 from datetime import datetime
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from src.api.heats import (
     _ACTIVE_HEAT_RUNTIME,
@@ -14,9 +15,15 @@ from src.api.heats import (
 )
 from src.api.settings import _SETTINGS_STORE
 from src.database import async_session_maker
-from src.models import Baseline
+from src.models import (
+    Baseline,
+    BaselineDefinition,
+    BaselineDefinitionMetric,
+    HeatBaselineBinding,
+    MetricSeries,
+)
 from src.schemas.common import CurvePoint
-from src.services import decode_baseline_id
+from src.services import decode_baseline_id, encode_baseline_id
 from src.time_utils import to_timestamp_ms
 
 
@@ -106,6 +113,144 @@ async def _wait_for_job(client, job_id: str, *, terminal_statuses: set[str]) -> 
             return last_payload
         await asyncio.sleep(0.05)
     raise AssertionError(f"job {job_id} did not reach terminal status, last={last_payload}")
+
+
+async def _seed_same_duration_replay_baseline() -> str:
+    now = datetime(2026, 3, 19, 9, 0)
+    baseline_id = encode_baseline_id("def-003", "001")
+    async with async_session_maker() as session:
+        session.add(
+            BaselineDefinition(
+                id="def-003",
+                definition_name="同时长温度视角",
+                description="用于 replay 多 definition 同时长回归",
+                expected_duration_minutes=45,
+                status="active",
+                created_by="tester",
+                updated_by="tester",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add_all(
+            [
+                BaselineDefinitionMetric(
+                    definition_id="def-003",
+                    item="001",
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#1152d4",
+                    sort_order=1,
+                    edc_channel_id="2349-199",
+                    source_channel_name="总有功功率",
+                    source_channel_label="测试设备 / 总有功功率 / kW",
+                    enabled=True,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                BaselineDefinitionMetric(
+                    definition_id="def-003",
+                    item="002",
+                    item_kind="metric_item",
+                    metric_key="temperature",
+                    metric_name="炉温",
+                    unit="℃",
+                    color="#ef4444",
+                    sort_order=2,
+                    edc_channel_id="2054-128",
+                    source_channel_name="热电偶温度采集通道",
+                    source_channel_label="测试温度 A / 热电偶温度采集通道 / ℃",
+                    enabled=True,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        session.add(
+            Baseline(
+                definition_id="def-003",
+                item="001",
+                item_kind="baseline_version",
+                name="同温度基线",
+                description="replay 同时长多 definition 样本",
+                status="published",
+                is_default=False,
+                source_heat_id="heat-001",
+                selected_start_time=datetime(2026, 3, 19, 8, 0),
+                selected_end_time=datetime(2026, 3, 19, 8, 45),
+                effective_from=datetime(2026, 3, 19, 8, 50),
+                tolerance_percent=10.0,
+                created_by="tester",
+                updated_by="tester",
+                created_at=now,
+                updated_at=now,
+                published_at=now,
+            )
+        )
+        session.add_all(
+            [
+                MetricSeries(
+                    owner_key=baseline_id,
+                    item="001",
+                    owner_type="baseline",
+                    definition_id="def-003",
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#1152d4",
+                    sort_order=1,
+                    source_channel_id="2349-199",
+                    source_channel_name="总有功功率",
+                    source_channel_label="测试设备 / 总有功功率 / kW",
+                    series_json=json.dumps(
+                        {
+                            "points": [
+                                {"timestamp": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000), "value": 408.0},
+                                {"timestamp": int(datetime(2026, 3, 19, 8, 45).timestamp() * 1000), "value": 419.0},
+                            ]
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    stat_json=json.dumps({"avg": 413.5}, ensure_ascii=False, separators=(",", ":")),
+                    created_at=now,
+                    updated_at=now,
+                ),
+                MetricSeries(
+                    owner_key=baseline_id,
+                    item="002",
+                    owner_type="baseline",
+                    definition_id="def-003",
+                    item_kind="metric_item",
+                    metric_key="temperature",
+                    metric_name="炉温",
+                    unit="℃",
+                    color="#ef4444",
+                    sort_order=2,
+                    source_channel_id="2054-128",
+                    source_channel_name="热电偶温度采集通道",
+                    source_channel_label="测试温度 A / 热电偶温度采集通道 / ℃",
+                    series_json=json.dumps(
+                        {
+                            "points": [
+                                {"timestamp": int(datetime(2026, 3, 19, 8, 0).timestamp() * 1000), "value": 1542.0},
+                                {"timestamp": int(datetime(2026, 3, 19, 8, 45).timestamp() * 1000), "value": 1568.0},
+                            ]
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                    stat_json=json.dumps({"avg": 1555.0}, ensure_ascii=False, separators=(",", ":")),
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        await session.commit()
+    return baseline_id
 
 
 @pytest.mark.asyncio
@@ -561,7 +706,7 @@ async def test_replay_job_rejects_unpublished_selected_baseline(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_replay_job_rejects_cross_definition_selected_baselines(client) -> None:
+async def test_replay_job_rejects_selected_baselines_with_duration_mismatch(client) -> None:
     async with async_session_maker() as session:
         await session.execute(
             update(Baseline)
@@ -582,4 +727,73 @@ async def test_replay_job_rejects_cross_definition_selected_baselines(client) ->
         },
     )
     assert create_response.status_code == 409
-    assert create_response.json()["detail"] == "replay_selected_baselines_cross_definition"
+    assert create_response.json()["detail"] == "replay_selected_baselines_duration_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_replay_job_accepts_multi_definition_selected_baselines_with_same_duration(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    live_points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
+
+    async def fake_load_live_heat_inference_power_points(_channel, start_time=None, end_time=None):
+        if start_time is None or end_time is None:
+            return live_points
+        start_ms = to_timestamp_ms(start_time)
+        end_ms = to_timestamp_ms(end_time)
+        return [point for point in live_points if start_ms <= int(point.timestamp) <= end_ms]
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_replay_inference_channel",
+        lambda: dict(_build_test_live_context()["channel"]),
+    )
+    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", _fake_runtime_metric_curves)
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    same_duration_baseline_id = await _seed_same_duration_replay_baseline()
+
+    create_response = await client.post(
+        "/api/heats/replay-jobs",
+        json={
+            "job_kind": "replay_batch",
+            "start_time": to_timestamp_ms(datetime(2026, 3, 19, 8, 0)),
+            "end_time": to_timestamp_ms(datetime(2026, 3, 19, 9, 40)),
+            "primary_baseline_id": "def-001:001",
+            "baseline_ids": ["def-001:001", same_duration_baseline_id],
+            "force_replace": True,
+        },
+    )
+    assert create_response.status_code == 201
+
+    finished = await _wait_for_job(client, create_response.json()["id"], terminal_statuses={"completed"})
+    assert finished["status"] == "completed"
+
+    async with async_session_maker() as session:
+        replay_binding_rows = list(
+            (
+                await session.execute(
+                    select(HeatBaselineBinding).where(
+                        HeatBaselineBinding.baseline_definition_id == "def-003"
+                    )
+                )
+            ).scalars()
+        )
+        replay_heat_temperature_rows = list(
+            (
+                await session.execute(
+                    select(MetricSeries).where(
+                        MetricSeries.owner_type == "heat",
+                        MetricSeries.metric_key == "temperature",
+                        MetricSeries.owner_key != "heat-001",
+                    )
+                )
+            ).scalars()
+        )
+
+    assert replay_binding_rows
+    assert replay_heat_temperature_rows

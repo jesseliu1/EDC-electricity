@@ -15,13 +15,11 @@ class ReplayBaselineSelection:
     业务语义：
     - `primary_baseline` 是本次批量初始化/重放的默认主黄金基线
     - `selected_baselines` 是本次允许参与绑定与分析的黄金基线集合
-    - `definition_id` 表示这些黄金基线对应的炉次指标定义模板
     - `expected_duration_minutes` 表示这次切炉次时使用的预期炉次时长
     """
 
     primary_baseline: dict[str, Any]
     selected_baselines: list[dict[str, Any]]
-    definition_id: str
     expected_duration_minutes: int
 
 
@@ -46,7 +44,7 @@ class ReplayBaselineSelectionService:
 
         selected_baselines: list[dict[str, Any]] = []
         primary_baseline: dict[str, Any] | None = None
-        definition_id: str | None = None
+        expected_duration_minutes: int | None = None
 
         for baseline_id in normalized_ids:
             definition_part, item_part = decode_baseline_id(baseline_id)
@@ -59,10 +57,18 @@ class ReplayBaselineSelectionService:
             normalized_definition_id = str(baseline.get("definition_id") or "").strip()
             if not normalized_definition_id:
                 raise ValueError("replay_selected_baseline_definition_missing")
-            if definition_id is None:
-                definition_id = normalized_definition_id
-            elif normalized_definition_id != definition_id:
-                raise ValueError("replay_selected_baselines_cross_definition")
+
+            definition = await get_definition_record(normalized_definition_id)
+            if definition is None:
+                raise ValueError("replay_selected_baseline_definition_not_found")
+
+            baseline_expected_duration = int(definition.get("expected_duration_minutes") or 0)
+            if baseline_expected_duration <= 0:
+                raise ValueError("replay_selected_baseline_duration_invalid")
+            if expected_duration_minutes is None:
+                expected_duration_minutes = baseline_expected_duration
+            elif baseline_expected_duration != expected_duration_minutes:
+                raise ValueError("replay_selected_baselines_duration_mismatch")
 
             normalized = dict(baseline)
             normalized["is_default"] = baseline_id == normalized_primary_id
@@ -70,20 +76,11 @@ class ReplayBaselineSelectionService:
             if baseline_id == normalized_primary_id:
                 primary_baseline = normalized
 
-        if primary_baseline is None or definition_id is None:
+        if primary_baseline is None or expected_duration_minutes is None:
             raise ValueError("replay_primary_baseline_not_found")
-
-        definition = await get_definition_record(definition_id)
-        if definition is None:
-            raise ValueError("replay_primary_definition_not_found")
-
-        expected_duration_minutes = int(definition.get("expected_duration_minutes") or 0)
-        if expected_duration_minutes <= 0:
-            raise ValueError("replay_primary_definition_duration_invalid")
 
         return ReplayBaselineSelection(
             primary_baseline=primary_baseline,
             selected_baselines=selected_baselines,
-            definition_id=definition_id,
             expected_duration_minutes=expected_duration_minutes,
         )
