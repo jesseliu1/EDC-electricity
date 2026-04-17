@@ -30,6 +30,8 @@ export interface HeatResponseItem {
   end_time: number
   context_start_time: number | null
   context_end_time: number | null
+  actual_context_start_time: number | null
+  actual_context_end_time: number | null
   completion_status: HeatCompletionStatus
   last_point_at: number | null
   runtime_snapshot_status: HeatRuntimeSnapshotStatus

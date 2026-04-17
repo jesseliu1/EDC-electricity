@@ -28,6 +28,8 @@ export interface HeatItem {
   endTime: number
   contextStartTime: number | null
   contextEndTime: number | null
+  actualContextStartTime: number | null
+  actualContextEndTime: number | null
   completionStatus: HeatCompletionStatus
   lastPointAt: number | null
   runtimeSnapshotStatus: HeatRuntimeSnapshotStatus
@@ -148,6 +150,8 @@ function mapHeat(item: HeatResponseItem): HeatItem {
     endTime: item.end_time,
     contextStartTime: item.context_start_time ?? null,
     contextEndTime: item.context_end_time ?? null,
+    actualContextStartTime: item.actual_context_start_time ?? null,
+    actualContextEndTime: item.actual_context_end_time ?? null,
     completionStatus: item.completion_status || 'completed',
     lastPointAt: item.last_point_at,
     runtimeSnapshotStatus: item.runtime_snapshot_status || 'warming',

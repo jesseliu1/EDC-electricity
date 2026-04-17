@@ -140,6 +140,29 @@ function isInProgress(item: HeatItem) {
   return item.completionStatus === 'in_progress'
 }
 
+function getDeclaredContextWindow(item: HeatItem) {
+  if (item.contextStartTime === null || item.contextEndTime === null) return null
+  return {
+    start: Math.min(item.contextStartTime, item.startTime),
+    end: Math.max(item.contextEndTime, item.endTime)
+  }
+}
+
+function getActualContextWindow(item: HeatItem) {
+  if (item.actualContextStartTime === null || item.actualContextEndTime === null) return null
+  return {
+    start: item.actualContextStartTime,
+    end: item.actualContextEndTime
+  }
+}
+
+function hasPartialContextCoverage(item: HeatItem) {
+  const declaredWindow = getDeclaredContextWindow(item)
+  const actualWindow = getActualContextWindow(item)
+  if (!declaredWindow || !actualWindow) return false
+  return actualWindow.start > declaredWindow.start || actualWindow.end < declaredWindow.end
+}
+
 function buildSeries(seed: string, base: number, amplitude: number) {
   const signature = seed.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)
   return Array.from({ length: 24 }).map((_, index) => {
@@ -676,6 +699,72 @@ onBeforeUnmount(() => {
                               <StatusBadge :type="statusBadgeType(item.status)">
                                 {{ statusText(item.status) }}
                               </StatusBadge>
+                            </div>
+                          </div>
+                          <div
+                            class="rounded-lg border px-4 py-3"
+                            :class="
+                              hasPartialContextCoverage(item)
+                                ? 'border-amber-200 bg-amber-50'
+                                : 'border-white bg-white'
+                            "
+                          >
+                            <div
+                              class="text-xs uppercase tracking-wider"
+                              :class="hasPartialContextCoverage(item) ? 'text-amber-600' : 'text-slate-400'"
+                            >
+                              {{ t('heat.actualCoverageWindow') }}
+                            </div>
+                            <div class="mt-3 space-y-2 text-xs font-mono">
+                              <div class="flex justify-between gap-3">
+                                <span class="font-sans text-slate-400">{{ t('heat.declaredContextWindow') }}</span>
+                                <span>
+                                  {{
+                                    formatTimestampOrFallback(
+                                      getDeclaredContextWindow(item)?.start ?? null,
+                                      '--',
+                                      'MM-DD HH:mm'
+                                    )
+                                  }}
+                                  ~
+                                  {{
+                                    formatTimestampOrFallback(
+                                      getDeclaredContextWindow(item)?.end ?? null,
+                                      '--',
+                                      'MM-DD HH:mm'
+                                    )
+                                  }}
+                                </span>
+                              </div>
+                              <div class="flex justify-between gap-3">
+                                <span
+                                  class="font-sans"
+                                  :class="hasPartialContextCoverage(item) ? 'text-amber-600' : 'text-slate-400'"
+                                >{{ t('heat.actualCoverageWindow') }}</span>
+                                <span>
+                                  {{
+                                    formatTimestampOrFallback(
+                                      getActualContextWindow(item)?.start ?? null,
+                                      '--',
+                                      'MM-DD HH:mm'
+                                    )
+                                  }}
+                                  ~
+                                  {{
+                                    formatTimestampOrFallback(
+                                      getActualContextWindow(item)?.end ?? null,
+                                      '--',
+                                      'MM-DD HH:mm'
+                                    )
+                                  }}
+                                </span>
+                              </div>
+                            </div>
+                            <div
+                              v-if="hasPartialContextCoverage(item)"
+                              class="mt-3 text-xs text-amber-700"
+                            >
+                              {{ t('heat.contextWindowPartialHint') }}
                             </div>
                           </div>
                         </div>

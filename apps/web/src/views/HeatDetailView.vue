@@ -380,7 +380,7 @@ const heatCoreWindow = computed(() => {
   }
 })
 
-const compareContextWindow = computed(() => {
+const declaredContextWindow = computed(() => {
   if (!current.value) return null
   const explicitStart = normalizedTimestamp(current.value.base.contextStartTime)
   const explicitEnd = normalizedTimestamp(current.value.base.contextEndTime)
@@ -396,6 +396,20 @@ const compareContextWindow = computed(() => {
     }
   }
 
+  return heatCoreWindow.value
+})
+
+const actualContextWindow = computed(() => {
+  if (!current.value) return null
+  const actualStart = normalizedTimestamp(current.value.base.actualContextStartTime)
+  const actualEnd = normalizedTimestamp(current.value.base.actualContextEndTime)
+  if (actualStart !== null && actualEnd !== null && actualStart <= actualEnd) {
+    return {
+      start: actualStart,
+      end: actualEnd,
+    }
+  }
+
   const metricCurves =
     comparisonMetricCurves.value.length > 0
       ? comparisonMetricCurves.value
@@ -403,6 +417,18 @@ const compareContextWindow = computed(() => {
   return (
     inferCurveWindow(metricCurves.map((metric) => metric.current_curve)) ||
     heatCoreWindow.value
+  )
+})
+
+const compareContextWindow = computed(
+  () => actualContextWindow.value || declaredContextWindow.value || heatCoreWindow.value
+)
+
+const hasPartialContextCoverage = computed(() => {
+  if (!declaredContextWindow.value || !actualContextWindow.value) return false
+  return (
+    actualContextWindow.value.start > declaredContextWindow.value.start ||
+    actualContextWindow.value.end < declaredContextWindow.value.end
   )
 })
 
@@ -1387,6 +1413,84 @@ onBeforeUnmount(() => {
                   <span>{{ endTimeDisplay }}</span>
                 </div>
               </div>
+              <div class="mt-4 grid gap-3 md:grid-cols-2">
+                <div class="rounded-lg border border-slate-200 bg-white px-3 py-3">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-400">
+                    {{ t('heat.declaredContextWindow') }}
+                  </div>
+                  <div class="mt-3 space-y-2 font-mono text-xs">
+                    <div class="flex justify-between gap-3">
+                      <span class="font-sans text-slate-400">{{ t('heat.declaredStartTime') }}</span>
+                      <span>{{
+                        formatTimestampOrFallback(
+                          declaredContextWindow?.start ?? null,
+                          '--',
+                          'YYYY-MM-DD HH:mm:ss'
+                        )
+                      }}</span>
+                    </div>
+                    <div class="flex justify-between gap-3">
+                      <span class="font-sans text-slate-400">{{ t('heat.declaredEndTime') }}</span>
+                      <span>{{
+                        formatTimestampOrFallback(
+                          declaredContextWindow?.end ?? null,
+                          '--',
+                          'YYYY-MM-DD HH:mm:ss'
+                        )
+                      }}</span>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  class="rounded-lg border px-3 py-3"
+                  :class="
+                    hasPartialContextCoverage
+                      ? 'border-amber-200 bg-amber-50'
+                      : 'border-slate-200 bg-white'
+                  "
+                >
+                  <div
+                    class="text-[11px] uppercase tracking-wider"
+                    :class="hasPartialContextCoverage ? 'text-amber-600' : 'text-slate-400'"
+                  >
+                    {{ t('heat.actualCoverageWindow') }}
+                  </div>
+                  <div class="mt-3 space-y-2 font-mono text-xs">
+                    <div class="flex justify-between gap-3">
+                      <span
+                        class="font-sans"
+                        :class="hasPartialContextCoverage ? 'text-amber-600' : 'text-slate-400'"
+                      >{{ t('heat.actualStartTime') }}</span>
+                      <span>{{
+                        formatTimestampOrFallback(
+                          actualContextWindow?.start ?? null,
+                          '--',
+                          'YYYY-MM-DD HH:mm:ss'
+                        )
+                      }}</span>
+                    </div>
+                    <div class="flex justify-between gap-3">
+                      <span
+                        class="font-sans"
+                        :class="hasPartialContextCoverage ? 'text-amber-600' : 'text-slate-400'"
+                      >{{ t('heat.actualEndTime') }}</span>
+                      <span>{{
+                        formatTimestampOrFallback(
+                          actualContextWindow?.end ?? null,
+                          '--',
+                          'YYYY-MM-DD HH:mm:ss'
+                        )
+                      }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p
+                v-if="hasPartialContextCoverage"
+                class="mt-3 text-xs text-amber-700"
+              >
+                {{ t('heat.contextWindowPartialHint') }}
+              </p>
             </div>
 
             <div
