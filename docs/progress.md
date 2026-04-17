@@ -6,6 +6,26 @@
 
 ---
 
+### 2026-04-17（fixed_interval 的 replay -> live 续接锚点契约已收口）
+
+- [x] 已定位“批量初始化后台账连续报 `no_runtime_heats_inferred`”的主因
+  - [x] 确认不是前端提示误报，也不是 `/api/heats` 列表把 `previous` 显示错
+  - [x] 确认问题发生在 `replay head rebuild -> live refresh` 交接面
+  - [x] 确认 `fixed_interval` 模式下，replay 写回的 processor snapshot 与 live 续接使用的 anchor timeline 契约不一致
+- [x] 已完成 replay/live continuation 契约修复
+  - [x] `replay_batch` 会保留显式初始化产生的 fixed-interval anchor
+  - [x] `live refresh` 续接已有 processor snapshot 时，会优先沿已建立的 anchor 继续跑，而不是重新按当前时刻另算一条锚点时间轴
+  - [x] 当续接成功但当前增量窗口未形成新炉次时，后端不再直接把它记成系统错误
+- [x] 已补定向后端回归并通过
+  - [x] `uv run --directory apps/server ruff check src/api/heats.py src/services/live_heat_runtime_service.py src/services/heat_replay_batch_service.py tests/test_heat_replay_api.py`
+  - [x] `$env:ASNS_TEST_DB_PATH='D:\\project\\EDC electricity\\apps\\server\\.pytest-db\\replay-live-fix.db'; uv run --directory apps/server pytest -q tests/test_heat_replay_api.py -k "fixed_interval_uses_anchor_timeline_boundaries or rebuilds_processor_snapshot_for_live_continuation or rebuilds_fixed_interval_processor_snapshot_for_live_continuation"`
+  - [x] `$env:ASNS_TEST_DB_PATH='D:\\project\\EDC electricity\\apps\\server\\.pytest-db\\replay-live-fix.db'; uv run --directory apps/server pytest -q tests/test_heats_api.py -k "refresh_heat_runtime_rejects_flat_zero_power_signal"`
+- [!] 当前边界
+  - [!] 本轮完成的是后端续接主链修复与定向回归，不是完整用户路径验证，也不是正式 UAT
+  - [!] 尚未重新在真实联调环境手工复现“批量初始化后立即进入炉次浏览”的浏览器路径
+
+---
+
 ### 2026-04-17（fixed_interval 已改成锚点硬切，live/replay 共用独立策略层）
 
 - [x] 已完成炉次切割策略解耦

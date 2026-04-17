@@ -1611,6 +1611,20 @@ def _build_live_processor_snapshot_from_replay_seed(
     state = _replay_processor_snapshot_state(snapshot)
     if not isinstance(state, dict):
         return None
+    raw_config = snapshot.get("config") if isinstance(snapshot, dict) else None
+    anchor_timestamp_ms = (
+        raw_config.get("anchor_timestamp_ms") if isinstance(raw_config, dict) else None
+    )
+    if anchor_timestamp_ms is None:
+        anchor_reference_time = _replay_processor_last_point_time(snapshot)
+        if anchor_reference_time is not None:
+            anchor_time = resolve_live_cutting_anchor_time(
+                reference_time=anchor_reference_time,
+                config=cutting_config,
+            )
+            anchor_timestamp_ms = (
+                to_timestamp_ms(anchor_time) if anchor_time is not None else None
+            )
     return {
         "config": {
             "cache_key": str(live_context["cache_key"]),
@@ -1619,6 +1633,7 @@ def _build_live_processor_snapshot_from_replay_seed(
             "expected_duration_minutes": int(live_context["expected_duration_minutes"]),
             "cutting_config_token": cutting_config.cache_token(),
             "processing_mode": "live_incremental",
+            "anchor_timestamp_ms": anchor_timestamp_ms,
         },
         "state": deepcopy(state),
     }
@@ -1995,6 +2010,31 @@ async def _refresh_heat_runtime_state_from_context(
             )
 
     if not active_candidate and not previous_candidate and not sealed_candidates:
+        if refresh_result.reused_processor_snapshot and (
+            isinstance(existing_active_item, dict) or isinstance(existing_previous_item, dict)
+        ):
+            watermark_candidates: list[datetime] = []
+            processor_state = refresh_result.processor_state.get("state")
+            if isinstance(processor_state, dict):
+                raw_last_point = processor_state.get("last_point_timestamp")
+                try:
+                    if raw_last_point is not None:
+                        watermark_candidates.append(from_timestamp_ms(int(raw_last_point)))
+                except (TypeError, ValueError):
+                    pass
+            for runtime_item in (existing_previous_item, existing_active_item):
+                if not isinstance(runtime_item, dict):
+                    continue
+                watermark = runtime_item.get("last_point_at") or runtime_item.get("end_time")
+                if isinstance(watermark, datetime):
+                    watermark_candidates.append(watermark)
+            _mark_heat_runtime_refresh_success(
+                reason=reason,
+                refresh_outcome="no_active_heat_in_window",
+                snapshot_watermark=max(watermark_candidates) if watermark_candidates else None,
+            )
+            await persist_runtime_state(*_runtime_heat_sections())
+            return _build_heat_runtime_refresh_meta_snapshot()
         _mark_heat_runtime_refresh_failure(error="no_runtime_heats_inferred")
         await persist_runtime_state(*_runtime_heat_sections())
         return _build_heat_runtime_refresh_meta_snapshot()

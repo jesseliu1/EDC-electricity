@@ -21,6 +21,13 @@
 
 ## 记录
 
+### 2026-04-17 fixed_interval 的 replay -> live 续接不能在交接时丢掉既有 anchor timeline
+
+- **错误模式**: `replay` 完成后虽然重建了 `active_runtime / previous_runtime` 和 processor snapshot，但在交给 `live refresh` 时只续了 `last_point_timestamp` 等运行态状态，没有继续沿用 fixed-interval 既有的 `anchor_timestamp_ms`。结果 live 端会拿“短增量窗口 + 错轴/冷启动 processor”重新推断，表现成批量初始化后连续报 `no_runtime_heats_inferred`。
+- **正确做法**: 对 fixed-interval 而言，`anchor_timestamp_ms` 属于 continuation contract 的一部分，不是可随时另算的临时字段。只要 replay 已经按某个 anchor 时间轴切过炉次，后续 live refresh 就必须继续沿同一 anchor 续跑；不能在交接时改回另一条时间轴，也不能只续点位游标不续 anchor。
+- **适用场景**: 批量初始化后接 live 增量、replay head rebuild、fixed_interval 切割、任何需要把 processor snapshot 从一种运行阶段交给另一种运行阶段继续消费的链路。
+- **相关文档**: `apps/server/src/api/heats.py`, `apps/server/src/services/live_heat_runtime_service.py`, `apps/server/src/services/heat_stream_processor.py`
+
 ### 2026-04-17 fixed_interval 不能再挂靠“活跃段首点起算”的旧语义
 
 - **错误模式**: 配置虽然叫 `fixed_interval`，实现却先按功率阈值找活跃段，再从每个活跃段首点开始按固定分钟数切。结果 replay 即使传了 `start_time=12:00`，落库炉次仍会漂到 `12:16 / 12:46 / 13:32` 这类不均匀时间点，和“从锚点开始硬切”的业务语义完全不一致。

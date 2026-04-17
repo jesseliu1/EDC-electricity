@@ -714,6 +714,89 @@ async def test_replay_job_rebuilds_processor_snapshot_for_live_continuation(
 
 
 @pytest.mark.asyncio
+async def test_replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_continuation(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    _SETTINGS_STORE["cutting_mode"]["value"] = "fixed_interval"
+    _SETTINGS_STORE["fixed_interval_minutes"]["value"] = "30"
+    _SETTINGS_STORE["time_tolerance_percent"]["value"] = "10.0"
+    replay_end_time = datetime(2026, 4, 17, 13, 4)
+    refresh_now = datetime(2026, 4, 17, 13, 18)
+    live_points = _build_fixed_interval_regression_points(datetime(2026, 4, 17, 12, 0))
+
+    async def fake_load_live_heat_inference_power_points(_channel, start_time=None, end_time=None):
+        if start_time is None or end_time is None:
+            return live_points
+        start_ms = to_timestamp_ms(start_time)
+        end_ms = to_timestamp_ms(end_time)
+        return [point for point in live_points if start_ms <= int(point.timestamp) <= end_ms]
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_replay_inference_channel",
+        lambda: dict(_build_test_live_context()["channel"]),
+    )
+    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", _fake_runtime_metric_curves)
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+    heats_module._HEAT_STREAM_PROCESSOR_STATE.clear()
+
+    create_response = await client.post(
+        "/api/heats/replay-jobs",
+        json={
+            "job_kind": "replay_batch",
+            "start_time": to_timestamp_ms(datetime(2026, 4, 17, 12, 0)),
+            "end_time": to_timestamp_ms(replay_end_time),
+            "primary_baseline_id": "def-001:001",
+            "baseline_ids": ["def-001:001"],
+            "force_replace": True,
+        },
+    )
+    assert create_response.status_code == 201
+    finished = await _wait_for_job(client, create_response.json()["id"], terminal_statuses={"completed"})
+    assert finished["status"] == "completed"
+
+    active_before_refresh = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
+    assert active_before_refresh is not None
+    assert _HEAT_STREAM_PROCESSOR_STATE.get("state", {}).get("bootstrapped") is True
+    assert _HEAT_STREAM_PROCESSOR_STATE.get("config", {}).get("anchor_timestamp_ms") == to_timestamp_ms(
+        datetime(2026, 4, 17, 12, 0)
+    )
+
+    monkeypatch.setattr("src.api.heats.utc_now", lambda: refresh_now)
+    monkeypatch.setattr("src.services.live_heat_runtime_service.utc_now", lambda: refresh_now)
+
+    refresh_meta = await refresh_heat_runtime_state(reason="post_replay_continuation")
+    assert refresh_meta["refresh_error"] is None
+    assert refresh_meta["snapshot_status"] != "error"
+
+    active_after_refresh = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
+    previous_after_refresh = next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)
+    assert active_after_refresh is not None
+    assert previous_after_refresh is not None
+    assert previous_after_refresh["start_time"] == active_before_refresh["start_time"]
+    assert active_after_refresh["start_time"] >= active_before_refresh["start_time"]
+    assert active_after_refresh["last_point_at"] > active_before_refresh["last_point_at"]
+    assert _HEAT_STREAM_PROCESSOR_STATE.get("state", {}).get("bootstrapped") is True
+    assert _HEAT_STREAM_PROCESSOR_STATE.get("config", {}).get("anchor_timestamp_ms") == to_timestamp_ms(
+        datetime(2026, 4, 17, 12, 0)
+    )
+
+
+@pytest.mark.asyncio
 async def test_replay_job_ignores_effective_from_for_explicit_selected_baselines(
     client, monkeypatch
 ) -> None:

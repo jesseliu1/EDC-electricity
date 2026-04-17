@@ -34,10 +34,25 @@ class LiveHeatRefreshResult:
     fetch_start_time: datetime
     fetch_end_time: datetime
     used_bootstrap_window: bool
+    reused_processor_snapshot: bool
 
 
 def _bootstrap_window_minutes(expected_duration_minutes: int) -> int:
     return max(_BOOTSTRAP_WINDOW_MINUTES, expected_duration_minutes * 4)
+
+
+def _resolve_processor_anchor_time(
+    *,
+    restored_config: HeatProcessorConfig | None,
+    reference_time: datetime,
+    cutting_config: HeatCuttingConfig,
+) -> datetime | None:
+    if restored_config is not None and restored_config.anchor_timestamp_ms is not None:
+        return from_timestamp_ms(restored_config.anchor_timestamp_ms)
+    return resolve_live_cutting_anchor_time(
+        reference_time=reference_time,
+        config=cutting_config,
+    )
 
 
 def _compute_fetch_window(
@@ -95,9 +110,23 @@ async def refresh_live_heat_segments(
         or (from_timestamp_ms(points[-1].timestamp) if points else None)
         or now
     )
-    anchor_time = resolve_live_cutting_anchor_time(
+    anchor_time = _resolve_processor_anchor_time(
+        restored_config=restored_config,
         reference_time=anchor_reference_time,
-        config=cutting_config,
+        cutting_config=cutting_config,
+    )
+    reused_processor_snapshot = bool(
+        restored_state is not None
+        and restored_config is not None
+        and restored_config.is_compatible(
+            cache_key=str(context["cache_key"]),
+            channel_key=str(context["channel_key"]),
+            context_hash=str(context["context_hash"]),
+            expected_duration_minutes=int(context["expected_duration_minutes"]),
+            cutting_config=cutting_config,
+            processing_mode=processing_mode,
+            anchor_time=anchor_time,
+        )
     )
     processor = HeatStreamProcessor(
         cache_key=str(context["cache_key"]),
@@ -124,4 +153,5 @@ async def refresh_live_heat_segments(
         fetch_start_time=fetch_start_time,
         fetch_end_time=fetch_end_time,
         used_bootstrap_window=used_bootstrap_window,
+        reused_processor_snapshot=reused_processor_snapshot,
     )
