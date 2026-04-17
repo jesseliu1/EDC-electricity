@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Callable
+from datetime import datetime
+from typing import Any
 
 from ..schemas.common import CurvePoint
 from ..services.heat_cutting_service import (
     HeatCuttingConfig,
     HeatCuttingContext,
+    HeatCuttingSegment,
     infer_live_activity_threshold,
-    infer_live_heat_segments,
+    infer_live_heat_segments_with_metadata,
 )
 from ..time_utils import from_timestamp_ms, to_timestamp_ms
 
@@ -36,6 +38,7 @@ def _normalize_points(points: list[CurvePoint] | list[dict[str, Any]] | None) ->
 @dataclass(slots=True)
 class HeatSegment:
     points: list[CurvePoint]
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def start_timestamp(self) -> int:
@@ -65,6 +68,7 @@ class HeatProcessorConfig:
     expected_duration_minutes: int
     cutting_config_token: str
     processing_mode: str
+    anchor_timestamp_ms: int | None = None
 
     def is_compatible(
         self,
@@ -75,6 +79,7 @@ class HeatProcessorConfig:
         expected_duration_minutes: int,
         cutting_config: HeatCuttingConfig,
         processing_mode: str,
+        anchor_time: datetime | None = None,
     ) -> bool:
         return (
             self.cache_key == cache_key
@@ -83,6 +88,9 @@ class HeatProcessorConfig:
             and self.expected_duration_minutes == expected_duration_minutes
             and self.cutting_config_token == cutting_config.cache_token()
             and self.processing_mode == processing_mode
+            and self.anchor_timestamp_ms == (
+                to_timestamp_ms(anchor_time) if anchor_time is not None else None
+            )
         )
 
     def to_snapshot(self) -> dict[str, Any]:
@@ -93,6 +101,7 @@ class HeatProcessorConfig:
             "expected_duration_minutes": self.expected_duration_minutes,
             "cutting_config_token": self.cutting_config_token,
             "processing_mode": self.processing_mode,
+            "anchor_timestamp_ms": self.anchor_timestamp_ms,
         }
 
     @classmethod
@@ -112,6 +121,13 @@ class HeatProcessorConfig:
             return None
         if expected_duration_minutes <= 0:
             return None
+        anchor_timestamp_raw = source.get("anchor_timestamp_ms")
+        try:
+            anchor_timestamp_ms = (
+                int(anchor_timestamp_raw) if anchor_timestamp_raw is not None else None
+            )
+        except (TypeError, ValueError):
+            return None
         return cls(
             cache_key=cache_key,
             channel_key=channel_key,
@@ -119,6 +135,7 @@ class HeatProcessorConfig:
             expected_duration_minutes=expected_duration_minutes,
             cutting_config_token=str(source.get("cutting_config_token") or ""),
             processing_mode=processing_mode,
+            anchor_timestamp_ms=anchor_timestamp_ms,
         )
 
 
@@ -197,6 +214,7 @@ class HeatStreamProcessor:
         expected_duration_minutes: int,
         cutting_config: HeatCuttingConfig,
         processing_mode: str,
+        anchor_time: datetime | None = None,
         snapshot_config: HeatProcessorConfig | None = None,
         state: HeatProcessorState | None = None,
         gap_minutes: int = _DEFAULT_GAP_MINUTES,
@@ -210,10 +228,14 @@ class HeatStreamProcessor:
             expected_duration_minutes=expected_duration_minutes,
             cutting_config_token=cutting_config.cache_token(),
             processing_mode=processing_mode,
+            anchor_timestamp_ms=(
+                to_timestamp_ms(anchor_time) if anchor_time is not None else None
+            ),
         )
         self._cutting_config = cutting_config
         self._cutting_context = HeatCuttingContext(
-            expected_duration_minutes=expected_duration_minutes
+            expected_duration_minutes=expected_duration_minutes,
+            anchor_time=anchor_time,
         )
         self._processing_mode = processing_mode
         self._gap_minutes = gap_minutes
@@ -225,6 +247,7 @@ class HeatStreamProcessor:
             expected_duration_minutes=expected_duration_minutes,
             cutting_config=cutting_config,
             processing_mode=processing_mode,
+            anchor_time=anchor_time,
         ):
             self._state = state
         else:
@@ -304,20 +327,31 @@ class HeatStreamProcessor:
                 self._state.activity_threshold = inferred_threshold
 
         if self._state.activity_threshold is None:
-            raw_segments = infer_live_heat_segments(
+            raw_segments = infer_live_heat_segments_with_metadata(
                 points,
                 context=self._cutting_context,
                 config=self._cutting_config,
             )
         else:
-            raw_segments = infer_live_heat_segments(
+            raw_segments = infer_live_heat_segments_with_metadata(
                 points,
                 context=self._cutting_context,
                 config=self._cutting_config,
                 activity_threshold=self._state.activity_threshold,
             )
 
-        return [HeatSegment(points=segment) for segment in raw_segments if segment]
+        return [
+            HeatSegment(
+                points=segment.points,
+                metadata=_segment_metadata(
+                    segment,
+                    cutting_mode=self._cutting_config.cutting_mode,
+                    anchor_time=self._cutting_context.anchor_time,
+                ),
+            )
+            for segment in raw_segments
+            if segment.points
+        ]
 
     def _recompute(
         self,
@@ -388,3 +422,33 @@ class HeatStreamProcessor:
         )
         cutoff = int(points[-1].timestamp) - idle_window_minutes * 60_000
         return [point for point in points if int(point.timestamp) >= cutoff]
+
+
+def _segment_metadata(
+    segment: HeatCuttingSegment,
+    *,
+    cutting_mode: str,
+    anchor_time: datetime | None,
+) -> dict[str, Any]:
+    anchor_timestamp_ms = to_timestamp_ms(anchor_time) if anchor_time is not None else None
+    metadata: dict[str, Any] = {
+        "cutting_mode": cutting_mode,
+        "anchor_timestamp_ms": anchor_timestamp_ms,
+    }
+    if segment.start_boundary is not None:
+        metadata.update(
+            {
+                "ideal_start_boundary_ts": int(segment.start_boundary.ideal_timestamp),
+                "actual_start_boundary_ts": int(segment.start_boundary.actual_timestamp),
+                "start_boundary_snapped": bool(segment.start_boundary.snapped_to_active_end),
+            }
+        )
+    if segment.end_boundary is not None:
+        metadata.update(
+            {
+                "ideal_end_boundary_ts": int(segment.end_boundary.ideal_timestamp),
+                "actual_end_boundary_ts": int(segment.end_boundary.actual_timestamp),
+                "end_boundary_snapped": bool(segment.end_boundary.snapped_to_active_end),
+            }
+        )
+    return metadata

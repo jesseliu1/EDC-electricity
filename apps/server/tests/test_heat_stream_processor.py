@@ -9,6 +9,7 @@ from src.services.heat_stream_processor import (
     HeatProcessorState,
     HeatStreamProcessor,
 )
+from src.time_utils import to_timestamp_ms
 
 
 def _build_cutting_config(*, cutting_mode: str = "signal_inference", fixed_interval: int | None = None):
@@ -29,9 +30,7 @@ def _build_live_power_points(start: datetime) -> list[CurvePoint]:
 
     def append_block(offset_minutes: int, length_minutes: int, value: float) -> None:
         for index in range(length_minutes):
-            timestamp = int(
-                (start + timedelta(minutes=offset_minutes + index)).timestamp() * 1000
-            )
+            timestamp = to_timestamp_ms(start + timedelta(minutes=offset_minutes + index))
             points.append(CurvePoint(timestamp=timestamp, value=value))
 
     append_block(0, 10, 42.0)
@@ -47,15 +46,15 @@ def _build_live_power_points_with_heat_count(start: datetime, heat_count: int) -
     cursor = 0
     for _index in range(heat_count):
         for offset in range(8):
-            timestamp = int((start + timedelta(minutes=cursor + offset)).timestamp() * 1000)
+            timestamp = to_timestamp_ms(start + timedelta(minutes=cursor + offset))
             points.append(CurvePoint(timestamp=timestamp, value=42.0))
         cursor += 8
         for offset in range(28):
-            timestamp = int((start + timedelta(minutes=cursor + offset)).timestamp() * 1000)
+            timestamp = to_timestamp_ms(start + timedelta(minutes=cursor + offset))
             points.append(CurvePoint(timestamp=timestamp, value=128.0))
         cursor += 28
     for offset in range(8):
-        timestamp = int((start + timedelta(minutes=cursor + offset)).timestamp() * 1000)
+        timestamp = to_timestamp_ms(start + timedelta(minutes=cursor + offset))
         points.append(CurvePoint(timestamp=timestamp, value=41.0))
     return points
 
@@ -222,3 +221,57 @@ def test_processor_snapshot_restores_legacy_flat_shape() -> None:
     assert restored_state.bootstrapped is True
     assert restored_state.activity_threshold == 100.0
     assert len(restored_state.points_buffer) == 3
+
+
+def test_processor_fixed_interval_snapshot_tracks_anchor_compatibility() -> None:
+    anchor_time = datetime(2026, 3, 19, 8, 0)
+    cutting_config = _build_cutting_config(cutting_mode="fixed_interval", fixed_interval=30)
+    processor = HeatStreamProcessor(
+        cache_key="test-cache",
+        channel_key="2349:199",
+        context_hash="ctx",
+        baseline_id="def-001:001",
+        expected_duration_minutes=30,
+        cutting_config=cutting_config,
+        processing_mode="live_incremental",
+        anchor_time=anchor_time,
+        threshold_resolver=lambda _points: 100.0,
+    )
+
+    processor.feed_points(
+        _build_live_power_points_with_heat_count(anchor_time, 3),
+        allow_sealing=False,
+        retain_tail_count=2,
+    )
+    snapshot = processor.snapshot_state()
+
+    restored = HeatStreamProcessor(
+        cache_key="test-cache",
+        channel_key="2349:199",
+        context_hash="ctx",
+        baseline_id="def-001:001",
+        expected_duration_minutes=30,
+        cutting_config=cutting_config,
+        processing_mode="live_incremental",
+        anchor_time=anchor_time,
+        snapshot_config=HeatProcessorConfig.from_snapshot(snapshot),
+        state=HeatProcessorState.from_snapshot(snapshot),
+        threshold_resolver=lambda _points: 100.0,
+    )
+    incompatible = HeatStreamProcessor(
+        cache_key="test-cache",
+        channel_key="2349:199",
+        context_hash="ctx",
+        baseline_id="def-001:001",
+        expected_duration_minutes=30,
+        cutting_config=cutting_config,
+        processing_mode="live_incremental",
+        anchor_time=anchor_time + timedelta(days=1),
+        snapshot_config=HeatProcessorConfig.from_snapshot(snapshot),
+        state=HeatProcessorState.from_snapshot(snapshot),
+        threshold_resolver=lambda _points: 100.0,
+    )
+
+    assert snapshot["config"]["anchor_timestamp_ms"] == to_timestamp_ms(anchor_time)
+    assert restored.state.bootstrapped is True
+    assert incompatible.state.bootstrapped is False

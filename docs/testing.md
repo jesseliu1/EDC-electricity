@@ -577,6 +577,25 @@ docs/test-reports/
 - `uv --directory apps/server run ruff check tests`
   - 测试目录静态检查
 
+## 后端 pytest 数据库隔离
+
+- `apps/server/tests/conftest.py` 现在会在导入 `src.*` 之前，先把 pytest 进程的 `ASNS_DATABASE_URL` 切到独立 SQLite 测试库。
+- 默认情况下，pytest 会自动生成独立测试库路径，不再落到 `apps/server/data/asns.db`。
+- 如需固定测试库路径，使用环境变量 `ASNS_TEST_DB_PATH`；`conftest.py` 会把它转换成测试用 `ASNS_DATABASE_URL`。
+- 如果有人显式把 pytest 指到共享联调库 `apps/server/data/asns.db`，pytest 会在加载 `conftest.py` 时直接失败，禁止继续执行。
+
+安全命令：
+
+- `uv run --directory apps/server pytest`
+- `$env:ASNS_TEST_DB_PATH='D:\\project\\EDC electricity\\apps\\server\\.pytest-db\\local.db'; uv run --directory apps/server pytest`
+- `uv run --directory apps/server pytest -q tests/test_api_edge_cases.py -k dashboard_invalid_duration_returns_422`
+
+仍然禁止在联调环境跑的命令：
+
+- `ASNS_DATABASE_URL=sqlite+aiosqlite:///./data/asns.db uv run --directory apps/server pytest`
+- 任何把 pytest 直接指向 `D:\\project\\EDC electricity\\apps\\server\\data\\asns.db` 的命令
+- 在联调环境直接执行会清空或重建共享库的命令，例如 `python -m src.runtime_state_admin --db apps/server/data/asns.db --mode factory-reset`
+
 ## 一键执行
 
 仓库根目录可直接运行：
@@ -674,3 +693,44 @@ uv sync --all-extras
 - 使用全局 in-memory store 的后端模块，测试必须保证状态隔离
 - 云端 CI 与本地 `.\scripts\check-all.ps1` / `./scripts/check-all.sh` 保持同一套检查口径，新增测试时两边都要同步
 - 对用户可见主路径的正式 UAT，不得只交付日志或命令输出，必须交付可回看的正式测试资产
+
+## 2026-04-17 fixed_interval 锚点硬切回归
+
+本轮炉次切割重构后，固定间隔模式的最小安全回归命令如下。
+
+后端：
+
+```powershell
+$env:ASNS_TEST_DB_PATH='D:\project\EDC electricity\apps\server\.pytest-db\fixed-cutting.db'
+& 'D:\project\EDC electricity\apps\server\.venv\Scripts\python.exe' -m pytest -q `
+  'D:\project\EDC electricity\apps\server\tests\test_heat_cutting_service.py' `
+  'D:\project\EDC electricity\apps\server\tests\test_heat_stream_processor.py'
+```
+
+```powershell
+$env:ASNS_TEST_DB_PATH='D:\project\EDC electricity\apps\server\.pytest-db\fixed-cutting.db'
+& 'D:\project\EDC electricity\apps\server\.venv\Scripts\python.exe' -m pytest -q `
+  'D:\project\EDC electricity\apps\server\tests\test_heats_api.py' `
+  -k 'supports_fixed_interval_cutting_mode_on_bootstrap or reuses_frozen_cutting_config_after_first_birth or live_heat_context_cache_key_changes_with_cutting_mode_and_fixed_interval'
+```
+
+```powershell
+$env:ASNS_TEST_DB_PATH='D:\project\EDC electricity\apps\server\.pytest-db\fixed-cutting.db'
+& 'D:\project\EDC electricity\apps\server\.venv\Scripts\python.exe' -m pytest -q `
+  'D:\project\EDC electricity\apps\server\tests\test_heat_replay_api.py' `
+  -k 'create_replay_job_runs_to_completion_and_replaces_range or replay_job_fixed_interval_uses_anchor_timeline_boundaries or replay_job_rebuilds_processor_snapshot_for_live_continuation'
+```
+
+前端：
+
+```powershell
+npm.cmd --prefix 'D:\project\EDC electricity\apps\web' run test -- src/__tests__/setting-store.test.ts
+```
+
+本组回归重点检查：
+
+- `fixed_interval` 是否按显式 anchor_time 生成理想切点，而不是从活跃段首点起算
+- 容忍窗口内是否会吸附到活跃结束点
+- 容忍窗口内找不到候选时是否回退理想切点
+- live runtime / replay batch / replay head rebuild 是否共用同一套 fixed 语义
+- 设置页在空值或默认加载时是否展示 `fixed_interval + 30`

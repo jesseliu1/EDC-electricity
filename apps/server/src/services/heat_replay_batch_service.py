@@ -20,7 +20,7 @@ from ..schemas.common import CurvePoint
 from ..services.heat_cutting_service import HeatCuttingConfig
 from ..time_utils import utc_now
 from .formal_heat_service import MetricCurveLoader, compile_runtime_candidates, replace_heat_range
-from .heat_stream_processor import HeatProcessorResult, HeatStreamProcessor
+from .heat_stream_processor import HeatProcessorResult, HeatSegment, HeatStreamProcessor
 
 _REPLAY_TASKS: dict[str, asyncio.Task[None]] = {}
 _REPLAY_ACTIVE_CHANNELS: set[str] = set()
@@ -30,7 +30,7 @@ _SQLITE_LOCK_RETRY_COUNT = 20
 _SQLITE_LOCK_RETRY_DELAY_SECONDS = 0.05
 
 LoadPointWindow = Callable[[dict[str, str], datetime, datetime], Awaitable[list[CurvePoint]]]
-BuildReplayItems = Callable[[list[list[CurvePoint]]], list[dict[str, Any]]]
+BuildReplayItems = Callable[[list[HeatSegment]], list[dict[str, Any]]]
 ThresholdResolver = Callable[[list[CurvePoint]], float | None]
 
 
@@ -318,6 +318,9 @@ def launch_heat_replay_job(
                 expected_duration_minutes=replay_context.expected_duration_minutes,
                 cutting_config=cutting_config,
                 processing_mode="replay_batch",
+                anchor_time=_job_field(job, "anchor_time")
+                if cutting_config.cutting_mode == "fixed_interval"
+                else None,
                 threshold_resolver=threshold_resolver,
             )
             generated_candidate_map: dict[str, dict[str, Any]] = {}
@@ -343,9 +346,7 @@ def launch_heat_replay_job(
                     allow_sealing=True,
                     retain_tail_count=2,
                 )
-                chunk_candidates = build_items_from_segments(
-                    [segment.points for segment in result.sealed_segments]
-                )
+                chunk_candidates = build_items_from_segments(list(result.sealed_segments))
                 _merge_generated_candidates(chunk_candidates)
                 processed_chunk_count += 1
                 chunk_start = chunk_end
@@ -361,11 +362,10 @@ def launch_heat_replay_job(
                 final_result,
                 processor_snapshot=processor.snapshot_state(),
             )
-            final_history_segment_points = [
-                list(segment.points)
-                for segment in final_result.all_segments[: final_runtime_seed.history_segment_count]
-            ]
-            final_candidates = build_items_from_segments(final_history_segment_points)
+            final_history_segments = list(
+                final_result.all_segments[: final_runtime_seed.history_segment_count]
+            )
+            final_candidates = build_items_from_segments(final_history_segments)
             _merge_generated_candidates(final_candidates)
 
             compiled_candidates = await compile_runtime_candidates(

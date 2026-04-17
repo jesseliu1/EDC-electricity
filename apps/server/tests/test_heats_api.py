@@ -218,13 +218,13 @@ def _patch_runtime_metric_curve_loader(monkeypatch):
             metric_key = str(metric.get("metric_key") or "")
             if metric_key == "power":
                 curves[metric_id] = [
-                    CurvePoint(timestamp=int(start_time.timestamp() * 1000), value=430.0),
-                    CurvePoint(timestamp=int(end_time.timestamp() * 1000), value=438.0),
+                    CurvePoint(timestamp=to_timestamp_ms(start_time), value=430.0),
+                    CurvePoint(timestamp=to_timestamp_ms(end_time), value=438.0),
                 ]
             elif metric_key == "voltage":
                 curves[metric_id] = [
-                    CurvePoint(timestamp=int(start_time.timestamp() * 1000), value=221.0),
-                    CurvePoint(timestamp=int(end_time.timestamp() * 1000), value=226.0),
+                    CurvePoint(timestamp=to_timestamp_ms(start_time), value=221.0),
+                    CurvePoint(timestamp=to_timestamp_ms(end_time), value=226.0),
                 ]
         return curves
 
@@ -323,6 +323,51 @@ def _build_test_live_context(
         },
         baseline_id=baseline_id,
         expected_duration_minutes=expected_duration_minutes,
+    )
+
+
+def _build_replay_runtime_seed_for_points(
+    *,
+    context: dict[str, object],
+    points: list[CurvePoint],
+    expected_duration_minutes: int = 30,
+):
+    import src.api.heats as heats_module
+    from src.services.heat_replay_batch_service import ReplayRuntimeSeed
+    from src.services.heat_stream_processor import HeatStreamProcessor
+
+    cutting_config = heats_module._resolve_live_context_cutting_config(context)
+    processor = HeatStreamProcessor(
+        cache_key=str(context["cache_key"]),
+        channel_key=str(context["channel_key"]),
+        context_hash=str(context["context_hash"]),
+        baseline_id=str(context.get("baseline_id") or "") or None,
+        expected_duration_minutes=expected_duration_minutes,
+        cutting_config=cutting_config,
+        processing_mode="replay_batch",
+        anchor_time=(
+            from_timestamp_ms(points[0].timestamp)
+            if points and cutting_config.cutting_mode == "fixed_interval"
+            else None
+        ),
+        threshold_resolver=lambda _points: 100.0,
+    )
+    result = processor.feed_points(points, allow_sealing=False, retain_tail_count=2)
+    return ReplayRuntimeSeed(
+        previous_segment_points=(
+            list(result.previous_segment.points) if result.previous_segment is not None else None
+        ),
+        active_segment_points=(
+            list(result.active_segment.points) if result.active_segment is not None else None
+        ),
+        all_segment_count=len(result.all_segments),
+        history_segment_count=max(
+            len(result.all_segments)
+            - int(result.previous_segment is not None)
+            - int(result.active_segment is not None),
+            0,
+        ),
+        processor_snapshot=processor.snapshot_state(),
     )
 
 
@@ -1370,6 +1415,51 @@ async def test_heat_compare_exposes_context_window_and_prefers_runtime_context_f
     assert first_baseline["metric_curves"][0]["current_curve"][0]["timestamp"] == to_timestamp_ms(
         runtime_item["context_start_time"]
     )
+
+
+@pytest.mark.asyncio
+async def test_runtime_heat_response_exposes_actual_context_window_from_runtime_metric_series(
+    client,
+) -> None:
+    import src.api.heats as heats_module
+
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._HEAT_COMPARE_CACHE["entries"].clear()
+    heats_module._COMPARE_BASELINE_CACHE["entries"].clear()
+    heat_id = _seed_runtime_heat()
+    runtime_item = heats_module._ACTIVE_HEAT_RUNTIME[heat_id]
+    runtime_item["context_start_time"] = runtime_item["start_time"] - timedelta(minutes=40)
+    runtime_item["context_end_time"] = runtime_item["end_time"] + timedelta(minutes=25)
+    actual_start = runtime_item["start_time"] + timedelta(minutes=5)
+    actual_end = runtime_item["end_time"] - timedelta(minutes=3)
+    runtime_item["runtime_metric_series"][0]["series_json"]["points"] = [
+        {"timestamp": to_timestamp_ms(actual_start), "value": 501.0},
+        {"timestamp": to_timestamp_ms(actual_end), "value": 509.0},
+    ]
+    runtime_item["runtime_metric_series"][1]["series_json"]["points"] = [
+        {"timestamp": to_timestamp_ms(actual_start), "value": 351.0},
+        {"timestamp": to_timestamp_ms(actual_end), "value": 359.0},
+    ]
+
+    list_response = await client.get("/api/heats", params={"page_size": 20})
+    assert list_response.status_code == 200
+    list_item = next(item for item in list_response.json()["items"] if item["id"] == heat_id)
+    assert list_item["context_start_time"] == to_timestamp_ms(runtime_item["context_start_time"])
+    assert list_item["context_end_time"] == to_timestamp_ms(runtime_item["context_end_time"])
+    assert list_item["actual_context_start_time"] == to_timestamp_ms(actual_start)
+    assert list_item["actual_context_end_time"] == to_timestamp_ms(actual_end)
+
+    detail_response = await client.get(f"/api/heats/{heat_id}")
+    assert detail_response.status_code == 200
+    detail_payload = detail_response.json()
+    assert detail_payload["actual_context_start_time"] == to_timestamp_ms(actual_start)
+    assert detail_payload["actual_context_end_time"] == to_timestamp_ms(actual_end)
+
+    compare_response = await client.get(f"/api/heats/{heat_id}/compare")
+    assert compare_response.status_code == 200
+    compare_payload = compare_response.json()
+    assert compare_payload["heat"]["actual_context_start_time"] == to_timestamp_ms(actual_start)
+    assert compare_payload["heat"]["actual_context_end_time"] == to_timestamp_ms(actual_end)
 
 
 @pytest.mark.asyncio
@@ -2559,6 +2649,129 @@ async def test_previous_runtime_id_stays_resolvable_after_rollover(client, monke
 
 
 @pytest.mark.asyncio
+async def test_live_refresh_continues_from_replay_seed_runtime(client, monkeypatch) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    replay_context = _build_test_live_context()
+    replay_points = _build_live_power_points_with_heat_lengths(
+        datetime(2026, 3, 19, 8, 0),
+        [28, 28, 28],
+    )
+    current_points = replay_points
+
+    async def fake_load_live_heat_inference_power_points(_channel):
+        return current_points
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: replay_context,
+    )
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+    heats_module._HEAT_ID_ALIAS_STORE.clear()
+    heats_module._HEAT_STREAM_PROCESSOR_STATE.clear()
+
+    from src.services import compile_runtime_candidates, replace_heat_range
+    from src.services.heat_stream_processor import HeatStreamProcessor
+
+    cutting_config = heats_module._resolve_live_context_cutting_config(replay_context)
+    replay_processor = HeatStreamProcessor(
+        cache_key=str(replay_context["cache_key"]),
+        channel_key=str(replay_context["channel_key"]),
+        context_hash=str(replay_context["context_hash"]),
+        baseline_id=str(replay_context.get("baseline_id") or "") or None,
+        expected_duration_minutes=int(replay_context["expected_duration_minutes"]),
+        cutting_config=cutting_config,
+        processing_mode="replay_batch",
+        anchor_time=(
+            from_timestamp_ms(replay_points[0].timestamp)
+            if replay_points and cutting_config.cutting_mode == "fixed_interval"
+            else None
+        ),
+        threshold_resolver=lambda _points: 100.0,
+    )
+    replay_result = replay_processor.feed_points(replay_points, allow_sealing=False, retain_tail_count=2)
+    runtime_seed = _build_replay_runtime_seed_for_points(
+        context=replay_context,
+        points=replay_points,
+    )
+    selected_baseline = dict(_BASELINE_STORE[FORMAL_PRIMARY_BASELINE_ID])
+    replay_runtime_context = heats_module._build_replay_context(
+        replay_context,
+        baseline_ids=[FORMAL_PRIMARY_BASELINE_ID],
+        selected_baselines=[selected_baseline],
+    )
+    anchor_time = from_timestamp_ms(replay_points[0].timestamp)
+    replay_end_time = from_timestamp_ms(replay_points[-1].timestamp)
+    history_segments = list(
+        replay_result.all_segments[: runtime_seed.history_segment_count]
+    )
+    history_candidates = heats_module._build_live_heat_items_from_segments(
+        context=replay_context,
+        segments=history_segments,
+        baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+        expected_duration_minutes=int(replay_context["expected_duration_minutes"]),
+        cutting_config=cutting_config,
+    )
+    prepared_history_candidates = await compile_runtime_candidates(
+        history_candidates,
+        processing_mode="replay_batch",
+        trigger_source="test-replay-seed",
+        cutting_config=cutting_config,
+        metric_curve_loader=heats_module._load_runtime_metric_curves,
+        explicit_baselines=[selected_baseline],
+        explicit_primary_baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+    )
+    await replace_heat_range(
+        anchor_time=anchor_time,
+        end_time=replay_end_time,
+        candidates=prepared_history_candidates,
+    )
+
+    replay_meta = await heats_module._apply_replay_runtime_seed_with_context(
+        anchor_time=anchor_time,
+        end_time=replay_end_time,
+        replay_context=replay_runtime_context,
+        runtime_seed=runtime_seed,
+        reason="test-replay-seed",
+    )
+    assert replay_meta["refresh_outcome"] == "replay_runtime_seed_applied"
+
+    seeded_previous_item = next(iter(heats_module._PREVIOUS_HEAT_RUNTIME.values()))
+    seeded_active_item = next(iter(heats_module._ACTIVE_HEAT_RUNTIME.values()))
+    assert seeded_previous_item["processing_meta"]["trigger_source"] == "test-replay-seed"
+    assert seeded_active_item["processing_meta"]["trigger_source"] == "test-replay-seed"
+
+    current_points = _build_live_power_points_with_heat_lengths(
+        datetime(2026, 3, 19, 8, 0),
+        [28, 28, 30],
+    )
+    refresh_meta = await heats_module.refresh_heat_runtime_state(reason="test-live-after-replay")
+    assert refresh_meta["refresh_outcome"] == "active_heat_continues"
+
+    continued_previous_item = next(iter(heats_module._PREVIOUS_HEAT_RUNTIME.values()))
+    continued_active_item = next(iter(heats_module._ACTIVE_HEAT_RUNTIME.values()))
+
+    assert continued_previous_item["id"] == seeded_previous_item["id"]
+    assert continued_active_item["id"] == seeded_active_item["id"]
+    assert continued_active_item["processing_meta"]["trigger_source"] == "test-live-after-replay"
+    assert continued_active_item["processing_meta"]["processing_mode"] == "live_incremental"
+    assert continued_active_item["end_time"] > seeded_active_item["end_time"]
+    assert continued_previous_item["deviation_score"] == pytest.approx(
+        seeded_previous_item["deviation_score"]
+    )
+    assert continued_active_item["current_curve_source"] == "runtime_metric_series"
+
+
+@pytest.mark.asyncio
 async def test_previous_runtime_deviation_stays_frozen_while_active_id_is_unchanged(
     client, monkeypatch
 ) -> None:
@@ -2656,6 +2869,8 @@ async def test_previous_runtime_extends_n_plus_1_context_without_recomputing_ana
 
     assert first_previous_item["context_end_time"] == first_active_item["end_time"]
     assert first_previous_item["last_point_at"] == first_active_item["end_time"]
+    assert first_previous_item["actual_context_start_time"] == first_previous_item["start_time"]
+    assert first_previous_item["actual_context_end_time"] == first_active_item["end_time"]
 
     current_points = _build_live_power_points_with_heat_lengths(
         datetime(2026, 3, 19, 8, 0),
@@ -2672,14 +2887,65 @@ async def test_previous_runtime_extends_n_plus_1_context_without_recomputing_ana
     assert second_previous_item["context_end_time"] > first_previous_context_end
     assert second_previous_item["last_point_at"] == second_active_item["end_time"]
     assert second_previous_item["deviation_score"] == pytest.approx(first_previous_deviation)
+    assert second_previous_item["actual_context_start_time"] == second_previous_item["start_time"]
+    assert second_previous_item["actual_context_end_time"] == second_active_item["end_time"]
 
-    expected_last_timestamp = int(second_active_item["end_time"].timestamp() * 1000)
+    expected_last_timestamp = to_timestamp_ms(second_active_item["end_time"])
     power_points = second_previous_item["runtime_metric_series"][0]["series_json"]["points"]
     assert power_points[-1]["timestamp"] == expected_last_timestamp
     baseline_view_points = (
         second_previous_item["baseline_views"][0]["current_metric_series"][0]["series_json"]["points"]
     )
     assert baseline_view_points[-1]["timestamp"] == expected_last_timestamp
+
+
+@pytest.mark.asyncio
+async def test_new_active_runtime_inherits_immediate_previous_curve_context(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    current_points = _build_live_power_points_with_heat_lengths(
+        datetime(2026, 3, 19, 8, 0),
+        [28, 28],
+    )
+
+    async def fake_load_live_heat_inference_power_points(_channel):
+        return current_points
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    import src.api.heats as heats_module
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+    heats_module._HEAT_ID_ALIAS_STORE.clear()
+
+    await heats_module.refresh_heat_runtime_state(reason="test")
+
+    current_points = _build_live_power_points_with_heat_lengths(
+        datetime(2026, 3, 19, 8, 0),
+        [28, 28, 28],
+    )
+    await heats_module.refresh_heat_runtime_state(reason="test")
+
+    current_previous_item = next(iter(heats_module._PREVIOUS_HEAT_RUNTIME.values()))
+    current_active_item = next(iter(heats_module._ACTIVE_HEAT_RUNTIME.values()))
+
+    assert current_active_item["context_start_time"] == current_previous_item["start_time"]
+    assert current_active_item["actual_context_start_time"] == current_previous_item["start_time"]
+
+    power_points = current_active_item["runtime_metric_series"][0]["series_json"]["points"]
+    assert power_points[0]["timestamp"] == to_timestamp_ms(current_previous_item["start_time"])
+    assert power_points[-1]["timestamp"] == to_timestamp_ms(current_active_item["end_time"])
 
 
 @pytest.mark.asyncio
@@ -2730,6 +2996,10 @@ async def test_sealed_history_persists_previous_runtime_context_window_from_runt
     assert detail_payload["id"] == first_previous_item["id"]
     assert detail_payload["record_source"] == "sealed_history"
     assert detail_payload["context_end_time"] == to_timestamp_ms(expected_context_end)
+    assert detail_payload["actual_context_start_time"] == to_timestamp_ms(
+        first_previous_item["start_time"]
+    )
+    assert detail_payload["actual_context_end_time"] == to_timestamp_ms(expected_context_end)
 
     async with async_session_maker() as session:
         heat_row = await session.get(Heat, first_previous_item["id"])

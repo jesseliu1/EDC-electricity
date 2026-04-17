@@ -68,8 +68,8 @@ _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     "work_start_time": {"value": "08:00", "description": "上班时间"},
     "work_end_time": {"value": "18:00", "description": "下班时间"},
     "break_periods": {"value": "12:00-13:00", "description": "休息时间段，逗号分隔"},
-    "cutting_mode": {"value": "signal_inference", "description": "炉次切割模式"},
-    "fixed_interval_minutes": {"value": "", "description": "固定间隔硬切割时长（分钟）"},
+    "cutting_mode": {"value": "fixed_interval", "description": "炉次切割模式"},
+    "fixed_interval_minutes": {"value": "30", "description": "固定间隔硬切割时长（分钟）"},
     "live_heat_inference_enabled": {
         "value": "true",
         "description": "是否启用基于真实功率曲线推断炉次台账",
@@ -129,7 +129,8 @@ def get_cutting_config() -> HeatCuttingConfig:
         cutting_mode=normalize_cutting_mode(_SETTINGS_STORE.get("cutting_mode", {}).get("value")),
         fixed_interval_minutes=_parse_optional_int(
             _SETTINGS_STORE.get("fixed_interval_minutes", {}).get("value")
-        ),
+        )
+        or 30,
         time_tolerance_percent=float(
             _SETTINGS_STORE.get("time_tolerance_percent", {}).get("value") or 10.0
         ),

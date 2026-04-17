@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from ..schemas.common import CurvePoint
-from ..services.heat_cutting_service import HeatCuttingConfig
+from ..services.heat_cutting_service import HeatCuttingConfig, resolve_live_cutting_anchor_time
 from ..time_utils import from_timestamp_ms, utc_now
 from .heat_stream_processor import (
     HeatProcessorConfig,
-    HeatProcessorState,
     HeatProcessorResult,
+    HeatProcessorState,
     HeatStreamProcessor,
 )
 
@@ -85,6 +86,19 @@ async def refresh_live_heat_segments(
         current_time=now,
         force_start_time=force_start_time,
     )
+    try:
+        points = await point_loader(context["channel"], fetch_start_time, fetch_end_time)
+    except TypeError:
+        points = await point_loader(context["channel"])
+    anchor_reference_time = (
+        force_start_time
+        or (from_timestamp_ms(points[-1].timestamp) if points else None)
+        or now
+    )
+    anchor_time = resolve_live_cutting_anchor_time(
+        reference_time=anchor_reference_time,
+        config=cutting_config,
+    )
     processor = HeatStreamProcessor(
         cache_key=str(context["cache_key"]),
         channel_key=str(context["channel_key"]),
@@ -93,14 +107,11 @@ async def refresh_live_heat_segments(
         expected_duration_minutes=int(context["expected_duration_minutes"]),
         cutting_config=cutting_config,
         processing_mode=processing_mode,
+        anchor_time=anchor_time,
         snapshot_config=restored_config,
         state=restored_state,
         threshold_resolver=threshold_resolver,
     )
-    try:
-        points = await point_loader(context["channel"], fetch_start_time, fetch_end_time)
-    except TypeError:
-        points = await point_loader(context["channel"])
     allow_sealing = processor.state.bootstrapped and not used_bootstrap_window
     processor_result = processor.feed_points(
         points,

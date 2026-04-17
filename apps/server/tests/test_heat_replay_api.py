@@ -61,6 +61,26 @@ def _build_continuing_live_power_points(start: datetime) -> list[CurvePoint]:
     return points
 
 
+def _build_fixed_interval_regression_points(start: datetime) -> list[CurvePoint]:
+    points: list[CurvePoint] = []
+    normalized_start = start.replace(second=0, microsecond=0)
+
+    def append_block(offset_minutes: int, length_minutes: int, value: float) -> None:
+        for index in range(length_minutes):
+            timestamp = to_timestamp_ms(normalized_start) + (offset_minutes + index) * 60_000
+            points.append(CurvePoint(timestamp=timestamp, value=value))
+
+    append_block(0, 33, 124.0)
+    append_block(33, 4, 18.0)
+    append_block(37, 26, 127.0)
+    append_block(63, 4, 18.0)
+    append_block(67, 25, 126.0)
+    append_block(92, 4, 18.0)
+    append_block(96, 27, 129.0)
+    append_block(123, 3, 18.0)
+    return points
+
+
 def _build_test_live_context() -> dict[str, object]:
     import src.api.heats as heats_module
 
@@ -313,6 +333,72 @@ async def test_create_replay_job_runs_to_completion_and_replaces_range(client, m
 
 
 @pytest.mark.asyncio
+async def test_replay_job_fixed_interval_uses_anchor_timeline_boundaries(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    _SETTINGS_STORE["cutting_mode"]["value"] = "fixed_interval"
+    _SETTINGS_STORE["fixed_interval_minutes"]["value"] = "30"
+    _SETTINGS_STORE["time_tolerance_percent"]["value"] = "10.0"
+    replay_points = _build_fixed_interval_regression_points(datetime(2026, 4, 17, 12, 0))
+
+    async def fake_load_live_heat_inference_power_points(_channel, start_time=None, end_time=None):
+        if start_time is None or end_time is None:
+            return replay_points
+        start_ms = to_timestamp_ms(start_time)
+        end_ms = to_timestamp_ms(end_time)
+        return [point for point in replay_points if start_ms <= int(point.timestamp) <= end_ms]
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_replay_inference_channel",
+        lambda: dict(_build_test_live_context()["channel"]),
+    )
+    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", _fake_runtime_metric_curves)
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    create_response = await client.post(
+        "/api/heats/replay-jobs",
+        json={
+            "job_kind": "replay_batch",
+            "start_time": to_timestamp_ms(datetime(2026, 4, 17, 12, 0)),
+            "end_time": to_timestamp_ms(datetime(2026, 4, 17, 14, 5)),
+            "primary_baseline_id": "def-001:001",
+            "baseline_ids": ["def-001:001"],
+            "force_replace": True,
+        },
+    )
+    assert create_response.status_code == 201
+    job_id = create_response.json()["id"]
+
+    finished = await _wait_for_job(client, job_id, terminal_statuses={"completed"})
+    assert finished["generated_heat_count"] >= 4
+
+    list_response = await client.get("/api/heats", params={"page_size": 50})
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    sealed_history_items = [
+        item
+        for item in payload["items"]
+        if item["record_source"] == "sealed_history" and item["id"].startswith("live-heat-")
+    ]
+    sealed_history_items.sort(key=lambda item: item["start_time"])
+
+    assert len(sealed_history_items) >= 2
+    assert sealed_history_items[0]["start_time"] == to_timestamp_ms(datetime(2026, 4, 17, 12, 0))
+    assert sealed_history_items[0]["end_time"] == to_timestamp_ms(datetime(2026, 4, 17, 12, 32))
+    assert sealed_history_items[1]["start_time"] == to_timestamp_ms(datetime(2026, 4, 17, 12, 33))
+    assert sealed_history_items[1]["end_time"] == to_timestamp_ms(datetime(2026, 4, 17, 13, 2))
+
+
+@pytest.mark.asyncio
 async def test_cancel_replay_job_marks_job_cancelled(client, monkeypatch) -> None:
     _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
     live_points = _build_live_power_points(datetime(2026, 3, 19, 8, 0))
@@ -559,6 +645,8 @@ async def test_replay_job_rebuilds_processor_snapshot_for_live_continuation(
     client, monkeypatch
 ) -> None:
     _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    _SETTINGS_STORE["cutting_mode"]["value"] = "signal_inference"
+    _SETTINGS_STORE["fixed_interval_minutes"]["value"] = ""
     replay_end_time = datetime(2026, 3, 19, 9, 5)
     refresh_now = datetime(2026, 3, 19, 9, 18)
     live_points = _build_continuing_live_power_points(datetime(2026, 3, 19, 8, 0))

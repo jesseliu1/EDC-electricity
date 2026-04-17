@@ -55,7 +55,9 @@ from ..services.heat_cutting_service import (
     HeatCuttingContext,
     build_live_heat_cache_key,
     infer_live_activity_threshold,
-    infer_live_heat_segments,
+    infer_live_heat_segments_with_metadata,
+    normalize_cutting_mode,
+    resolve_live_cutting_anchor_time,
 )
 from ..services.heat_list_read_model_service import build_heat_list_items
 from ..services.heat_replay_batch_service import (
@@ -76,6 +78,7 @@ from ..services.heat_replay_batch_service import (
 from ..services.heat_replay_batch_service import (
     list_heat_replay_jobs as list_heat_replay_job_records,
 )
+from ..services.heat_runtime_curve_merge import actual_context_bounds_from_runtime_series
 from ..services.heat_runtime_factory import HeatRuntimeFactory
 from ..services.heat_runtime_seal_service import HeatRuntimeSealService
 from ..services.heat_runtime_transition_service import HeatRuntimeTransitionService
@@ -93,6 +96,7 @@ from ..services.heat_runtime_types import (
     RuntimeProcessingMeta,
 )
 from ..services.heat_runtime_updater import HeatRuntimeUpdater
+from ..services.heat_stream_processor import HeatSegment
 from ..services.live_heat_runtime_service import refresh_live_heat_segments
 from ..services.replay_baseline_selection_service import (
     ReplayBaselineSelection,
@@ -701,6 +705,7 @@ def _resolve_live_context_cutting_config(context: dict[str, Any] | None) -> Heat
 
     try:
         fixed_interval_minutes = raw_snapshot.get("fixed_interval_minutes")
+        cutting_mode = normalize_cutting_mode(raw_snapshot.get("cutting_mode"))
         return HeatCuttingConfig(
             time_tolerance_percent=float(raw_snapshot.get("time_tolerance_percent") or 0.0),
             major_issue_duration_minutes=int(raw_snapshot.get("major_issue_duration_minutes") or 0),
@@ -710,9 +715,11 @@ def _resolve_live_context_cutting_config(context: dict[str, Any] | None) -> Heat
             break_periods=tuple(
                 str(period) for period in (raw_snapshot.get("break_periods") or [])
             ),
-            cutting_mode=str(raw_snapshot.get("cutting_mode") or "signal_inference"),
+            cutting_mode=cutting_mode,
             fixed_interval_minutes=(
-                int(fixed_interval_minutes) if fixed_interval_minutes is not None else None
+                int(fixed_interval_minutes)
+                if fixed_interval_minutes is not None
+                else (30 if cutting_mode == "fixed_interval" else None)
             ),
         )
     except (TypeError, ValueError):
@@ -753,7 +760,31 @@ def _hydrate_candidate_from_existing_runtime(
     hydrated["baseline_version_id"] = existing_item.get("baseline_version_id")
     hydrated["baseline_ids"] = deepcopy(existing_item.get("baseline_ids") or [])
     hydrated["baseline_effective_from"] = existing_item.get("baseline_effective_from")
+    hydrated["runtime_metric_series"] = deepcopy(existing_item.get("runtime_metric_series") or [])
+    hydrated["power_curve"] = deepcopy(existing_item.get("power_curve") or [])
+    hydrated["voltage_curve"] = deepcopy(existing_item.get("voltage_curve") or [])
+    hydrated["actual_context_start_time"] = existing_item.get("actual_context_start_time")
+    hydrated["actual_context_end_time"] = existing_item.get("actual_context_end_time")
     return hydrated
+
+
+def _seed_candidate_context_curves_from_runtime(
+    candidate: dict[str, Any] | None,
+    *,
+    existing_item: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if candidate is None or not isinstance(existing_item, dict):
+        return candidate
+    runtime_metric_series = existing_item.get("runtime_metric_series")
+    if not isinstance(runtime_metric_series, list) or not runtime_metric_series:
+        return candidate
+    seeded = dict(candidate)
+    seeded["runtime_metric_series"] = deepcopy(runtime_metric_series)
+    seeded["power_curve"] = deepcopy(existing_item.get("power_curve") or [])
+    seeded["voltage_curve"] = deepcopy(existing_item.get("voltage_curve") or [])
+    seeded["actual_context_start_time"] = existing_item.get("actual_context_start_time")
+    seeded["actual_context_end_time"] = existing_item.get("actual_context_end_time")
+    return seeded
 
 
 def _same_runtime_candidate(
@@ -815,6 +846,20 @@ def _slice_curve_points(points: list[CurvePoint], start_ts: int, end_ts: int) ->
     return [point for point in points if start_ts <= point.timestamp <= end_ts]
 
 
+def _resolve_actual_context_bounds(item: dict[str, Any]) -> tuple[datetime | None, datetime | None]:
+    actual_start_time = item.get("actual_context_start_time")
+    actual_end_time = item.get("actual_context_end_time")
+    if isinstance(actual_start_time, datetime) or isinstance(actual_end_time, datetime):
+        return (
+            actual_start_time if isinstance(actual_start_time, datetime) else None,
+            actual_end_time if isinstance(actual_end_time, datetime) else None,
+        )
+    runtime_metric_series = item.get("runtime_metric_series")
+    if isinstance(runtime_metric_series, list):
+        return actual_context_bounds_from_runtime_series(runtime_metric_series)
+    return None, None
+
+
 def _infer_live_activity_threshold(points: list[CurvePoint]) -> float | None:
     """保留本地包装，兼容调试与既有测试入口。"""
 
@@ -842,6 +887,7 @@ def _build_live_heat_item(
     power_curve: list[CurvePoint],
     expected_duration_minutes: int,
     cutting_config: HeatCuttingConfig,
+    segment_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     start_time = from_timestamp_ms(power_curve[0].timestamp)
     end_time = from_timestamp_ms(power_curve[-1].timestamp)
@@ -865,6 +911,39 @@ def _build_live_heat_item(
         anchor_ms=anchor_ms,
         duration_bucket_minutes=duration_bucket_minutes,
     )
+    metadata = dict(segment_metadata or {})
+    anchor_timestamp_ms = metadata.get("anchor_timestamp_ms")
+    request_anchor_time = (
+        from_timestamp_ms(int(anchor_timestamp_ms))
+        if anchor_timestamp_ms is not None
+        else start_time
+    )
+    processing_meta = {
+        "processing_mode": f"{cutting_config.cutting_mode}_cutting",
+        "trigger_source": f"{cutting_config.cutting_mode}_cutting",
+        "request_anchor_time": request_anchor_time,
+        "batch_cursor": None,
+        "last_processed_heat_id": heat_id,
+    }
+    if metadata:
+        processing_meta.update(
+            {
+                "fixed_cutting_anchor_timestamp_ms": anchor_timestamp_ms,
+                "fixed_cutting_ideal_start_boundary_ts": metadata.get(
+                    "ideal_start_boundary_ts"
+                ),
+                "fixed_cutting_actual_start_boundary_ts": metadata.get(
+                    "actual_start_boundary_ts"
+                ),
+                "fixed_cutting_ideal_end_boundary_ts": metadata.get(
+                    "ideal_end_boundary_ts"
+                ),
+                "fixed_cutting_actual_end_boundary_ts": metadata.get(
+                    "actual_end_boundary_ts"
+                ),
+                "fixed_cutting_end_boundary_snapped": metadata.get("end_boundary_snapped"),
+            }
+        )
 
     plant_start_time = to_plant_datetime(start_time, cutting_config.plant_timezone)
     return {
@@ -900,6 +979,7 @@ def _build_live_heat_item(
         "baseline_power_curve": [],
         "baseline_voltage_curve": [],
         "inference_rank": index,
+        "processing_meta": processing_meta,
         "_live_context_key": str(context["channel_key"]),
         "_live_context_hash": str(context["context_hash"]),
         "_live_anchor_ms": anchor_ms,
@@ -909,6 +989,13 @@ def _build_live_heat_item(
         "_live_expected_duration_minutes": int(expected_duration_minutes),
         "_live_cutting_mode": str(cutting_config.cutting_mode),
         "_live_plant_timezone": str(cutting_config.plant_timezone),
+        "_live_cutting_anchor_ts": anchor_timestamp_ms,
+        "_live_ideal_start_boundary_ts": metadata.get("ideal_start_boundary_ts"),
+        "_live_actual_start_boundary_ts": metadata.get("actual_start_boundary_ts"),
+        "_live_start_boundary_snapped": metadata.get("start_boundary_snapped"),
+        "_live_ideal_end_boundary_ts": metadata.get("ideal_end_boundary_ts"),
+        "_live_actual_end_boundary_ts": metadata.get("actual_end_boundary_ts"),
+        "_live_end_boundary_snapped": metadata.get("end_boundary_snapped"),
     }
 
 
@@ -925,25 +1012,33 @@ def _infer_live_heat_items(
     if activity_threshold is None:
         return {}
 
-    split_segments = infer_live_heat_segments(
+    anchor_time = resolve_live_cutting_anchor_time(
+        reference_time=from_timestamp_ms(points[-1].timestamp),
+        config=effective_cutting_config,
+    )
+    split_segments = infer_live_heat_segments_with_metadata(
         points,
-        context=HeatCuttingContext(expected_duration_minutes=expected_duration_minutes),
+        context=HeatCuttingContext(
+            expected_duration_minutes=expected_duration_minutes,
+            anchor_time=anchor_time,
+        ),
         config=effective_cutting_config,
         activity_threshold=activity_threshold,
     )
 
     inferred: list[dict[str, Any]] = []
     for split_segment in split_segments:
-        if not split_segment:
+        if not split_segment.points:
             continue
         inferred.append(
             _build_live_heat_item(
                 index=len(inferred) + 1,
                 context=context,
                 baseline_id=baseline_id,
-                power_curve=split_segment,
+                power_curve=split_segment.points,
                 expected_duration_minutes=expected_duration_minutes,
                 cutting_config=effective_cutting_config,
+                segment_metadata=_segment_cutting_metadata(split_segment),
             )
         )
 
@@ -954,7 +1049,7 @@ def _infer_live_heat_items(
 def _build_live_heat_items_from_segments(
     *,
     context: dict[str, Any],
-    segments: list[list[CurvePoint]],
+    segments: list[HeatSegment] | list[list[CurvePoint]],
     baseline_id: str | None,
     expected_duration_minutes: int,
     cutting_config: HeatCuttingConfig | None = None,
@@ -962,19 +1057,33 @@ def _build_live_heat_items_from_segments(
     effective_cutting_config = cutting_config or _resolve_live_context_cutting_config(context)
     built: list[dict[str, Any]] = []
     for index, segment in enumerate(segments, start=1):
-        if not segment:
+        power_curve = _segment_points(segment)
+        if not power_curve:
             continue
         built.append(
             _build_live_heat_item(
                 index=index,
                 context=context,
                 baseline_id=baseline_id,
-                power_curve=segment,
+                power_curve=power_curve,
                 expected_duration_minutes=expected_duration_minutes,
                 cutting_config=effective_cutting_config,
+                segment_metadata=_segment_cutting_metadata(segment),
             )
         )
     return built
+
+
+def _segment_points(segment: HeatSegment | list[CurvePoint]) -> list[CurvePoint]:
+    if isinstance(segment, list):
+        return segment
+    return list(segment.points)
+
+
+def _segment_cutting_metadata(segment: HeatSegment | list[CurvePoint]) -> dict[str, Any]:
+    if isinstance(segment, HeatSegment):
+        return dict(segment.metadata)
+    return {}
 
 
 def _resolve_compare_baseline_ids(item: dict[str, Any]) -> list[str]:
@@ -1807,7 +1916,7 @@ async def _refresh_heat_runtime_state_from_context(
 
     segment_items = _build_live_heat_items_from_segments(
         context=context,
-        segments=[segment.points for segment in refresh_result.processor_result.all_segments],
+        segments=list(refresh_result.processor_result.all_segments),
         baseline_id=context["baseline_id"],
         expected_duration_minutes=int(context["expected_duration_minutes"]),
         cutting_config=cutting_config,
@@ -1866,6 +1975,24 @@ async def _refresh_heat_runtime_state_from_context(
             existing_previous_item if isinstance(existing_previous_item, dict) else None
         ),
     )
+    if active_candidate is not None and not _same_runtime_candidate(
+        active_candidate,
+        existing_active_item,
+    ):
+        active_seed_source: dict[str, Any] | None = None
+        if (
+            isinstance(previous_candidate, dict)
+            and str(previous_candidate.get("id") or "").strip()
+            != str(active_candidate.get("id") or "").strip()
+        ):
+            active_seed_source = previous_candidate
+        elif isinstance(existing_previous_item, dict):
+            active_seed_source = existing_previous_item
+        if active_seed_source is not None:
+            active_candidate = _seed_candidate_context_curves_from_runtime(
+                active_candidate,
+                existing_item=active_seed_source,
+            )
 
     if not active_candidate and not previous_candidate and not sealed_candidates:
         _mark_heat_runtime_refresh_failure(error="no_runtime_heats_inferred")
@@ -3632,6 +3759,7 @@ def _build_runtime_cutting_config_snapshot(
 
     try:
         fixed_interval_minutes = raw_snapshot.get("fixed_interval_minutes")
+        cutting_mode = normalize_cutting_mode(raw_snapshot.get("cutting_mode"))
         return RuntimeCuttingConfigSnapshot(
             time_tolerance_percent=float(raw_snapshot.get("time_tolerance_percent") or 0.0),
             major_issue_duration_minutes=int(raw_snapshot.get("major_issue_duration_minutes") or 0),
@@ -3641,9 +3769,11 @@ def _build_runtime_cutting_config_snapshot(
             break_periods=tuple(
                 str(period) for period in (raw_snapshot.get("break_periods") or [])
             ),
-            cutting_mode=str(raw_snapshot.get("cutting_mode") or "signal_inference"),
+            cutting_mode=cutting_mode,
             fixed_interval_minutes=(
-                int(fixed_interval_minutes) if fixed_interval_minutes is not None else None
+                int(fixed_interval_minutes)
+                if fixed_interval_minutes is not None
+                else (30 if cutting_mode == "fixed_interval" else None)
             ),
         )
     except (TypeError, ValueError):
@@ -3715,6 +3845,7 @@ def _build_current_heat_runtime(
     end_time = item["end_time"]
     context_start_time = item.get("context_start_time") or start_time
     context_end_time = item.get("context_end_time") or end_time
+    actual_context_start_time, actual_context_end_time = _resolve_actual_context_bounds(item)
     facts = RuntimeHeatFacts(
         heat_id=str(item["id"]),
         heat_no=str(item["heat_no"]),
@@ -3724,6 +3855,8 @@ def _build_current_heat_runtime(
         end_time=end_time,
         context_start_time=context_start_time,
         context_end_time=context_end_time,
+        actual_context_start_time=actual_context_start_time,
+        actual_context_end_time=actual_context_end_time,
         is_manually_adjusted=bool(item.get("is_manually_adjusted") or False),
         completion_status=str(item.get("completion_status") or "completed"),
         last_point_at=item.get("last_point_at") or context_end_time or end_time,
@@ -3827,6 +3960,7 @@ def _mark_active_runtime(item: dict[str, Any]) -> dict[str, Any]:
     active_item["completion_status"] = "in_progress"
     active_item["last_point_at"] = (
         active_item.get("last_point_at")
+        or active_item.get("actual_context_end_time")
         or active_item.get("context_end_time")
         or active_item.get("end_time")
     )
@@ -3840,6 +3974,7 @@ def _mark_previous_runtime(item: dict[str, Any]) -> dict[str, Any]:
     previous_item["completion_status"] = "completed"
     previous_item["last_point_at"] = (
         previous_item.get("last_point_at")
+        or previous_item.get("actual_context_end_time")
         or previous_item.get("context_end_time")
         or previous_item.get("end_time")
     )
@@ -3853,6 +3988,7 @@ def _mark_history_runtime(item: dict[str, Any]) -> dict[str, Any]:
     history_item["completion_status"] = "completed"
     history_item["last_point_at"] = (
         history_item.get("last_point_at")
+        or history_item.get("actual_context_end_time")
         or history_item.get("context_end_time")
         or history_item.get("end_time")
     )
@@ -4115,6 +4251,7 @@ def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
     current_time = utc_now()
     context_start_time = item.get("context_start_time") or item["start_time"]
     context_end_time = item.get("context_end_time") or item["end_time"]
+    actual_context_start_time, actual_context_end_time = _resolve_actual_context_bounds(item)
     return HeatResponse(
         id=item["id"],
         heat_no=item["heat_no"],
@@ -4123,6 +4260,8 @@ def _to_heat_response(item: dict[str, Any]) -> HeatResponse:
         end_time=item["end_time"],
         context_start_time=context_start_time,
         context_end_time=context_end_time,
+        actual_context_start_time=actual_context_start_time,
+        actual_context_end_time=actual_context_end_time,
         is_manually_adjusted=bool(item.get("is_manually_adjusted") or False),
         completion_status=str(item.get("completion_status") or "completed"),
         last_point_at=item.get("last_point_at"),
@@ -4458,7 +4597,7 @@ async def create_replay_job(data: HeatReplayJobCreateRequest) -> HeatReplayJobRe
         )
 
         def _build_replay_items_from_segments(
-            segments: list[list[CurvePoint]],
+            segments: list[HeatSegment],
         ) -> list[dict[str, Any]]:
             return _build_live_heat_items_from_segments(
                 context={

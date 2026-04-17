@@ -61,8 +61,8 @@ class RuntimeCuttingConfigSnapshot:
     work_start_time: str
     work_end_time: str
     break_periods: tuple[str, ...] = ()
-    cutting_mode: str = "signal_inference"
-    fixed_interval_minutes: int | None = None
+    cutting_mode: str = "fixed_interval"
+    fixed_interval_minutes: int | None = 30
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -123,6 +123,8 @@ class RuntimeHeatFacts:
     end_time: datetime
     context_start_time: datetime
     context_end_time: datetime
+    actual_context_start_time: datetime | None
+    actual_context_end_time: datetime | None
     is_manually_adjusted: bool
     completion_status: str
     last_point_at: datetime | None
@@ -149,6 +151,8 @@ class RuntimeHeatFacts:
             "end_time": self.end_time,
             "context_start_time": self.context_start_time,
             "context_end_time": self.context_end_time,
+            "actual_context_start_time": self.actual_context_start_time,
+            "actual_context_end_time": self.actual_context_end_time,
             "is_manually_adjusted": self.is_manually_adjusted,
             "completion_status": self.completion_status,
             "last_point_at": self.last_point_at,

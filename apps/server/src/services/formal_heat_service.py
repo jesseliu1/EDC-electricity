@@ -26,6 +26,12 @@ from .edc_client import EDCClient, EDCClientError
 from .formal_baseline_service import decode_baseline_id, encode_baseline_id
 from .heat_cutting_service import HeatCuttingConfig
 from .heat_deviation_analysis_service import HeatDeviationAnalysisService
+from .heat_runtime_curve_merge import (
+    actual_context_bounds_from_metric_curves,
+    merge_metric_curves,
+    missing_metric_keys_in_window,
+    normalize_curve_points,
+)
 from .heat_runtime_factory import HeatRuntimeFactory
 from .heat_runtime_types import RuntimePresealPayload
 
@@ -45,18 +51,7 @@ def encode_heat_owner_key(heat_id: str) -> str:
 
 
 def _normalize_curve_points(points: list[Any] | None) -> list[CurvePoint]:
-    normalized: list[CurvePoint] = []
-    for point in points or []:
-        if isinstance(point, CurvePoint):
-            normalized.append(point)
-            continue
-        if isinstance(point, dict):
-            timestamp = point.get("timestamp")
-            value = point.get("value")
-            if timestamp is None or value is None:
-                continue
-            normalized.append(CurvePoint(timestamp=int(timestamp), value=float(value)))
-    return normalized
+    return normalize_curve_points(points)
 
 
 def _build_series_payload(
@@ -139,6 +134,20 @@ def _context_boundaries_from_series(
             except (TypeError, ValueError):
                 continue
     return None, None
+
+
+def _actual_context_boundaries_from_series(
+    series_rows: list[MetricSeries],
+) -> tuple[datetime | None, datetime | None]:
+    curves_by_metric: dict[str, list[CurvePoint]] = {}
+    for row in series_rows:
+        metric_key = str(row.metric_key or "").strip().lower()
+        if not metric_key:
+            continue
+        points = _metric_series_points(row)
+        if points:
+            curves_by_metric[metric_key] = points
+    return actual_context_bounds_from_metric_curves(curves_by_metric)
 
 
 def _metric_kind_for_series(series: MetricSeries) -> str:
@@ -230,6 +239,9 @@ def _heat_model_to_dict(
         _metric_series_points(series_by_kind["voltage"]) if "voltage" in series_by_kind else []
     )
     context_start_time, context_end_time = _context_boundaries_from_series(series_rows)
+    actual_context_start_time, actual_context_end_time = _actual_context_boundaries_from_series(
+        series_rows
+    )
     ordered_bindings = sorted(bindings, key=_binding_sort_key, reverse=True)
     primary_binding = _select_primary_binding(ordered_bindings)
     primary_baseline_id = (
@@ -266,6 +278,8 @@ def _heat_model_to_dict(
         "end_time": heat.end_time,
         "context_start_time": context_start_time or heat.context_start_time,
         "context_end_time": context_end_time or heat.context_end_time,
+        "actual_context_start_time": actual_context_start_time,
+        "actual_context_end_time": actual_context_end_time,
         "is_manually_adjusted": bool(heat.is_manually_adjusted),
         "completion_status": "completed",
         "last_point_at": heat.end_time,
@@ -814,7 +828,7 @@ async def hydrate_candidate_runtime_metric_series(
         )
         raise ValueError("definition_metric_templates_missing")
 
-    curves_by_metric = _candidate_metric_curve_map(hydrated)
+    base_curves_by_metric = _candidate_metric_curve_map(hydrated)
     context_start_time, _start_time, _end_time, context_end_time = _runtime_series_window(hydrated)
     loader = metric_curve_loader or _default_metric_curve_loader
     metric_views = [
@@ -833,10 +847,17 @@ async def hydrate_candidate_runtime_metric_series(
     metric_key_by_item = {
         str(metric["id"]): str(metric["metric_key"]) for metric in metric_views if metric.get("id")
     }
+    incoming_curves_by_metric: dict[str, list[CurvePoint]] = {}
     for metric_item, points in loaded_curves.items():
         metric_key = metric_key_by_item.get(str(metric_item))
         if metric_key and points:
-            curves_by_metric[metric_key] = list(points)
+            incoming_curves_by_metric[metric_key] = list(points)
+    curves_by_metric = merge_metric_curves(
+        base_curves_by_metric,
+        incoming_curves_by_metric,
+        window_start=context_start_time,
+        window_end=context_end_time,
+    )
 
     required_metric_keys = [
         str(spec["metric_key"])
@@ -865,11 +886,16 @@ async def hydrate_candidate_runtime_metric_series(
         hydrated["power_curve"] = list(curves_by_metric["power"])
     if curves_by_metric.get("voltage"):
         hydrated["voltage_curve"] = list(curves_by_metric["voltage"])
+    actual_context_start_time, actual_context_end_time = actual_context_bounds_from_metric_curves(
+        curves_by_metric
+    )
     if runtime_metric_series:
         hydrated["current_curve_source"] = "runtime_metric_series"
         hydrated["context_start_time"] = context_start_time
         hydrated["context_end_time"] = context_end_time
-        hydrated["last_point_at"] = context_end_time
+        hydrated["actual_context_start_time"] = actual_context_start_time
+        hydrated["actual_context_end_time"] = actual_context_end_time
+        hydrated["last_point_at"] = actual_context_end_time or context_end_time
     return hydrated
 
 
@@ -1236,6 +1262,7 @@ def _build_metric_series_payloads(
     candidate: dict[str, Any],
     primary_definition_id: str | None,
     template_map: dict[str, list[BaselineDefinitionMetric]],
+    require_heat_window_coverage: bool = False,
 ) -> list[dict[str, Any]]:
     templates = _candidate_definition_metric_templates(
         candidate,
@@ -1263,6 +1290,22 @@ def _build_metric_series_payloads(
             error="definition_metric_templates_missing",
         )
         raise ValueError("definition_metric_templates_missing")
+
+    if require_heat_window_coverage:
+        missing_heat_window_metric_keys = missing_metric_keys_in_window(
+            curves_by_metric=_candidate_metric_curve_map(candidate),
+            required_metric_keys=list(template_by_metric_key),
+            window_start=heat_payload["start_time"],
+            window_end=heat_payload["end_time"],
+        )
+        if missing_heat_window_metric_keys:
+            log_event(
+                "runtime_metric_series_persist_error",
+                heat_id=str(candidate.get("id") or ""),
+                error="runtime_metric_series_missing_heat_window",
+                missing_metric_keys=missing_heat_window_metric_keys,
+            )
+            raise ValueError("runtime_metric_series_missing_heat_window")
 
     metric_payloads: list[dict[str, Any]] = []
     persisted_metric_keys: list[str] = []
@@ -1342,6 +1385,7 @@ def _build_preseal_payload_for_candidate(
     applicable_baselines: list[Any],
     template_map: dict[str, list[BaselineDefinitionMetric]],
     trigger_source: str,
+    require_heat_window_coverage: bool = False,
 ) -> RuntimePresealPayload:
     furnace_id = (
         str(candidate.get("furnace_id") or candidate.get("_live_context_key") or "") or None
@@ -1379,6 +1423,7 @@ def _build_preseal_payload_for_candidate(
         candidate=candidate,
         primary_definition_id=primary_definition_id,
         template_map=template_map,
+        require_heat_window_coverage=require_heat_window_coverage,
     )
     return RuntimePresealPayload(
         heat_payload=heat_payload,
@@ -1392,6 +1437,7 @@ def build_runtime_preseal_payload(
     *,
     applicable_baselines: list[Any],
     trigger_source: str,
+    require_heat_window_coverage: bool = False,
 ) -> RuntimePresealPayload:
     """基于当前 candidate 与已冻结 binding/template 快照生成待固化 payload。"""
 
@@ -1400,6 +1446,7 @@ def build_runtime_preseal_payload(
         applicable_baselines=applicable_baselines,
         template_map={},
         trigger_source=trigger_source,
+        require_heat_window_coverage=require_heat_window_coverage,
     )
 
 
@@ -1570,9 +1617,9 @@ async def compile_runtime_candidates(
                         work_end_time="23:59",
                         break_periods=(),
                         cutting_mode=str(
-                            prepared_candidate.get("_live_cutting_mode") or "signal_inference"
+                            prepared_candidate.get("_live_cutting_mode") or "fixed_interval"
                         ),
-                        fixed_interval_minutes=None,
+                        fixed_interval_minutes=30,
                     )
                 ),
             )
@@ -1630,7 +1677,17 @@ async def append_sealed_heats(
             candidate_id = str(candidate["id"])
             if candidate_id in existing_ids or candidate_id in seen_new_ids:
                 continue
-            payload = candidate.get("preseal_payload") or {}
+            frozen_inputs = _heat_runtime_factory.resolve_frozen_analysis_inputs(candidate)
+            payload = (
+                build_runtime_preseal_payload(
+                    candidate,
+                    applicable_baselines=frozen_inputs.applicable_baselines,
+                    trigger_source=str(candidate.get("record_source") or "sealed_history"),
+                    require_heat_window_coverage=True,
+                ).to_dict()
+                if frozen_inputs is not None
+                else (candidate.get("preseal_payload") or {})
+            )
             heat_payload = dict(payload.get("heat_payload") or {})
             if not heat_payload:
                 continue
@@ -1704,7 +1761,17 @@ async def replace_heat_range(
             await session.execute(delete(Heat).where(Heat.id.in_(affected_heat_ids)))
 
         for candidate in insertable_candidates:
-            payload = candidate.get("preseal_payload") or {}
+            frozen_inputs = _heat_runtime_factory.resolve_frozen_analysis_inputs(candidate)
+            payload = (
+                build_runtime_preseal_payload(
+                    candidate,
+                    applicable_baselines=frozen_inputs.applicable_baselines,
+                    trigger_source=str(candidate.get("record_source") or "sealed_history"),
+                    require_heat_window_coverage=True,
+                ).to_dict()
+                if frozen_inputs is not None
+                else (candidate.get("preseal_payload") or {})
+            )
             heat_payload = dict(payload.get("heat_payload") or {})
             if not heat_payload:
                 continue

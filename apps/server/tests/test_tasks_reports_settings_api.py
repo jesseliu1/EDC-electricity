@@ -8,13 +8,13 @@ import pytest
 from src.api import settings as settings_api
 from src.api.baseline_definitions import _DEFINITION_STORE
 from src.api.heats import _COMPARE_BASELINE_CACHE, _COMPARE_CHANNEL_CURVE_CACHE, _HEAT_COMPARE_CACHE
-from src.api.tasks import _TASK_STORE
 from src.api.settings import (
     _CHANNEL_ROLE_BINDING_STORE,
     _HOST_CHANNEL_CATALOG_CACHE,
     _HOST_CHANNEL_STORE,
     _SETTINGS_STORE,
 )
+from src.api.tasks import _TASK_STORE
 from src.runtime_state import load_runtime_state, persist_runtime_state
 from src.services import EDCClient
 
@@ -182,6 +182,8 @@ async def test_settings_get_and_update(client, monkeypatch) -> None:
     runtime_resp = await client.get("/api/settings/runtime-status")
     assert runtime_resp.status_code == 200
     assert runtime_resp.json()["overall_code"] == "host_disconnected"
+    assert runtime_resp.json()["runtime"]["cutting_mode"] == "fixed_interval"
+    assert runtime_resp.json()["runtime"]["fixed_interval_minutes"] == 30
     assert runtime_resp.json()["pipelines"]["dashboard"]["code"] == "host_disconnected"
     assert runtime_resp.json()["pipelines"]["inbox"]["code"] == "host_disconnected"
     assert runtime_resp.json()["pipelines"]["tasks"]["code"] == "host_disconnected"
@@ -193,6 +195,11 @@ async def test_settings_get_and_update(client, monkeypatch) -> None:
         "/api/settings", json={"settings": {"report_generation_hour": "3"}}
     )
     assert patch_resp.status_code == 200
+
+    settings_payload = get_resp.json()
+    settings_map = {item["key"]: item["value"] for item in settings_payload["items"]}
+    assert settings_map["cutting_mode"] == "fixed_interval"
+    assert settings_map["fixed_interval_minutes"] == "30"
 
     tol_resp = await client.put("/api/settings/tolerance", json={"tolerance_percent": 12.5})
     assert tol_resp.status_code == 200

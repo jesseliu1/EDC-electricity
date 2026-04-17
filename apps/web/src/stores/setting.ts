@@ -20,8 +20,8 @@ export interface SystemSettings {
 const defaultSettings: SystemSettings = {
   defaultTolerancePercent: 15,
   reportGenerationHour: 2,
-  cuttingMode: 'signal_inference',
-  fixedIntervalMinutes: null,
+  cuttingMode: 'fixed_interval',
+  fixedIntervalMinutes: 30,
   timeTolerancePercent: 10,
   majorIssueDurationMinutes: 8,
   plantTimezone: 'Asia/Shanghai',
@@ -48,13 +48,13 @@ export const useSettingStore = defineStore('setting', {
         const settingsResult = await settingApi.getAll()
 
         const map = Object.fromEntries(settingsResult.items.map(item => [item.key, item.value]))
-        const cuttingMode = map.cutting_mode === 'fixed_interval' ? 'fixed_interval' : 'signal_inference'
+        const cuttingMode = map.cutting_mode === 'signal_inference' ? 'signal_inference' : 'fixed_interval'
         const fixedIntervalText = map.fixed_interval_minutes?.trim() || ''
         const nextData: SystemSettings = {
           defaultTolerancePercent: Number(map.default_tolerance_percent || 15),
           reportGenerationHour: Number(map.report_generation_hour || 2),
           cuttingMode,
-          fixedIntervalMinutes: fixedIntervalText ? Number(fixedIntervalText) : null,
+          fixedIntervalMinutes: fixedIntervalText ? Number(fixedIntervalText) : 30,
           timeTolerancePercent: Number(map.time_tolerance_percent || 10),
           majorIssueDurationMinutes: Number(map.major_issue_duration_minutes || 8),
           plantTimezone: normalizeTimezone(map.plant_timezone || 'Asia/Shanghai'),

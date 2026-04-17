@@ -21,6 +21,27 @@
 
 ## 记录
 
+### 2026-04-17 fixed_interval 不能再挂靠“活跃段首点起算”的旧语义
+
+- **错误模式**: 配置虽然叫 `fixed_interval`，实现却先按功率阈值找活跃段，再从每个活跃段首点开始按固定分钟数切。结果 replay 即使传了 `start_time=12:00`，落库炉次仍会漂到 `12:16 / 12:46 / 13:32` 这类不均匀时间点，和“从锚点开始硬切”的业务语义完全不一致。
+- **正确做法**: `fixed_interval` 必须独立成自己的策略层，先基于显式 anchor 生成理想切割线，再按 `time_tolerance_percent` 在切点左右搜索活跃结束点；搜到就吸附，搜不到就回退理想切点。`signal_inference` 可以继续按活跃段推断，但 fixed 模式绝不能再复用“活跃段首点起算”。
+- **适用场景**: live/replay 共核切割、按班次或指定起点做固定窗口切炉、任何“配置名是固定、实现却跟着波形漂”的后端时间切片逻辑。
+- **相关文档**: `apps/server/src/services/heat_cutting_service.py`, `docs/BACKEND_STRUCTURE.md`, `docs/progress.md`
+
+### 2026-04-17 pytest 默认库不能再落到联调共享 `apps/server/data/asns.db`
+
+- **错误模式**: 后端 pytest 的 `client` / `reset_test_database` fixture 直接复用应用全局 `engine`，而 `engine` 默认指向 `apps/server/data/asns.db`。一旦跑测试，`drop_all/create_all`、seed、runtime reload 就会直接污染联调中的 EDC 配置、黄金基线、炉次与运行态。
+- **正确做法**: pytest 必须在导入 `src.config` / `src.database` 前先把 `ASNS_DATABASE_URL` 切到独立测试库；默认使用独立 test DB，必要时只允许通过 `ASNS_TEST_DB_PATH` 指定测试库路径。同时对共享库路径加硬保护，若测试仍指向 `apps/server/data/asns.db`，应在 `conftest.py` 加载阶段直接失败。
+- **适用场景**: 本项目所有后端 pytest、任何会触发 `drop_all/create_all`、`load_runtime_state()`、runtime seed、formal table seed 的测试入口。
+- **相关文档**: `apps/server/tests/conftest.py`, `docs/testing.md`
+
+### 2026-04-13 Windows 上用 Git Bash 驱动 PowerShell 启动脚本时，不能混用 POSIX 路径、反引号续行和“无监听也返回 1”的默认退出码
+
+- **错误模式**: `start-local-edc-stack.sh` 里直接把 Git Bash 的 `/d/...` 路径传给 PowerShell / `Start-Process`，同时在 `-Command "..."` 里继续使用 PowerShell 反引号续行，并默认相信 `Get-NetTCPConnection` 在“端口未监听”时也会返回 `0`。结果脚本会在停端口、找 `.venv`、或执行 `Start-Process` 参数时被 Bash/PowerShell 交叉语义提前打断。
+- **正确做法**: Bash 侧保留 POSIX 路径只用于 `cd/rm/mkdir`，传给 PowerShell/`Start-Process` 的目录和日志路径必须先转成 Windows 路径；PowerShell 命令尽量写成单行参数，不依赖反引号续行；对“端口本来就没监听”这类正常空操作，要显式 `exit 0`，避免被 `set -e` 当成失败。
+- **适用场景**: Windows 开发机上用 Git Bash 执行需要调用 `powershell.exe`、`cmd.exe`、`Start-Process` 的启动脚本，尤其是本项目这种同时拉起后端、Vite 前端和宿主进程的本机 blank 重部署入口。
+- **相关文档**: `scripts/start-local-edc-stack.sh`, `docs/DEPLOYMENT.md`
+
 ### 2026-04-09 live 炉次推断前置条件未满足时，不能直接累计为 runtime 刷新失败
 
 - **错误模式**: `refresh_heat_runtime_state()` 只要拿不到 `live_heat_inference_context`，就直接记 `live_heat_inference_unavailable` 失败并累计 `refresh_failure_count`。而当前 inference context 又只从 `active/published baselines` 构建，导致系统在“尚未录入任何黄金基线”的正常 blank 冷启动阶段，被误判成后台连续刷新失败。
@@ -1060,3 +1081,8 @@
 - **错误模式**: 在测试里直接对 naive `datetime` 调 `datetime.timestamp()` 构造毫秒值，而项目后端内部时间语义是“UTC naive + `to_timestamp_ms()`”。两套口径一混，replay/live 刷新窗口会在非 UTC 本机时区下整体错位，表现成“明明有点但筛出来是空窗口”。
 - **正确做法**: 只要测试数据、请求参数、窗口过滤要和后端内部时间语义对齐，就统一使用 `src.time_utils.to_timestamp_ms()` 与 `from_timestamp_ms()`；不要在测试里直接把 naive `datetime` 交给 `datetime.timestamp()`。
 - **适用场景**: replay 测试、live runtime 刷新测试、任何需要构造毫秒时间戳并和后端 UTC naive 时间窗口逐点对齐的场景。
+
+## [2026-04-17] 炉次列表显示层不能越权用时间重叠吞掉 `previous_runtime`
+- **错误模式**: `/api/heats` 列表组装阶段把“live 身份续接用的时间窗容差”复用成“formal 是否覆盖 previous”的判断，导致 `previous_runtime` 仅因与 `sealed_history` 首尾相接或时间接近，就在显示层被误吞。
+- **正确做法**: 列表显示层只做真源拼接、排序、筛选和 DTO 映射；`formal DB / previous_runtime / active_runtime` 都应按当前真源状态原样进入列表，不在显示阶段做 overlap 去重、覆盖裁决或 alias 写入。
+- **适用场景**: 任何 runtime 与 formal 历史混合展示的台账、列表页、浏览页，尤其是同一接口需要同时暴露 `current / previous / sealed_history` 的场景。

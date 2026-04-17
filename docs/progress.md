@@ -6,6 +6,264 @@
 
 ---
 
+### 2026-04-17（fixed_interval 已改成锚点硬切，live/replay 共用独立策略层）
+
+- [x] 已完成炉次切割策略解耦
+  - [x] `apps/server/src/services/heat_cutting_service.py` 现已拆成独立策略注册表
+  - [x] `SignalInferenceCuttingStrategy` 与 `AnchoredFixedIntervalCuttingStrategy` 已彻底分离
+  - [x] `infer_live_heat_segments(...)` 现仅保留统一分发职责，并新增带边界元数据的策略出口
+- [x] 已完成 fixed_interval 语义重构
+  - [x] fixed 模式改为从显式 `anchor_time` 生成理想切割线
+  - [x] 每条理想切点都会按 `time_tolerance_percent` 在窗口内搜索活跃结束点
+  - [x] 搜到候选时吸附到真实活跃结束点；未搜到时回退到理想切点
+  - [x] fixed 模式不再以活跃段首点作为切割起算点，也不再复用 active-core trim 语义
+- [x] 已完成 live / replay anchor 透传
+  - [x] `refresh_live_heat_segments(...)` 现按“实际点流最后一个时间点所在业务日 + work_start_time”解析 live anchor
+  - [x] replay batch 现把 `HeatReplayJobCreateRequest.start_time` 真正传入 fixed 策略作为切割锚点
+  - [x] `HeatStreamProcessor` 快照兼容判定已纳入 `anchor_timestamp_ms`
+- [x] 已完成默认值切换
+  - [x] 后端默认 `cutting_mode = fixed_interval`
+  - [x] 后端默认 `fixed_interval_minutes = 30`
+  - [x] 前端 setting store 默认展示 `fixed_interval + 30`
+- [x] 已补固定切割调试元数据
+  - [x] live/replay 生成 item 会带 `processing_meta`
+  - [x] 至少可区分切割模式、anchor 时间、理想边界与实际吸附边界
+- [x] 已完成最小回归验证
+  - [x] `apps/server/tests/test_heat_cutting_service.py` 通过：覆盖吸附与回退
+  - [x] `apps/server/tests/test_heat_stream_processor.py` 通过：覆盖 snapshot / anchor 兼容
+  - [x] `apps/server/tests/test_heats_api.py` 目标 fixed runtime 用例通过
+  - [x] `apps/server/tests/test_heat_replay_api.py` 目标 replay fixed anchor 回归通过
+  - [x] `apps/server/tests/test_tasks_reports_settings_api.py -k settings_get_and_update` 通过
+  - [x] `apps/web/src/__tests__/setting-store.test.ts` 通过
+- [!] 当前边界
+  - [!] 本轮未改正式数据库结构，未做 migration
+  - [!] `cut_reason = live_inferred` 旧命名仍保留；本轮通过 `processing_meta` 补真实切割模式，未强行改历史语义字段
+
+### 2026-04-17（后端 pytest 已切到独立测试库，联调共享库加了硬保护）
+
+- [x] 已调查 `apps/server/tests` 的数据库污染根因
+  - [x] 确认 `apps/server/src/config.py` 默认 `database_url = sqlite+aiosqlite:///./data/asns.db`
+  - [x] 确认 `apps/server/src/database.py` 在模块导入时即创建全局 `engine`
+  - [x] 确认 `apps/server/tests/conftest.py` 的 `client / reset_test_database` 直接对该全局 `engine` 执行 `drop_all/create_all`
+  - [x] 因此旧口径下运行 pytest 会直接命中并重建 `apps/server/data/asns.db`
+- [x] 已完成 pytest 测试库隔离
+  - [x] `apps/server/tests/conftest.py` 现会在导入 `src.*` 前先设置独立测试库 URL
+  - [x] 支持通过 `ASNS_TEST_DB_PATH` 指定独立 SQLite 测试库路径
+  - [x] 若 pytest 仍指向 `apps/server/data/asns.db`，会在 `conftest.py` 加载阶段直接失败
+- [x] 已完成最小安全验证（未触碰共享库重建）
+  - [x] `uv run --directory apps/server ruff check tests/conftest.py`
+  - [x] `$env:ASNS_TEST_DB_PATH='D:\\project\\EDC electricity\\apps\\server\\.pytest-db\\verification.db'; uv run --directory apps/server pytest -q tests/test_api_edge_cases.py -k dashboard_invalid_duration_returns_422`
+  - [x] `$env:ASNS_TEST_DB_PATH='D:\\project\\EDC electricity\\apps\\server\\.pytest-db\\verification.db'; uv run --directory apps/server pytest -q tests/test_formal_heat_api.py -k persist_sealed_heat_candidates_allows_overlapping_windows`
+  - [x] `ASNS_DATABASE_URL=sqlite+aiosqlite:///./data/asns.db uv run --directory apps/server pytest --collect-only tests/test_api_edge_cases.py -q` 已被 guard 拦截
+- [x] 已同步更新测试文档与经验教训
+  - [x] `docs/testing.md`
+  - [x] `docs/lessons.md`
+- [!] 当前边界
+  - [!] 本轮只收口“pytest 与联调库隔离”，未改任何业务语义
+  - [!] 未运行全量后端 pytest；当前只验证了隔离入口、一个 `client` 集成测试和一个 `reset_test_database` 集成测试
+  - [!] 联调共享库仍可能被正在运行的本地联调栈写入；本轮没有对其执行 `drop/create`、`factory-reset` 或测试 seed
+
+### 2026-04-17（本机已按 preserve-db 口径重新拉起联调栈并保留现有黄金基线）
+
+- [x] 已执行 `scripts/start-local-edc-stack-preserve-db.ps1`
+  - [x] 停止并重启本机 `8000 / 3000 / 3001`
+  - [x] 保留 `apps/server/data/asns.db`
+  - [x] 未执行 `factory-reset`
+  - [x] 后端未设置 `ASNS_BOOTSTRAP_MODE=blank`
+- [x] 已复核当前 SQLite 业务数据仍被保留
+  - [x] `baseline_definitions = 2`
+  - [x] `baseline_definition_metrics = 4`
+  - [x] `baselines = 2`
+  - [x] `heats = 0`
+  - [x] `metric_series = 4`
+  - [x] `tasks = 0`
+- [x] 已完成本机最小验活
+  - [x] `http://127.0.0.1:8000/health` -> `{"status":"ok"}`
+  - [x] `http://localhost:3000/edc/` -> `200`
+  - [x] `http://localhost:3001/` -> `200`
+  - [x] `http://127.0.0.1:8000/api/settings/runtime-status` -> `overall_code = ready`
+  - [x] 当前 `active_baseline.name = test`
+- [!] 当前边界
+  - [!] 本轮只完成本机 preserve-db 重启与最小验活，不是完整用户路径验证，也不是正式 UAT
+
+---
+
+### 2026-04-17（Windows 本机 blank 启动已补 PowerShell 默认入口并跑通）
+
+- [x] 已新增本机 blank PowerShell 启动脚本
+  - [x] 新增 `scripts/start-local-edc-stack-blank.ps1`
+  - [x] 脚本语义与既有 `scripts/start-local-edc-stack.sh` 对齐：停止 `8000 / 3000 / 3001`、执行 `factory-reset`、以 `ASNS_BOOTSTRAP_MODE=blank` 启动后端、重建并拉起前端与 ASNS 宿主
+  - [x] 脚本已内建 blank SQLite / runtime 空白态校验，以及宿主页 `window.__ASNS_EDC_APP_URL__` 注入校验
+- [x] 已更新本机部署文档入口
+  - [x] `docs/DEPLOYMENT.md` 现已优先推荐 `powershell -ExecutionPolicy Bypass -File .\scripts\start-local-edc-stack-blank.ps1`
+  - [x] 已补充说明 `scripts/start-local-edc-stack.sh` 为 Git Bash 入口，语义与 PowerShell blank 脚本一致
+- [x] 已实际执行新脚本并完成最小验活
+  - [x] `http://127.0.0.1:8000/health` -> `{"status":"ok"}`
+  - [x] `http://localhost:3000/edc/` -> `200`
+  - [x] `http://localhost:3001/` -> `200`
+  - [x] `http://127.0.0.1:8000/api/settings/runtime-status` -> `overall_code = host_disconnected`
+- [!] 当前边界
+  - [!] 本轮只完成本机脚本入口补齐与最小验活，不是完整用户路径验证，也不是正式 UAT
+
+---
+
+### 2026-04-17（本机已按 factory-reset + blank + 删库重建方式重新拉起联调栈）
+
+- [x] 已按本机标准顺序完成 blank 重部署
+  - [x] 停止本机 `8000 / 3000 / 3001`
+  - [x] 对 `apps/server/data/asns.db` 执行 `factory-reset`
+  - [x] 后端以 `ASNS_BOOTSTRAP_MODE=blank` 启动
+  - [x] 前端 Vite 已重新拉起 `http://localhost:3000/edc/`
+  - [x] ASNS 宿主已重新拉起 `http://localhost:3001/`
+- [x] 已复核当前 SQLite 与 runtime 为空白态
+  - [x] `baseline_definitions = 0`
+  - [x] `baseline_definition_metrics = 0`
+  - [x] `baselines = 0`
+  - [x] `heats = 0`
+  - [x] `metric_series = 0`
+  - [x] `tasks = 0`
+  - [x] `runtime_baseline_definitions = {}`
+  - [x] `runtime_baselines = {}`
+  - [x] `active_baseline_id = ''`
+- [x] 已完成本机最小验活
+  - [x] `http://127.0.0.1:8000/health` -> `{"status":"ok"}`
+  - [x] `http://127.0.0.1:8000/api/settings/runtime-status` -> `overall_code = host_disconnected`
+  - [x] `http://localhost:3000/edc/` -> `200`
+  - [x] `http://localhost:3001/` -> `200`
+- [!] 当前边界
+  - [!] 本轮只完成本机 blank 重部署与最小验活，不是完整用户路径验证，也不是正式 UAT
+  - [!] 当前 blank 库未接真实 EDC 源，`host_disconnected` 属于预期结果
+
+---
+
+### 2026-04-17（本机已按“保留现有 SQLite”口径重新启动联调栈）
+
+- [x] 已按“保留 `apps/server/data/asns.db`”口径启动本机联调栈
+  - [x] 仅停止本机 `8000 / 3000 / 3001` 旧监听进程
+  - [x] 未执行 `factory-reset`
+  - [x] 后端未设置 `ASNS_BOOTSTRAP_MODE=blank`
+  - [x] 前端 Vite 已重新拉起 `http://localhost:3000/edc/`
+  - [x] ASNS 宿主已重新拉起 `http://localhost:3001/`
+- [x] 已复核当前 SQLite 仍保留既有业务数据
+  - [x] `baseline_definitions = 2`
+  - [x] `baselines = 1`
+  - [x] `heats = 17`
+  - [x] `metric_series = 36`
+  - [x] `tasks = 0`
+- [x] 已完成最小验活
+  - [x] `http://127.0.0.1:8000/api/health` -> `{"status":"ok"}`
+  - [x] `http://localhost:3000/edc/` -> `200`
+  - [x] `http://localhost:3001/` -> `200`
+  - [x] `http://localhost:3001/api/health` -> `{"status":"ok"}`
+  - [x] `http://127.0.0.1:8000/api/settings/runtime-status` -> `overall_code = ready`
+  - [x] `http://127.0.0.1:8000/api/heats?page=1&page_size=3` 已返回保留库上的实时/历史炉次数据
+- [x] 已把本机启动脚本语义拆开
+  - [x] `scripts/start-local-edc-stack.sh` 现已在文件头显式标注为“破坏性 blank 重建”脚本
+  - [x] 已新增 `scripts/start-local-edc-stack-preserve-db.ps1`
+  - [x] 新脚本已实际跑通：会保留现有 SQLite，不执行 `factory-reset`，也不设置 `ASNS_BOOTSTRAP_MODE=blank`
+  - [x] `docs/DEPLOYMENT.md` 已同步补充“blank 重建 / preserve-db 重启”两条本机入口
+- [!] 当前边界
+  - [!] 本轮只完成“保留现有 DB 的本机重启 + 最小验活”，不是完整用户路径验证，也不是正式 UAT
+  - [!] 当前保留库下已恢复 `active_runtime / previous_runtime / sealed_history` 混合数据视图，后续排查应以当前 SQLite 为准，不再按 blank 空库口径判断
+
+---
+
+### 2026-04-16（本机前后端已再次按删库重建口径重部署，blank SQLite 已删除并重建）
+
+- [x] 已按本机标准顺序完成前后端重部署
+  - [x] 停止本机 `8000 / 3000 / 3001`
+  - [x] 执行 `scripts/start-local-edc-stack.sh`
+  - [x] 后端以 `ASNS_BOOTSTRAP_MODE=blank` 启动
+  - [x] 前端 Vite 已重新拉起 `http://localhost:3000/edc/`
+  - [x] ASNS 宿主已重新拉起 `http://localhost:3001/`
+- [x] 已按“删旧库再重建”口径处理本机 SQLite
+  - [x] `apps/server/data/asns.db` 已通过 `python -m src.runtime_state_admin --mode factory-reset` 删除旧库并按当前 schema 重建
+  - [x] 当前正式业务表计数已复核为 `0`：
+    - [x] `baseline_definitions`
+    - [x] `baseline_definition_metrics`
+    - [x] `baselines`
+    - [x] `heats`
+    - [x] `metric_series`
+    - [x] `tasks`
+  - [x] 当前 runtime blank 状态已复核：
+    - [x] `runtime_baseline_definitions = {}`
+    - [x] `runtime_baselines = {}`
+    - [x] `active_baseline_id = ''`
+- [x] 已完成本机最小验活
+  - [x] `http://127.0.0.1:8000/health` -> `{"status":"ok"}`
+  - [x] `http://localhost:3000/edc/` -> `200`
+  - [x] `http://localhost:3000/api/health` -> `{"status":"ok"}`
+  - [x] `http://localhost:3001/` -> `200`
+  - [x] `http://localhost:3001/api/health` -> `{"status":"ok"}`
+  - [x] `http://127.0.0.1:8000/api/settings/runtime-status` -> `overall_code = host_disconnected`
+- [!] 当前边界
+  - [!] 本轮只完成本机 blank 重部署与最小验活，不是完整用户路径验证，也不是正式 UAT
+  - [!] 当前 blank 库未接真实 EDC 源，`host_disconnected` 属于预期结果
+
+---
+
+### 2026-04-16（runtime current / previous / db 主链已落地第一轮代码收口）
+
+- [x] 已完成 runtime 曲线 merge helper 落地
+  - [x] 新增 `apps/server/src/services/heat_runtime_curve_merge.py`
+  - [x] 统一处理旧 runtime 曲线与本轮增量点的去重、排序与覆盖范围计算
+- [x] 已完成 runtime 声明窗口 / 实际覆盖窗口分离
+  - [x] `active_runtime / previous_runtime` 现在会持久化 `actual_context_start_time / actual_context_end_time`
+  - [x] formal history 会按 `metric_series.points` 反推出实际覆盖窗口
+  - [x] `/api/heats`、`/api/heats/{id}`、`/api/heats/{id}/compare` 已透出 `actual_context_*`
+- [x] 已完成 current / previous 曲线真源收口
+  - [x] `hydrate_candidate_runtime_metric_series(...)` 不再用新 fetch 结果直接覆盖旧 runtime 曲线
+  - [x] 新 `active_runtime` 出生时会继承旧 `previous_runtime` 的上下文曲线 seed
+  - [x] `previous_runtime` 续跑时继续沿用旧 runtime 曲线并补 `N+1`
+- [x] 已补 replay / live 续接与 active 继承 previous 回归
+  - [x] 新增 “新 `active_runtime` 出生时继承紧邻上一炉 `N-1` 上下文” 专项测试
+  - [x] 新增 “replay head seed 后，live refresh 能继续沿现有 runtime 续跑” 专项测试
+  - [x] `heat_runtime_seal_service.py` 已补“跳过早于当前 runtime head 的历史 seal signal”口径，避免 replay 后第一轮 live refresh 误报 `sealed_runtime_source_missing`
+- [x] 已完成 seal 前强校验收口
+  - [x] `append_sealed_heats(...) / replace_heat_range(...)` 现在会在真正写库前校验“自己的 `N` 是否存在”
+  - [x] 允许缺部分 `N+1`，但不再允许 `previous_runtime` 连自己的 `N` 都没有就入库
+- [x] 已补定向后端回归并通过
+  - [x] `uv run --directory apps/server ruff check src/api/heats.py src/services/formal_heat_service.py src/services/heat_runtime_types.py src/services/heat_runtime_curve_merge.py src/schemas/heat.py tests/test_heats_api.py tests/test_formal_heat_api.py`
+  - [x] `uv run --directory apps/server pytest -q tests/test_heats_api.py -k "actual_context or previous_runtime_extends_n_plus_1_context or sealed_history_persists_previous_runtime_context_window"`
+  - [x] `uv run --directory apps/server pytest -q tests/test_formal_heat_api.py -k "writes_all_runtime_metrics_to_db or rejects_previous_runtime_without_own_n_window"`
+  - [x] `uv run --directory apps/server pytest -q tests/test_heats_api.py -k "actual_context or previous_runtime_extends_n_plus_1_context or sealed_history_persists_previous_runtime_context_window or new_active_runtime_inherits_immediate_previous_curve_context or live_refresh_continues_from_replay_seed_runtime"`
+- [x] 已完成前端第一轮联动
+  - [x] `apps/web/src/api/heat.ts` / `apps/web/src/stores/heat.ts` 已接入 `actual_context_start_time / actual_context_end_time`
+  - [x] 炉次详情页已明确展示“声明上下文窗口 / 实际曲线覆盖窗口”
+  - [x] 炉次详情 compare 图当前优先按实际覆盖窗口展示
+  - [x] 炉次列表展开卡片已补上下文覆盖摘要
+  - [x] 多语言文案已补齐上下文窗口相关字段
+- [x] 已完成前端最小代码级验证
+  - [x] `pnpm --dir apps/web lint`
+  - [x] 结果：通过（仅有仓库既有 Vue 风格 warning，无新增 error）
+  - [x] `pnpm --dir apps/web build`
+  - [x] 结果：通过
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] 结果：通过
+- [x] 已完成一轮定向用户路径验证（非完整 UAT）
+  - [x] 使用受控 mock API 验证 `/heats` 列表成功态、筛选空态、`/heats/:id` 详情成功态
+  - [x] 已核对关键请求：
+    - [x] `GET /api/heats?page=1&page_size=10`
+    - [x] `GET /api/heats?page=1&page_size=10&status=abnormal`
+    - [x] `GET /api/heats/heat-ctx-1/compare`
+    - [x] `GET /api/heats/heat-ctx-1/cutting-timeline`
+  - [x] 已确认详情摘要显示：
+    - [x] 声明窗口 `08:59:00 -> 10:04:00`
+    - [x] 实际覆盖窗口 `09:04:00 -> 09:49:00`
+    - [x] 页面出现“按实际覆盖范围展示”的提示
+  - [x] 已留图：
+    - [x] `output/playwright/heat-list-success.png`
+    - [x] `output/playwright/heat-list-empty-filtered.png`
+    - [x] `output/playwright/heat-detail-context-window.png`
+- [x] 已同步更新正式 UAT 文档口径
+  - [x] `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md` 的炉次详情 compare 用例已补“声明窗口 / 实际覆盖窗口”验收点
+- [!] 当前边界
+  - [!] 当前完成的是“后端收口 + 前端第一轮联动 + 定向用户路径验证”，不是完整 UAT
+  - [!] 本轮用户路径验证基于受控 mock API，不等于真实 EDC / 宿主 / 后端全链路验收
+  - [!] `api/settings/runtime-status` 在 mock 验证中未提供，因此 readiness banner 相关状态不计入本轮通过结论
+
+---
+
 ### 2026-04-16（runtime 主链专项文档已拆出，主干结构文档与专项文档已互链）
 
 - [x] 已更新 `docs/BACKEND_STRUCTURE.md`
@@ -7240,3 +7498,22 @@ EDC 前端（apps/web，/edc/）
 - [!] 当日补充语义收口
   - [!] 当前实现仍是“replay 落历史后，再单独 live 重切一次 head runtime”，并没有直接复用 replay 结果里的头部两炉
   - [!] 已锁定后续改造方向：replay 负责用 replay 最终结果重建 `previous_runtime/current_runtime` 的起点模板，之后再回到正常 live runtime 增量续接链路
+
+### 2026-04-17（炉次列表显示层修复与顺手拆职责）
+
+- [x] `/api/heats` 列表读链已从“formal 覆盖 previous 的近似裁决”切回“真源直出 + 排序”
+  - [x] 新增 `apps/server/src/services/heat_list_read_model_service.py`
+  - [x] formal DB、`previous_runtime`、`active_runtime` 现按真源原样拼接，不再在列表阶段做 overlap 吞并
+  - [x] `/api/heats` 对外契约保持 `items[]` 不变，前端继续通过 `record_source` 区分来源
+- [x] 列表相关测试已同步改写
+  - [x] 旧“formal 优先吞 overlapping previous”契约已翻转
+  - [x] 新增 `active + previous + sealed_history` 并存且按开始时间倒序显示的回归用例
+  - [x] 旧 runtime id 在 rollover 后仍可访问 detail / compare / timeline 的兼容回归仍通过
+- [x] 本轮实际验证
+  - [x] `uv run --extra dev pytest tests/test_heats_api.py -k "list_heats or previous_runtime_id_stays_resolvable_after_rollover"`
+  - [x] `uv run --extra dev pytest tests/test_formal_heat_api.py -k "list_heats"`
+  - [x] 运行中服务定向验证：`GET http://127.0.0.1:8000/api/heats?page_size=5` 已同时返回 `active_runtime / previous_runtime / sealed_history`
+  - [x] 前端入口连通性：`http://127.0.0.1:3001/heats` 返回 `200`
+- [!] 本轮验证口径说明
+  - [!] 已完成后端回归与运行中接口定向验证
+  - [!] 未完成浏览器侧视觉验收：当前桌面环境的 Playwright MCP 因权限目录创建失败无法直接录制页面结果，本轮不能声称“完整 UAT 已完成”
