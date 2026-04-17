@@ -1,4 +1,20 @@
 #!/usr/bin/env bash
+#
+# 用途：
+#   本脚本是“破坏性 blank 重建”入口。
+#   它会先停止本机 8000 / 3000 / 3001，再对 apps/server/data/asns.db 执行
+#   factory-reset，随后以 ASNS_BOOTSTRAP_MODE=blank 启动后端。
+#
+# 适用场景：
+#   - 需要删库重建当前 schema
+#   - 需要把系统恢复为空白联调态
+#
+# 不适用场景：
+#   - 想保留现有 SQLite 业务数据继续启动
+#   - 想沿用当前 runtime / heats / baselines 继续排查
+#
+# 如需保留现有 DB，请改用：
+#   scripts/start-local-edc-stack-preserve-db.ps1
 
 set -euo pipefail
 

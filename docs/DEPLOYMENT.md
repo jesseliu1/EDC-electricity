@@ -12,7 +12,9 @@
 
 本机 Windows 联调入口：
 
-- `scripts/start-local-edc-stack.sh`
+- `scripts/start-local-edc-stack-blank.ps1`
+- `scripts/start-local-edc-stack-preserve-db.ps1`
+- `scripts/start-local-edc-stack.sh`（Git Bash 入口，语义同 blank PowerShell 脚本）
 
 补充说明：
 
@@ -23,6 +25,9 @@
 - 当前 `python -m src.runtime_state_admin --mode factory-reset` 已升级为“删除目标 SQLite 及其 `-wal/-shm/-journal`，再按当前代码 schema 重建空库”
 - 因此 `factory-reset + ASNS_BOOTSTRAP_MODE=blank` 的当前语义已经不是“只清表数据”，而是“删旧库、重建当前 schema、再以 blank 空白运行态启动”
 - 只要用户口头要求“公网部署 / 公网重部署”，且没有明确要求保留旧业务数据，默认按上述“彻底删除干净并重建”的口径执行
+- 本机联调脚本现分为两类：
+  - `scripts/start-local-edc-stack.sh`：破坏性 blank 重建，会删库并以 `ASNS_BOOTSTRAP_MODE=blank` 启动
+  - `scripts/start-local-edc-stack-preserve-db.ps1`：保留现有 `apps/server/data/asns.db`，只重启本机联调栈
 
 ## 1. 部署范围
 
@@ -290,10 +295,10 @@ EDC_SERVER_REBIND_DEFINITIONS=0
 
 ## 6.1 本机 Windows 联调启动
 
-如果是在当前 Windows 开发机上恢复本机联调，优先使用：
+如果是在当前 Windows 开发机上恢复本机联调，且目标是“删库 + blank 重建”，优先使用：
 
-```bash
-./scripts/start-local-edc-stack.sh
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-edc-stack-blank.ps1
 ```
 
 当前脚本语义：
@@ -317,11 +322,47 @@ EDC_SERVER_REBIND_DEFINITIONS=0
   - `http://localhost:3001/` 首页必须包含 `window.__ASNS_EDC_APP_URL__ = "http://localhost:3000/edc/";`
   - 这一步用于确认宿主页真的拿到了浏览器侧 runtime 配置，而不是只把环境变量留在 Node 进程里
 
+如果当前环境装有 Git Bash，也可以继续使用：
+
+```bash
+./scripts/start-local-edc-stack.sh
+```
+
+它与上面的 PowerShell blank 脚本语义一致，但依赖 `bash/cygpath`。
+
 目的：
 
 - 避免旧 runtime 数据在本机重启后继续恢复
 - 避免“只重启 3001，但宿主仍服务旧 `dist`”的本地假部署
 - 把“先 factory-reset，再 blank 启动后端，再 build ASNS，再起宿主”固化成标准顺序
+
+如果目标是“保留现有 SQLite 继续联调”，请不要运行上面的 blank 脚本；应改用：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-edc-stack-preserve-db.ps1
+```
+
+当前保留库脚本语义：
+
+- 停止本机 `8000 / 3000 / 3001`
+- 保留 `apps/server/data/asns.db`
+- 不设置 `ASNS_BOOTSTRAP_MODE=blank`
+- 先重建 ASNS 宿主 `dist`
+- 再启动：
+  - FastAPI 后端 `127.0.0.1:8000`
+  - EDC 前端 `http://localhost:3000/edc/`
+  - ASNS 宿主 `http://localhost:3001/`
+- 最后自动检查：
+  - `http://127.0.0.1:8000/health`
+  - `http://localhost:3000/edc/`
+  - `http://localhost:3000/api/health`
+  - `http://localhost:3001/`
+  - `http://localhost:3001/api/health`
+
+目的：
+
+- 允许沿用当前库里的 `runtime / baselines / heats` 继续排查
+- 避免误把“继续联调”做成“删库重建”
 
 ## 7. 最小验收清单
 
