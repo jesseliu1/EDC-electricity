@@ -57,6 +57,7 @@ from ..services.heat_cutting_service import (
     infer_live_activity_threshold,
     infer_live_heat_segments,
 )
+from ..services.heat_list_read_model_service import build_heat_list_items
 from ..services.heat_replay_batch_service import (
     ReplayContext,
     ReplayRuntimeSeed,
@@ -2079,20 +2080,15 @@ async def _rebuild_head_runtime_after_replay_with_context(
     )
 
 
-async def _list_heat_store() -> dict[str, dict[str, Any]]:
+async def _list_heat_store() -> list[dict[str, Any]]:
     if is_mock_dataset_enabled():
-        return dict(_MOCK_HEAT_STREAM_STORE)
+        return list(_MOCK_HEAT_STREAM_STORE.values())
 
-    formal_items = {str(item["id"]): item for item in await list_formal_heat_records()}
-    merged = dict(formal_items)
-    merged.update(
-        _filter_runtime_items_covered_by_formal_history(
-            _PREVIOUS_HEAT_RUNTIME,
-            formal_items=formal_items,
-        )
+    return build_heat_list_items(
+        formal_items=await list_formal_heat_records(),
+        previous_runtime_items=_PREVIOUS_HEAT_RUNTIME,
+        active_runtime_items=_ACTIVE_HEAT_RUNTIME,
     )
-    merged.update(_ACTIVE_HEAT_RUNTIME)
-    return merged
 
 
 async def refresh_heat_runtime_state(
@@ -4370,7 +4366,9 @@ async def list_heats(
     current_time = utc_now()
     normalized_start_date = _normalize_filter_datetime(start_date)
     normalized_end_date = _normalize_filter_datetime(end_date)
-    items = list((await _list_heat_store()).values())
+    items = await _list_heat_store()
+    if isinstance(items, dict):
+        items = list(items.values())
     items.sort(key=lambda x: x["start_time"], reverse=True)
     prepared_items = [dict(item) for item in items]
 

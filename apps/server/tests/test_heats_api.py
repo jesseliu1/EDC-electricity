@@ -801,6 +801,90 @@ async def test_list_heats_includes_active_runtime_item(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_heats_keeps_active_previous_and_history_sorted_without_cross_source_merging(
+    client, monkeypatch
+) -> None:
+    import src.api.heats as heats_module
+
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+
+    history_start = datetime(2026, 4, 17, 12, 5, 0)
+    previous_start = datetime(2026, 4, 17, 13, 5, 0)
+    active_start = datetime(2026, 4, 17, 13, 35, 0)
+
+    _seed_runtime_heat(
+        heat_id="live-heat-active-001",
+        record_source="active_runtime",
+        start_time=active_start,
+    )
+    _seed_runtime_heat(
+        heat_id="live-heat-previous-001",
+        record_source="previous_runtime",
+        start_time=previous_start,
+    )
+
+    history_metric_series = _build_runtime_metric_series(
+        heat_id="heat-history-001",
+        baseline_id=FORMAL_PRIMARY_BASELINE_ID,
+        start_time=history_start,
+    )
+    history_item = {
+        "id": "heat-history-001",
+        "heat_no": "H20260417-1205",
+        "description": "已固化历史炉次",
+        "start_time": history_start,
+        "end_time": history_start + timedelta(minutes=30),
+        "completion_status": "completed",
+        "last_point_at": history_start + timedelta(minutes=30),
+        "baseline_id": FORMAL_PRIMARY_BASELINE_ID,
+        "baseline_version_id": FORMAL_PRIMARY_BASELINE_ID,
+        "baseline_effective_from": _formal_baseline_effective_from(),
+        "deviation_score": 12.3,
+        "avg_deviation_score": 11.1,
+        "abnormal_duration_minutes": 0.0,
+        "schedule_tag": "work",
+        "cut_reason": "sealed_history",
+        "cut_status": "normal",
+        "major_issue": False,
+        "blocked_by_issue": False,
+        "status": "normal",
+        "temperature": None,
+        "record_source": "sealed_history",
+        "current_curve_source": "formal_db",
+        "baseline_curve_source": "baseline_metric_series",
+        "created_at": history_start,
+        "power_curve": [
+            CurvePoint(**point) for point in history_metric_series[0]["series_json"]["points"]
+        ],
+        "voltage_curve": [
+            CurvePoint(**point) for point in history_metric_series[1]["series_json"]["points"]
+        ],
+    }
+
+    async def fake_list_formal_heat_records(**_kwargs):
+        return [history_item]
+
+    monkeypatch.setattr("src.api.heats.list_formal_heat_records", fake_list_formal_heat_records)
+
+    response = await client.get("/api/heats", params={"page_size": 20})
+    assert response.status_code == 200
+    payload = response.json()
+
+    visible_items = payload["items"][:3]
+    assert [item["id"] for item in visible_items] == [
+        "live-heat-active-001",
+        "live-heat-previous-001",
+        "heat-history-001",
+    ]
+    assert [item["record_source"] for item in visible_items] == [
+        "active_runtime",
+        "previous_runtime",
+        "sealed_history",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_list_heats_marks_active_runtime_as_stale_when_watermark_is_old(client) -> None:
     import src.api.heats as heats_module
 

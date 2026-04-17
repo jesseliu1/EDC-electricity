@@ -321,8 +321,9 @@ async def test_list_heats_reads_history_from_formal_tables(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_heats_prefers_formal_history_over_overlapping_previous_runtime(client) -> None:
-    formal_item = await get_formal_heat_record("heat-001")
+async def test_list_heats_keeps_overlapping_previous_runtime_alongside_formal_history(client) -> None:
+    heat_id = await _insert_formal_heat_fixture()
+    formal_item = await get_formal_heat_record(heat_id)
     assert formal_item is not None
 
     _PREVIOUS_HEAT_RUNTIME.clear()
@@ -341,9 +342,12 @@ async def test_list_heats_prefers_formal_history_over_overlapping_previous_runti
     items = response.json()["items"]
 
     assert any(
-        item["id"] == "heat-001" and item["record_source"] == "sealed_history" for item in items
+        item["id"] == heat_id and item["record_source"] == "sealed_history" for item in items
     )
-    assert all(item["id"] != "live-heat-overlap-001" for item in items)
+    assert any(
+        item["id"] == "live-heat-overlap-001" and item["record_source"] == "previous_runtime"
+        for item in items
+    )
 
 
 @pytest.mark.asyncio
