@@ -23,6 +23,12 @@ class HeatResponse(BaseModel):
     end_time: TimestampMs = Field(..., description="结束时间")
     context_start_time: OptionalTimestampMs = Field(default=None, description="上下文开始时间")
     context_end_time: OptionalTimestampMs = Field(default=None, description="上下文结束时间")
+    actual_context_start_time: OptionalTimestampMs = Field(
+        default=None, description="实际曲线覆盖开始时间"
+    )
+    actual_context_end_time: OptionalTimestampMs = Field(
+        default=None, description="实际曲线覆盖结束时间"
+    )
     is_manually_adjusted: bool = Field(default=False, description="是否已被用户手动修改")
     completion_status: str = Field(default="completed", description="完成状态: completed/in_progress")
     last_point_at: OptionalTimestampMs = Field(default=None, description="当前已采样到的最后时间")

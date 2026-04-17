@@ -49,6 +49,12 @@ class HeatRuntimeSealService:
                 existing_previous_item=existing_previous_item,
             )
             if source_item is None:
+                if self._is_historical_seal_signal(
+                    candidate,
+                    existing_previous_item=existing_previous_item,
+                    existing_active_item=existing_active_item,
+                ):
+                    continue
                 raise ValueError("sealed_runtime_source_missing")
             prepared = self._prepare_runtime_item_for_seal(
                 source_item,
@@ -73,6 +79,29 @@ class HeatRuntimeSealService:
         if _windows_overlap(runtime_item, candidate):
             return runtime_item
         return None
+
+    def _is_historical_seal_signal(
+        self,
+        candidate: dict[str, Any],
+        *,
+        existing_previous_item: dict[str, Any] | None,
+        existing_active_item: dict[str, Any] | None,
+    ) -> bool:
+        candidate_window = _time_window(candidate)
+        if candidate_window is None:
+            return False
+        candidate_end_time = candidate_window[1]
+        runtime_starts = [
+            window[0]
+            for window in (
+                _time_window(existing_previous_item) if isinstance(existing_previous_item, dict) else None,
+                _time_window(existing_active_item) if isinstance(existing_active_item, dict) else None,
+            )
+            if window is not None
+        ]
+        if not runtime_starts:
+            return False
+        return candidate_end_time < min(runtime_starts)
 
     def _prepare_runtime_item_for_seal(
         self,

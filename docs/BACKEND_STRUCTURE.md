@@ -645,12 +645,14 @@ erDiagram
 关键一致性规则：
 
 - `context_start_time / context_end_time` 表示“声明窗口”
+- `actual_context_start_time / actual_context_end_time` 表示“实际曲线覆盖窗口”
 - `runtime_metric_series.series_json.points` 表示“实际曲线覆盖”
 - 这两者不能混成同一个字段语义
 - `previous_runtime == null` 只允许发生在冷启动或当前只识别到一炉时
 - 如果 `previous_runtime` 对象存在，它至少必须拥有自己的 `N`
 - `previous_runtime` 允许缺部分 `N+1`，但不允许缺自己的 `N`
 - 正式入库时，如果 `previous_runtime` 连自己的 `N` 都不完整，应拒绝 seal
+- `/api/heats`、`/api/heats/{id}`、`/api/heats/{id}/compare` 应同时透出声明窗口与实际覆盖窗口
 
 专项展开说明见：
 

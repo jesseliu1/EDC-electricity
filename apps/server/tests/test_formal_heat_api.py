@@ -965,16 +965,19 @@ async def test_persist_sealed_heat_candidates_writes_all_runtime_metrics_to_db(
             if metric_key == "power":
                 curves[metric_id] = [
                     CurvePoint(timestamp=to_timestamp_ms(loader_start_time), value=430.0),
+                    CurvePoint(timestamp=to_timestamp_ms(start_time + timedelta(minutes=15)), value=434.0),
                     CurvePoint(timestamp=to_timestamp_ms(loader_end_time), value=438.0),
                 ]
             elif metric_key == "voltage":
                 curves[metric_id] = [
                     CurvePoint(timestamp=to_timestamp_ms(loader_start_time), value=221.0),
+                    CurvePoint(timestamp=to_timestamp_ms(start_time + timedelta(minutes=15)), value=224.0),
                     CurvePoint(timestamp=to_timestamp_ms(loader_end_time), value=226.0),
                 ]
             elif metric_key == "temperature":
                 curves[metric_id] = [
                     CurvePoint(timestamp=to_timestamp_ms(loader_start_time), value=1548.0),
+                    CurvePoint(timestamp=to_timestamp_ms(start_time + timedelta(minutes=15)), value=1557.0),
                     CurvePoint(timestamp=to_timestamp_ms(loader_end_time), value=1566.0),
                 ]
         return curves
@@ -1032,6 +1035,184 @@ async def test_persist_sealed_heat_candidates_writes_all_runtime_metrics_to_db(
         assert payload["heat_start_time"] == to_timestamp_ms(start_time)
         assert payload["heat_end_time"] == to_timestamp_ms(end_time)
         assert payload["points"]
+
+
+@pytest.mark.asyncio
+async def test_persist_sealed_heat_candidates_rejects_previous_runtime_without_own_n_window(
+    reset_test_database,
+) -> None:
+    definition_id = "def-runtime-window-001"
+    baseline_id = f"{definition_id}:001"
+    start_time = datetime.now().replace(microsecond=0, second=0)
+    end_time = start_time + timedelta(minutes=30)
+    context_start_time = start_time - timedelta(minutes=15)
+    context_end_time = end_time + timedelta(minutes=15)
+    baseline_series_payload = json.dumps(
+        {
+            "points": [
+                {"timestamp": to_timestamp_ms(start_time), "value": 410.0},
+                {"timestamp": to_timestamp_ms(end_time), "value": 425.0},
+            ]
+        },
+        ensure_ascii=False,
+    )
+
+    async with async_session_maker() as session:
+        session.add(
+            BaselineDefinition(
+                id=definition_id,
+                definition_name="运行态完整度校验定义",
+                description="验证 previous seal 前必须覆盖自己的 N",
+                expected_duration_minutes=30,
+                status="active",
+                created_by="tester",
+                updated_by="tester",
+                created_at=start_time,
+                updated_at=start_time,
+            )
+        )
+        session.add_all(
+            [
+                BaselineDefinitionMetric(
+                    definition_id=definition_id,
+                    item="001",
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#409EFF",
+                    sort_order=1,
+                    edc_channel_id="2349-199",
+                    enabled=True,
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+                BaselineDefinitionMetric(
+                    definition_id=definition_id,
+                    item="002",
+                    item_kind="metric_item",
+                    metric_key="voltage",
+                    metric_name="A相电压",
+                    unit="V",
+                    color="#67C23A",
+                    sort_order=2,
+                    edc_channel_id="2349-128",
+                    enabled=True,
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+            ]
+        )
+        session.add(
+            Baseline(
+                definition_id=definition_id,
+                item="001",
+                item_kind="baseline_version",
+                name="运行态完整度校验基线",
+                description="测试",
+                status="published",
+                is_default=True,
+                source_heat_id="heat-runtime-window-seed",
+                selected_start_time=start_time - timedelta(minutes=30),
+                selected_end_time=start_time,
+                effective_from=start_time - timedelta(hours=1),
+                tolerance_percent=15.0,
+                created_by="tester",
+                updated_by="tester",
+                created_at=start_time,
+                updated_at=start_time,
+                published_at=start_time,
+            )
+        )
+        session.add_all(
+            [
+                MetricSeries(
+                    owner_key=baseline_id,
+                    item="001",
+                    owner_type="baseline",
+                    definition_id=definition_id,
+                    item_kind="metric_item",
+                    metric_key="power",
+                    metric_name="总有功功率",
+                    unit="kW",
+                    color="#409EFF",
+                    sort_order=1,
+                    source_channel_id="2349-199",
+                    source_channel_name="总有功功率",
+                    source_channel_label="测试设备 / 总有功功率 / kW",
+                    series_json=baseline_series_payload,
+                    stat_json=json.dumps({"avg": 417.5}, ensure_ascii=False),
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+                MetricSeries(
+                    owner_key=baseline_id,
+                    item="002",
+                    owner_type="baseline",
+                    definition_id=definition_id,
+                    item_kind="metric_item",
+                    metric_key="voltage",
+                    metric_name="A相电压",
+                    unit="V",
+                    color="#67C23A",
+                    sort_order=2,
+                    source_channel_id="2349-128",
+                    source_channel_name="A相电压",
+                    source_channel_label="测试设备 / A相电压 / V",
+                    series_json=baseline_series_payload,
+                    stat_json=json.dumps({"avg": 223.0}, ensure_ascii=False),
+                    created_at=start_time,
+                    updated_at=start_time,
+                ),
+            ]
+        )
+        await session.commit()
+
+    async def fake_metric_curve_loader(
+        metrics: list[dict[str, object]],
+        loader_start_time: datetime,
+        loader_end_time: datetime,
+    ) -> dict[str, list[CurvePoint]]:
+        curves: dict[str, list[CurvePoint]] = {}
+        for metric in metrics:
+            metric_id = str(metric.get("id") or "")
+            metric_key = str(metric.get("metric_key") or "")
+            if metric_key == "power":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=to_timestamp_ms(loader_start_time), value=430.0),
+                    CurvePoint(timestamp=to_timestamp_ms(loader_end_time), value=438.0),
+                ]
+            elif metric_key == "voltage":
+                curves[metric_id] = [
+                    CurvePoint(timestamp=to_timestamp_ms(loader_start_time), value=221.0),
+                    CurvePoint(timestamp=to_timestamp_ms(loader_end_time), value=226.0),
+                ]
+        return curves
+
+    prepared = await compile_runtime_candidates(
+        [
+            {
+                "id": "heat-runtime-window-001",
+                "heat_no": "HRUNTIME-WINDOW-001",
+                "description": "缺少自己 N 的 previous runtime",
+                "start_time": start_time,
+                "end_time": end_time,
+                "context_start_time": context_start_time,
+                "context_end_time": context_end_time,
+                "baseline_id": baseline_id,
+                "record_source": "previous_runtime",
+                "cut_reason": "test",
+                "cut_status": "normal",
+                "status": "normal",
+                "created_at": start_time,
+            }
+        ],
+        trigger_source="test",
+        metric_curve_loader=fake_metric_curve_loader,
+    )
+
+    with pytest.raises(ValueError, match="runtime_metric_series_missing_heat_window"):
+        await persist_sealed_heat_candidates(prepared)
 
 
 @pytest.mark.asyncio

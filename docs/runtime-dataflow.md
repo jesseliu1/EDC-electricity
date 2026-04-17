@@ -171,6 +171,7 @@ runtime 中必须明确区分两个概念：
   - `context_start_time / context_end_time`
   - 表示这条 runtime 在业务上希望展示到哪里
 - 实际覆盖窗口
+  - `actual_context_start_time / actual_context_end_time`
   - `runtime_metric_series.series_json.points` 实际最早点和最晚点
   - 表示当前曲线真源实际上已经长到了哪里
 
@@ -258,6 +259,12 @@ seal 校验应分两层。
 业务语义：
 
 - 炉次本体已成立，只是详情页想看的后文尚未补满
+
+当前实现补充：
+
+- runtime item 会持久化 `actual_context_start_time / actual_context_end_time`
+- `/api/heats`、`/api/heats/{id}`、`/api/heats/{id}/compare` 会同时返回声明窗口与实际覆盖窗口
+- `append_sealed_heats(...) / replace_heat_range(...)` 会在真正写正式表前执行“自己的 `N` 是否存在”强校验
 
 ## 8. live 与 replay 的关系
 
