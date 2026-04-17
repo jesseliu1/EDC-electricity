@@ -1,16 +1,59 @@
 """测试配置"""
+# ruff: noqa: E402
 
 import asyncio
 import copy
 import json
+import os
+import shutil
+import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
-from src.api.baseline_definitions import _DEFINITION_STORE, _PREVIEW_JOB_STORE, _reload_definition_store
+
+def _resolve_sqlite_db_path(database_url: str) -> Path | None:
+    """把 sqlite URL 解析成文件路径，便于保护联调库。"""
+    sqlite_prefix = "sqlite+aiosqlite:///"
+    if not database_url.startswith(sqlite_prefix):
+        return None
+    raw_path = database_url.removeprefix(sqlite_prefix)
+    if raw_path.startswith("/") and len(raw_path) >= 3 and raw_path[2] == ":":
+        raw_path = raw_path[1:]
+    return Path(raw_path).resolve()
+
+
+_SERVER_ROOT = Path(__file__).resolve().parents[1]
+_SHARED_DB_PATH = (_SERVER_ROOT / "data" / "asns.db").resolve()
+_AUTO_TEST_DB_DIR = Path(tempfile.mkdtemp(prefix="asns-pytest-db-"))
+_CONFIGURED_TEST_DB_PATH = Path(
+    os.environ.get("ASNS_TEST_DB_PATH") or (_AUTO_TEST_DB_DIR / "asns-test.db")
+).resolve()
+_CONFIGURED_TEST_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+if _CONFIGURED_TEST_DB_PATH.exists():
+    _CONFIGURED_TEST_DB_PATH.unlink()
+
+os.environ.setdefault(
+    "ASNS_DATABASE_URL",
+    f"sqlite+aiosqlite:///{_CONFIGURED_TEST_DB_PATH.as_posix()}",
+)
+
+_RESOLVED_TEST_DB_PATH = _resolve_sqlite_db_path(os.environ["ASNS_DATABASE_URL"])
+if _RESOLVED_TEST_DB_PATH == _SHARED_DB_PATH:
+    raise RuntimeError(
+        "pytest 已被阻止：当前测试数据库仍指向 apps/server/data/asns.db。"
+        " 请改用独立测试库，或仅设置 ASNS_TEST_DB_PATH。"
+    )
+
+from src.api.baseline_definitions import (
+    _DEFINITION_STORE,
+    _PREVIEW_JOB_STORE,
+    _reload_definition_store,
+)
 from src.api.baselines import _BASELINE_STORE, _reload_baseline_store
 from src.api.heats import (
     _ACTIVE_HEAT_RUNTIME,
@@ -19,8 +62,8 @@ from src.api.heats import (
     _HEAT_COMPARE_CACHE,
     _HEAT_ID_ALIAS_STORE,
     _HEAT_RUNTIME_REFRESH_META,
-    _HEAT_STREAM_PROCESSOR_STATE,
     _HEAT_STORE,
+    _HEAT_STREAM_PROCESSOR_STATE,
     _LIVE_HEAT_CACHE,
     _MOCK_HEAT_STREAM_STORE,
     _NEXT_MOCK_HEAT_INDEX,
@@ -56,6 +99,15 @@ from src.services import close_shared_edc_clients, encode_baseline_id
 
 FORMAL_PRIMARY_BASELINE_ID = encode_baseline_id("def-001", "001")
 FORMAL_SECONDARY_BASELINE_ID = encode_baseline_id("def-002", "001")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_auto_test_db() -> None:
+    """清理 pytest 自动生成的独立测试库目录。"""
+    yield
+    if "ASNS_TEST_DB_PATH" in os.environ:
+        return
+    shutil.rmtree(_AUTO_TEST_DB_DIR, ignore_errors=True)
 
 
 async def _stop_runtime_background_tasks() -> None:
