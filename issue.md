@@ -2,6 +2,57 @@
 
 > 用于登记待处理问题。若未特别说明，默认状态统一写为“未修理”。
 
+## 2026-04-13 Issue 登记
+
+### ISSUE-2026-04-13-001
+
+- **状态**: 调查完成，未修理
+- **GitHub Issue**: `#9` <https://github.com/jesseliu1/EDC-electricity/issues/9>
+- **问题简述**: replay 初始化在“同 duration 多基线同时参与”场景下，会因为某一条基线指标通道没有曲线数据而整体失败
+- **影响范围**: 设置页 replay 初始化、同 duration 多 definition 基线组合、runtime candidate 编译、正式炉次落库、错误提示可诊断性
+- **复现步骤**:
+  1. 在 `/edc/settings` 保持主黄金基线为 `test1`
+  2. 由于当前设置页会自动把所有 `expected_duration_minutes` 相同的已发布基线一起选入 replay，`test2` 也会一并参与
+  3. 发起 replay 初始化，时间范围为 `2026-04-12 00:00:00` 到 `2026-04-13 09:03:19`（Asia/Shanghai）
+  4. 观察任务 `heat-replay-20260413010319-2b7c77f0`
+- **调查结论**:
+  - 业务现象:
+    - replay job `heat-replay-20260413010319-2b7c77f0` 最终 `failed`
+    - 接口显示 `generated_heat_count = 20`
+    - 但正式 `heats / heat_baseline_bindings` 实际没有落库
+  - 前端直接症状:
+    - 设置页只看到通用错误串 `runtime_metric_curves_incomplete`
+    - 当前前端不会把缺失的是哪条基线、哪条 metric、哪个通道直接展示出来
+  - API 直接结果:
+    - `GET /api/heats/replay-jobs/heat-replay-20260413010319-2b7c77f0`
+      - `status = failed`
+      - `generated_heat_count = 20`
+      - `error_message = runtime_metric_curves_incomplete`
+  - 后端直接原因:
+    - replay 已经先切出了候选炉次
+    - 但在 `compile_runtime_candidates()` -> `hydrate_candidate_runtime_metric_series()` 阶段失败
+    - 失败日志:
+      - `runtime_metric_series_hydrate_error`
+      - `missing_metric_keys = ["metric_e79b34ba"]`
+  - 数据层原因:
+    - `metric_e79b34ba` 对应 `test2` 的指标 `A相基波电压`
+    - 绑定宿主通道为 `2347-129`
+    - 同一失败时间窗内：
+      - `2347-199` 有点
+      - `2347-128` 有点
+      - `2347-129` 返回 `0` 点
+  - 共享契约问题:
+    - 当前 replay 口径会把“所有被选中的同 duration 基线”都当成必需指标贡献者
+    - 结果就是：只要其中某一个基线的某个必需 metric 没曲线，整条 replay job 就会失败
+- **备注**:
+  - 当前问题不是“切割逻辑没切出炉次”，而是“切割成功后，runtime metric hydrate 失败”
+  - `generated_heat_count = 20` 只代表 replay 在内存里切出了 20 条 candidate，不代表已经成功 replace 到正式范围
+  - 后续需先明确产品口径：
+    - replay 是否应对缺少单条 metric 的基线硬失败
+    - 或允许降级为只使用仍可编译成功的 baseline 子集
+  - 同时建议后续把错误提示从通用 `runtime_metric_curves_incomplete` 提升为可诊断信息，至少带出 baseline / metric / channel
+
+
 ## 2026-04-03 Issue 登记
 
 ### ISSUE-2026-04-03-001
