@@ -19,8 +19,12 @@ from ..observability import log_event
 from ..schemas.common import CurvePoint
 from ..services.heat_cutting_service import HeatCuttingConfig
 from ..time_utils import utc_now
-from .formal_heat_service import MetricCurveLoader, compile_runtime_candidates, replace_heat_range
-from .heat_stream_processor import HeatProcessorResult, HeatSegment, HeatStreamProcessor
+from .formal_heat_service import MetricCurveLoader, replace_heat_range_from_preseal_candidates
+from .heat_replay_runtime_aggregate_service import (
+    HeatReplayRuntimeAggregateService,
+    ReplayAggregateResult,
+)
+from .heat_stream_processor import HeatSegment, HeatStreamProcessor
 
 _REPLAY_TASKS: dict[str, asyncio.Task[None]] = {}
 _REPLAY_ACTIVE_CHANNELS: set[str] = set()
@@ -28,22 +32,15 @@ _REPLAY_JOB_SNAPSHOTS: dict[str, dict[str, Any]] = {}
 _REPLAY_CHUNK_HOURS = 6
 _SQLITE_LOCK_RETRY_COUNT = 20
 _SQLITE_LOCK_RETRY_DELAY_SECONDS = 0.05
+_REPLAY_RUNTIME_AGGREGATE_SERVICE = HeatReplayRuntimeAggregateService()
 
 LoadPointWindow = Callable[[dict[str, str], datetime, datetime], Awaitable[list[CurvePoint]]]
 BuildReplayItems = Callable[[list[HeatSegment]], list[dict[str, Any]]]
 ThresholdResolver = Callable[[list[CurvePoint]], float | None]
 
 
-@dataclass(slots=True)
-class ReplayRuntimeSeed:
-    previous_segment_points: list[CurvePoint] | None
-    active_segment_points: list[CurvePoint] | None
-    all_segment_count: int
-    history_segment_count: int
-    processor_snapshot: dict[str, Any] | None
-
-
-AfterReplaceCallback = Callable[[datetime, datetime, str, ReplayRuntimeSeed], Awaitable[None]]
+AfterReplaceCallback = Callable[[datetime, datetime, str, ReplayAggregateResult], Awaitable[None]]
+ReplayFinishedCallback = Callable[[str, str, str], Awaitable[None]]
 
 
 @dataclass(slots=True)
@@ -57,26 +54,6 @@ class ReplayContext:
     baseline_ids: list[str]
     selected_baselines: list[dict[str, Any]]
     expected_duration_minutes: int
-
-
-def _build_replay_runtime_seed(
-    result: HeatProcessorResult,
-    *,
-    processor_snapshot: dict[str, Any] | None,
-) -> ReplayRuntimeSeed:
-    all_segments = list(result.all_segments)
-    previous_segment_points = (
-        list(result.previous_segment.points) if result.previous_segment is not None else None
-    )
-    active_segment_points = list(result.active_segment.points) if result.active_segment is not None else None
-    runtime_seed_count = int(previous_segment_points is not None) + int(active_segment_points is not None)
-    return ReplayRuntimeSeed(
-        previous_segment_points=previous_segment_points,
-        active_segment_points=active_segment_points,
-        all_segment_count=len(all_segments),
-        history_segment_count=max(len(all_segments) - runtime_seed_count, 0),
-        processor_snapshot=processor_snapshot,
-    )
 
 
 def is_replay_active_for_channel(channel_key: str) -> bool:
@@ -288,6 +265,7 @@ def launch_heat_replay_job(
     metric_curve_loader: MetricCurveLoader | None = None,
     threshold_resolver: ThresholdResolver | None = None,
     after_replace: AfterReplaceCallback | None = None,
+    on_finished: ReplayFinishedCallback | None = None,
 ) -> asyncio.Task[None]:
     if replay_context.channel_key in _REPLAY_ACTIVE_CHANNELS:
         raise ValueError("replay_job_already_running")
@@ -296,6 +274,7 @@ def launch_heat_replay_job(
 
     async def _runner() -> None:
         _REPLAY_ACTIVE_CHANNELS.add(replay_context.channel_key)
+        final_status = "failed"
         try:
             job = await get_heat_replay_job(job_id)
             if job is None:
@@ -358,29 +337,53 @@ def launch_heat_replay_job(
                 )
 
             final_result = processor.finalize_until(end_time, retain_tail_count=2)
-            final_runtime_seed = _build_replay_runtime_seed(
-                final_result,
-                processor_snapshot=processor.snapshot_state(),
+            all_replay_segments = list(final_result.all_segments)
+            all_replay_candidates = build_items_from_segments(all_replay_segments)
+            _merge_generated_candidates(all_replay_candidates)
+            ordered_replay_candidates = sorted(
+                generated_candidate_map.values(),
+                key=lambda candidate: (
+                    candidate.get("start_time"),
+                    str(candidate.get("id") or ""),
+                ),
             )
-            final_history_segments = list(
-                final_result.all_segments[: final_runtime_seed.history_segment_count]
-            )
-            final_candidates = build_items_from_segments(final_history_segments)
-            _merge_generated_candidates(final_candidates)
 
-            compiled_candidates = await compile_runtime_candidates(
-                list(generated_candidate_map.values()),
-                processing_mode="replay_batch",
+            replay_aggregate = await _REPLAY_RUNTIME_AGGREGATE_SERVICE.build_replay_runtime_aggregate(
+                ordered_replay_candidates,
                 trigger_source=f"replay_job:{job_id}",
                 cutting_config=cutting_config,
                 explicit_baselines=replay_context.selected_baselines,
                 explicit_primary_baseline_id=replay_context.baseline_id,
                 metric_curve_loader=metric_curve_loader,
+                processor_snapshot=processor.snapshot_state(),
+                all_segment_count=len(ordered_replay_candidates),
             )
-            await replace_heat_range(
+            log_event(
+                "heat_replay_runtime_aggregate_built",
+                job_id=job_id,
+                channel_key=replay_context.channel_key,
+                all_segment_count=replay_aggregate.all_segment_count,
+                history_segment_count=replay_aggregate.history_segment_count,
+                sealed_history_count=len(replay_aggregate.sealed_history_candidates),
+                sealed_history_ids=[
+                    str(candidate.get("id") or "")
+                    for candidate in replay_aggregate.sealed_history_candidates
+                ],
+                final_previous_id=(
+                    str(replay_aggregate.final_previous_candidate.get("id") or "")
+                    if isinstance(replay_aggregate.final_previous_candidate, dict)
+                    else None
+                ),
+                final_active_id=(
+                    str(replay_aggregate.final_active_candidate.get("id") or "")
+                    if isinstance(replay_aggregate.final_active_candidate, dict)
+                    else None
+                ),
+            )
+            await replace_heat_range_from_preseal_candidates(
                 anchor_time=_job_field(job, "anchor_time"),
                 end_time=end_time,
-                candidates=compiled_candidates,
+                candidates=replay_aggregate.sealed_history_candidates,
             )
             if after_replace is not None:
                 try:
@@ -388,7 +391,7 @@ def launch_heat_replay_job(
                         _job_field(job, "anchor_time"),
                         end_time,
                         replay_context.channel_key,
-                        final_runtime_seed,
+                        replay_aggregate,
                     )
                 except Exception as exc:  # pragma: no cover - 运维补偿失败不影响正式落库
                     log_event(
@@ -406,6 +409,7 @@ def launch_heat_replay_job(
                 completed_at=utc_now(),
                 error_message=None,
             )
+            final_status = "completed"
         except asyncio.CancelledError:
             await _update_job(
                 job_id,
@@ -413,6 +417,7 @@ def launch_heat_replay_job(
                 completed_at=utc_now(),
                 error_message="job_cancelled_by_user",
             )
+            final_status = "cancelled"
             raise
         except Exception as exc:
             await _update_job(
@@ -421,10 +426,13 @@ def launch_heat_replay_job(
                 completed_at=utc_now(),
                 error_message=str(exc),
             )
+            final_status = "failed"
             raise
         finally:
             _REPLAY_ACTIVE_CHANNELS.discard(replay_context.channel_key)
             _REPLAY_TASKS.pop(job_id, None)
+            if on_finished is not None:
+                await on_finished(job_id, replay_context.channel_key, final_status)
 
     task = asyncio.create_task(_runner())
     _REPLAY_TASKS[job_id] = task

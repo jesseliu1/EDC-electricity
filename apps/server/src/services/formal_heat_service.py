@@ -33,6 +33,10 @@ from .heat_runtime_curve_merge import (
     normalize_curve_points,
 )
 from .heat_runtime_factory import HeatRuntimeFactory
+from .heat_runtime_frozen_input_resolver import (
+    resolve_runtime_baseline_metric_specs_from_frozen_inputs,
+    resolve_runtime_hydrate_specs_from_frozen_inputs,
+)
 from .heat_runtime_types import RuntimePresealPayload
 
 MetricCurveLoader = Callable[
@@ -42,6 +46,80 @@ MetricCurveLoader = Callable[
 
 _heat_deviation_analysis_service = HeatDeviationAnalysisService()
 _heat_runtime_factory = HeatRuntimeFactory()
+
+
+def _is_runtime_debug_enabled() -> bool:
+    try:
+        from ..api.settings import _SETTINGS_STORE
+    except ImportError:
+        return False
+    raw_value = _SETTINGS_STORE.get("replay_runtime_debug_enabled", {}).get("value")
+    return str(raw_value or "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _log_runtime_debug(event: str, **fields: Any) -> None:
+    if not _is_runtime_debug_enabled():
+        return
+    log_event(event, **fields)
+
+
+def _summarize_curve_points(points: list[CurvePoint] | None) -> dict[str, Any]:
+    normalized_points = list(points or [])
+    if not normalized_points:
+        return {
+            "point_count": 0,
+            "first_point_at": None,
+            "last_point_at": None,
+        }
+    return {
+        "point_count": len(normalized_points),
+        "first_point_at": from_timestamp_ms(normalized_points[0].timestamp),
+        "last_point_at": from_timestamp_ms(normalized_points[-1].timestamp),
+    }
+
+
+def _summarize_curves_by_metric(
+    curves_by_metric: dict[str, list[CurvePoint]],
+    *,
+    sample_limit: int = 4,
+) -> dict[str, Any]:
+    metric_keys = sorted(str(metric_key) for metric_key in curves_by_metric.keys())
+    sampled_metrics: list[dict[str, Any]] = []
+    overall_first_point_at: datetime | None = None
+    overall_last_point_at: datetime | None = None
+    for index, metric_key in enumerate(metric_keys):
+        summary = _summarize_curve_points(curves_by_metric.get(metric_key))
+        first_point_at = summary.get("first_point_at")
+        last_point_at = summary.get("last_point_at")
+        if isinstance(first_point_at, datetime):
+            if overall_first_point_at is None or first_point_at < overall_first_point_at:
+                overall_first_point_at = first_point_at
+        if isinstance(last_point_at, datetime):
+            if overall_last_point_at is None or last_point_at > overall_last_point_at:
+                overall_last_point_at = last_point_at
+        if index < sample_limit:
+            sampled_metrics.append({"metric_key": metric_key, **summary})
+    return {
+        "metric_count": len(metric_keys),
+        "sampled_metrics": sampled_metrics,
+        "overall_first_point_at": overall_first_point_at,
+        "overall_last_point_at": overall_last_point_at,
+    }
+
+
+def _summarize_candidate_windows(candidate: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(candidate, dict):
+        return None
+    return {
+        "id": str(candidate.get("id") or ""),
+        "start_time": candidate.get("start_time"),
+        "end_time": candidate.get("end_time"),
+        "context_start_time": candidate.get("context_start_time"),
+        "context_end_time": candidate.get("context_end_time"),
+        "actual_context_start_time": candidate.get("actual_context_start_time"),
+        "actual_context_end_time": candidate.get("actual_context_end_time"),
+        "last_point_at": candidate.get("last_point_at"),
+    }
 
 
 def encode_heat_owner_key(heat_id: str) -> str:
@@ -613,6 +691,8 @@ def _template_series_spec(template: Any) -> dict[str, Any] | None:
         "unit": _template_field(template, "unit"),
         "color": color,
         "sort_order": int(_template_field(template, "sort_order") or 0),
+        "edc_channel_id": _template_field(template, "edc_channel_id")
+        or _template_field(template, "source_channel_id"),
         "source_channel_id": _template_field(template, "edc_channel_id")
         or _template_field(template, "source_channel_id"),
         "source_channel_name": _template_field(template, "source_channel_name"),
@@ -668,6 +748,7 @@ def _metric_spec_from_runtime_series_entry(entry: dict[str, Any]) -> dict[str, A
         "unit": entry.get("unit"),
         "color": color,
         "sort_order": int(entry.get("sort_order") or 0),
+        "edc_channel_id": entry.get("edc_channel_id") or entry.get("source_channel_id"),
         "source_channel_id": entry.get("source_channel_id"),
         "source_channel_name": entry.get("source_channel_name"),
         "source_channel_label": entry.get("source_channel_label"),
@@ -736,7 +817,7 @@ def _build_runtime_metric_series_entries(
                 "unit": spec.get("unit"),
                 "color": str(spec["color"]),
                 "sort_order": int(spec["sort_order"]),
-                "source_channel_id": spec.get("source_channel_id"),
+                "source_channel_id": spec.get("source_channel_id") or spec.get("edc_channel_id"),
                 "source_channel_name": spec.get("source_channel_name"),
                 "source_channel_label": spec.get("source_channel_label"),
                 "series_json": {
@@ -838,11 +919,19 @@ async def hydrate_candidate_runtime_metric_series(
             "name": str(spec["metric_name"]),
             "unit": spec.get("unit"),
             "color": str(spec["color"]),
-            "edc_channel_id": spec.get("source_channel_id"),
+            "edc_channel_id": spec.get("edc_channel_id") or spec.get("source_channel_id"),
         }
         for template in metric_specs
         if (spec := _template_series_spec(template)) is not None
     ]
+    _log_runtime_debug(
+        "runtime_metric_series_hydrate_started",
+        candidate=_summarize_candidate_windows(hydrated),
+        request_window_start_time=context_start_time,
+        request_window_end_time=context_end_time,
+        requested_metric_keys=[str(metric.get("metric_key") or "") for metric in metric_views],
+        base_curves=_summarize_curves_by_metric(base_curves_by_metric),
+    )
     loaded_curves = await loader(metric_views, context_start_time, context_end_time)
     metric_key_by_item = {
         str(metric["id"]): str(metric["metric_key"]) for metric in metric_views if metric.get("id")
@@ -889,6 +978,17 @@ async def hydrate_candidate_runtime_metric_series(
     actual_context_start_time, actual_context_end_time = actual_context_bounds_from_metric_curves(
         curves_by_metric
     )
+    _log_runtime_debug(
+        "runtime_metric_series_hydrate_result",
+        candidate=_summarize_candidate_windows(hydrated),
+        request_window_start_time=context_start_time,
+        request_window_end_time=context_end_time,
+        loaded_curves=_summarize_curves_by_metric(incoming_curves_by_metric),
+        merged_curves=_summarize_curves_by_metric(curves_by_metric),
+        actual_context_start_time=actual_context_start_time,
+        actual_context_end_time=actual_context_end_time,
+        missing_metric_keys=missing_metric_keys,
+    )
     if runtime_metric_series:
         hydrated["current_curve_source"] = "runtime_metric_series"
         hydrated["context_start_time"] = context_start_time
@@ -896,6 +996,11 @@ async def hydrate_candidate_runtime_metric_series(
         hydrated["actual_context_start_time"] = actual_context_start_time
         hydrated["actual_context_end_time"] = actual_context_end_time
         hydrated["last_point_at"] = actual_context_end_time or context_end_time
+        _log_runtime_debug(
+            "runtime_metric_series_hydrate_applied",
+            candidate=_summarize_candidate_windows(hydrated),
+            runtime_metric_series=_summarize_curves_by_metric(curves_by_metric),
+        )
     return hydrated
 
 
@@ -1526,23 +1631,24 @@ async def compile_runtime_candidates(
         if frozen_inputs is not None:
             candidate_applicable_baselines = frozen_inputs.applicable_baselines
             candidate_curve_payloads = frozen_inputs.baseline_curve_payloads
-            prepared_candidate["definition_metric_snapshots"] = list(
-                frozen_inputs.definition_metric_snapshots
+            metric_union_specs = resolve_runtime_hydrate_specs_from_frozen_inputs(
+                prepared_candidate
             )
+            baseline_metric_specs_by_id = resolve_runtime_baseline_metric_specs_from_frozen_inputs(
+                prepared_candidate,
+                applicable_baselines=candidate_applicable_baselines,
+            )
+            if not metric_union_specs or not baseline_metric_specs_by_id:
+                log_event(
+                    "runtime_candidate_compile_error",
+                    heat_id=str(candidate.get("id") or ""),
+                    error="runtime_birth_context_missing",
+                )
+                raise ValueError("runtime_birth_context_missing")
+            prepared_candidate["definition_metric_snapshots"] = list(metric_union_specs)
             prepared_candidate["baseline_curve_snapshots"] = list(
                 frozen_inputs.baseline_curve_snapshots
             )
-            baseline_metric_specs_by_id = _baseline_metric_spec_map_from_runtime_views(
-                prepared_candidate.get("baseline_views")
-            )
-            if not baseline_metric_specs_by_id:
-                baseline_metric_specs_by_id = _build_baseline_metric_spec_map(
-                    applicable_baselines=candidate_applicable_baselines,
-                    template_map=template_map,
-                )
-            metric_union_specs = _build_runtime_metric_union_specs(
-                baseline_metric_specs_by_id
-            ) or list(frozen_inputs.definition_metric_snapshots)
         else:
             candidate_applicable_baselines = applicable_by_candidate[str(candidate["id"])]
             candidate_curve_payloads = baseline_curve_payloads
@@ -1790,6 +1896,21 @@ async def replace_heat_range(
         if persisted_record is not None:
             persisted[heat_id] = persisted_record
     return persisted
+
+
+async def replace_heat_range_from_preseal_candidates(
+    *,
+    anchor_time: datetime,
+    end_time: datetime,
+    candidates: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    if any(not isinstance(candidate.get("preseal_payload"), dict) for candidate in candidates):
+        raise ValueError("replay_preseal_payload_missing")
+    return await replace_heat_range(
+        anchor_time=anchor_time,
+        end_time=end_time,
+        candidates=candidates,
+    )
 
 
 async def prepare_runtime_candidates_for_persist(

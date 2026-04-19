@@ -62,8 +62,6 @@ from ..services.heat_cutting_service import (
 from ..services.heat_list_read_model_service import build_heat_list_items
 from ..services.heat_replay_batch_service import (
     ReplayContext,
-    ReplayRuntimeSeed,
-    is_replay_active_for_channel,
     launch_heat_replay_job,
 )
 from ..services.heat_replay_batch_service import (
@@ -77,6 +75,12 @@ from ..services.heat_replay_batch_service import (
 )
 from ..services.heat_replay_batch_service import (
     list_heat_replay_jobs as list_heat_replay_job_records,
+)
+from ..services.heat_replay_runtime_aggregate_service import ReplayAggregateResult
+from ..services.heat_runtime_aggregate_coordinator import (
+    HeatRuntimeAggregateCoordinator,
+    RuntimeAggregateLease,
+    ensure_runtime_handoff_meta,
 )
 from ..services.heat_runtime_curve_merge import actual_context_bounds_from_runtime_series
 from ..services.heat_runtime_factory import HeatRuntimeFactory
@@ -1566,37 +1570,216 @@ def _filter_runtime_items_covered_by_formal_history(
     return filtered
 
 
-def _is_replay_runtime_debug_enabled() -> bool:
+def _is_heat_runtime_debug_enabled() -> bool:
     raw_value = _SETTINGS_STORE.get("replay_runtime_debug_enabled", {}).get("value")
     return str(raw_value or "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _log_replay_runtime_debug(event: str, **fields: Any) -> None:
-    if not _is_replay_runtime_debug_enabled():
+def _log_heat_runtime_debug(event: str, **fields: Any) -> None:
+    if not _is_heat_runtime_debug_enabled():
         return
     log_event(event, **fields)
 
 
-def _summarize_replay_seed_segment(
-    *,
-    prefix: str,
-    points: list[CurvePoint] | None,
-    plant_timezone: str,
-) -> dict[str, Any]:
-    if not points:
-        return {f"{prefix}_exists": False}
+def _is_replay_runtime_debug_enabled() -> bool:
+    return _is_heat_runtime_debug_enabled()
 
-    start_time = from_timestamp_ms(points[0].timestamp)
-    end_time = from_timestamp_ms(points[-1].timestamp)
+
+def _log_replay_runtime_debug(event: str, **fields: Any) -> None:
+    _log_heat_runtime_debug(event, **fields)
+
+
+def _series_points_bounds_from_payload(series_payload: Any) -> dict[str, Any] | None:
+    payload = series_payload if isinstance(series_payload, dict) else None
+    if payload is None and isinstance(series_payload, str):
+        try:
+            raw_payload = json.loads(series_payload)
+        except json.JSONDecodeError:
+            raw_payload = None
+        payload = raw_payload if isinstance(raw_payload, dict) else None
+    if not isinstance(payload, dict):
+        return None
+
+    context_start_time: datetime | None = None
+    heat_start_time: datetime | None = None
+    heat_end_time: datetime | None = None
+    context_end_time: datetime | None = None
+    try:
+        if payload.get("context_start_time") is not None:
+            context_start_time = from_timestamp_ms(int(payload["context_start_time"]))
+        if payload.get("heat_start_time") is not None:
+            heat_start_time = from_timestamp_ms(int(payload["heat_start_time"]))
+        if payload.get("heat_end_time") is not None:
+            heat_end_time = from_timestamp_ms(int(payload["heat_end_time"]))
+        if payload.get("context_end_time") is not None:
+            context_end_time = from_timestamp_ms(int(payload["context_end_time"]))
+    except (TypeError, ValueError):
+        return None
+
+    raw_points = payload.get("points")
+    if not isinstance(raw_points, list) or not raw_points:
+        return {
+            "point_count": 0,
+            "first_point_at": None,
+            "last_point_at": None,
+            "context_start_time": context_start_time,
+            "heat_start_time": heat_start_time,
+            "heat_end_time": heat_end_time,
+            "context_end_time": context_end_time,
+        }
+
+    timestamps: list[int] = []
+    for point in raw_points:
+        if not isinstance(point, dict):
+            continue
+        raw_timestamp = point.get("timestamp")
+        if raw_timestamp is None:
+            continue
+        try:
+            timestamps.append(int(raw_timestamp))
+        except (TypeError, ValueError):
+            continue
+    if not timestamps:
+        return None
     return {
-        f"{prefix}_exists": True,
-        f"{prefix}_point_count": len(points),
-        f"{prefix}_start_time_utc": start_time,
-        f"{prefix}_end_time_utc": end_time,
-        f"{prefix}_start_time_plant": to_plant_datetime(start_time, plant_timezone),
-        f"{prefix}_end_time_plant": to_plant_datetime(end_time, plant_timezone),
+        "point_count": len(timestamps),
+        "first_point_at": from_timestamp_ms(min(timestamps)),
+        "last_point_at": from_timestamp_ms(max(timestamps)),
+        "context_start_time": context_start_time,
+        "heat_start_time": heat_start_time,
+        "heat_end_time": heat_end_time,
+        "context_end_time": context_end_time,
     }
 
+
+def _summarize_metric_series_for_debug(
+    series_entries: list[Any] | None,
+    *,
+    sample_limit: int = 3,
+) -> dict[str, Any] | None:
+    if not isinstance(series_entries, list):
+        return None
+    valid_entries = [entry for entry in series_entries if isinstance(entry, dict)]
+    samples: list[dict[str, Any]] = []
+    overall_first_point_at: datetime | None = None
+    overall_last_point_at: datetime | None = None
+    for entry in valid_entries:
+        payload_summary = _series_points_bounds_from_payload(entry.get("series_json"))
+        if payload_summary is None:
+            continue
+        first_point_at = payload_summary.get("first_point_at")
+        last_point_at = payload_summary.get("last_point_at")
+        if isinstance(first_point_at, datetime):
+            if overall_first_point_at is None or first_point_at < overall_first_point_at:
+                overall_first_point_at = first_point_at
+        if isinstance(last_point_at, datetime):
+            if overall_last_point_at is None or last_point_at > overall_last_point_at:
+                overall_last_point_at = last_point_at
+        if len(samples) < sample_limit:
+            samples.append(
+                {
+                    "metric_key": str(entry.get("metric_key") or ""),
+                    "point_count": payload_summary.get("point_count"),
+                    "first_point_at": first_point_at,
+                    "last_point_at": last_point_at,
+                    "context_start_time": payload_summary.get("context_start_time"),
+                    "heat_start_time": payload_summary.get("heat_start_time"),
+                    "heat_end_time": payload_summary.get("heat_end_time"),
+                    "context_end_time": payload_summary.get("context_end_time"),
+                }
+            )
+    return {
+        "series_count": len(valid_entries),
+        "overall_first_point_at": overall_first_point_at,
+        "overall_last_point_at": overall_last_point_at,
+        "sampled_series": samples,
+    }
+
+
+def _summarize_preseal_payload_for_debug(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    heat_payload = payload.get("heat_payload")
+    return {
+        "heat_payload": (
+            {
+                "start_time": heat_payload.get("start_time"),
+                "end_time": heat_payload.get("end_time"),
+                "context_start_time": heat_payload.get("context_start_time"),
+                "context_end_time": heat_payload.get("context_end_time"),
+                "last_point_at": heat_payload.get("last_point_at"),
+            }
+            if isinstance(heat_payload, dict)
+            else None
+        ),
+        "metric_series": _summarize_metric_series_for_debug(
+            payload.get("metric_series_payloads")
+            if isinstance(payload.get("metric_series_payloads"), list)
+            else None
+        ),
+    }
+
+
+def _summarize_runtime_item_for_debug(item: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    return {
+        "id": str(item.get("id") or ""),
+        "heat_no": str(item.get("heat_no") or ""),
+        "record_source": str(item.get("record_source") or ""),
+        "completion_status": str(item.get("completion_status") or ""),
+        "start_time": item.get("start_time"),
+        "end_time": item.get("end_time"),
+        "context_start_time": item.get("context_start_time"),
+        "context_end_time": item.get("context_end_time"),
+        "actual_context_start_time": item.get("actual_context_start_time"),
+        "actual_context_end_time": item.get("actual_context_end_time"),
+        "last_point_at": item.get("last_point_at"),
+        "runtime_metric_series": _summarize_metric_series_for_debug(item.get("runtime_metric_series")),
+        "preseal_payload": _summarize_preseal_payload_for_debug(item.get("preseal_payload")),
+    }
+
+
+def _summarize_processor_snapshot_for_debug(snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(snapshot, dict):
+        return None
+    config = snapshot.get("config")
+    state = snapshot.get("state")
+    config_summary = None
+    if isinstance(config, dict):
+        config_summary = {
+            "cache_key": str(config.get("cache_key") or ""),
+            "channel_key": str(config.get("channel_key") or ""),
+            "context_hash": str(config.get("context_hash") or ""),
+            "expected_duration_minutes": config.get("expected_duration_minutes"),
+            "processing_mode": str(config.get("processing_mode") or ""),
+            "anchor_timestamp_ms": config.get("anchor_timestamp_ms"),
+        }
+    state_summary = None
+    if isinstance(state, dict):
+        points_buffer = state.get("points_buffer")
+        state_summary = {
+            "bootstrapped": bool(state.get("bootstrapped")),
+            "processor_phase": str(state.get("processor_phase") or ""),
+            "activity_threshold": state.get("activity_threshold"),
+            "last_point_timestamp": state.get("last_point_timestamp"),
+            "current_heat_id": state.get("current_heat_id"),
+            "pending_seal_heat_id": state.get("pending_seal_heat_id"),
+            "points_buffer_count": len(points_buffer) if isinstance(points_buffer, list) else 0,
+        }
+    return {"config": config_summary, "state": state_summary}
+
+
+def _summarize_runtime_lease_for_debug(
+    lease: RuntimeAggregateLease | None,
+) -> dict[str, Any] | None:
+    if lease is None:
+        return None
+    return {
+        "observed_generation": int(lease.observed_generation),
+        "observed_handoff_state": str(lease.observed_handoff_state),
+        "observed_channel_key": lease.observed_channel_key,
+    }
 
 def _clone_replay_processor_snapshot(snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
     return deepcopy(snapshot) if isinstance(snapshot, dict) else None
@@ -1661,12 +1844,72 @@ def _replay_processor_last_point_time(snapshot: dict[str, Any] | None) -> dateti
         return None
 
 
+def _runtime_generation() -> int:
+    ensure_runtime_handoff_meta(_HEAT_RUNTIME_REFRESH_META)
+    return int(_HEAT_RUNTIME_REFRESH_META.get("runtime_generation") or 0)
+
+
+def _runtime_handoff_state() -> str:
+    ensure_runtime_handoff_meta(_HEAT_RUNTIME_REFRESH_META)
+    return str(_HEAT_RUNTIME_REFRESH_META.get("handoff_state") or "live")
+
+
+def _runtime_handoff_channel_key() -> str | None:
+    ensure_runtime_handoff_meta(_HEAT_RUNTIME_REFRESH_META)
+    raw_value = _HEAT_RUNTIME_REFRESH_META.get("handoff_channel_key")
+    return str(raw_value) if raw_value else None
+
+
+async def _enter_replay_runtime_handoff(*, channel_key: str, replay_job_id: str) -> None:
+    before = _HEAT_RUNTIME_AGGREGATE_COORDINATOR.snapshot(_HEAT_RUNTIME_REFRESH_META)
+    after = await _HEAT_RUNTIME_AGGREGATE_COORDINATOR.enter_replay(
+        _HEAT_RUNTIME_REFRESH_META,
+        channel_key=channel_key,
+        replay_job_id=replay_job_id,
+        now=utc_now(),
+    )
+    _log_heat_runtime_debug(
+        "heat_runtime_handoff_state_changed",
+        action="enter_replay",
+        replay_job_id=replay_job_id,
+        channel_key=channel_key,
+        before=_summarize_runtime_lease_for_debug(before),
+        after=_summarize_runtime_lease_for_debug(after),
+    )
+    await persist_runtime_state(*_runtime_heat_sections())
+
+
+async def _finish_replay_runtime_handoff(
+    job_id: str, channel_key: str, final_status: str
+) -> None:
+    before = _HEAT_RUNTIME_AGGREGATE_COORDINATOR.snapshot(_HEAT_RUNTIME_REFRESH_META)
+    after = await _HEAT_RUNTIME_AGGREGATE_COORDINATOR.finish_replay(
+        _HEAT_RUNTIME_REFRESH_META,
+        channel_key=channel_key,
+        replay_job_id=job_id,
+        now=utc_now(),
+    )
+    if before == after:
+        return
+    _log_heat_runtime_debug(
+        "heat_runtime_handoff_state_changed",
+        action="finish_replay",
+        replay_job_id=job_id,
+        channel_key=channel_key,
+        final_status=final_status,
+        before=_summarize_runtime_lease_for_debug(before),
+        after=_summarize_runtime_lease_for_debug(after),
+    )
+    await persist_runtime_state(*_runtime_heat_sections())
+
+
 async def _apply_replay_runtime_seed_with_context(
     *,
     anchor_time: datetime,
     end_time: datetime,
     replay_context: ReplayContext,
-    runtime_seed: ReplayRuntimeSeed,
+    replay_aggregate: ReplayAggregateResult,
+    replay_job_id: str,
     reason: str = "replay_head_rebuild",
 ) -> dict[str, Any]:
     started_at = utc_now()
@@ -1684,37 +1927,25 @@ async def _apply_replay_runtime_seed_with_context(
         {"cutting_config_snapshot": replay_context.cutting_config_snapshot}
     )
     plant_timezone = str(cutting_config.plant_timezone)
-    previous_points = (
-        list(runtime_seed.previous_segment_points)
-        if runtime_seed.previous_segment_points is not None
-        else None
-    )
-    active_points = (
-        list(runtime_seed.active_segment_points)
-        if runtime_seed.active_segment_points is not None
-        else None
-    )
-    raw_processor_snapshot = _clone_replay_processor_snapshot(runtime_seed.processor_snapshot)
+    raw_processor_snapshot = _clone_replay_processor_snapshot(replay_aggregate.processor_snapshot)
     processor_state = _replay_processor_snapshot_state(raw_processor_snapshot)
     _log_replay_runtime_debug(
-        "replay_runtime_seed_summary",
+        "replay_runtime_aggregate_summary",
         channel_key=replay_context.channel_key,
         anchor_time_utc=anchor_time,
         end_time_utc=end_time,
         anchor_time_plant=to_plant_datetime(anchor_time, plant_timezone),
         end_time_plant=to_plant_datetime(end_time, plant_timezone),
-        all_segment_count=runtime_seed.all_segment_count,
-        history_segment_count=runtime_seed.history_segment_count,
-        **_summarize_replay_seed_segment(
-            prefix="previous",
-            points=previous_points,
-            plant_timezone=plant_timezone,
+        all_segment_count=replay_aggregate.all_segment_count,
+        history_segment_count=replay_aggregate.history_segment_count,
+        sealed_history_ids=[
+            str(candidate.get("id") or "")
+            for candidate in replay_aggregate.sealed_history_candidates
+        ],
+        final_previous=_summarize_runtime_item_for_debug(
+            replay_aggregate.final_previous_candidate
         ),
-        **_summarize_replay_seed_segment(
-            prefix="active",
-            points=active_points,
-            plant_timezone=plant_timezone,
-        ),
+        final_active=_summarize_runtime_item_for_debug(replay_aggregate.final_active_candidate),
         processor_bootstrapped=(
             bool(processor_state.get("bootstrapped")) if isinstance(processor_state, dict) else None
         ),
@@ -1733,8 +1964,8 @@ async def _apply_replay_runtime_seed_with_context(
         _log_replay_runtime_debug(
             "replay_runtime_processor_snapshot_missing",
             channel_key=replay_context.channel_key,
-            all_segment_count=runtime_seed.all_segment_count,
-            history_segment_count=runtime_seed.history_segment_count,
+            all_segment_count=replay_aggregate.all_segment_count,
+            history_segment_count=replay_aggregate.history_segment_count,
         )
         return _build_heat_runtime_refresh_meta_snapshot()
 
@@ -1758,65 +1989,8 @@ async def _apply_replay_runtime_seed_with_context(
             channel_key=replay_context.channel_key,
         )
         return _build_heat_runtime_refresh_meta_snapshot()
-    runtime_seed_segments: list[list[CurvePoint]] = []
-    if previous_points is not None:
-        runtime_seed_segments.append(previous_points)
-    if active_points is not None:
-        runtime_seed_segments.append(active_points)
-    runtime_seed_candidates = (
-        _build_live_heat_items_from_segments(
-            context=replay_live_context,
-            segments=runtime_seed_segments,
-            baseline_id=replay_context.baseline_id,
-            expected_duration_minutes=int(replay_context.expected_duration_minutes),
-            cutting_config=cutting_config,
-        )
-        if runtime_seed_segments
-        else []
-    )
-    prepared_runtime_candidates = (
-        await compile_runtime_candidates(
-            runtime_seed_candidates,
-            processing_mode="live_incremental",
-            trigger_source=reason,
-            cutting_config=cutting_config,
-            metric_curve_loader=_load_runtime_metric_curves,
-            explicit_baselines=replay_context.selected_baselines,
-            explicit_primary_baseline_id=replay_context.baseline_id,
-        )
-        if runtime_seed_candidates
-        else []
-    )
-    prepared_runtime_candidate_map = {
-        str(candidate["id"]): candidate for candidate in prepared_runtime_candidates
-    }
-
-    prepared_previous_candidate: dict[str, Any] | None = None
-    prepared_active_candidate: dict[str, Any] | None = None
-    if previous_points is not None and runtime_seed_candidates:
-        prepared_previous_candidate = prepared_runtime_candidate_map.get(
-            str(runtime_seed_candidates[0]["id"])
-        )
-    if active_points is not None and runtime_seed_candidates:
-        prepared_active_candidate = prepared_runtime_candidate_map.get(
-            str(runtime_seed_candidates[-1]["id"])
-        )
-
-    if (previous_points is not None and prepared_previous_candidate is None) or (
-        active_points is not None and prepared_active_candidate is None
-    ):
-        _HEAT_STREAM_PROCESSOR_STATE.clear()
-        _mark_heat_runtime_refresh_failure(error="replay_runtime_seed_compile_failed")
-        await persist_runtime_state(*_runtime_heat_sections())
-        _log_replay_runtime_debug(
-            "replay_runtime_seed_compile_failed",
-            channel_key=replay_context.channel_key,
-            seed_candidate_ids=[
-                str(candidate.get("id") or "") for candidate in runtime_seed_candidates
-            ],
-            prepared_candidate_ids=list(prepared_runtime_candidate_map.keys()),
-        )
-        return _build_heat_runtime_refresh_meta_snapshot()
+    prepared_previous_candidate = replay_aggregate.final_previous_candidate
+    prepared_active_candidate = replay_aggregate.final_active_candidate
 
     previous_runtime_items = [
         *list(_ACTIVE_HEAT_RUNTIME.values()),
@@ -1842,18 +2016,6 @@ async def _apply_replay_runtime_seed_with_context(
         next_active_runtime[str(active_item["id"])] = active_item
 
     formal_items = {str(item["id"]): item for item in await list_formal_heat_records()}
-    next_runtime_lookup = dict(formal_items)
-    next_runtime_lookup.update(next_previous_runtime)
-    next_runtime_lookup.update(next_active_runtime)
-    _register_runtime_aliases(previous_runtime_items, next_runtime_lookup)
-
-    _HEAT_STORE.clear()
-    _HEAT_STREAM_PROCESSOR_STATE.clear()
-    _HEAT_STREAM_PROCESSOR_STATE.update(processor_snapshot)
-    _PREVIOUS_HEAT_RUNTIME.clear()
-    _PREVIOUS_HEAT_RUNTIME.update(next_previous_runtime)
-    _ACTIVE_HEAT_RUNTIME.clear()
-    _ACTIVE_HEAT_RUNTIME.update(next_active_runtime)
 
     watermark_candidates: list[datetime] = [end_time]
     processor_last_point_time = _replay_processor_last_point_time(processor_snapshot)
@@ -1863,19 +2025,59 @@ async def _apply_replay_runtime_seed_with_context(
         watermark = runtime_item.get("last_point_at") or runtime_item.get("end_time")
         if isinstance(watermark, datetime):
             watermark_candidates.append(watermark)
+    snapshot_watermark = max(watermark_candidates) if watermark_candidates else None
 
-    _mark_heat_runtime_refresh_success(
-        reason=reason,
-        refresh_outcome="replay_runtime_seed_applied",
-        snapshot_watermark=max(watermark_candidates) if watermark_candidates else None,
-    )
-    await persist_runtime_state(*_runtime_heat_sections())
-    _log_replay_runtime_debug(
-        "replay_runtime_seed_applied",
+    async def _commit_replay_seed() -> None:
+        next_runtime_lookup = dict(formal_items)
+        next_runtime_lookup.update(next_previous_runtime)
+        next_runtime_lookup.update(next_active_runtime)
+        _register_runtime_aliases(previous_runtime_items, next_runtime_lookup)
+        _HEAT_STORE.clear()
+        _HEAT_STREAM_PROCESSOR_STATE.clear()
+        _HEAT_STREAM_PROCESSOR_STATE.update(processor_snapshot)
+        _PREVIOUS_HEAT_RUNTIME.clear()
+        _PREVIOUS_HEAT_RUNTIME.update(next_previous_runtime)
+        _ACTIVE_HEAT_RUNTIME.clear()
+        _ACTIVE_HEAT_RUNTIME.update(next_active_runtime)
+        _mark_heat_runtime_refresh_success(
+            reason=reason,
+            refresh_outcome="replay_runtime_seed_applied",
+            snapshot_watermark=snapshot_watermark,
+        )
+        await persist_runtime_state(*_runtime_heat_sections())
+
+    generation_before_commit = _runtime_generation()
+    handoff_state_before_commit = _runtime_handoff_state()
+    commit_result = await _HEAT_RUNTIME_AGGREGATE_COORDINATOR.commit_replay_seed(
+        _HEAT_RUNTIME_REFRESH_META,
         channel_key=replay_context.channel_key,
+        replay_job_id=replay_job_id,
+        now=utc_now(),
+        callback=_commit_replay_seed,
+    )
+    _log_replay_runtime_debug(
+        "heat_runtime_handoff_state_changed",
+        action="replay_seed_committed",
+        replay_job_id=replay_job_id,
+        channel_key=replay_context.channel_key,
+        before={
+            "generation": generation_before_commit,
+            "handoff_state": handoff_state_before_commit,
+        },
+        after={
+            "generation": commit_result.current_generation,
+            "handoff_state": commit_result.current_handoff_state,
+        },
+    )
+    _log_replay_runtime_debug(
+        "heat_runtime_replay_seed_committed",
+        channel_key=replay_context.channel_key,
+        replay_job_id=replay_job_id,
         replaced_previous=bool(previous_runtime_items),
         next_previous_id=next(iter(next_previous_runtime.keys()), None),
         next_active_id=next(iter(next_active_runtime.keys()), None),
+        current_generation=commit_result.current_generation,
+        handoff_state=commit_result.current_handoff_state,
         processor_bootstrapped=(
             bool(processor_state.get("bootstrapped")) if isinstance(processor_state, dict) else None
         ),
@@ -1884,7 +2086,7 @@ async def _apply_replay_runtime_seed_with_context(
             if isinstance(processor_state, dict)
             else None
         ),
-        snapshot_watermark=max(watermark_candidates) if watermark_candidates else None,
+        snapshot_watermark=snapshot_watermark,
     )
     return _build_heat_runtime_refresh_meta_snapshot()
 
@@ -1899,6 +2101,10 @@ async def _refresh_heat_runtime_state_from_context(
     explicit_primary_baseline_id: str | None = None,
 ) -> dict[str, Any]:
     started_at = utc_now()
+    refresh_lease = _HEAT_RUNTIME_AGGREGATE_COORDINATOR.snapshot(_HEAT_RUNTIME_REFRESH_META)
+    incoming_processor_snapshot = (
+        None if force_reset_processor else (dict(_HEAT_STREAM_PROCESSOR_STATE) if _HEAT_STREAM_PROCESSOR_STATE else None)
+    )
     _HEAT_RUNTIME_REFRESH_META.update(
         {
             "refresh_status": "running",
@@ -1912,22 +2118,40 @@ async def _refresh_heat_runtime_state_from_context(
     existing_active_item = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
     existing_previous_item = next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)
     cutting_config = _resolve_live_context_cutting_config(context)
+    _log_heat_runtime_debug(
+        "heat_runtime_generation_snapshot",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        lease=_summarize_runtime_lease_for_debug(refresh_lease),
+        current_generation=_runtime_generation(),
+        current_handoff_state=_runtime_handoff_state(),
+        current_handoff_channel_key=_runtime_handoff_channel_key(),
+    )
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_started",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        cache_key=str(context.get("cache_key") or ""),
+        baseline_id=str(context.get("baseline_id") or ""),
+        expected_duration_minutes=int(context.get("expected_duration_minutes") or 0),
+        force_anchor_time=force_anchor_time,
+        force_reset_processor=force_reset_processor,
+        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+        incoming_processor_snapshot=_summarize_processor_snapshot_for_debug(
+            incoming_processor_snapshot
+        ),
+    )
 
     refresh_result = await refresh_live_heat_segments(
         context=context,
         cutting_config=cutting_config,
         point_loader=_load_live_heat_inference_power_points,
-        processor_snapshot=(
-            None
-            if force_reset_processor
-            else (dict(_HEAT_STREAM_PROCESSOR_STATE) if _HEAT_STREAM_PROCESSOR_STATE else None)
-        ),
+        processor_snapshot=incoming_processor_snapshot,
         processing_mode="live_incremental",
         threshold_resolver=_infer_live_activity_threshold,
         force_start_time=force_anchor_time,
     )
-    _HEAT_STREAM_PROCESSOR_STATE.clear()
-    _HEAT_STREAM_PROCESSOR_STATE.update(refresh_result.processor_state)
 
     segment_items = _build_live_heat_items_from_segments(
         context=context,
@@ -1956,6 +2180,15 @@ async def _refresh_heat_runtime_state_from_context(
         for segment in refresh_result.processor_result.sealed_segments
         if (item := _segment_item(segment)) is not None
     ]
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_candidates_segment_resolved",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        active_candidate_raw=_summarize_runtime_item_for_debug(active_candidate),
+        previous_candidate_raw=_summarize_runtime_item_for_debug(previous_candidate),
+        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+    )
     active_candidate = _hydrate_candidate_from_existing_runtime(
         active_candidate,
         existing_item=existing_active_item if isinstance(existing_active_item, dict) else None,
@@ -1973,6 +2206,15 @@ async def _refresh_heat_runtime_state_from_context(
             previous_candidate,
             existing_item=existing_active_item,
         )
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_candidates_hydrated",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        active_candidate_hydrated=_summarize_runtime_item_for_debug(active_candidate),
+        previous_candidate_hydrated=_summarize_runtime_item_for_debug(previous_candidate),
+        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+    )
     previous_candidate = _HEAT_RUNTIME_TRANSITION_SERVICE.prepare_previous_candidate(
         previous_candidate,
         active_candidate=active_candidate,
@@ -1989,6 +2231,15 @@ async def _refresh_heat_runtime_state_from_context(
         existing_previous_item=(
             existing_previous_item if isinstance(existing_previous_item, dict) else None
         ),
+    )
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_candidates_transitioned",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        active_candidate_transitioned=_summarize_runtime_item_for_debug(active_candidate),
+        previous_candidate_transitioned=_summarize_runtime_item_for_debug(previous_candidate),
+        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
     )
     if active_candidate is not None and not _same_runtime_candidate(
         active_candidate,
@@ -2008,10 +2259,39 @@ async def _refresh_heat_runtime_state_from_context(
                 active_candidate,
                 existing_item=active_seed_source,
             )
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_candidates_prepared",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+        active_candidate=_summarize_runtime_item_for_debug(active_candidate),
+        previous_candidate=_summarize_runtime_item_for_debug(previous_candidate),
+    )
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_segments_resolved",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        fetch_start_time=refresh_result.fetch_start_time,
+        fetch_end_time=refresh_result.fetch_end_time,
+        anchor_time=refresh_result.anchor_time,
+        point_count=refresh_result.point_count,
+        used_bootstrap_window=refresh_result.used_bootstrap_window,
+        reused_processor_snapshot=refresh_result.reused_processor_snapshot,
+        processor_state=_summarize_processor_snapshot_for_debug(refresh_result.processor_state),
+        segment_count=len(refresh_result.processor_result.all_segments),
+        sealed_segment_count=len(refresh_result.processor_result.sealed_segments),
+        active_candidate=_summarize_runtime_item_for_debug(active_candidate),
+        previous_candidate=_summarize_runtime_item_for_debug(previous_candidate),
+        sealed_candidate_ids=[str(item.get("id") or "") for item in sealed_candidates],
+    )
 
     if not active_candidate and not previous_candidate and not sealed_candidates:
+        empty_outcome = "runtime_refresh_failed"
         if refresh_result.reused_processor_snapshot and (
-            isinstance(existing_active_item, dict) or isinstance(existing_previous_item, dict)
+            _is_bootstrapped_processor_snapshot(refresh_result.processor_state)
+            or isinstance(existing_active_item, dict)
+            or isinstance(existing_previous_item, dict)
         ):
             watermark_candidates: list[datetime] = []
             processor_state = refresh_result.processor_state.get("state")
@@ -2028,13 +2308,102 @@ async def _refresh_heat_runtime_state_from_context(
                 watermark = runtime_item.get("last_point_at") or runtime_item.get("end_time")
                 if isinstance(watermark, datetime):
                     watermark_candidates.append(watermark)
-            _mark_heat_runtime_refresh_success(
+            empty_outcome = "no_active_heat_in_window"
+            _log_heat_runtime_debug(
+                "heat_runtime_refresh_empty_window",
                 reason=reason,
-                refresh_outcome="no_active_heat_in_window",
-                snapshot_watermark=max(watermark_candidates) if watermark_candidates else None,
+                outcome=empty_outcome,
+                channel_key=str(context.get("channel_key") or ""),
+                existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+                existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+                processor_state=_summarize_processor_snapshot_for_debug(refresh_result.processor_state),
             )
-            await persist_runtime_state(*_runtime_heat_sections())
+            snapshot_watermark = max(watermark_candidates) if watermark_candidates else None
+            _log_heat_runtime_debug(
+                "heat_runtime_live_commit_attempt",
+                reason=reason,
+                channel_key=str(context.get("channel_key") or ""),
+                lease=_summarize_runtime_lease_for_debug(refresh_lease),
+                existing_active_id=(
+                    str(existing_active_item.get("id") or "")
+                    if isinstance(existing_active_item, dict)
+                    else None
+                ),
+                existing_previous_id=(
+                    str(existing_previous_item.get("id") or "")
+                    if isinstance(existing_previous_item, dict)
+                    else None
+                ),
+                next_active_id=None,
+                next_previous_id=(
+                    str(existing_previous_item.get("id") or "")
+                    if isinstance(existing_previous_item, dict)
+                    else None
+                ),
+                sealed_candidate_ids=[],
+            )
+
+            async def _commit_idle_window() -> None:
+                _HEAT_STREAM_PROCESSOR_STATE.clear()
+                _HEAT_STREAM_PROCESSOR_STATE.update(refresh_result.processor_state)
+                _mark_heat_runtime_refresh_success(
+                    reason=reason,
+                    refresh_outcome="no_active_heat_in_window",
+                    snapshot_watermark=snapshot_watermark,
+                )
+                await persist_runtime_state(*_runtime_heat_sections())
+
+            commit_result = await _HEAT_RUNTIME_AGGREGATE_COORDINATOR.commit_live_refresh(
+                _HEAT_RUNTIME_REFRESH_META,
+                lease=refresh_lease,
+                channel_key=str(context["channel_key"]),
+                now=utc_now(),
+                callback=_commit_idle_window,
+            )
+            if not commit_result.accepted:
+                _log_heat_runtime_debug(
+                    "heat_runtime_live_commit_rejected",
+                    reason=reason,
+                    channel_key=str(context.get("channel_key") or ""),
+                    lease=_summarize_runtime_lease_for_debug(refresh_lease),
+                    current_generation=commit_result.current_generation,
+                    handoff_state=commit_result.current_handoff_state,
+                    reject_reason=commit_result.reject_reason,
+                )
+                if commit_result.reject_reason == "runtime_handoff_blocked":
+                    _mark_heat_runtime_refresh_discarded(
+                        reason=reason,
+                        refresh_outcome="stale_refresh_discarded",
+                    )
+                return _build_heat_runtime_refresh_meta_snapshot()
+            _log_heat_runtime_debug(
+                "heat_runtime_live_commit_applied",
+                reason=reason,
+                channel_key=str(context.get("channel_key") or ""),
+                current_generation=commit_result.current_generation,
+                handoff_state=commit_result.current_handoff_state,
+                refresh_outcome="no_active_heat_in_window",
+                transitioned_to_live=commit_result.transitioned_to_live,
+                next_active=_summarize_runtime_item_for_debug(
+                    next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
+                ),
+                next_previous=_summarize_runtime_item_for_debug(
+                    next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)
+                ),
+                processor_state=_summarize_processor_snapshot_for_debug(
+                    _HEAT_STREAM_PROCESSOR_STATE
+                ),
+            )
             return _build_heat_runtime_refresh_meta_snapshot()
+        _log_heat_runtime_debug(
+            "heat_runtime_refresh_empty_window",
+            reason=reason,
+            outcome=empty_outcome,
+            channel_key=str(context.get("channel_key") or ""),
+            existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+            existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+            processor_state=_summarize_processor_snapshot_for_debug(refresh_result.processor_state),
+        )
         _mark_heat_runtime_refresh_failure(error="no_runtime_heats_inferred")
         await persist_runtime_state(*_runtime_heat_sections())
         return _build_heat_runtime_refresh_meta_snapshot()
@@ -2090,6 +2459,15 @@ async def _refresh_heat_runtime_state_from_context(
     prepared_previous_candidate: dict[str, Any] | None = None
     if previous_candidate is not None:
         if previous_reuses_existing_active and isinstance(existing_active_item, dict):
+            _log_heat_runtime_debug(
+                "heat_runtime_refresh_previous_update_started",
+                reason=reason,
+                channel_key=str(context.get("channel_key") or ""),
+                update_branch="existing_active_item",
+                previous_candidate=_summarize_runtime_item_for_debug(previous_candidate),
+                existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+                existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+            )
             prepared_previous_candidate = await _HEAT_RUNTIME_UPDATER.update_existing_runtime(
                 existing_item=existing_active_item,
                 candidate=previous_candidate,
@@ -2100,6 +2478,15 @@ async def _refresh_heat_runtime_state_from_context(
                 preserve_binding_analysis=True,
             )
         elif previous_reuses_existing and isinstance(existing_previous_item, dict):
+            _log_heat_runtime_debug(
+                "heat_runtime_refresh_previous_update_started",
+                reason=reason,
+                channel_key=str(context.get("channel_key") or ""),
+                update_branch="existing_previous_item",
+                previous_candidate=_summarize_runtime_item_for_debug(previous_candidate),
+                existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+                existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+            )
             prepared_previous_candidate = await _HEAT_RUNTIME_UPDATER.update_existing_runtime(
                 existing_item=existing_previous_item,
                 candidate=previous_candidate,
@@ -2113,6 +2500,33 @@ async def _refresh_heat_runtime_state_from_context(
             prepared_previous_candidate = prepared_runtime_candidate_map.get(
                 str(previous_candidate["id"])
             )
+        _log_heat_runtime_debug(
+            "heat_runtime_refresh_previous_update_finished",
+            reason=reason,
+            channel_key=str(context.get("channel_key") or ""),
+            previous_candidate=_summarize_runtime_item_for_debug(previous_candidate),
+            prepared_previous=_summarize_runtime_item_for_debug(prepared_previous_candidate),
+            update_branch=(
+                "existing_active_item"
+                if previous_reuses_existing_active and isinstance(existing_active_item, dict)
+                else (
+                    "existing_previous_item"
+                    if previous_reuses_existing and isinstance(existing_previous_item, dict)
+                    else "compiled_candidate"
+                )
+            ),
+        )
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_candidates_compiled",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        active_reuses_existing=active_reuses_existing,
+        previous_reuses_existing=previous_reuses_existing,
+        previous_reuses_existing_active=previous_reuses_existing_active,
+        compile_candidate_ids=[str(candidate.get("id") or "") for candidate in compile_candidates],
+        prepared_active=_summarize_runtime_item_for_debug(prepared_active_candidate),
+        prepared_previous=_summarize_runtime_item_for_debug(prepared_previous_candidate),
+    )
 
     next_active_runtime: dict[str, dict[str, Any]] = {}
     next_previous_runtime: dict[str, dict[str, Any]] = {}
@@ -2139,54 +2553,55 @@ async def _refresh_heat_runtime_state_from_context(
     )
     if previous_item is not None:
         next_previous_runtime[str(previous_item["id"])] = previous_item
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_runtime_items_built",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        next_active=_summarize_runtime_item_for_debug(next(iter(next_active_runtime.values()), None)),
+        next_previous=_summarize_runtime_item_for_debug(previous_item),
+    )
 
-    next_history_items: dict[str, dict[str, Any]] = {}
-    if not is_replay_active_for_channel(str(context["channel_key"])):
-        try:
-            seal_sources = _HEAT_RUNTIME_SEAL_SERVICE.resolve_seal_sources(
-                sealed_candidates=[dict(candidate) for candidate in sealed_candidates],
-                existing_previous_item=(
-                    existing_previous_item if isinstance(existing_previous_item, dict) else None
-                ),
-                existing_active_item=(
-                    existing_active_item if isinstance(existing_active_item, dict) else None
-                ),
-                trigger_source=reason,
-            )
-        except ValueError as exc:
-            _mark_heat_runtime_refresh_failure(error=str(exc))
-            await persist_runtime_state(*_runtime_heat_sections())
-            raise
-        next_history_items = await append_sealed_heats(seal_sources)
+    try:
+        seal_sources = _HEAT_RUNTIME_SEAL_SERVICE.resolve_seal_sources(
+            sealed_candidates=[dict(candidate) for candidate in sealed_candidates],
+            existing_previous_item=(
+                existing_previous_item if isinstance(existing_previous_item, dict) else None
+            ),
+            existing_active_item=(
+                existing_active_item if isinstance(existing_active_item, dict) else None
+            ),
+            trigger_source=reason,
+        )
+    except ValueError as exc:
+        _log_heat_runtime_debug(
+            "heat_runtime_refresh_seal_source_error",
+            reason=reason,
+            channel_key=str(context.get("channel_key") or ""),
+            error=str(exc),
+            existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+            existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+            sealed_candidate_ids=[str(candidate.get("id") or "") for candidate in sealed_candidates],
+        )
+        _mark_heat_runtime_refresh_failure(error=str(exc))
+        await persist_runtime_state(*_runtime_heat_sections())
+        raise
 
     previous_runtime_items = [
         *list(_ACTIVE_HEAT_RUNTIME.values()),
         *list(_PREVIOUS_HEAT_RUNTIME.values()),
     ]
-    next_runtime_lookup = dict(next_history_items)
-    next_runtime_lookup.update(next_previous_runtime)
-    next_runtime_lookup.update(next_active_runtime)
-    _register_runtime_aliases(previous_runtime_items, next_runtime_lookup)
-
-    _HEAT_STORE.clear()
-    _PREVIOUS_HEAT_RUNTIME.clear()
-    _PREVIOUS_HEAT_RUNTIME.update(next_previous_runtime)
-    _ACTIVE_HEAT_RUNTIME.clear()
-    _ACTIVE_HEAT_RUNTIME.update(next_active_runtime)
-
-    watermark_candidates = [
-        item.get("last_point_at") or item.get("end_time")
-        for item in next_history_items.values()
-        if isinstance(item.get("last_point_at") or item.get("end_time"), datetime)
-    ]
-    for runtime_store in (_PREVIOUS_HEAT_RUNTIME, _ACTIVE_HEAT_RUNTIME):
-        runtime_item = next(iter(runtime_store.values()), None)
-        if runtime_item and isinstance(runtime_item.get("last_point_at"), datetime):
-            watermark_candidates.append(runtime_item["last_point_at"])
-    if refresh_result.processor_result.last_point_timestamp is not None:
-        watermark_candidates.append(
-            from_timestamp_ms(refresh_result.processor_result.last_point_timestamp)
-        )
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_runtime_projection",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+        prepared_active=_summarize_runtime_item_for_debug(prepared_active_candidate),
+        prepared_previous=_summarize_runtime_item_for_debug(prepared_previous_candidate),
+        next_active_ids=list(next_active_runtime.keys()),
+        next_previous_ids=list(next_previous_runtime.keys()),
+        sealed_candidate_ids=[str(candidate.get("id") or "") for candidate in sealed_candidates],
+    )
 
     existing_active_id = (
         str(existing_active_item.get("id") or "") if isinstance(existing_active_item, dict) else ""
@@ -2214,12 +2629,102 @@ async def _refresh_heat_runtime_state_from_context(
     else:
         refresh_outcome = "new_heat_born"
 
-    _mark_heat_runtime_refresh_success(
+    _log_heat_runtime_debug(
+        "heat_runtime_live_commit_attempt",
         reason=reason,
-        refresh_outcome=refresh_outcome,
-        snapshot_watermark=max(watermark_candidates) if watermark_candidates else None,
+        channel_key=str(context.get("channel_key") or ""),
+        lease=_summarize_runtime_lease_for_debug(refresh_lease),
+        existing_active_id=(
+            str(existing_active_item.get("id") or "")
+            if isinstance(existing_active_item, dict)
+            else None
+        ),
+        existing_previous_id=(
+            str(existing_previous_item.get("id") or "")
+            if isinstance(existing_previous_item, dict)
+            else None
+        ),
+        next_active_id=next(iter(next_active_runtime.keys()), None),
+        next_previous_id=next(iter(next_previous_runtime.keys()), None),
+        sealed_candidate_ids=[str(candidate.get("id") or "") for candidate in sealed_candidates],
     )
-    await persist_runtime_state(*_runtime_heat_sections())
+
+    next_history_items: dict[str, dict[str, Any]] = {}
+    snapshot_watermark: datetime | None = None
+
+    async def _commit_live_projection() -> None:
+        nonlocal next_history_items, snapshot_watermark
+        next_history_items = await append_sealed_heats(seal_sources)
+        next_runtime_lookup = dict(next_history_items)
+        next_runtime_lookup.update(next_previous_runtime)
+        next_runtime_lookup.update(next_active_runtime)
+        _register_runtime_aliases(previous_runtime_items, next_runtime_lookup)
+        _HEAT_STORE.clear()
+        _HEAT_STREAM_PROCESSOR_STATE.clear()
+        _HEAT_STREAM_PROCESSOR_STATE.update(refresh_result.processor_state)
+        _PREVIOUS_HEAT_RUNTIME.clear()
+        _PREVIOUS_HEAT_RUNTIME.update(next_previous_runtime)
+        _ACTIVE_HEAT_RUNTIME.clear()
+        _ACTIVE_HEAT_RUNTIME.update(next_active_runtime)
+
+        watermark_candidates = [
+            item.get("last_point_at") or item.get("end_time")
+            for item in next_history_items.values()
+            if isinstance(item.get("last_point_at") or item.get("end_time"), datetime)
+        ]
+        for runtime_store in (_PREVIOUS_HEAT_RUNTIME, _ACTIVE_HEAT_RUNTIME):
+            runtime_item = next(iter(runtime_store.values()), None)
+            if runtime_item and isinstance(runtime_item.get("last_point_at"), datetime):
+                watermark_candidates.append(runtime_item["last_point_at"])
+        if refresh_result.processor_result.last_point_timestamp is not None:
+            watermark_candidates.append(
+                from_timestamp_ms(refresh_result.processor_result.last_point_timestamp)
+            )
+        snapshot_watermark = max(watermark_candidates) if watermark_candidates else None
+        _mark_heat_runtime_refresh_success(
+            reason=reason,
+            refresh_outcome=refresh_outcome,
+            snapshot_watermark=snapshot_watermark,
+        )
+        await persist_runtime_state(*_runtime_heat_sections())
+
+    commit_result = await _HEAT_RUNTIME_AGGREGATE_COORDINATOR.commit_live_refresh(
+        _HEAT_RUNTIME_REFRESH_META,
+        lease=refresh_lease,
+        channel_key=str(context["channel_key"]),
+        now=utc_now(),
+        callback=_commit_live_projection,
+    )
+    if not commit_result.accepted:
+        _log_heat_runtime_debug(
+            "heat_runtime_live_commit_rejected",
+            reason=reason,
+            channel_key=str(context.get("channel_key") or ""),
+            lease=_summarize_runtime_lease_for_debug(refresh_lease),
+            current_generation=commit_result.current_generation,
+            handoff_state=commit_result.current_handoff_state,
+            reject_reason=commit_result.reject_reason,
+        )
+        if commit_result.reject_reason == "runtime_handoff_blocked":
+            _mark_heat_runtime_refresh_discarded(
+                reason=reason,
+                refresh_outcome="stale_refresh_discarded",
+            )
+        return _build_heat_runtime_refresh_meta_snapshot()
+    _log_heat_runtime_debug(
+        "heat_runtime_live_commit_applied",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        current_generation=commit_result.current_generation,
+        handoff_state=commit_result.current_handoff_state,
+        refresh_outcome=refresh_outcome,
+        transitioned_to_live=commit_result.transitioned_to_live,
+        sealed_history_ids=list(next_history_items.keys()),
+        next_active=_summarize_runtime_item_for_debug(next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)),
+        next_previous=_summarize_runtime_item_for_debug(next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)),
+        snapshot_watermark=snapshot_watermark,
+        processor_state=_summarize_processor_snapshot_for_debug(_HEAT_STREAM_PROCESSOR_STATE),
+    )
     return _build_heat_runtime_refresh_meta_snapshot()
 
 
@@ -2227,7 +2732,8 @@ async def _rebuild_head_runtime_after_replay_with_context(
     anchor_time: datetime,
     end_time: datetime,
     replay_context: ReplayContext,
-    runtime_seed: ReplayRuntimeSeed,
+    replay_aggregate: ReplayAggregateResult,
+    replay_job_id: str,
 ) -> None:
     inflight = _HEAT_RUNTIME_REFRESH_INFLIGHT
     if inflight is not None and not inflight.done():
@@ -2242,7 +2748,8 @@ async def _rebuild_head_runtime_after_replay_with_context(
         anchor_time=anchor_time,
         end_time=end_time,
         replay_context=replay_context,
-        runtime_seed=runtime_seed,
+        replay_aggregate=replay_aggregate,
+        replay_job_id=replay_job_id,
         reason="replay_head_rebuild",
     )
 
@@ -3385,11 +3892,13 @@ _HEAT_RUNTIME_FACTORY = HeatRuntimeFactory()
 _HEAT_RUNTIME_UPDATER = HeatRuntimeUpdater()
 _HEAT_RUNTIME_TRANSITION_SERVICE = HeatRuntimeTransitionService()
 _HEAT_RUNTIME_SEAL_SERVICE = HeatRuntimeSealService()
+_HEAT_RUNTIME_AGGREGATE_COORDINATOR = HeatRuntimeAggregateCoordinator()
 _REPLAY_BASELINE_SELECTION_SERVICE = ReplayBaselineSelectionService()
 
 
 def _default_heat_runtime_refresh_meta() -> dict[str, Any]:
-    return {
+    return ensure_runtime_handoff_meta(
+        {
         "snapshot_status": "warming",
         "refresh_status": "idle",
         "refresh_reason": None,
@@ -3399,7 +3908,8 @@ def _default_heat_runtime_refresh_meta() -> dict[str, Any]:
         "snapshot_watermark": None,
         "last_refresh_started_at": None,
         "last_refresh_completed_at": None,
-    }
+        }
+    )
 
 
 def _reset_heat_runtime_refresh_meta() -> None:
@@ -3508,6 +4018,19 @@ def _build_runtime_metric_series_from_dict(
         sort_order=int(entry.get("sort_order") or 0),
         series_json=_runtime_series_payload(entry),
         stat_json=stat_json,
+        source_channel_id=(
+            str(entry.get("source_channel_id")) if entry.get("source_channel_id") is not None else None
+        ),
+        source_channel_name=(
+            str(entry.get("source_channel_name"))
+            if entry.get("source_channel_name") is not None
+            else None
+        ),
+        source_channel_label=(
+            str(entry.get("source_channel_label"))
+            if entry.get("source_channel_label") is not None
+            else None
+        ),
     )
 
 
@@ -3653,8 +4176,15 @@ def _build_runtime_definition_metric_snapshots(
                 color=color,
                 sort_order=int(snapshot.get("sort_order") or 0),
                 edc_channel_id=(
-                    str(snapshot.get("edc_channel_id"))
+                    str(snapshot.get("edc_channel_id") or snapshot.get("source_channel_id"))
                     if snapshot.get("edc_channel_id") is not None
+                    or snapshot.get("source_channel_id") is not None
+                    else None
+                ),
+                source_channel_id=(
+                    str(snapshot.get("source_channel_id") or snapshot.get("edc_channel_id"))
+                    if snapshot.get("source_channel_id") is not None
+                    or snapshot.get("edc_channel_id") is not None
                     else None
                 ),
                 source_channel_name=(
@@ -4061,9 +4591,29 @@ def _choose_next_previous_runtime(
                 trigger_source=reason,
                 processing_mode="live_incremental",
             )
-            return _mark_previous_runtime(previous_runtime.to_runtime_item())
+            chosen_previous = _mark_previous_runtime(previous_runtime.to_runtime_item())
+            _log_heat_runtime_debug(
+                "heat_runtime_refresh_previous_choice",
+                reason=reason,
+                choice_branch="active_rollover_prepared_previous",
+                existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+                existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+                prepared_previous=_summarize_runtime_item_for_debug(prepared_previous_candidate),
+                chosen_previous=_summarize_runtime_item_for_debug(chosen_previous),
+            )
+            return chosen_previous
         if isinstance(existing_active_item, dict):
-            return _mark_previous_runtime(dict(existing_active_item))
+            chosen_previous = _mark_previous_runtime(dict(existing_active_item))
+            _log_heat_runtime_debug(
+                "heat_runtime_refresh_previous_choice",
+                reason=reason,
+                choice_branch="active_rollover_existing_active",
+                existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+                existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+                prepared_previous=_summarize_runtime_item_for_debug(prepared_previous_candidate),
+                chosen_previous=_summarize_runtime_item_for_debug(chosen_previous),
+            )
+            return chosen_previous
         return None
 
     if prepared_previous_candidate is not None:
@@ -4072,10 +4622,30 @@ def _choose_next_previous_runtime(
             trigger_source=reason,
             processing_mode="live_incremental",
         )
-        return _mark_previous_runtime(previous_runtime.to_runtime_item())
+        chosen_previous = _mark_previous_runtime(previous_runtime.to_runtime_item())
+        _log_heat_runtime_debug(
+            "heat_runtime_refresh_previous_choice",
+            reason=reason,
+            choice_branch="prepared_previous",
+            existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+            existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+            prepared_previous=_summarize_runtime_item_for_debug(prepared_previous_candidate),
+            chosen_previous=_summarize_runtime_item_for_debug(chosen_previous),
+        )
+        return chosen_previous
 
     if isinstance(existing_previous_item, dict):
-        return dict(existing_previous_item)
+        chosen_previous = dict(existing_previous_item)
+        _log_heat_runtime_debug(
+            "heat_runtime_refresh_previous_choice",
+            reason=reason,
+            choice_branch="existing_previous",
+            existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+            existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+            prepared_previous=_summarize_runtime_item_for_debug(prepared_previous_candidate),
+            chosen_previous=_summarize_runtime_item_for_debug(chosen_previous),
+        )
+        return chosen_previous
 
     return None
 
@@ -4185,6 +4755,7 @@ def _is_active_runtime_candidate(item: dict[str, Any], *, now: datetime) -> bool
 
 
 def _refresh_failure_count() -> int:
+    ensure_runtime_handoff_meta(_HEAT_RUNTIME_REFRESH_META)
     try:
         return max(int(_HEAT_RUNTIME_REFRESH_META.get("refresh_failure_count") or 0), 0)
     except (TypeError, ValueError):
@@ -4192,8 +4763,18 @@ def _refresh_failure_count() -> int:
 
 
 def _runtime_snapshot_watermark() -> datetime | None:
+    ensure_runtime_handoff_meta(_HEAT_RUNTIME_REFRESH_META)
     watermark = _HEAT_RUNTIME_REFRESH_META.get("snapshot_watermark")
     return watermark if isinstance(watermark, datetime) else None
+
+
+def _is_bootstrapped_processor_snapshot(snapshot: dict[str, Any] | None) -> bool:
+    if not isinstance(snapshot, dict):
+        return False
+    state = snapshot.get("state")
+    if not isinstance(state, dict):
+        return False
+    return bool(state.get("bootstrapped"))
 
 
 def _has_runtime_snapshot_data() -> bool:
@@ -4229,11 +4810,13 @@ def _runtime_snapshot_status(*, now: datetime | None = None) -> str:
 
 
 def _sync_heat_runtime_refresh_meta_status(*, now: datetime | None = None) -> None:
+    ensure_runtime_handoff_meta(_HEAT_RUNTIME_REFRESH_META)
     _HEAT_RUNTIME_REFRESH_META["snapshot_status"] = _runtime_snapshot_status(now=now)
 
 
 def _build_heat_runtime_refresh_meta_snapshot(*, now: datetime | None = None) -> dict[str, Any]:
     current_time = now or utc_now()
+    ensure_runtime_handoff_meta(_HEAT_RUNTIME_REFRESH_META)
     snapshot = dict(_HEAT_RUNTIME_REFRESH_META)
     snapshot["refresh_failure_count"] = _refresh_failure_count()
     snapshot["snapshot_is_fresh"] = _is_runtime_snapshot_fresh(now=current_time)
@@ -4243,6 +4826,7 @@ def _build_heat_runtime_refresh_meta_snapshot(*, now: datetime | None = None) ->
 
 def _mark_heat_runtime_refresh_failure(*, error: str, completed_at: datetime | None = None) -> None:
     finished_at = completed_at or utc_now()
+    ensure_runtime_handoff_meta(_HEAT_RUNTIME_REFRESH_META)
     _HEAT_RUNTIME_REFRESH_META.update(
         {
             "refresh_status": "idle",
@@ -4263,6 +4847,7 @@ def _mark_heat_runtime_refresh_success(
     completed_at: datetime | None = None,
 ) -> None:
     finished_at = completed_at or utc_now()
+    ensure_runtime_handoff_meta(_HEAT_RUNTIME_REFRESH_META)
     _HEAT_RUNTIME_REFRESH_META.update(
         {
             "refresh_reason": reason,
@@ -4271,6 +4856,26 @@ def _mark_heat_runtime_refresh_success(
             "refresh_error": None,
             "refresh_failure_count": 0,
             "snapshot_watermark": snapshot_watermark,
+            "last_refresh_completed_at": finished_at,
+        }
+    )
+    _sync_heat_runtime_refresh_meta_status(now=finished_at)
+
+
+def _mark_heat_runtime_refresh_discarded(
+    *,
+    reason: str,
+    refresh_outcome: str,
+    completed_at: datetime | None = None,
+) -> None:
+    finished_at = completed_at or utc_now()
+    ensure_runtime_handoff_meta(_HEAT_RUNTIME_REFRESH_META)
+    _HEAT_RUNTIME_REFRESH_META.update(
+        {
+            "refresh_reason": reason,
+            "refresh_status": "idle",
+            "refresh_outcome": refresh_outcome,
+            "refresh_error": None,
             "last_refresh_completed_at": finished_at,
         }
     )
@@ -4659,25 +5264,40 @@ async def create_replay_job(data: HeatReplayJobCreateRequest) -> HeatReplayJobRe
             anchor_time: datetime,
             replay_end_time: datetime,
             _channel_key: str,
-            runtime_seed: ReplayRuntimeSeed,
+            replay_aggregate: ReplayAggregateResult,
         ) -> None:
             await _rebuild_head_runtime_after_replay_with_context(
                 anchor_time,
                 replay_end_time,
                 replay_context,
-                runtime_seed,
+                replay_aggregate,
+                replay_job_id=job.id,
             )
 
-        launch_heat_replay_job(
-            job_id=job.id,
-            replay_context=replay_context,
-            cutting_config=cutting_config,
-            point_loader=_load_live_heat_inference_power_points,
-            metric_curve_loader=_load_runtime_metric_curves,
-            build_items_from_segments=_build_replay_items_from_segments,
-            threshold_resolver=_infer_live_activity_threshold,
-            after_replace=_after_replace_with_explicit_baselines,
+        await _enter_replay_runtime_handoff(
+            channel_key=replay_context.channel_key,
+            replay_job_id=job.id,
         )
+
+        try:
+            launch_heat_replay_job(
+                job_id=job.id,
+                replay_context=replay_context,
+                cutting_config=cutting_config,
+                point_loader=_load_live_heat_inference_power_points,
+                metric_curve_loader=_load_runtime_metric_curves,
+                build_items_from_segments=_build_replay_items_from_segments,
+                threshold_resolver=_infer_live_activity_threshold,
+                after_replace=_after_replace_with_explicit_baselines,
+                on_finished=_finish_replay_runtime_handoff,
+            )
+        except Exception:
+            await _finish_replay_runtime_handoff(
+                job.id,
+                replay_context.channel_key,
+                "launch_failed",
+            )
+            raise
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

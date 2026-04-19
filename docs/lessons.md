@@ -21,6 +21,27 @@
 
 ## 记录
 
+### 2026-04-19 previous 升格继承上下文时，不能用会退回 start_time 的 helper 抢先短路
+
+- **错误模式**: `HeatRuntimeTransitionService.prepare_previous_candidate()` 在决定 `previous_runtime.context_start_time` 时，先调用 `_context_start(prepared)`。而 `_context_start(...)` 的语义是“`context_start_time` 不存在时退回 `start_time`”，结果 candidate 只要还没显式带 `context_start_time`，就会直接拿到自己的 `start_time`，把 existing previous 原本更宽的 `N-1` 上下文短路掉。
+- **正确做法**: 升格/继承场景里，要把“显式的 `context_start_time`”和“兜底的 `start_time`”分开处理。只有 candidate 自己真的带了 `context_start_time`，它才应优先生效；否则必须继续看 existing previous / promoted active 上已有的更宽上下文，再最后才退回自己的 `start_time`。
+- **适用场景**: `active -> previous` 升格、runtime continuation、任何既要保留历史上下文又允许 candidate 缺省 context 字段的生命周期转换逻辑。
+- **相关文档**: `apps/server/src/services/heat_runtime_transition_service.py`, `docs/BACKEND_STRUCTURE.md`
+
+### 2026-04-18 replay runtime aggregate 不能只吃 finalize 之后保留下来的 head 两炉
+
+- **错误模式**: replay 结束后只拿 `HeatStreamProcessor.finalize_until(..., retain_tail_count=2)` 返回的 `all_segments` 去构建 runtime aggregate。由于 processor 在 replay 过程中已经把更早历史段 seal 出缓冲区，`finalize` 阶段留下的只会是头部两炉，结果 formal DB 一条历史都写不进去，`previous_runtime` 也天然拿不到它自己的 `N-1`。
+- **正确做法**: replay aggregate 的输入必须覆盖“整个 replay 窗口已经产生过的所有炉次”，而不只是 finalize 后的 head segment。批处理层应累计 chunk sealed history + 最终 head candidates，再统一交给 replay aggregate builder 按 `previous -> seal -> formal` 主链回放。
+- **适用场景**: replay/batch 初始化、任何带滚动 buffer 的 processor 在中途就会把历史段 seal 出去，而最终阶段只保留 head runtime 的场景。
+- **相关文档**: `apps/server/src/services/heat_replay_batch_service.py`, `apps/server/src/services/heat_stream_processor.py`, `docs/BACKEND_STRUCTURE.md`
+
+### 2026-04-17 live head 已 seal 后，不能再把后续 idle refresh 误判成 no_runtime_heats_inferred
+
+- **错误模式**: 运行态状态机只在 `existing_active_item / existing_previous_item` 仍存在时，才把“当前窗口没有新的 active / previous / sealed_candidates”识别为合法空窗。一旦上一轮已经把 live head 正常 seal 掉、runtime 头部也清空了，下一轮 refresh 虽然仍沿用的是有效的 bootstrapped processor snapshot，却会重新落回 `no_runtime_heats_inferred`，前端表现成 current/previous 消失后立刻报后台连续刷新失败。
+- **正确做法**: 对 live continuation 来说，是否处于“合法空窗”不能只看 runtime 头部是否还留着 `active / previous`，还要看 processor snapshot 是否仍是兼容且 `bootstrapped` 的续借状态。只要 continuation contract 还成立，而当前窗口只是没有新炉次，就应该记成 `no_active_heat_in_window / ready`，不能再累计成系统错误。
+- **适用场景**: 批量初始化后切回 live、最后一个 runtime head 刚 seal 完成、fixed_interval 或 signal_inference 下的 live 空窗期、任何“runtime 头为空但 processor 续借仍有效”的后台 refresh 链路。
+- **相关文档**: `apps/server/src/api/heats.py`, `apps/server/src/services/live_heat_runtime_service.py`, `docs/progress.md`
+
 ### 2026-04-17 fixed_interval 的 replay -> live 续接不能在交接时丢掉既有 anchor timeline
 
 - **错误模式**: `replay` 完成后虽然重建了 `active_runtime / previous_runtime` 和 processor snapshot，但在交给 `live refresh` 时只续了 `last_point_timestamp` 等运行态状态，没有继续沿用 fixed-interval 既有的 `anchor_timestamp_ms`。结果 live 端会拿“短增量窗口 + 错轴/冷启动 processor”重新推断，表现成批量初始化后连续报 `no_runtime_heats_inferred`。
@@ -1093,3 +1114,9 @@
 - **错误模式**: `/api/heats` 列表组装阶段把“live 身份续接用的时间窗容差”复用成“formal 是否覆盖 previous”的判断，导致 `previous_runtime` 仅因与 `sealed_history` 首尾相接或时间接近，就在显示层被误吞。
 - **正确做法**: 列表显示层只做真源拼接、排序、筛选和 DTO 映射；`formal DB / previous_runtime / active_runtime` 都应按当前真源状态原样进入列表，不在显示阶段做 overlap 去重、覆盖裁决或 alias 写入。
 - **适用场景**: 任何 runtime 与 formal 历史混合展示的台账、列表页、浏览页，尤其是同一接口需要同时暴露 `current / previous / sealed_history` 的场景。
+
+## [2026-04-18] replay -> live 续借不能只靠“正在 replay”标记，必须有 generation 屏障
+- **错误模式**: 只用 `_REPLAY_ACTIVE_CHANNELS` 阻止正式入库，却继续允许 background live refresh 在 replay handoff 期间覆盖 `previous_runtime / active_runtime / processor_snapshot`。这样晚到提交的旧 refresh 会把 replay 刚写好的 head runtime 临时冲掉，表现成 `previous/current` 短暂消失、过几轮又自愈。
+- **正确做法**: replay seed 与 live refresh 都必须通过统一 runtime aggregate 协调层提交，并带 `runtime_generation + handoff_state` 做 lease 校验。stale refresh 一律丢弃，不得写 runtime，也不得执行 seal append。
+- **适用场景**: 任何“历史 replay/批量初始化”之后还要回到实时续借链路的运行态系统，尤其是 `current -> previous -> db` 有严格主链语义的场景。
+- **相关文档**: docs/BACKEND_STRUCTURE.md, docs/runtime-dataflow.md, apps/server/src/services/heat_runtime_aggregate_coordinator.py

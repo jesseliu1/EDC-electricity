@@ -16,6 +16,7 @@ from .config import settings as app_settings
 from .database import async_session_maker
 from .models import Setting
 from .observability import log_event
+from .services.heat_runtime_aggregate_coordinator import ensure_runtime_handoff_meta
 from .time_utils import from_timestamp_ms, to_timestamp_ms, utc_now
 
 _SECTION_TO_KEY = {
@@ -272,7 +273,15 @@ async def load_runtime_state() -> None:
 
     if isinstance(payloads.get("heat_runtime_refresh_meta"), dict):
         heats_api._HEAT_RUNTIME_REFRESH_META.clear()
+        heats_api._HEAT_RUNTIME_REFRESH_META.update(heats_api._default_heat_runtime_refresh_meta())
         heats_api._HEAT_RUNTIME_REFRESH_META.update(payloads["heat_runtime_refresh_meta"])
+        ensure_runtime_handoff_meta(heats_api._HEAT_RUNTIME_REFRESH_META)
+        if heats_api._HEAT_RUNTIME_REFRESH_META.get("handoff_state") in {
+            "replay_active",
+            "replay_seed_applying",
+        }:
+            heats_api._HEAT_RUNTIME_REFRESH_META["handoff_state"] = "live"
+            heats_api._HEAT_RUNTIME_REFRESH_META["handoff_channel_key"] = None
     else:
         heats_api._reset_heat_runtime_refresh_meta()
 

@@ -76,7 +76,7 @@ _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
     },
     "replay_runtime_debug_enabled": {
         "value": "false",
-        "description": "是否输出 replay runtime seed 调试日志",
+        "description": "是否输出 replay/live runtime 续借调试日志",
     },
     "baseline_length_scope_mode": {
         "value": "definition",

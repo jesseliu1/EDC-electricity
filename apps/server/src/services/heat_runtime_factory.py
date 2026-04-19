@@ -9,6 +9,7 @@ from ..schemas.common import CurvePoint
 from .formal_baseline_service import encode_baseline_id
 from .heat_cutting_service import HeatCuttingConfig, normalize_cutting_mode
 from .heat_deviation_analysis_service import BaselineCurvePayload
+from .heat_runtime_frozen_input_resolver import resolve_runtime_hydrate_specs_from_frozen_inputs
 
 
 def _field(item: Any, field_name: str) -> Any:
@@ -237,16 +238,7 @@ class HeatRuntimeFactory:
         self,
         candidate: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        raw_birth_context = candidate.get("birth_context")
-        raw_snapshots = candidate.get("definition_metric_snapshots")
-        if isinstance(raw_birth_context, dict) and isinstance(
-            raw_birth_context.get("definition_metric_snapshots"),
-            list,
-        ):
-            raw_snapshots = raw_birth_context["definition_metric_snapshots"]
-        if not isinstance(raw_snapshots, list):
-            return []
-        return [dict(snapshot) for snapshot in raw_snapshots if isinstance(snapshot, dict)]
+        return resolve_runtime_hydrate_specs_from_frozen_inputs(candidate)
 
     def _extract_baseline_curve_snapshots(
         self,
@@ -283,7 +275,10 @@ class HeatRuntimeFactory:
                     "unit": _field(template, "unit"),
                     "color": color,
                     "sort_order": int(_field(template, "sort_order") or 0),
-                    "edc_channel_id": _field(template, "edc_channel_id"),
+                    "edc_channel_id": _field(template, "edc_channel_id")
+                    or _field(template, "source_channel_id"),
+                    "source_channel_id": _field(template, "source_channel_id")
+                    or _field(template, "edc_channel_id"),
                     "source_channel_name": _field(template, "source_channel_name"),
                     "source_channel_label": _field(template, "source_channel_label"),
                     "enabled": bool(

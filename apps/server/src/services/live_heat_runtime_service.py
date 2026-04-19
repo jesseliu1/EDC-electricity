@@ -33,6 +33,8 @@ class LiveHeatRefreshResult:
     processor_result: HeatProcessorResult
     fetch_start_time: datetime
     fetch_end_time: datetime
+    anchor_time: datetime | None
+    point_count: int
     used_bootstrap_window: bool
     reused_processor_snapshot: bool
 
@@ -152,6 +154,8 @@ async def refresh_live_heat_segments(
         processor_result=processor_result,
         fetch_start_time=fetch_start_time,
         fetch_end_time=fetch_end_time,
+        anchor_time=anchor_time,
+        point_count=len(points),
         used_bootstrap_window=used_bootstrap_window,
         reused_processor_snapshot=reused_processor_snapshot,
     )

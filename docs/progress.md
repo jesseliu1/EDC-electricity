@@ -6,6 +6,156 @@
 
 ---
 
+### 2026-04-19（已修复 previous 在第 1 次 live continuation 丢 N-1 的问题）
+
+- [x] 已完成 `previous_runtime` 上下文继承修复
+  - [x] 修复 `apps/server/src/services/heat_runtime_transition_service.py`
+  - [x] `prepare_previous_candidate()` 不再先用“缺省时退回 `start_time`”的 helper 抢先短路
+  - [x] `previous_runtime.context_start_time` 现优先继承 candidate 自己显式带入的 `context_start_time`
+  - [x] 若 candidate 未显式带 `context_start_time`，现继续继承 `existing_previous_item` 已有的更宽 `N-1`
+- [x] 已补回归测试
+  - [x] `tests/test_heats_api.py::test_transition_service_previous_runtime_preserves_existing_n_minus_1_context`
+  - [x] `tests/test_heats_api.py::test_previous_runtime_extends_n_plus_1_context_without_recomputing_analysis` 已补 `context_start_time` 稳定性断言
+- [x] 已完成本轮定向验证
+  - [x] `uv run --directory apps/server ruff check src/services/heat_runtime_transition_service.py tests/test_heats_api.py`
+  - [x] `$env:ASNS_TEST_DB_PATH='D:\\project\\EDC electricity\\apps\\server\\.pytest-db\\previous-nminus1-fix.db'; uv run --directory apps/server pytest -q tests/test_heats_api.py -k "transition_service_previous_runtime_preserves_existing_n_minus_1_context or previous_runtime_extends_n_plus_1_context_without_recomputing_analysis"`
+  - [x] 本机重启后端后，直查当前 runtime：`previous_runtime.context_start_time < start_time`，手动 `POST /api/heats/runtime/refresh` 后未再退化回自身 `start_time`
+  - [x] 本机 replay formal 历史仍保持：第一炉允许无 `N-1`，第二炉起 sealed history 保留各自 `N-1 / N / N+1`
+- [!] 当前边界
+  - [!] 这轮完成的是后端 runtime/transition 修复与定向实查，不是完整前端用户路径/UAT
+  - [!] 手动 refresh 返回体里的 `snapshot_status=error` 仍需后续单独调查，但本次 `previous` 丢 `N-1` 问题已不再复现
+
+### 2026-04-19（已补 live refresh 调试日志，并钉住 previous 丢 N-1 的剩余问题点）
+
+- [x] 已在 `replay_runtime_debug_enabled=true` 下补充 live refresh 关键对账日志
+  - [x] `apps/server/src/api/heats.py` 新增 `heat_runtime_refresh_candidates_segment_resolved`
+  - [x] `apps/server/src/api/heats.py` 新增 `heat_runtime_refresh_candidates_hydrated`
+  - [x] `apps/server/src/api/heats.py` 新增 `heat_runtime_refresh_candidates_transitioned`
+  - [x] `apps/server/src/api/heats.py` 新增 `heat_runtime_refresh_previous_update_started/finished`
+  - [x] `apps/server/src/api/heats.py` 新增 `heat_runtime_refresh_previous_choice`
+- [x] 已完成 replay 初始化 + 1 次 live continuation 的实查
+  - [x] formal DB 已满足：replay 第一炉允许无 `N-1`，第二炉起 sealed 历史保留各自 `N-1 / N / N+1`
+  - [x] `active_runtime` 在 live refresh 后继续推进正常
+  - [x] `previous_runtime` 在 replay 结束当下正确，但第 1 次 live continuation 后会把 `context_start_time` 退化回自己的 `start_time`
+- [x] 已确认剩余问题点在 transition 层，而不是 replay formal 链
+  - [x] `HeatRuntimeTransitionService.prepare_previous_candidate()` 当前先取 `_context_start(prepared)`
+  - [x] `_context_start(...)` 会在 candidate 没显式 `context_start_time` 时直接退回 `start_time`
+  - [x] 结果导致 existing previous 原本更宽的 `context_start_time` 没机会继续继承，`previous_runtime` 续借时丢掉 `N-1`
+- [x] 已完成本轮最小验证
+  - [x] `uv run --directory apps/server ruff check src/api/heats.py`
+  - [x] 本机重启后端、重新触发 replay 初始化与 live refresh，并直查 SQLite/runtime 结果
+- [!] 当前边界
+  - [!] 这轮只完成“日志补齐 + 问题点确认”，还没提交 transition 修复补丁
+  - [!] 当前线上/本机如果继续做 live continuation，`previous_runtime` 仍可能在第 1 次续借时退化成只有 `N / N+1`
+
+### 2026-04-18（replay 已切到 runtime/seal 主链，formal/history/head 结果收口一致）
+
+- [x] 已完成 replay runtime aggregate 主链改造
+  - [x] 新增 `apps/server/src/services/heat_replay_runtime_aggregate_service.py`
+  - [x] replay 现按同一套 `current(active) -> previous -> seal -> formal` 生命周期顺序回放历史段
+  - [x] `HeatRuntimeTransitionService.prepare_previous_candidate()` 已收口为“优先继承被升格炉次自己已有的更宽 context_start_time”，避免 `previous_runtime` 在升格时退化回自己的 `start_time`
+- [x] 已完成 replay formal 持久化口径收口
+  - [x] `heat_replay_batch_service` 不再把 raw replay candidates 直接喂给 `replace_heat_range(...)`
+  - [x] replay formal replace 现只吃带 `preseal_payload` 的 sealed history candidates
+  - [x] 修复了 replay aggregate builder 误只消费 `finalize_until()` 头部两炉、导致 formal 历史写不进去且 `previous_runtime` 拿不到自己 `N-1` 的问题
+- [x] 已完成 replay head handoff 收口
+  - [x] `_apply_replay_runtime_seed_with_context(...)` 现直接接收 replay aggregate 的最终 `previous/active + processor_snapshot`
+  - [x] 不再用 `previous_points + active_points` 二次重编 runtime head
+  - [x] replay 结束后 formal 历史与 runtime head 现按同一份 aggregate 结果交接到 live continuation
+- [x] 已同步更新 replay/heats 测试口径
+  - [x] `tests/test_heat_replay_api.py` 现按 formal DB + runtime head 真源断言 replay 结果
+  - [x] `tests/test_heats_api.py` 现改用 replay aggregate，而不是旧 `ReplayRuntimeSeed` 样板 helper
+- [x] 已完成本轮定向验证
+  - [x] `uv run --directory apps/server ruff check src/services/heat_replay_runtime_aggregate_service.py src/services/heat_replay_batch_service.py src/services/heat_runtime_transition_service.py src/services/formal_heat_service.py src/api/heats.py tests/test_heat_replay_api.py tests/test_heats_api.py`
+  - [x] `$env:ASNS_TEST_DB_PATH='D:\\project\\EDC electricity\\apps\\server\\.pytest-db\\replay-runtime-mainchain-full.db'; uv run --directory apps/server pytest -q tests/test_heat_replay_api.py`
+  - [x] `$env:ASNS_TEST_DB_PATH='D:\\project\\EDC electricity\\apps\\server\\.pytest-db\\replay-runtime-mainchain-heats-2.db'; uv run --directory apps/server pytest -q tests/test_heats_api.py -k "live_refresh_continues_from_replay_seed_runtime or stale_live_refresh or idle_window_after_replay or process_restart_restores_generation_and_handoff_state or previous_runtime_extends_n_plus_1_context_without_recomputing_analysis"`
+- [!] 当前边界
+  - [!] 本轮完成的是后端 replay/runtime/formal 主链收口与定向回归，不是完整用户路径验证，也不是正式 UAT
+  - [!] 尚未手工复跑你本机联调库上的“初始化后立刻进炉次详情”真实浏览器路径；如果要对当前联调库给出最终结论，还需要基于你本机这套数据再做一轮实查
+
+---
+
+### 2026-04-18（runtime 续刷已切到 frozen inputs 单一真源） 
+
+- [x] 已完成 runtime frozen inputs single-source refactor
+  - [x] 新增 `apps/server/src/services/heat_runtime_frozen_input_resolver.py`
+  - [x] `update_existing_runtime()` 续刷已改为只从 `birth_context / definition_metric_snapshots / baseline_curve_snapshots` 解析 hydrate specs
+  - [x] frozen runtime compile 路径已不再以 `baseline_views.current_metric_series` 反推 metric specs
+  - [x] `RuntimeMetricSeries` / `RuntimeDefinitionMetricSnapshot` 已补齐并保留 `source_channel_*` 展示辅助字段，避免 runtime round-trip 再次丢失通道绑定信息
+  - [x] `definition_metric_snapshots` 构建已统一兼容 `edc_channel_id <- source_channel_id`
+- [x] 已完成脏 runtime 自愈口径收口
+  - [x] 当 runtime 展示缓存缺失 `source_channel_id` 或顶层 `definition_metric_snapshots.edc_channel_id` 为空时，续刷会优先回到 frozen inputs 恢复通道绑定
+  - [x] 不再依赖 `baseline_views`/`runtime_metric_series` 这些派生缓存来决定去哪个 EDC 通道补曲线
+- [x] 已补定向后端回归并通过
+  - [x] `ruff check`
+    - `apps/server/src/services/heat_runtime_frozen_input_resolver.py`
+    - `apps/server/src/services/heat_runtime_factory.py`
+    - `apps/server/src/services/heat_runtime_types.py`
+    - `apps/server/src/services/heat_runtime_updater.py`
+    - `apps/server/src/services/formal_heat_service.py`
+    - `apps/server/src/api/heats.py`
+    - `apps/server/tests/test_heats_api.py`
+  - [x] `$env:ASNS_TEST_DB_PATH='D:\\project\\EDC electricity\\apps\\server\\.pytest-db\\runtime-frozen-inputs.db'; pytest -q tests/test_heats_api.py -k "build_current_heat_runtime_reads_birth_context_snapshots or resolve_runtime_hydrate_specs_prefers_birth_context_over_stale_runtime_snapshots or update_existing_runtime_recovers_from_stale_runtime_display_bindings or previous_runtime_extends_n_plus_1_context_without_recomputing_analysis or refresh_heat_runtime_reuses_active_birth_context_after_first_birth"`
+  - [x] `$env:ASNS_TEST_DB_PATH='D:\\project\\EDC electricity\\apps\\server\\.pytest-db\\runtime-frozen-inputs-replay.db'; pytest -q tests/test_heat_replay_api.py -k "rebuilds_processor_snapshot_for_live_continuation or rebuilds_fixed_interval_processor_snapshot_for_live_continuation"`
+- [!] 当前边界
+  - [!] 本轮完成的是后端 runtime 真源与续刷链路修复，没有同步收口前端对 `context_end_time / actual_context_end_time` 的展示策略
+  - [!] 本轮未手工清理本地联调 runtime aggregate；新逻辑已具备在下一轮 refresh 中按 frozen inputs 自愈的能力
+  - [!] 尚未完成 `docs/testing.md` 意义下的完整用户路径验证，不能声称已完成正式 UAT
+
+---
+
+### 2026-04-18（runtime lifecycle 调试日志已细化到 declared vs actual 对账层） 
+
+- [x] 已继续扩展 `replay_runtime_debug_enabled` 下的 runtime 调试日志
+  - [x] `heat_runtime_refresh_*` 现统一输出同一组时间字段：`start/end/context_*/actual_context_*/last_point_at`
+  - [x] runtime item 摘要现会附带 `runtime_metric_series` 的 sample 尾点窗口，以及 `preseal_payload` 的 heat/metric payload 摘要
+  - [x] live refresh 主链新增 `candidates_prepared`、`candidates_compiled`、`runtime_items_built` 三个关键阶段日志，便于对账 `previous_runtime / active_runtime` 在生命周期转换前后的 declared vs actual 差异
+- [x] 已为 `hydrate_candidate_runtime_metric_series(...)` 增加 loader/merge 细节日志
+  - [x] 会记录请求窗口、基础曲线、loader 返回曲线、merge 后曲线、`actual_context_*`
+  - [x] 便于确认问题落在“窗口先推进”还是“曲线已取回但后续丢失”
+- [x] 已完成基础静态检查
+  - [x] `uv run --directory apps/server ruff check src/api/heats.py src/services/formal_heat_service.py`
+- [x] 已完成定向后端回归
+  - [x] `$env:ASNS_TEST_DB_PATH='D:\\project\\EDC electricity\\apps\\server\\.pytest-db\\runtime-debug-logs.db'; uv run --directory apps/server pytest -q tests/test_heats_api.py -k "previous_runtime_extends_n_plus_1_context_without_recomputing_analysis"`
+- [!] 当前目的
+  - [!] 这轮先增强定位能力，不包含 runtime 生命周期修复
+  - [!] 下一步需要在真实联调数据上抓一轮完整 refresh 日志，确认第一个出现 declared/actual 分叉的阶段
+
+---
+
+### 2026-04-17（已为 replay -> live 续借补 runtime debug 日志）
+
+- [x] 已为 `replay/live runtime` 续借链路补充可开关的结构化调试日志
+  - [x] 复用现有设置项 `replay_runtime_debug_enabled`
+  - [x] 设置描述扩展为 “replay/live runtime 续借调试日志”
+  - [x] live refresh 现会输出：进入 refresh 时的旧 runtime/store 摘要、processor snapshot 摘要、fetch window、anchor、point_count、candidate 解析结果、store 覆盖前后的 runtime projection
+  - [x] replay seed 写回仍沿同一 debug 开关输出 seed/runtime aggregate 摘要
+- [x] 已完成基础静态检查
+  - [x] `uv run --directory apps/server ruff check src/api/heats.py src/api/settings.py src/services/live_heat_runtime_service.py`
+- [!] 当前目的
+  - [!] 本轮先锁定“哪一轮 refresh 把 previous_runtime 覆盖成空”以及当时 processor / candidate / seal source 的真实状态
+  - [!] 暂未依据这些日志继续修改生命周期逻辑
+
+---
+
+### 2026-04-17（live head 已 seal 后的 idle refresh 不再误报 runtime 失败）
+
+- [x] 已定位“current / previous 刚显示正常，自动刷新后消失并报 `no_runtime_heats_inferred`”的剩余主因
+  - [x] 确认不是前端把列表隐藏了，而是后端某轮 refresh 后 `active_runtime / previous_runtime` 已正常清空
+  - [x] 确认这通常发生在最后一个 live head 已完成 seal、系统进入空窗期之后
+  - [x] 确认现实现只在“existing active/previous 仍存在”时才把空窗 refresh 当成功，head 已清空后的下一轮仍会误记成失败
+- [x] 已完成 idle-window 状态机修复
+  - [x] 当 processor snapshot 仍是兼容且 `bootstrapped` 的 continuation 状态时，即使当前没有 `active / previous / sealed_candidates`，也改记为 `no_active_heat_in_window`
+  - [x] live head 已 seal 且当前没有新炉次时，台账页不再因为后续空窗 refresh 被打成 `error`
+- [x] 已补定向后端回归并通过
+  - [x] `uv run --directory apps/server ruff check src/api/heats.py tests/test_heats_api.py`
+  - [x] `$env:ASNS_TEST_DB_PATH='D:\\project\\EDC electricity\\apps\\server\\.pytest-db\\runtime-idle-window.db'; uv run --directory apps/server pytest -q tests/test_heats_api.py -k "refresh_heat_runtime_rejects_flat_zero_power_signal or keeps_bootstrapped_idle_window_as_success"`
+- [!] 当前边界
+  - [!] 本轮修的是 live refresh 状态机误判，不包含 EDC 源侧偶发空取点的可观测性增强
+  - [!] 尚未重跑完整浏览器用户路径验证，不能声称已完成正式 UAT
+
+---
+
 ### 2026-04-17（fixed_interval 的 replay -> live 续接锚点契约已收口）
 
 - [x] 已定位“批量初始化后台账连续报 `no_runtime_heats_inferred`”的主因
@@ -7537,3 +7687,32 @@ EDC 前端（apps/web，/edc/）
 - [!] 本轮验证口径说明
   - [!] 已完成后端回归与运行中接口定向验证
   - [!] 未完成浏览器侧视觉验收：当前桌面环境的 Playwright MCP 因权限目录创建失败无法直接录制页面结果，本轮不能声称“完整 UAT 已完成”
+
+### 2026-04-18（replay -> live 续借交接治理）
+
+- [x] runtime aggregate 交接已收口到统一协调层
+  - [x] 新增 `apps/server/src/services/heat_runtime_aggregate_coordinator.py`
+  - [x] replay seed apply / live refresh commit 统一通过 generation + handoff state 提交
+  - [x] runtime meta 新增 `runtime_generation / handoff_state / handoff_channel_key / last_replay_job_id / last_handoff_at`
+- [x] replay handoff 已改成显式协议
+  - [x] replay 启动先进入 `replay_active`
+  - [x] seed 写回时进入 `replay_seed_applying`
+  - [x] seed 落地后进入 `awaiting_live_continuation`
+  - [x] 第一轮成功 live continuation 后切回 `live`
+- [x] live refresh 已改成带 lease 的 guarded commit
+  - [x] refresh 开始先记录 observed generation / handoff state
+  - [x] stale refresh 不再覆盖 `previous_runtime / active_runtime / processor_snapshot`
+  - [x] stale refresh 也不再越权执行 `append_sealed_heats(...)`
+  - [x] replay seed 后空窗 refresh 会保留 `previous_runtime`，不再误报 `no_runtime_heats_inferred`
+- [x] 调试日志已补齐 replay/live 交接关键事件
+  - [x] `heat_runtime_generation_snapshot`
+  - [x] `heat_runtime_live_commit_attempt / rejected / applied`
+  - [x] `heat_runtime_handoff_state_changed`
+  - [x] `heat_runtime_replay_seed_committed`
+- [x] 本轮回归验证
+  - [x] `uv run --directory apps/server ruff check src/api/heats.py src/runtime_state.py src/services/heat_replay_batch_service.py src/services/heat_runtime_aggregate_coordinator.py tests/test_heat_replay_api.py tests/test_heats_api.py`
+  - [x] `uv run --directory apps/server pytest -q tests/test_heat_replay_api.py`
+  - [x] `uv run --directory apps/server pytest -q tests/test_heats_api.py -k "refresh_heat_runtime or live_refresh_continues_from_replay_seed_runtime or live_refresh_does_not_compile_raw_sealed_candidates_when_previous_runtime_exists or live_refresh_errors_when_sealed_segment_cannot_resolve_through_previous_only or stale_live_refresh or idle_window_after_replay or process_restart_restores_generation_and_handoff_state"`
+- [!] 本轮验证口径说明
+  - [!] 已完成后端主链、并发拒绝、runtime reload 与 replay/live handoff 的定向回归
+  - [!] 未完成浏览器侧完整用户路径 UAT；本轮不能声称“前端验收已完成”

@@ -18,6 +18,7 @@ class RuntimeDefinitionMetricSnapshot:
     color: str
     sort_order: int
     edc_channel_id: str | None = None
+    source_channel_id: str | None = None
     source_channel_name: str | None = None
     source_channel_label: str | None = None
     enabled: bool = True
@@ -31,6 +32,7 @@ class RuntimeDefinitionMetricSnapshot:
             "color": self.color,
             "sort_order": self.sort_order,
             "edc_channel_id": self.edc_channel_id,
+            "source_channel_id": self.source_channel_id,
             "source_channel_name": self.source_channel_name,
             "source_channel_label": self.source_channel_label,
             "enabled": self.enabled,
@@ -220,6 +222,9 @@ class RuntimeMetricSeries:
     sort_order: int
     series_json: dict[str, Any]
     stat_json: dict[str, Any]
+    source_channel_id: str | None = None
+    source_channel_name: str | None = None
+    source_channel_label: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -231,6 +236,9 @@ class RuntimeMetricSeries:
             "unit": self.unit,
             "color": self.color,
             "sort_order": self.sort_order,
+            "source_channel_id": self.source_channel_id,
+            "source_channel_name": self.source_channel_name,
+            "source_channel_label": self.source_channel_label,
             "series_json": self.series_json,
             "stat_json": self.stat_json,
         }

@@ -28,6 +28,13 @@ def _context_end(item: dict[str, Any] | None) -> datetime | None:
     return value if isinstance(value, datetime) else None
 
 
+def _explicit_context_start(item: dict[str, Any] | None) -> datetime | None:
+    if not isinstance(item, dict):
+        return None
+    value = item.get("context_start_time")
+    return value if isinstance(value, datetime) else None
+
+
 class HeatRuntimeTransitionService:
     """负责 runtime 生命周期中的上下文窗口与 active->previous 升格语义。"""
 
@@ -65,14 +72,16 @@ class HeatRuntimeTransitionService:
         if candidate is None:
             return None
         prepared = dict(candidate)
-        context_source = existing_previous_item
-        if (
-            context_source is None
-            and isinstance(existing_active_item, dict)
+        promoted_from_active = (
+            isinstance(existing_active_item, dict)
             and str(prepared.get("id") or "") == str(existing_active_item.get("id") or "")
-        ):
-            context_source = existing_active_item
-        context_start_time = _context_start(context_source) or prepared.get("start_time")
+        )
+        context_start_time = (
+            _explicit_context_start(prepared)
+            or (_context_start(existing_active_item) if promoted_from_active else None)
+            or _context_start(existing_previous_item)
+            or prepared.get("start_time")
+        )
         if isinstance(context_start_time, datetime):
             prepared["context_start_time"] = context_start_time
         context_end_time = _context_end(active_candidate) or prepared.get("end_time")

@@ -8,14 +8,16 @@ from typing import Any
 
 from .formal_heat_service import (
     MetricCurveLoader,
-    _baseline_metric_spec_map_from_runtime_views,
     _build_runtime_baseline_views,
-    _build_runtime_metric_union_specs,
     build_runtime_preseal_payload,
     hydrate_candidate_runtime_metric_series,
 )
 from .heat_deviation_analysis_service import HeatDeviationAnalysisService
 from .heat_runtime_factory import HeatRuntimeFactory
+from .heat_runtime_frozen_input_resolver import (
+    resolve_runtime_baseline_metric_specs_from_frozen_inputs,
+    resolve_runtime_hydrate_specs_from_frozen_inputs,
+)
 
 
 class HeatRuntimeUpdater:
@@ -39,31 +41,25 @@ class HeatRuntimeUpdater:
         frozen_inputs = self._runtime_factory.resolve_frozen_analysis_inputs(existing_item)
         if frozen_inputs is None:
             raise ValueError("runtime_birth_context_missing")
+        metric_union_specs = resolve_runtime_hydrate_specs_from_frozen_inputs(existing_item)
+        if not metric_union_specs:
+            raise ValueError("runtime_birth_context_missing")
+        baseline_metric_specs_by_id = resolve_runtime_baseline_metric_specs_from_frozen_inputs(
+            existing_item,
+            applicable_baselines=frozen_inputs.applicable_baselines,
+        )
+        if not baseline_metric_specs_by_id:
+            raise ValueError("runtime_birth_context_missing")
 
         updated = dict(existing_item)
         updated.update(candidate)
         updated["created_at"] = existing_item.get("created_at") or candidate.get("created_at")
         updated["birth_context"] = deepcopy(existing_item.get("birth_context"))
-        updated["definition_metric_snapshots"] = deepcopy(
-            existing_item.get("definition_metric_snapshots") or []
-        )
+        updated["definition_metric_snapshots"] = deepcopy(metric_union_specs)
         updated["baseline_curve_snapshots"] = deepcopy(
             existing_item.get("baseline_curve_snapshots") or []
         )
-        updated["baseline_views"] = deepcopy(existing_item.get("baseline_views") or [])
-        baseline_metric_specs_by_id = _baseline_metric_spec_map_from_runtime_views(
-            existing_item.get("baseline_views")
-        )
-        if not baseline_metric_specs_by_id:
-            shared_specs = list(frozen_inputs.definition_metric_snapshots)
-            baseline_metric_specs_by_id = {
-                str(baseline.get("id") or ""): shared_specs
-                for baseline in frozen_inputs.applicable_baselines
-                if str(baseline.get("id") or "").strip()
-            }
-        metric_union_specs = _build_runtime_metric_union_specs(baseline_metric_specs_by_id) or list(
-            frozen_inputs.definition_metric_snapshots
-        )
+        updated["baseline_views"] = []
         updated = await hydrate_candidate_runtime_metric_series(
             updated,
             metric_specs=metric_union_specs,

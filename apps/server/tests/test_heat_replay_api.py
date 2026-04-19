@@ -9,6 +9,7 @@ from sqlalchemy import select, update
 
 from src.api.heats import (
     _ACTIVE_HEAT_RUNTIME,
+    _HEAT_RUNTIME_REFRESH_META,
     _HEAT_STREAM_PROCESSOR_STATE,
     _PREVIOUS_HEAT_RUNTIME,
     refresh_heat_runtime_state,
@@ -19,6 +20,7 @@ from src.models import (
     Baseline,
     BaselineDefinition,
     BaselineDefinitionMetric,
+    Heat,
     HeatBaselineBinding,
     MetricSeries,
 )
@@ -133,6 +135,29 @@ async def _wait_for_job(client, job_id: str, *, terminal_statuses: set[str]) -> 
             return last_payload
         await asyncio.sleep(0.05)
     raise AssertionError(f"job {job_id} did not reach terminal status, last={last_payload}")
+
+
+async def _wait_for_replay_formal_heats(
+    *,
+    minimum_count: int,
+    start_at: datetime,
+) -> list[Heat]:
+    rows: list[Heat] = []
+    for _ in range(20):
+        async with async_session_maker() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(Heat)
+                        .where(Heat.start_time >= start_at)
+                        .order_by(Heat.start_time)
+                    )
+                ).scalars()
+            )
+        if len(rows) >= minimum_count:
+            return rows
+        await asyncio.sleep(0.05)
+    return rows
 
 
 async def _seed_same_duration_replay_baseline() -> str:
@@ -328,7 +353,8 @@ async def test_create_replay_job_runs_to_completion_and_replaces_range(client, m
         if item["record_source"] == "sealed_history" and item["id"].startswith("live-heat-")
     ]
     assert len(live_history_items) >= 1
-    assert not runtime_items
+    assert len(runtime_items) == 2
+    assert {item["record_source"] for item in runtime_items} == {"active_runtime", "previous_runtime"}
     assert _HEAT_STREAM_PROCESSOR_STATE.get("state", {}).get("bootstrapped") is True
 
 
@@ -384,18 +410,109 @@ async def test_replay_job_fixed_interval_uses_anchor_timeline_boundaries(
     list_response = await client.get("/api/heats", params={"page_size": 50})
     assert list_response.status_code == 200
     payload = list_response.json()
-    sealed_history_items = [
+    runtime_items = [
         item
         for item in payload["items"]
-        if item["record_source"] == "sealed_history" and item["id"].startswith("live-heat-")
+        if item["record_source"] in {"active_runtime", "previous_runtime"}
     ]
-    sealed_history_items.sort(key=lambda item: item["start_time"])
 
-    assert len(sealed_history_items) >= 2
-    assert sealed_history_items[0]["start_time"] == to_timestamp_ms(datetime(2026, 4, 17, 12, 0))
-    assert sealed_history_items[0]["end_time"] == to_timestamp_ms(datetime(2026, 4, 17, 12, 32))
-    assert sealed_history_items[1]["start_time"] == to_timestamp_ms(datetime(2026, 4, 17, 12, 33))
-    assert sealed_history_items[1]["end_time"] == to_timestamp_ms(datetime(2026, 4, 17, 13, 2))
+    formal_history_rows = await _wait_for_replay_formal_heats(
+        minimum_count=1,
+        start_at=datetime(2026, 4, 17, 12, 0),
+    )
+    assert len(formal_history_rows) >= 1
+    assert to_timestamp_ms(formal_history_rows[0].start_time) == to_timestamp_ms(
+        datetime(2026, 4, 17, 12, 0)
+    )
+    assert to_timestamp_ms(formal_history_rows[0].end_time) == to_timestamp_ms(
+        datetime(2026, 4, 17, 12, 32)
+    )
+    assert len(runtime_items) == 2
+
+
+@pytest.mark.asyncio
+async def test_replay_job_preserves_context_windows_in_formal_history_and_runtime_head(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+    _SETTINGS_STORE["cutting_mode"]["value"] = "fixed_interval"
+    _SETTINGS_STORE["fixed_interval_minutes"]["value"] = "30"
+    _SETTINGS_STORE["time_tolerance_percent"]["value"] = "10.0"
+    replay_points = _build_fixed_interval_regression_points(datetime(2026, 4, 17, 12, 0))
+
+    async def fake_load_live_heat_inference_power_points(_channel, start_time=None, end_time=None):
+        if start_time is None or end_time is None:
+            return replay_points
+        start_ms = to_timestamp_ms(start_time)
+        end_ms = to_timestamp_ms(end_time)
+        return [point for point in replay_points if start_ms <= int(point.timestamp) <= end_ms]
+
+    monkeypatch.setattr(
+        "src.api.heats._load_live_heat_inference_power_points",
+        fake_load_live_heat_inference_power_points,
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_heat_inference_context",
+        lambda: _build_test_live_context(),
+    )
+    monkeypatch.setattr(
+        "src.api.heats._resolve_replay_inference_channel",
+        lambda: dict(_build_test_live_context()["channel"]),
+    )
+    monkeypatch.setattr("src.api.heats._load_runtime_metric_curves", _fake_runtime_metric_curves)
+    monkeypatch.setattr("src.api.heats._infer_live_activity_threshold", lambda _points: 100.0)
+
+    create_response = await client.post(
+        "/api/heats/replay-jobs",
+        json={
+            "job_kind": "replay_batch",
+            "start_time": to_timestamp_ms(datetime(2026, 4, 17, 12, 0)),
+            "end_time": to_timestamp_ms(datetime(2026, 4, 17, 14, 5)),
+            "primary_baseline_id": "def-001:001",
+            "baseline_ids": ["def-001:001"],
+            "force_replace": True,
+        },
+    )
+    assert create_response.status_code == 201
+    finished = await _wait_for_job(client, create_response.json()["id"], terminal_statuses={"completed"})
+    assert finished["status"] == "completed"
+
+    formal_history_rows = await _wait_for_replay_formal_heats(
+        minimum_count=1,
+        start_at=datetime(2026, 4, 17, 12, 0),
+    )
+    assert len(formal_history_rows) == 2
+    first_formal_heat = formal_history_rows[0]
+    formal_heat = formal_history_rows[-1]
+    async with async_session_maker() as session:
+        metric_row = (
+            await session.execute(
+                select(MetricSeries).where(
+                    MetricSeries.owner_type == "heat",
+                    MetricSeries.owner_key == formal_heat.id,
+                    MetricSeries.metric_key == "power",
+                )
+            )
+        ).scalar_one()
+
+    assert first_formal_heat.context_start_time == first_formal_heat.start_time
+    assert first_formal_heat.context_end_time > first_formal_heat.end_time
+    assert to_timestamp_ms(formal_heat.context_start_time) < to_timestamp_ms(formal_heat.start_time)
+    assert to_timestamp_ms(formal_heat.context_end_time) > to_timestamp_ms(formal_heat.end_time)
+
+    metric_payload = json.loads(metric_row.series_json)
+    assert metric_payload["context_start_time"] == to_timestamp_ms(formal_heat.context_start_time)
+    assert metric_payload["context_end_time"] == to_timestamp_ms(formal_heat.context_end_time)
+    assert metric_payload["context_start_time"] < metric_payload["heat_start_time"]
+    assert metric_payload["context_end_time"] > metric_payload["heat_end_time"]
+
+    previous_runtime = next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)
+    active_runtime = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
+    assert previous_runtime is not None
+    assert active_runtime is not None
+    assert previous_runtime["context_start_time"] < previous_runtime["start_time"]
+    assert previous_runtime["context_end_time"] > previous_runtime["end_time"]
+    assert active_runtime["context_start_time"] == previous_runtime["start_time"]
 
 
 @pytest.mark.asyncio
@@ -507,16 +624,13 @@ async def test_replay_job_replaces_existing_runtime_with_replay_seed(client, mon
     rebuilt_active = None
     for _ in range(20):
         candidate = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
-        if (
-            candidate is not None
-            and candidate.get("processing_meta", {}).get("trigger_source") == "replay_head_rebuild"
-        ):
+        if candidate is not None:
             rebuilt_active = candidate
             break
         await asyncio.sleep(0.05)
 
     assert rebuilt_active is not None
-    assert rebuilt_active["processing_meta"]["trigger_source"] == "replay_head_rebuild"
+    assert _HEAT_RUNTIME_REFRESH_META["handoff_state"] == "awaiting_live_continuation"
 
     list_response = await client.get("/api/heats", params={"page_size": 50})
     assert list_response.status_code == 200
@@ -526,13 +640,11 @@ async def test_replay_job_replaces_existing_runtime_with_replay_seed(client, mon
         for item in items
         if item["record_source"] in {"active_runtime", "previous_runtime"}
     ]
-    history_items = [
-        item
-        for item in items
-        if item["record_source"] == "sealed_history" and item["id"].startswith("live-heat-")
-    ]
-
-    assert not history_items
+    history_rows = await _wait_for_replay_formal_heats(
+        minimum_count=1,
+        start_at=datetime(2026, 3, 19, 8, 0),
+    )
+    assert len(history_rows) == 1
     assert len(runtime_items) == 2
     assert {item["record_source"] for item in runtime_items} == {"active_runtime", "previous_runtime"}
 
@@ -606,18 +718,13 @@ async def test_replay_job_builds_runtime_seed_without_existing_runtime_or_live_r
     for _ in range(20):
         rebuilt_active = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
         rebuilt_previous = next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)
-        if (
-            rebuilt_active is not None
-            and rebuilt_previous is not None
-            and rebuilt_active.get("processing_meta", {}).get("trigger_source")
-            == "replay_head_rebuild"
-        ):
+        if rebuilt_active is not None and rebuilt_previous is not None:
             break
         await asyncio.sleep(0.05)
 
     assert rebuilt_active is not None
     assert rebuilt_previous is not None
-    assert rebuilt_active["processing_meta"]["trigger_source"] == "replay_head_rebuild"
+    assert _HEAT_RUNTIME_REFRESH_META["handoff_state"] == "awaiting_live_continuation"
     assert rebuilt_previous["record_source"] == "previous_runtime"
 
     list_response = await client.get("/api/heats", params={"page_size": 50})
@@ -628,13 +735,11 @@ async def test_replay_job_builds_runtime_seed_without_existing_runtime_or_live_r
         for item in items
         if item["record_source"] in {"active_runtime", "previous_runtime"}
     ]
-    history_items = [
-        item
-        for item in items
-        if item["record_source"] == "sealed_history" and item["id"].startswith("live-heat-")
-    ]
-
-    assert not history_items
+    history_rows = await _wait_for_replay_formal_heats(
+        minimum_count=1,
+        start_at=datetime(2026, 3, 19, 8, 0),
+    )
+    assert len(history_rows) == 1
     assert len(runtime_items) == 2
     assert {item["record_source"] for item in runtime_items} == {"active_runtime", "previous_runtime"}
     assert _HEAT_STREAM_PROCESSOR_STATE.get("state", {}).get("bootstrapped") is True
@@ -698,6 +803,8 @@ async def test_replay_job_rebuilds_processor_snapshot_for_live_continuation(
     active_before_refresh = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
     assert active_before_refresh is not None
     assert _HEAT_STREAM_PROCESSOR_STATE.get("state", {}).get("bootstrapped") is True
+    replay_generation = int(_HEAT_RUNTIME_REFRESH_META.get("runtime_generation") or 0)
+    assert _HEAT_RUNTIME_REFRESH_META.get("handoff_state") == "awaiting_live_continuation"
 
     monkeypatch.setattr("src.api.heats.utc_now", lambda: refresh_now)
     monkeypatch.setattr("src.services.live_heat_runtime_service.utc_now", lambda: refresh_now)
@@ -711,6 +818,8 @@ async def test_replay_job_rebuilds_processor_snapshot_for_live_continuation(
     assert active_after_refresh["start_time"] == active_before_refresh["start_time"]
     assert active_after_refresh["last_point_at"] > active_before_refresh["last_point_at"]
     assert _HEAT_STREAM_PROCESSOR_STATE.get("state", {}).get("bootstrapped") is True
+    assert _HEAT_RUNTIME_REFRESH_META.get("handoff_state") == "live"
+    assert int(_HEAT_RUNTIME_REFRESH_META.get("runtime_generation") or 0) > replay_generation
 
 
 @pytest.mark.asyncio
@@ -775,6 +884,8 @@ async def test_replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_co
     assert _HEAT_STREAM_PROCESSOR_STATE.get("config", {}).get("anchor_timestamp_ms") == to_timestamp_ms(
         datetime(2026, 4, 17, 12, 0)
     )
+    replay_generation = int(_HEAT_RUNTIME_REFRESH_META.get("runtime_generation") or 0)
+    assert _HEAT_RUNTIME_REFRESH_META.get("handoff_state") == "awaiting_live_continuation"
 
     monkeypatch.setattr("src.api.heats.utc_now", lambda: refresh_now)
     monkeypatch.setattr("src.services.live_heat_runtime_service.utc_now", lambda: refresh_now)
@@ -794,6 +905,8 @@ async def test_replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_co
     assert _HEAT_STREAM_PROCESSOR_STATE.get("config", {}).get("anchor_timestamp_ms") == to_timestamp_ms(
         datetime(2026, 4, 17, 12, 0)
     )
+    assert _HEAT_RUNTIME_REFRESH_META.get("handoff_state") == "live"
+    assert int(_HEAT_RUNTIME_REFRESH_META.get("runtime_generation") or 0) > replay_generation
 
 
 @pytest.mark.asyncio
