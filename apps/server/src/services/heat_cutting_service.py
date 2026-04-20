@@ -12,7 +12,6 @@ from ..time_utils import normalize_utc_datetime, to_plant_datetime, to_timestamp
 CuttingMode = Literal["signal_inference", "fixed_interval"]
 
 _LIVE_HEAT_GAP_MINUTES = 3
-_FIXED_INTERVAL_MINIMUM_ACTIVE_MINUTES = 5
 _AUTO_ACTIVITY_THRESHOLD = object()
 
 
@@ -71,6 +70,9 @@ class HeatCuttingSegment:
     points: list[CurvePoint]
     start_boundary: HeatCutBoundary | None = None
     end_boundary: HeatCutBoundary | None = None
+    slot_start_timestamp: int | None = None
+    slot_end_timestamp: int | None = None
+    active_covered_minutes: float | None = None
 
 
 class HeatCuttingStrategy(Protocol):
@@ -464,9 +466,10 @@ def _build_fixed_interval_boundaries(
         )
         next_ideal_timestamp += interval_ms
 
+    final_ideal_timestamp = max(next_ideal_timestamp, last_point_timestamp)
     boundaries.append(
         HeatCutBoundary(
-            ideal_timestamp=last_point_timestamp,
+            ideal_timestamp=final_ideal_timestamp,
             actual_timestamp=last_point_timestamp,
             snapped_to_active_end=False,
         )
@@ -576,16 +579,18 @@ class AnchoredFixedIntervalCuttingStrategy:
             )
             if not segment_points:
                 continue
-            if (
-                _segment_active_covered_minutes(segment_points, threshold=threshold)
-                < _FIXED_INTERVAL_MINIMUM_ACTIVE_MINUTES
-            ):
-                continue
+            active_covered_minutes = _segment_active_covered_minutes(
+                segment_points,
+                threshold=threshold,
+            )
             inferred.append(
                 HeatCuttingSegment(
                     points=segment_points,
                     start_boundary=start_boundary,
                     end_boundary=end_boundary,
+                    slot_start_timestamp=int(start_boundary.ideal_timestamp),
+                    slot_end_timestamp=int(end_boundary.ideal_timestamp),
+                    active_covered_minutes=active_covered_minutes,
                 )
             )
         return inferred

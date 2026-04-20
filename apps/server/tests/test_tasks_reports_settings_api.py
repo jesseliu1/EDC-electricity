@@ -200,6 +200,7 @@ async def test_settings_get_and_update(client, monkeypatch) -> None:
     settings_map = {item["key"]: item["value"] for item in settings_payload["items"]}
     assert settings_map["cutting_mode"] == "fixed_interval"
     assert settings_map["fixed_interval_minutes"] == "30"
+    assert settings_map["replay_runtime_debug_enabled"] == "true"
 
     tol_resp = await client.put("/api/settings/tolerance", json={"tolerance_percent": 12.5})
     assert tol_resp.status_code == 200

@@ -922,6 +922,51 @@ erDiagram
 - replay 场景下，写回 `active_runtime / previous_runtime` 时必须同步写回一个 live-compatible 的 `heat_stream_processor_state`；后续 live refresh 必须沿这份 snapshot 续跑，不允许再把 replay 结果交给下一轮 live 冷启动去重猜
 - 对 `sealed_history` 的正式入库，应优先继承 `previous_runtime` 已有的曲线与分析结果；补充上下文不应触发一次新的偏离分析主链
 
+#### 3.7.1 fixed_interval 正式业务语义
+
+`fixed_interval` 不是“完全无偏移的死切”，正式口径固定为：
+
+- 先按 `anchor_time + fixed_interval_minutes` 生成理想时间轴
+- 再按 `time_tolerance_percent` 在理想边界左右搜索活跃结束点
+- 若命中活跃结束点，则该次边界允许吸附到真实活跃结束点
+- 若未命中，则边界回退到理想边界
+
+补充约束：
+
+- `time_tolerance_percent` 只表示“边界吸附搜索窗口”，不表示炉次身份可以随意偏移
+- 吸附只改变该次切割的实际边界，不改变该炉次所属的理想 slot 身份
+- 若上一 slot 的实际结束边界被吸附到理想边界之后，则下一 slot 的实际开始边界应从上一 slot 实际结束边界之后连续开始，不能再回退到理想起点之前的时间
+- fixed-interval 下，炉次身份应以“理想 slot 起点”定义：
+  - `heat_id`
+  - `current / previous` 生命周期归属
+- fixed-interval 不允许再用中点、尾点或当前 `end_time` 作为内部身份真源；同一 slot 随 live 增量增长时只能延长上下文，不能换一个新身份
+- fixed-interval 的对外展示时间允许按实际起点显示：
+  - `heat_no`
+  - 列表/详情默认显示的开始时间文案
+  - 但这不改变内部 ideal slot 身份
+- `current` 表示当前已出生但未封口的 slot；`previous` 表示上一个已出生 slot；两者绝不允许指向同一个理想 slot
+- replay 场景下：
+  - `n-2` 及更早进入正式 `heats`
+  - `n-1` 进入 `previous_runtime`
+  - `n` 进入 `active_runtime(current)`
+- live 场景下主链仍固定为：
+  - `source -> active_runtime(current) -> previous_runtime -> sealed_history`
+- `previous_runtime -> sealed_history` 仍是唯一正式入库链路；不允许绕过 `previous_runtime`，再从 raw segment 临时重编译另一份历史对象
+
+实现约束：
+
+- fixed-interval 切割结果必须显式携带 slot 元数据：
+  - `slot_start_timestamp_ms`
+  - `slot_end_timestamp_ms`
+  - `ideal_start_boundary_ts`
+  - `ideal_end_boundary_ts`
+  - `actual_start_boundary_ts`
+  - `actual_end_boundary_ts`
+- 对已闭合 slot，不再用最小活跃覆盖分钟数决定该 slot 是否存在；低活跃只影响质量标记，不影响 `sealed_history / previous_runtime / active_runtime` 的生成
+- 对当前未封口 slot，只要它在时间轴上已经出生，就应作为 `active_runtime(current)` 保留 slot 身份，不能因为尾段点数少就直接丢掉整个 slot
+- `active_covered_minutes` 继续保留为质量元数据，但不再承担 fixed-interval slot existence gate 的职责
+- `replay_runtime_debug_enabled` 当前阶段为长期默认开启，删库重建后也应自动保持开启，便于追踪 replay/live 续借
+
 ### 3.8 API 读写映射
 
 `baseline_definitions`

@@ -147,6 +147,9 @@ class HeatProcessorState:
     last_point_timestamp: int | None = None
     current_heat_id: str | None = None
     pending_seal_heat_id: str | None = None
+    retained_slot_start_timestamp: int | None = None
+    retained_actual_start_boundary_ts: int | None = None
+    retained_start_boundary_snapped: bool | None = None
     points_buffer: list[CurvePoint] = field(default_factory=list)
 
     def to_snapshot(self) -> dict[str, Any]:
@@ -157,6 +160,9 @@ class HeatProcessorState:
             "last_point_timestamp": self.last_point_timestamp,
             "current_heat_id": self.current_heat_id,
             "pending_seal_heat_id": self.pending_seal_heat_id,
+            "retained_slot_start_timestamp": self.retained_slot_start_timestamp,
+            "retained_actual_start_boundary_ts": self.retained_actual_start_boundary_ts,
+            "retained_start_boundary_snapped": self.retained_start_boundary_snapped,
             "points_buffer": list(self.points_buffer),
         }
 
@@ -184,6 +190,21 @@ class HeatProcessorState:
             pending_seal_heat_id=(
                 str(source.get("pending_seal_heat_id"))
                 if source.get("pending_seal_heat_id") is not None
+                else None
+            ),
+            retained_slot_start_timestamp=(
+                int(source.get("retained_slot_start_timestamp"))
+                if source.get("retained_slot_start_timestamp") is not None
+                else None
+            ),
+            retained_actual_start_boundary_ts=(
+                int(source.get("retained_actual_start_boundary_ts"))
+                if source.get("retained_actual_start_boundary_ts") is not None
+                else None
+            ),
+            retained_start_boundary_snapped=(
+                bool(source.get("retained_start_boundary_snapped"))
+                if source.get("retained_start_boundary_snapped") is not None
                 else None
             ),
             points_buffer=_normalize_points(source.get("points_buffer")),
@@ -340,7 +361,7 @@ class HeatStreamProcessor:
                 activity_threshold=self._state.activity_threshold,
             )
 
-        return [
+        built_segments = [
             HeatSegment(
                 points=segment.points,
                 metadata=_segment_metadata(
@@ -352,6 +373,7 @@ class HeatStreamProcessor:
             for segment in raw_segments
             if segment.points
         ]
+        return self._restore_retained_slot_boundary(built_segments)
 
     def _recompute(
         self,
@@ -387,6 +409,26 @@ class HeatStreamProcessor:
             self._state.processor_phase = "tracking_active_heat"
             self._state.current_heat_id = None
             self._state.pending_seal_heat_id = None
+            earliest_retained_metadata = retained_segments[0].metadata
+            retained_slot_start_timestamp = earliest_retained_metadata.get("slot_start_timestamp_ms")
+            retained_actual_start_boundary_ts = earliest_retained_metadata.get(
+                "actual_start_boundary_ts"
+            )
+            self._state.retained_slot_start_timestamp = (
+                int(retained_slot_start_timestamp)
+                if retained_slot_start_timestamp is not None
+                else None
+            )
+            self._state.retained_actual_start_boundary_ts = (
+                int(retained_actual_start_boundary_ts)
+                if retained_actual_start_boundary_ts is not None
+                else None
+            )
+            self._state.retained_start_boundary_snapped = (
+                bool(earliest_retained_metadata.get("start_boundary_snapped"))
+                if retained_actual_start_boundary_ts is not None
+                else None
+            )
             earliest_retained_start = retained_segments[0].start_timestamp
             self._state.points_buffer = [
                 point for point in points if int(point.timestamp) >= earliest_retained_start
@@ -395,6 +437,9 @@ class HeatStreamProcessor:
             self._state.processor_phase = "awaiting_seal" if sealed_segments else "buffering"
             self._state.current_heat_id = None
             self._state.pending_seal_heat_id = None
+            self._state.retained_slot_start_timestamp = None
+            self._state.retained_actual_start_boundary_ts = None
+            self._state.retained_start_boundary_snapped = None
             self._state.points_buffer = self._trim_idle_buffer(points)
 
         if segments:
@@ -411,6 +456,38 @@ class HeatStreamProcessor:
             last_point_timestamp=self._state.last_point_timestamp,
             activity_threshold=self._state.activity_threshold,
         )
+
+    def _restore_retained_slot_boundary(
+        self,
+        segments: list[HeatSegment],
+    ) -> list[HeatSegment]:
+        if not segments:
+            return segments
+        retained_slot_start_timestamp = self._state.retained_slot_start_timestamp
+        retained_actual_start_boundary_ts = self._state.retained_actual_start_boundary_ts
+        if (
+            self._cutting_config.cutting_mode != "fixed_interval"
+            or retained_slot_start_timestamp is None
+            or retained_actual_start_boundary_ts is None
+        ):
+            return segments
+
+        first_segment = segments[0]
+        first_slot_start_timestamp = first_segment.metadata.get("slot_start_timestamp_ms")
+        if first_slot_start_timestamp is None:
+            return segments
+        if int(first_slot_start_timestamp) != int(retained_slot_start_timestamp):
+            return segments
+
+        restored_segments = list(segments)
+        restored_metadata = dict(first_segment.metadata)
+        restored_metadata["actual_start_boundary_ts"] = int(retained_actual_start_boundary_ts)
+        if self._state.retained_start_boundary_snapped is not None:
+            restored_metadata["start_boundary_snapped"] = bool(
+                self._state.retained_start_boundary_snapped
+            )
+        restored_segments[0] = HeatSegment(points=first_segment.points, metadata=restored_metadata)
+        return restored_segments
 
     def _trim_idle_buffer(self, points: list[CurvePoint]) -> list[CurvePoint]:
         if not points:
@@ -435,6 +512,12 @@ def _segment_metadata(
         "cutting_mode": cutting_mode,
         "anchor_timestamp_ms": anchor_timestamp_ms,
     }
+    if segment.slot_start_timestamp is not None:
+        metadata["slot_start_timestamp_ms"] = int(segment.slot_start_timestamp)
+    if segment.slot_end_timestamp is not None:
+        metadata["slot_end_timestamp_ms"] = int(segment.slot_end_timestamp)
+    if segment.active_covered_minutes is not None:
+        metadata["active_covered_minutes"] = float(segment.active_covered_minutes)
     if segment.start_boundary is not None:
         metadata.update(
             {

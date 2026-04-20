@@ -879,7 +879,12 @@ async def test_replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_co
     assert finished["status"] == "completed"
 
     active_before_refresh = next(iter(_ACTIVE_HEAT_RUNTIME.values()), None)
+    previous_before_refresh = next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)
     assert active_before_refresh is not None
+    assert previous_before_refresh is not None
+    assert previous_before_refresh["heat_no"] == "H20260417-2032"
+    assert active_before_refresh["heat_no"] == "H20260417-2102"
+    assert previous_before_refresh["id"] != active_before_refresh["id"]
     assert _HEAT_STREAM_PROCESSOR_STATE.get("state", {}).get("bootstrapped") is True
     assert _HEAT_STREAM_PROCESSOR_STATE.get("config", {}).get("anchor_timestamp_ms") == to_timestamp_ms(
         datetime(2026, 4, 17, 12, 0)
@@ -898,8 +903,11 @@ async def test_replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_co
     previous_after_refresh = next(iter(_PREVIOUS_HEAT_RUNTIME.values()), None)
     assert active_after_refresh is not None
     assert previous_after_refresh is not None
-    assert previous_after_refresh["start_time"] == active_before_refresh["start_time"]
-    assert active_after_refresh["start_time"] >= active_before_refresh["start_time"]
+    assert previous_after_refresh["heat_no"] == "H20260417-2032"
+    assert active_after_refresh["heat_no"] == "H20260417-2102"
+    assert previous_after_refresh["id"] != active_after_refresh["id"]
+    assert active_after_refresh["id"] == active_before_refresh["id"]
+    assert active_after_refresh["start_time"] == active_before_refresh["start_time"]
     assert active_after_refresh["last_point_at"] > active_before_refresh["last_point_at"]
     assert _HEAT_STREAM_PROCESSOR_STATE.get("state", {}).get("bootstrapped") is True
     assert _HEAT_STREAM_PROCESSOR_STATE.get("config", {}).get("anchor_timestamp_ms") == to_timestamp_ms(

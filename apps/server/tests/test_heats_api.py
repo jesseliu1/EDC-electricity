@@ -357,7 +357,7 @@ async def _build_replay_runtime_aggregate_for_points(
     )
     result = processor.feed_points(points, allow_sealing=False, retain_tail_count=2)
     baseline_id = str(context.get("baseline_id") or "").strip()
-    selected_baseline = dict(_BASELINE_STORE[baseline_id]) if baseline_id else None
+    selected_baseline = dict(_BASELINE_STORE[baseline_id]) if baseline_id in _BASELINE_STORE else None
     candidates = heats_module._build_live_heat_items_from_segments(
         context=context,
         segments=list(result.all_segments),
@@ -375,6 +375,187 @@ async def _build_replay_runtime_aggregate_for_points(
         processor_snapshot=processor.snapshot_state(),
         all_segment_count=len(candidates),
     )
+
+
+def test_build_live_heat_items_from_segments_uses_fixed_interval_slot_identity() -> None:
+    import src.api.heats as heats_module
+    from src.services.heat_cutting_service import (
+        HeatCuttingContext,
+        infer_live_heat_segments_with_metadata,
+    )
+
+    context = _build_test_live_context(expected_duration_minutes=30)
+    cutting_config = heats_module._resolve_live_context_cutting_config(context)
+    start = datetime(2026, 4, 17, 12, 0)
+    points: list[CurvePoint] = []
+    for offset, length, value in (
+        (0, 33, 124.0),
+        (33, 4, 18.0),
+        (37, 26, 127.0),
+        (63, 4, 18.0),
+    ):
+        points.extend(heats_module._curve_points(start + timedelta(minutes=offset), length, value, 0.0, 0.0))
+
+    segments = infer_live_heat_segments_with_metadata(
+        points,
+        context=HeatCuttingContext(expected_duration_minutes=30, anchor_time=start),
+        config=cutting_config,
+        activity_threshold=100.0,
+    )
+
+    items = heats_module._build_live_heat_items_from_segments(
+        context=context,
+        segments=list(segments),
+        baseline_id=str(context.get("baseline_id") or ""),
+        expected_duration_minutes=30,
+        cutting_config=cutting_config,
+    )
+
+    assert len(items) == 3
+    assert items[0]["id"].endswith(f"-{to_timestamp_ms(start)}-30")
+    assert items[0]["heat_no"] == "H20260417-2000"
+    assert items[1]["id"].endswith(f"-{to_timestamp_ms(start + timedelta(minutes=30))}-30")
+    assert items[1]["heat_no"] == "H20260417-2032"
+    assert items[1]["start_time"] == datetime(2026, 4, 17, 12, 32)
+    assert items[1]["end_time"] == datetime(2026, 4, 17, 13, 2)
+    assert items[2]["id"].endswith(f"-{to_timestamp_ms(start + timedelta(minutes=60))}-30")
+    assert items[2]["heat_no"] == "H20260417-2102"
+
+
+def test_build_live_heat_item_keeps_same_fixed_interval_identity_when_tail_grows() -> None:
+    import src.api.heats as heats_module
+
+    context = _build_test_live_context(expected_duration_minutes=30)
+    cutting_config = heats_module._resolve_live_context_cutting_config(context)
+    slot_start = datetime(2026, 4, 17, 13, 0)
+    first_curve = heats_module._curve_points(slot_start + timedelta(minutes=2), 3, 18.0, 0.0, 0.0)
+    extended_curve = heats_module._curve_points(
+        slot_start + timedelta(minutes=2),
+        18,
+        126.0,
+        0.0,
+        0.0,
+    )
+    metadata = {
+        "slot_start_timestamp_ms": to_timestamp_ms(slot_start),
+        "slot_end_timestamp_ms": to_timestamp_ms(slot_start + timedelta(minutes=30)),
+        "ideal_start_boundary_ts": to_timestamp_ms(slot_start),
+        "actual_start_boundary_ts": to_timestamp_ms(slot_start + timedelta(minutes=2)),
+        "ideal_end_boundary_ts": to_timestamp_ms(slot_start + timedelta(minutes=30)),
+        "end_boundary_snapped": False,
+    }
+
+    first_item = heats_module._build_live_heat_item(
+        index=1,
+        context=context,
+        baseline_id=str(context.get("baseline_id") or ""),
+        power_curve=first_curve,
+        expected_duration_minutes=30,
+        cutting_config=cutting_config,
+        segment_metadata={
+            **metadata,
+            "actual_end_boundary_ts": to_timestamp_ms(slot_start + timedelta(minutes=4)),
+        },
+    )
+    extended_item = heats_module._build_live_heat_item(
+        index=1,
+        context=context,
+        baseline_id=str(context.get("baseline_id") or ""),
+        power_curve=extended_curve,
+        expected_duration_minutes=30,
+        cutting_config=cutting_config,
+        segment_metadata={
+            **metadata,
+            "actual_end_boundary_ts": to_timestamp_ms(slot_start + timedelta(minutes=19)),
+        },
+    )
+
+    assert first_item["id"] == extended_item["id"]
+    assert first_item["heat_no"] == extended_item["heat_no"] == "H20260417-2102"
+    assert first_item["_live_slot_start_timestamp_ms"] == extended_item["_live_slot_start_timestamp_ms"]
+
+
+def test_fixed_interval_processor_keeps_snapped_start_boundary_across_tail_recompute() -> None:
+    import src.api.heats as heats_module
+    from src.services.heat_stream_processor import HeatStreamProcessor
+
+    context = _build_test_live_context(expected_duration_minutes=30)
+    cutting_config = heats_module._resolve_live_context_cutting_config(context)
+    start = datetime(2026, 4, 17, 12, 0)
+    replay_end_time = datetime(2026, 4, 17, 13, 4)
+    points: list[CurvePoint] = []
+    for offset, length, value in (
+        (0, 33, 124.0),
+        (33, 4, 18.0),
+        (37, 26, 127.0),
+        (63, 4, 18.0),
+        (67, 25, 126.0),
+    ):
+        points.extend(heats_module._curve_points(start + timedelta(minutes=offset), length, value, 0.0, 0.0))
+    points = [point for point in points if point.timestamp <= to_timestamp_ms(replay_end_time)]
+
+    processor = HeatStreamProcessor(
+        cache_key=str(context["cache_key"]),
+        channel_key=str(context["channel_key"]),
+        context_hash=str(context["context_hash"]),
+        baseline_id=str(context.get("baseline_id") or "") or None,
+        expected_duration_minutes=30,
+        cutting_config=cutting_config,
+        processing_mode="replay_batch",
+        anchor_time=start,
+        threshold_resolver=lambda _points: 100.0,
+    )
+
+    first_pass = processor.feed_points(points, allow_sealing=True, retain_tail_count=2)
+    second_pass = processor.finalize_until(replay_end_time, retain_tail_count=2)
+    merged_segments = [*first_pass.sealed_segments, *second_pass.all_segments]
+    items = heats_module._build_live_heat_items_from_segments(
+        context=context,
+        segments=merged_segments,
+        baseline_id=str(context.get("baseline_id") or ""),
+        expected_duration_minutes=30,
+        cutting_config=cutting_config,
+    )
+
+    assert [item["heat_no"] for item in items] == [
+        "H20260417-2000",
+        "H20260417-2032",
+        "H20260417-2102",
+    ]
+    assert items[1]["start_time"] == datetime(2026, 4, 17, 12, 32)
+    assert items[1]["_live_actual_start_boundary_ts"] == to_timestamp_ms(
+        datetime(2026, 4, 17, 12, 32)
+    )
+
+
+@pytest.mark.asyncio
+async def test_replay_runtime_aggregate_keeps_open_fixed_interval_slot_as_current(client) -> None:
+    import src.api.heats as heats_module
+
+    assert client is not None
+    context = _build_test_live_context(expected_duration_minutes=30)
+    start = datetime(2026, 4, 17, 12, 0)
+    points: list[CurvePoint] = []
+    for offset, length, value in (
+        (0, 33, 124.0),
+        (33, 4, 18.0),
+        (37, 26, 127.0),
+        (63, 2, 18.0),
+    ):
+        points.extend(heats_module._curve_points(start + timedelta(minutes=offset), length, value, 0.0, 0.0))
+
+    aggregate = await _build_replay_runtime_aggregate_for_points(
+        context=context,
+        points=points,
+        expected_duration_minutes=30,
+    )
+
+    assert aggregate.all_segment_count == 3
+    assert aggregate.history_segment_count == 1
+    assert aggregate.final_previous_candidate is not None
+    assert aggregate.final_active_candidate is not None
+    assert aggregate.final_previous_candidate["heat_no"] == "H20260417-2032"
+    assert aggregate.final_active_candidate["heat_no"] == "H20260417-2102"
 
 
 def _formal_baseline_effective_from(

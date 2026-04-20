@@ -6,6 +6,68 @@
 
 ---
 
+### 2026-04-20（fixed_interval 弱活跃 slot 已保留，真实 replay 已恢复 09:00 炉次）
+
+- [x] 已完成 fixed_interval weak-slot existence gate 修复
+  - [x] `apps/server/src/services/heat_cutting_service.py`
+  - [x] fixed-interval 已闭合 slot 不再因 hardcode 的 `5 分钟` 最小活跃覆盖门槛被整炉过滤
+  - [x] `active_covered_minutes` 现仅作为质量元数据保留，不再决定 slot 是否存在
+- [x] 已完成 fixed_interval 相邻 slot 实际边界连续性修复
+  - [x] `apps/server/src/services/heat_stream_processor.py`
+  - [x] replay/live 在 retained tail 重算时，现会保留已吸附 slot 的 `actual_start_boundary_ts`
+  - [x] 上一炉若吸附到 `09:02:25`，下一炉会继续保留同一 ideal slot 身份，但其实际起点不再退回 `09:00`
+- [x] 正式业务定义已补回 `docs/BACKEND_STRUCTURE.md`
+  - [x] 明确 fixed-interval 下 slot existence 由固定时间轴决定
+  - [x] 明确相邻 slot 的实际边界必须连续
+  - [x] 明确 `heat_id` 属于内部 ideal slot 身份，而 `heat_no` / 列表开始时间按实际起点展示
+- [x] 已补回归并通过
+  - [x] `tests/test_heats_api.py::test_fixed_interval_processor_keeps_snapped_start_boundary_across_tail_recompute`
+  - [x] `uv run --directory apps/server pytest -q tests/test_heat_cutting_service.py tests/test_heats_api.py -k "fixed_interval and (build_live_heat_items_from_segments_uses_fixed_interval_slot_identity or build_live_heat_item_keeps_same_fixed_interval_identity_when_tail_grows or fixed_interval_processor_keeps_snapped_start_boundary_across_tail_recompute or replay_runtime_aggregate_keeps_open_fixed_interval_slot_as_current)" tests/test_heat_replay_api.py::test_replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_continuation`
+  - [x] 结果：`4 passed`
+- [x] 已完成本地真实用户路径最小验证
+  - [x] 已重启本地后端并确认 `/api/health = ok`
+  - [x] 已从 `2026-04-20 08:00` 发起 batch replay/init：`heat-replay-20260420071605-f0ee4f62`
+  - [x] replay 完成：`generated_heat_count = 15`
+  - [x] 已直查 `apps/server/data/asns.db`，`08:00 / 08:30 / 09:00 / 09:30 / 10:00 / 10:30` 正式炉次已连续存在
+  - [x] 自动刷新后再次复查，`snapshot_status = ready`、`refresh_error = null`、`refresh_failure_count = 0`
+  - [x] 当前 runtime 头部保持稳定：`previous=H20260420-1430`、`active=H20260420-1500`
+- [!] 当前边界
+  - [!] 本轮已证明“09:00 炉次缺失”已由 existence gate 修复，不再是 replay/live 续借把它刷没
+  - [!] 后台日志里仍偶发 `sealed_runtime_source_missing`，看起来是独立的 seal-source 问题，尚未纳入本轮修复
+  - [!] 仍未完成浏览器侧完整用户路径 UAT；本轮不能声称“前端验收已完成”
+
+---
+
+### 2026-04-20（已执行公网 blank 重部署脚本并验证空白态）
+
+- [x] 已新增 `scripts/redeploy-public-blank.sh`
+  - [x] 固化“同步 runtime 但不启动 -> 备份 DB -> 写入 blank bootstrap -> factory-reset -> 启动后端 -> 发布 EDC/ASNS”顺序
+  - [x] 默认以 `EDC_SERVER_SKIP_SOURCE_REFRESH=1` 跳过 `deploy-refresh`，避免 blank 重建前重新灌回旧 source-bound 状态
+  - [x] 已补数据库空白态校验，防止 `factory-reset` 后正式业务表仍残留数据
+- [x] 已在公网服务器实际执行
+  - [x] 服务器脚本路径：`/home/openclaw/projects/EDC-electricity/scripts/redeploy-public-blank.sh`
+  - [x] 运行库备份：`/home/openclaw/edc-electricity-server/backups/20260420T012403Z-factory-reset`
+  - [x] EDC 前端新资源目录：`/var/www/edc-electricity/assets-github-20260420T012432Z`
+  - [x] ASNS runtime 备份：`/home/openclaw/asns-host-runtime/backups/20260420T012432Z/runtime-pre-sync.tgz`
+  - [x] `edc-backend.service.d/blank-bootstrap.conf` 已生效
+- [x] 已更新部署文档
+  - [x] `docs/DEPLOYMENT.md` 现将公网 blank 重部署入口收口为 `./scripts/redeploy-public-blank.sh`
+  - [x] `docs/SERVER_LAYOUT_AND_SYNC.md` 已补服务器 blank 重部署脚本入口
+- [x] 已完成最小静态验证
+  - [x] `bash -n scripts/redeploy-public-blank.sh`
+  - [x] `bash -n scripts/sync-edc-server.sh scripts/publish-edc-web-and-asns.sh`
+- [x] 已完成本轮最小运行验证
+  - [x] `http://127.0.0.1:8001/health` 返回 `{"status":"ok"}`
+  - [x] `runtime-status.overall_code = host_disconnected`
+  - [x] `baseline_definitions / baselines / heats / tasks = 0`
+  - [x] `https://hopeofthepantheon.me/edc/` 返回 `200`
+  - [x] `https://hopeofthepantheon.me/asns/` 返回 `200`
+- [!] 当前边界
+  - [!] 当前脚本会写入 `edc-backend.service.d/blank-bootstrap.conf`，后续若要切回非 blank 默认启动，应显式移除该 drop-in
+  - [!] 这次执行的是 blank 空白态重部署，不包含重新接入真实 EDC 源，也不是完整用户路径/UAT
+
+---
+
 ### 2026-04-19（已修复 previous 在第 1 次 live continuation 丢 N-1 的问题）
 
 - [x] 已完成 `previous_runtime` 上下文继承修复
@@ -7716,3 +7778,39 @@ EDC 前端（apps/web，/edc/）
 - [!] 本轮验证口径说明
   - [!] 已完成后端主链、并发拒绝、runtime reload 与 replay/live handoff 的定向回归
   - [!] 未完成浏览器侧完整用户路径 UAT；本轮不能声称“前端验收已完成”
+
+### 2026-04-20（fixed_interval slot 身份稳定化与首轮 replay current 修复）
+
+- [x] fixed_interval 正式业务语义已回收到 `docs/BACKEND_STRUCTURE.md`
+  - [x] 明确 `time_tolerance_percent` 只是边界吸附搜索窗口，不改变炉次 slot 身份
+  - [x] 明确 fixed-interval 下 `heat_id / heat_no / current / previous` 都以理想 slot 起点定义
+  - [x] 明确当前未封口 slot 只要已出生，就应保留为 `active_runtime(current)`，不能因尾段点数少直接丢掉
+- [x] 后端 fixed_interval 切割结果已补 slot 元数据
+  - [x] `apps/server/src/services/heat_cutting_service.py`
+  - [x] `apps/server/src/services/heat_stream_processor.py`
+  - [x] 新增 `slot_start_timestamp / slot_end_timestamp / active_covered_minutes`
+  - [x] 尾段 open slot 的 `ideal_end_boundary_ts` 不再退化成 `last_point_timestamp`
+- [x] fixed_interval runtime identity 已切到稳定 slot 起点
+  - [x] `apps/server/src/api/heats.py`
+  - [x] fixed-interval live heat id 不再按 midpoint bucket 漂移
+  - [x] `heat_no` 改为按 ideal slot 起点生成
+  - [x] 同一 slot 随 `end_time` 增长时保持同一个 `id / heat_no`
+- [x] 首轮 replay head runtime 已支持保留 open tail slot
+  - [x] `08:00 -> 09:31` 这类 fixed-interval replay 不再因为尾段活跃分钟数不足，直接丢掉当前 slot
+  - [x] replay 最后一段 open slot 现在会以 `current(active_runtime)` 留在头部，已闭合 slot 继续按原规则进入 `previous/history`
+- [x] 默认调试开关已改为全项目长期开启
+  - [x] `apps/server/src/api/settings.py`
+  - [x] `replay_runtime_debug_enabled = true`
+  - [x] 删库重建后会自动保持开启，无需手工再开
+- [x] 本轮新增/调整回归
+  - [x] `apps/server/tests/test_heat_cutting_service.py`
+  - [x] `apps/server/tests/test_heats_api.py`
+  - [x] `apps/server/tests/test_heat_replay_api.py`
+  - [x] `apps/server/tests/test_tasks_reports_settings_api.py`
+- [x] 本轮实际执行验证
+  - [x] `uv run --directory apps/server ruff check src/api/heats.py src/api/settings.py src/services/heat_cutting_service.py src/services/heat_stream_processor.py tests/test_heat_cutting_service.py tests/test_heats_api.py tests/test_heat_replay_api.py tests/test_tasks_reports_settings_api.py`
+  - [x] `uv run --directory apps/server pytest -q tests/test_heat_cutting_service.py tests/test_heat_replay_api.py::test_replay_job_fixed_interval_uses_anchor_timeline_boundaries tests/test_heat_replay_api.py::test_replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_continuation tests/test_heats_api.py::test_build_live_heat_items_from_segments_uses_fixed_interval_slot_identity tests/test_heats_api.py::test_build_live_heat_item_keeps_same_fixed_interval_identity_when_tail_grows tests/test_heats_api.py::test_replay_runtime_aggregate_keeps_open_fixed_interval_slot_as_current tests/test_heats_api.py::test_stale_live_refresh_cannot_clear_previous_after_replay_seed tests/test_heats_api.py::test_stale_live_refresh_cannot_append_sealed_history_after_generation_changed tests/test_heats_api.py::test_idle_window_after_replay_keeps_previous_without_error tests/test_tasks_reports_settings_api.py::test_settings_get_and_update`
+  - [x] 结果：`13 passed`
+- [!] 当前验证边界
+  - [!] 已完成 fixed-interval 主链、slot 身份稳定、replay/live continuation 与 debug 默认值的后端定向回归
+  - [!] 仍未完成浏览器侧完整用户路径 UAT；本轮不能声称“前端验收已完成”

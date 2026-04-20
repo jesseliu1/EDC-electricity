@@ -61,7 +61,7 @@ def test_fixed_interval_snaps_boundary_to_active_end_within_tolerance() -> None:
         activity_threshold=100.0,
     )
 
-    assert len(segments) == 2
+    assert len(segments) == 3
     first_segment = segments[0]
     second_segment = segments[1]
 
@@ -79,6 +79,9 @@ def test_fixed_interval_snaps_boundary_to_active_end_within_tolerance() -> None:
         start + timedelta(minutes=32)
     )
     assert second_segment.points[0].timestamp == to_timestamp_ms(start + timedelta(minutes=33))
+    assert second_segment.slot_start_timestamp == to_timestamp_ms(start + timedelta(minutes=30))
+    assert second_segment.slot_end_timestamp == to_timestamp_ms(start + timedelta(minutes=60))
+    assert second_segment.active_covered_minutes == 26.0
 
 
 def test_fixed_interval_falls_back_to_ideal_boundary_without_candidate() -> None:
@@ -96,13 +99,70 @@ def test_fixed_interval_falls_back_to_ideal_boundary_without_candidate() -> None
         activity_threshold=100.0,
     )
 
-    assert len(segments) == 2
+    assert len(segments) == 3
     first_segment = segments[0]
     assert first_segment.end_boundary is not None
     assert first_segment.end_boundary.actual_timestamp == to_timestamp_ms(
         start + timedelta(minutes=30)
     )
     assert first_segment.end_boundary.snapped_to_active_end is False
+
+
+def test_fixed_interval_keeps_open_tail_slot_for_current_runtime() -> None:
+    start = datetime(2026, 4, 17, 12, 0)
+    points: list[CurvePoint] = []
+    _append_block(points, start=start, offset_minutes=0, length_minutes=33, value=120.0)
+    _append_block(points, start=start, offset_minutes=33, length_minutes=4, value=20.0)
+    _append_block(points, start=start, offset_minutes=37, length_minutes=26, value=125.0)
+    _append_block(points, start=start, offset_minutes=63, length_minutes=2, value=18.0)
+
+    segments = infer_live_heat_segments_with_metadata(
+        points,
+        context=HeatCuttingContext(expected_duration_minutes=30, anchor_time=start),
+        config=_build_cutting_config(),
+        activity_threshold=100.0,
+    )
+
+    assert len(segments) == 3
+    tail_segment = segments[-1]
+    assert tail_segment.slot_start_timestamp == to_timestamp_ms(start + timedelta(minutes=60))
+    assert tail_segment.slot_end_timestamp == to_timestamp_ms(start + timedelta(minutes=90))
+    assert tail_segment.active_covered_minutes == 0.0
+    assert tail_segment.end_boundary is not None
+    assert tail_segment.end_boundary.actual_timestamp == to_timestamp_ms(
+        start + timedelta(minutes=64)
+    )
+    assert tail_segment.end_boundary.ideal_timestamp == to_timestamp_ms(
+        start + timedelta(minutes=90)
+    )
+
+
+def test_fixed_interval_keeps_closed_slot_even_when_activity_is_weak() -> None:
+    start = datetime(2026, 4, 17, 12, 0)
+    points: list[CurvePoint] = []
+    _append_block(points, start=start, offset_minutes=0, length_minutes=33, value=120.0)
+    _append_block(points, start=start, offset_minutes=33, length_minutes=4, value=20.0)
+    _append_block(points, start=start, offset_minutes=37, length_minutes=2, value=125.0)
+    _append_block(points, start=start, offset_minutes=39, length_minutes=21, value=20.0)
+    _append_block(points, start=start, offset_minutes=60, length_minutes=25, value=127.0)
+    _append_block(points, start=start, offset_minutes=85, length_minutes=3, value=18.0)
+
+    segments = infer_live_heat_segments_with_metadata(
+        points,
+        context=HeatCuttingContext(expected_duration_minutes=30, anchor_time=start),
+        config=_build_cutting_config(),
+        activity_threshold=100.0,
+    )
+
+    assert len(segments) == 3
+    weak_closed_segment = segments[1]
+    assert weak_closed_segment.slot_start_timestamp == to_timestamp_ms(
+        start + timedelta(minutes=30)
+    )
+    assert weak_closed_segment.slot_end_timestamp == to_timestamp_ms(
+        start + timedelta(minutes=60)
+    )
+    assert weak_closed_segment.active_covered_minutes == 2.0
 
 
 def test_signal_inference_keeps_independent_active_segment_logic() -> None:

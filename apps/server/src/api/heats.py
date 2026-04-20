@@ -53,6 +53,7 @@ from ..services import (
 from ..services.heat_cutting_service import (
     HeatCuttingConfig,
     HeatCuttingContext,
+    HeatCuttingSegment,
     build_live_heat_cache_key,
     infer_live_activity_threshold,
     infer_live_heat_segments_with_metadata,
@@ -893,16 +894,35 @@ def _build_live_heat_item(
     cutting_config: HeatCuttingConfig,
     segment_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    start_time = from_timestamp_ms(power_curve[0].timestamp)
-    end_time = from_timestamp_ms(power_curve[-1].timestamp)
+    metadata = dict(segment_metadata or {})
+    fixed_slot_start_ts = metadata.get("slot_start_timestamp_ms")
+    fixed_slot_end_ts = metadata.get("slot_end_timestamp_ms")
+    actual_start_boundary_ts = metadata.get("actual_start_boundary_ts")
+    actual_end_boundary_ts = metadata.get("actual_end_boundary_ts")
+    is_fixed_interval_slot = (
+        cutting_config.cutting_mode == "fixed_interval"
+        and cutting_config.fixed_interval_minutes is not None
+        and fixed_slot_start_ts is not None
+    )
+
+    original_start_ts = int(
+        actual_start_boundary_ts if actual_start_boundary_ts is not None else power_curve[0].timestamp
+    )
+    original_end_ts = int(
+        actual_end_boundary_ts if actual_end_boundary_ts is not None else power_curve[-1].timestamp
+    )
+    start_time = from_timestamp_ms(original_start_ts)
+    end_time = from_timestamp_ms(original_end_ts)
     duration_minutes = max((end_time - start_time).total_seconds() / 60, 1)
     schedule_tag = _schedule_tag_of(start_time, cutting_config)
     duration_ratio = duration_minutes / max(expected_duration_minutes, 1)
     status = "abnormal" if duration_ratio < 0.6 or duration_ratio > 1.5 else "normal"
-    original_start_ts = int(power_curve[0].timestamp)
-    original_end_ts = int(power_curve[-1].timestamp)
-    anchor_ms = _round_timestamp_to_live_bucket(
-        original_start_ts + (original_end_ts - original_start_ts) // 2
+    anchor_ms = (
+        int(fixed_slot_start_ts)
+        if is_fixed_interval_slot
+        else _round_timestamp_to_live_bucket(
+            original_start_ts + (original_end_ts - original_start_ts) // 2
+        )
     )
     duration_bucket_minutes = (
         int(cutting_config.fixed_interval_minutes)
@@ -915,7 +935,6 @@ def _build_live_heat_item(
         anchor_ms=anchor_ms,
         duration_bucket_minutes=duration_bucket_minutes,
     )
-    metadata = dict(segment_metadata or {})
     anchor_timestamp_ms = metadata.get("anchor_timestamp_ms")
     request_anchor_time = (
         from_timestamp_ms(int(anchor_timestamp_ms))
@@ -946,10 +965,14 @@ def _build_live_heat_item(
                     "actual_end_boundary_ts"
                 ),
                 "fixed_cutting_end_boundary_snapped": metadata.get("end_boundary_snapped"),
+                "fixed_cutting_slot_start_timestamp_ms": fixed_slot_start_ts,
+                "fixed_cutting_slot_end_timestamp_ms": fixed_slot_end_ts,
+                "fixed_cutting_active_covered_minutes": metadata.get("active_covered_minutes"),
             }
         )
 
-    plant_start_time = to_plant_datetime(start_time, cutting_config.plant_timezone)
+    heat_no_time = start_time
+    plant_start_time = to_plant_datetime(heat_no_time, cutting_config.plant_timezone)
     return {
         "id": heat_id,
         "heat_no": f"H{plant_start_time.strftime('%Y%m%d')}-{plant_start_time.strftime('%H%M')}",
@@ -994,12 +1017,19 @@ def _build_live_heat_item(
         "_live_cutting_mode": str(cutting_config.cutting_mode),
         "_live_plant_timezone": str(cutting_config.plant_timezone),
         "_live_cutting_anchor_ts": anchor_timestamp_ms,
+        "_live_slot_start_timestamp_ms": (
+            int(fixed_slot_start_ts) if fixed_slot_start_ts is not None else None
+        ),
+        "_live_slot_end_timestamp_ms": (
+            int(fixed_slot_end_ts) if fixed_slot_end_ts is not None else None
+        ),
         "_live_ideal_start_boundary_ts": metadata.get("ideal_start_boundary_ts"),
         "_live_actual_start_boundary_ts": metadata.get("actual_start_boundary_ts"),
         "_live_start_boundary_snapped": metadata.get("start_boundary_snapped"),
         "_live_ideal_end_boundary_ts": metadata.get("ideal_end_boundary_ts"),
         "_live_actual_end_boundary_ts": metadata.get("actual_end_boundary_ts"),
         "_live_end_boundary_snapped": metadata.get("end_boundary_snapped"),
+        "_live_active_covered_minutes": metadata.get("active_covered_minutes"),
     }
 
 
@@ -1053,7 +1083,7 @@ def _infer_live_heat_items(
 def _build_live_heat_items_from_segments(
     *,
     context: dict[str, Any],
-    segments: list[HeatSegment] | list[list[CurvePoint]],
+    segments: list[HeatSegment] | list[HeatCuttingSegment] | list[list[CurvePoint]],
     baseline_id: str | None,
     expected_duration_minutes: int,
     cutting_config: HeatCuttingConfig | None = None,
@@ -1078,15 +1108,42 @@ def _build_live_heat_items_from_segments(
     return built
 
 
-def _segment_points(segment: HeatSegment | list[CurvePoint]) -> list[CurvePoint]:
+def _segment_points(segment: HeatSegment | HeatCuttingSegment | list[CurvePoint]) -> list[CurvePoint]:
     if isinstance(segment, list):
         return segment
     return list(segment.points)
 
 
-def _segment_cutting_metadata(segment: HeatSegment | list[CurvePoint]) -> dict[str, Any]:
+def _segment_cutting_metadata(
+    segment: HeatSegment | HeatCuttingSegment | list[CurvePoint],
+) -> dict[str, Any]:
     if isinstance(segment, HeatSegment):
         return dict(segment.metadata)
+    if isinstance(segment, HeatCuttingSegment):
+        metadata: dict[str, Any] = {}
+        if segment.slot_start_timestamp is not None:
+            metadata["slot_start_timestamp_ms"] = int(segment.slot_start_timestamp)
+        if segment.slot_end_timestamp is not None:
+            metadata["slot_end_timestamp_ms"] = int(segment.slot_end_timestamp)
+        if segment.active_covered_minutes is not None:
+            metadata["active_covered_minutes"] = float(segment.active_covered_minutes)
+        if segment.start_boundary is not None:
+            metadata.update(
+                {
+                    "ideal_start_boundary_ts": int(segment.start_boundary.ideal_timestamp),
+                    "actual_start_boundary_ts": int(segment.start_boundary.actual_timestamp),
+                    "start_boundary_snapped": bool(segment.start_boundary.snapped_to_active_end),
+                }
+            )
+        if segment.end_boundary is not None:
+            metadata.update(
+                {
+                    "ideal_end_boundary_ts": int(segment.end_boundary.ideal_timestamp),
+                    "actual_end_boundary_ts": int(segment.end_boundary.actual_timestamp),
+                    "end_boundary_snapped": bool(segment.end_boundary.snapped_to_active_end),
+                }
+            )
+        return metadata
     return {}
 
 
@@ -1417,6 +1474,9 @@ def _merge_live_heat_with_persisted_state(
         "_live_duration_bucket_minutes",
         "_live_original_start_ts",
         "_live_original_end_ts",
+        "_live_slot_start_timestamp_ms",
+        "_live_slot_end_timestamp_ms",
+        "_live_active_covered_minutes",
     ):
         merged[key] = live_item.get(key)
     return merged
@@ -1735,6 +1795,11 @@ def _summarize_runtime_item_for_debug(item: dict[str, Any] | None) -> dict[str, 
         "actual_context_start_time": item.get("actual_context_start_time"),
         "actual_context_end_time": item.get("actual_context_end_time"),
         "last_point_at": item.get("last_point_at"),
+        "slot_start_timestamp_ms": item.get("_live_slot_start_timestamp_ms"),
+        "slot_end_timestamp_ms": item.get("_live_slot_end_timestamp_ms"),
+        "actual_start_boundary_ts": item.get("_live_actual_start_boundary_ts"),
+        "actual_end_boundary_ts": item.get("_live_actual_end_boundary_ts"),
+        "active_covered_minutes": item.get("_live_active_covered_minutes"),
         "runtime_metric_series": _summarize_metric_series_for_debug(item.get("runtime_metric_series")),
         "preseal_payload": _summarize_preseal_payload_for_debug(item.get("preseal_payload")),
     }
@@ -2171,6 +2236,11 @@ async def _refresh_heat_runtime_state_from_context(
     def _segment_item(segment) -> dict[str, Any] | None:
         if segment is None:
             return None
+        if isinstance(segment, HeatSegment):
+            segment_start = segment.metadata.get("actual_start_boundary_ts")
+            segment_end = segment.metadata.get("actual_end_boundary_ts")
+            if segment_start is not None and segment_end is not None:
+                return segment_item_lookup.get((int(segment_start), int(segment_end)))
         return segment_item_lookup.get(segment.key())
 
     active_candidate = _segment_item(refresh_result.processor_result.active_segment)

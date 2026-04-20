@@ -75,7 +75,7 @@ _SETTINGS_STORE: dict[str, dict[str, str | None]] = {
         "description": "是否启用基于真实功率曲线推断炉次台账",
     },
     "replay_runtime_debug_enabled": {
-        "value": "false",
+        "value": "true",
         "description": "是否输出 replay/live runtime 续借调试日志",
     },
     "baseline_length_scope_mode": {
