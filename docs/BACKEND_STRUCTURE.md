@@ -42,6 +42,7 @@ apps/server/
 │   │   ├── heat_stream_processor.py
 │   │   ├── live_heat_runtime_service.py
 │   │   ├── heat_replay_batch_service.py
+│   │   ├── heat_runtime_advance_service.py
 │   │   ├── deviation_service.py
 │   │   ├── report_service.py
 │   │   └── edc_client.py     # EDC API 客户端
@@ -922,7 +923,89 @@ erDiagram
 - replay 场景下，写回 `active_runtime / previous_runtime` 时必须同步写回一个 live-compatible 的 `heat_stream_processor_state`；后续 live refresh 必须沿这份 snapshot 续跑，不允许再把 replay 结果交给下一轮 live 冷启动去重猜
 - 对 `sealed_history` 的正式入库，应优先继承 `previous_runtime` 已有的曲线与分析结果；补充上下文不应触发一次新的偏离分析主链
 
-#### 3.7.1 fixed_interval 正式业务语义
+#### 3.7.1 discovery 与正式推进分层
+
+自 `2026-04-22` 起，runtime 主链的正式职责固定拆成两层：
+
+- `processor / discovery`
+  - 只负责看点流、切槽、判断 slot 是否闭合
+  - 可以一次识别出很多 closed slots
+  - 这只是“本轮看见了哪些炉次”，不是“本轮必须把它们全部正式提交”
+- `advance_once`
+  - 是唯一正式生命周期推进原语
+  - 只负责根据当前 head 与 discovery 结果，决定 `current -> previous -> db` 本轮最多推进一步
+  - 不拉点、不切割、不直接持久化
+
+正式规则：
+
+- live 主链固定为：
+  - `EDC source -> point loader -> processor/discovery -> advance_once -> active_runtime(current) -> previous_runtime -> sealed_history`
+- `advance_once` 每次最多只允许一个合法动作：
+  - `noop`
+  - `bootstrap_current`
+  - `promote_current_to_previous`
+  - `seal_previous_and_shift`
+  - `reattach_to_discovery_tail`
+- 一轮 discovery 即使识别出多颗 closed slots：
+  - 也只能有最前面那一颗符合当前 head 生命周期的 slot 在本轮被正式 seal
+  - 剩余 closed backlog 留给后续轮次继续推进
+- `seal_service` 不再直接面对一整串 backlog candidates
+  - 它只处理 `advance_once` 选中的单个 seal source
+- `transition / hydrate / persist` 继续存在
+  - 但它们只负责把 `advance_once` 选中的对象补齐成完整 runtime/formal payload
+  - 不再决定“一轮到底推进几炉”
+
+restart / runtime reload 约束：
+
+- `load_runtime_state()` 允许把 SQLite 中最后一次持久化的 `active_runtime / previous_runtime` 原样恢复到内存
+- 但恢复出来的 head 只代表“上次缓存到的运行态头部”，不代表它一定仍属于当前 discovery 时间序列
+- 若首轮 live refresh 发现：
+  - 当前内存里的 runtime head 已完全脱离本轮 `ordered_slots`
+  - 即 old `current / previous` 都不在当前 discovery 序列中
+- 则这属于“runtime cache 恢复后的不一致态”，不是正常 backlog
+- 正式处理固定为：
+  - `advance_once` 返回 `reattach_to_discovery_tail`
+  - 直接把 head 重挂到当前 discovery tail：
+    - `n-1 -> previous_runtime`
+    - `n -> active_runtime(current)`
+  - 本轮不做 `previous -> db` 的 formal seal
+  - 本轮也不允许继续借用 stale `previous / active` 的上下文窗口、曲线或分析快照
+    - 只允许基于当前 discovery 选中的 `n-1 / n` 重新 hydrate / compile / build head
+  - 后续轮次再恢复普通 `current -> previous -> db` 单步推进
+
+slot 身份约束：
+
+- fixed-interval / live runtime 的正式 slot key 优先使用稳定的 `slot_start_timestamp_ms`
+- 只有缺失 stable slot 身份时，才回退到运行态 `id`
+- `ordered_slots / active_slot_key / previous_slot_key / sealed_slot_key`
+  - 以及已持久化 runtime head 的比对
+  - 都必须走同一套 slot key 提取规则
+- 目标是：
+  - 即使 runtime item 的 `id` 仍带旧形态
+  - 只要它代表同一个 ideal slot
+  - `advance_once` 也不能误判成“当前 head 已脱节”
+
+batch / replay 语义：
+
+- batch / replay 不再发明第二套正式生命周期
+- batch / replay 允许：
+  - 先做一次 discovery，拿到完整 ordered slots
+  - 再在内部循环调用同一个 `advance_once`
+  - 直到追平到目标 head：
+    - `n-2` 及更早进入 `sealed_history`
+    - `n-1` 进入 `previous_runtime`
+    - `n` 进入 `active_runtime(current)`
+- 这意味着：
+  - live refresh 每轮只推进一步
+  - batch / replay 的特殊性只在于“它可以在一个受控流程里多次调用同一个单步原语”
+
+实现约束：
+
+- 运行态正式推进不能再直接依据“sealed candidate 列表长度”决定一次写多少炉
+- `sealed_runtime_source_missing` 这类错误应优先视为“正式推进语义错把 discovery backlog 当成本轮必须全部提交”，而不是 processor 切割错误
+- 新增共享服务 `heat_runtime_advance_service.py` 作为正式生命周期决策层
+
+#### 3.7.2 fixed_interval 正式业务语义
 
 `fixed_interval` 不是“完全无偏移的死切”，正式口径固定为：
 

@@ -6,6 +6,48 @@
 
 ---
 
+### 2026-04-22（已修复重启后 stale runtime head 不前进的问题）
+
+- [x] 已完成 stale/disconnected runtime head 自动重挂修复
+  - [x] `apps/server/src/services/heat_runtime_advance_service.py`
+  - [x] `advance_once` 新增 `reattach_to_discovery_tail`
+  - [x] 当已恢复的 `current / previous` 全部脱离本轮 discovery 序列时，不再返回 `noop`
+  - [x] 首轮 live refresh 现会直接把 head 重挂到当前 discovery tail
+- [x] 已完成 slot key 真源收口
+  - [x] `apps/server/src/services/heat_runtime_advance_service.py`
+  - [x] `apps/server/src/api/heats.py`
+  - [x] `apps/server/src/services/heat_replay_runtime_aggregate_service.py`
+  - [x] fixed-interval runtime/discovery/head 比对现优先使用稳定的 `slot_start_timestamp_ms`
+  - [x] 只有缺失 stable slot 身份时才回退到 `id`
+- [x] 已完成 live reattach 安全提交收口
+  - [x] stale head 重挂分支只重建 `previous_runtime / active_runtime`
+  - [x] 本轮不再误调 `append_sealed_heats(...)`
+  - [x] 已新增调试事件 `heat_runtime_stale_head_reattached`
+- [x] 已补回归测试
+  - [x] `tests/test_heat_runtime_advance_service.py`
+    - [x] `test_advance_once_reattaches_when_both_runtime_heads_are_outside_discovery_sequence`
+    - [x] `test_advance_once_reattaches_single_slot_discovery_without_previous`
+    - [x] `test_advance_once_uses_stable_slot_key_before_runtime_id`
+  - [x] `tests/test_heats_api.py::test_restart_restores_stale_head_but_first_live_refresh_reattaches`
+- [x] 已同步更新文档真源
+  - [x] `docs/BACKEND_STRUCTURE.md`
+  - [x] `docs/testing.md`
+- [x] 已完成本轮定向验证
+  - [x] `python -m pytest -q apps/server/tests/test_heat_runtime_advance_service.py`
+  - [x] `python -m pytest -q apps/server/tests/test_heats_api.py -k "restart_restores_stale_head_but_first_live_refresh_reattaches or live_refresh_advances_one_step_when_discovery_contains_intermediate_closed_slot or stale_live_refresh_cannot_append_sealed_history_after_generation_changed or idle_window_after_replay_keeps_previous_without_error"`
+  - [x] `python -m pytest -q apps/server/tests/test_heat_replay_api.py -k "replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_continuation"`
+  - [x] `python -m ruff check apps/server/src/services/heat_runtime_advance_service.py apps/server/src/api/heats.py apps/server/src/services/heat_replay_runtime_aggregate_service.py apps/server/tests/test_heat_runtime_advance_service.py apps/server/tests/test_heats_api.py`
+  - [x] 已完成本机真实路径验证
+    - [x] 重启本地后端后，后台首轮 refresh 日志已出现 `heat_runtime_stale_head_reattached`
+    - [x] 后续提交日志已出现 `heat_runtime_live_commit_applied`，`refresh_outcome=reattached_stale_runtime_head`
+    - [x] `/api/heats` 头部已从旧的 `2026-04-20` runtime head 切回当前 discovery 的 `2026-04-22 13:00 / 13:30`
+    - [x] 手动 `POST /api/heats/runtime/refresh` 后，head 未再打回旧日期
+- [!] 当前边界
+  - [!] 本轮完成的是后端 stale head 自动重挂修复、定向回归与本机 API 真实路径验证，不是完整浏览器用户路径 UAT
+  - [!] 本地 background refresh 期间 `snapshot_status` 会短暂显示 `refreshing_history`，但当前已确认 head 不再回退；若要给前端最终体验结论，仍建议再补浏览器侧长稳观察
+
+---
+
 ### 2026-04-20（fixed_interval 弱活跃 slot 已保留，真实 replay 已恢复 09:00 炉次）
 
 - [x] 已完成 fixed_interval weak-slot existence gate 修复

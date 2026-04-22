@@ -734,3 +734,73 @@ npm.cmd --prefix 'D:\project\EDC electricity\apps\web' run test -- src/__tests__
 - 容忍窗口内找不到候选时是否回退理想切点
 - live runtime / replay batch / replay head rebuild 是否共用同一套 fixed 语义
 - 设置页在空值或默认加载时是否展示 `fixed_interval + 30`
+
+## 2026-04-22 `current -> previous -> db` 单步推进回归
+
+本轮 runtime backlog 修复后，最小安全回归命令如下。
+
+后端：
+
+```powershell
+$env:ASNS_TEST_DB_PATH='D:\project\EDC electricity\apps\server\.pytest-db\runtime-advance-once.db'
+& 'D:\project\EDC electricity\apps\server\.venv\Scripts\python.exe' -m pytest -q `
+  'D:\project\EDC electricity\apps\server\tests\test_heat_runtime_advance_service.py'
+```
+
+```powershell
+$env:ASNS_TEST_DB_PATH='D:\project\EDC electricity\apps\server\.pytest-db\runtime-advance-once.db'
+& 'D:\project\EDC electricity\apps\server\.venv\Scripts\python.exe' -m pytest -q `
+  'D:\project\EDC electricity\apps\server\tests\test_heats_api.py' `
+  -k 'live_refresh_advances_one_step_when_discovery_contains_intermediate_closed_slot or stale_live_refresh_cannot_append_sealed_history_after_generation_changed or idle_window_after_replay_keeps_previous_without_error or refresh_heat_runtime_bootstrap_keeps_live_segments_in_runtime_only or refresh_heat_runtime_supports_fixed_interval_cutting_mode_on_bootstrap'
+```
+
+```powershell
+$env:ASNS_TEST_DB_PATH='D:\project\EDC electricity\apps\server\.pytest-db\runtime-advance-once.db'
+& 'D:\project\EDC electricity\apps\server\.venv\Scripts\python.exe' -m pytest -q `
+  'D:\project\EDC electricity\apps\server\tests\test_heat_replay_api.py' `
+  -k 'replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_continuation'
+```
+
+本组回归重点检查：
+
+- `processor/discovery` 一轮即使看见多颗 closed slots，live refresh 也只能正式推进一步
+- `seal_service` 本轮只接收 `advance_once` 选中的单个 seal source，不再误把整个 backlog 一次性入库
+- backlog 场景下不再报 `sealed_runtime_source_missing`
+- replay / batch 不改变业务语义，只是在内部循环调用同一个 `advance_once` 追平到最新 head
+- replay 切回 live 后，后续 background refresh 仍沿单步推进链继续工作
+
+## 2026-04-22 重启后 stale runtime head 自动重挂回归
+
+本轮修的是“重启后 `/api/heats` 表面 `ready`，但 `current / previous` 永远卡在旧日期”的问题。最小安全回归命令如下。
+
+后端：
+
+```powershell
+$env:ASNS_TEST_DB_PATH='D:\project\EDC electricity\apps\server\.pytest-db\stale-head-reattach.db'
+& 'D:\project\EDC electricity\apps\server\.venv\Scripts\python.exe' -m pytest -q `
+  'D:\project\EDC electricity\apps\server\tests\test_heat_runtime_advance_service.py'
+```
+
+```powershell
+$env:ASNS_TEST_DB_PATH='D:\project\EDC electricity\apps\server\.pytest-db\stale-head-reattach.db'
+& 'D:\project\EDC electricity\apps\server\.venv\Scripts\python.exe' -m pytest -q `
+  'D:\project\EDC electricity\apps\server\tests\test_heats_api.py' `
+  -k 'restart_restores_stale_head_but_first_live_refresh_reattaches or live_refresh_advances_one_step_when_discovery_contains_intermediate_closed_slot or stale_live_refresh_cannot_append_sealed_history_after_generation_changed or idle_window_after_replay_keeps_previous_without_error'
+```
+
+```powershell
+$env:ASNS_TEST_DB_PATH='D:\project\EDC electricity\apps\server\.pytest-db\stale-head-reattach.db'
+& 'D:\project\EDC electricity\apps\server\.venv\Scripts\python.exe' -m pytest -q `
+  'D:\project\EDC electricity\apps\server\tests\test_heat_replay_api.py' `
+  -k 'replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_continuation'
+```
+
+本组回归重点检查：
+
+- stale/disconnected runtime head 在首轮 live refresh 不再 `noop`
+- `advance_once` 会直接返回 `reattach_to_discovery_tail`
+- 本轮重挂只重建 `current / previous`，不误触发 `append_sealed_heats`
+- `previous_runtime.context_start_time` 不再继承 stale 旧日期上下文
+- `refresh_error = null`
+- `refresh_failure_count = 0`
+- 重挂完成后，后续 background refresh 继续沿正常单步推进链工作

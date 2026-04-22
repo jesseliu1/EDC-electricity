@@ -78,6 +78,13 @@ from ..services.heat_replay_batch_service import (
     list_heat_replay_jobs as list_heat_replay_job_records,
 )
 from ..services.heat_replay_runtime_aggregate_service import ReplayAggregateResult
+from ..services.heat_runtime_advance_service import (
+    DiscoveredSlotSummary,
+    HeatRuntimeAdvanceService,
+    RuntimeDiscoveryResult,
+    RuntimeHeadState,
+    runtime_slot_key,
+)
 from ..services.heat_runtime_aggregate_coordinator import (
     HeatRuntimeAggregateCoordinator,
     RuntimeAggregateLease,
@@ -1835,6 +1842,68 @@ def _summarize_processor_snapshot_for_debug(snapshot: dict[str, Any] | None) -> 
     return {"config": config_summary, "state": state_summary}
 
 
+def _slot_key_for_runtime_item(item: dict[str, Any] | None) -> str | None:
+    return runtime_slot_key(item)
+
+
+def _build_runtime_discovery_result(
+    *,
+    ordered_items: list[dict[str, Any]],
+    active_candidate: dict[str, Any] | None,
+    previous_candidate: dict[str, Any] | None,
+    sealed_candidates: list[dict[str, Any]],
+    snapshot_watermark: datetime | None,
+    processor_state_snapshot: dict[str, Any] | None,
+) -> RuntimeDiscoveryResult:
+    return RuntimeDiscoveryResult(
+        ordered_slots=[
+            DiscoveredSlotSummary(slot_key=slot_key)
+            for item in ordered_items
+            if (slot_key := _slot_key_for_runtime_item(item)) is not None
+        ],
+        active_slot_key=_slot_key_for_runtime_item(active_candidate),
+        previous_slot_key=_slot_key_for_runtime_item(previous_candidate),
+        sealed_slot_keys=[
+            slot_key
+            for candidate in sealed_candidates
+            if (slot_key := _slot_key_for_runtime_item(candidate)) is not None
+        ],
+        snapshot_watermark=snapshot_watermark,
+        processor_state_snapshot=processor_state_snapshot,
+    )
+
+
+def _select_runtime_candidate_by_slot_key(
+    *,
+    slot_key: str | None,
+    ordered_item_lookup: dict[str, dict[str, Any]],
+    existing_active_item: dict[str, Any] | None,
+    existing_previous_item: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if slot_key is None:
+        return None
+    if slot_key in ordered_item_lookup:
+        return dict(ordered_item_lookup[slot_key])
+    if isinstance(existing_active_item, dict) and _slot_key_for_runtime_item(existing_active_item) == slot_key:
+        return dict(existing_active_item)
+    if isinstance(existing_previous_item, dict) and _slot_key_for_runtime_item(existing_previous_item) == slot_key:
+        return dict(existing_previous_item)
+    return None
+
+
+def _summarize_runtime_advance_plan_for_debug(plan: Any) -> dict[str, Any] | None:
+    if plan is None:
+        return None
+    return {
+        "action": getattr(plan, "action", None),
+        "seal_slot_key": getattr(plan, "seal_slot_key", None),
+        "next_previous_slot_key": getattr(plan, "next_previous_slot_key", None),
+        "next_current_slot_key": getattr(plan, "next_current_slot_key", None),
+        "remaining_closed_backlog": getattr(plan, "remaining_closed_backlog", None),
+        "refresh_outcome": getattr(plan, "refresh_outcome", None),
+    }
+
+
 def _summarize_runtime_lease_for_debug(
     lease: RuntimeAggregateLease | None,
 ) -> dict[str, Any] | None:
@@ -2250,6 +2319,15 @@ async def _refresh_heat_runtime_state_from_context(
         for segment in refresh_result.processor_result.sealed_segments
         if (item := _segment_item(segment)) is not None
     ]
+    ordered_segment_items = sorted(
+        [dict(item) for item in segment_items if isinstance(item, dict)],
+        key=lambda item: (item.get("start_time"), str(item.get("id") or "")),
+    )
+    ordered_item_lookup = {
+        slot_key: item
+        for item in ordered_segment_items
+        if (slot_key := _slot_key_for_runtime_item(item)) is not None
+    }
     _log_heat_runtime_debug(
         "heat_runtime_refresh_candidates_segment_resolved",
         reason=reason,
@@ -2258,85 +2336,6 @@ async def _refresh_heat_runtime_state_from_context(
         previous_candidate_raw=_summarize_runtime_item_for_debug(previous_candidate),
         existing_active=_summarize_runtime_item_for_debug(existing_active_item),
         existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
-    )
-    active_candidate = _hydrate_candidate_from_existing_runtime(
-        active_candidate,
-        existing_item=existing_active_item if isinstance(existing_active_item, dict) else None,
-    )
-    previous_candidate = _hydrate_candidate_from_existing_runtime(
-        previous_candidate,
-        existing_item=existing_previous_item if isinstance(existing_previous_item, dict) else None,
-    )
-    if (
-        previous_candidate is not None
-        and isinstance(existing_active_item, dict)
-        and str(previous_candidate.get("id") or "") == str(existing_active_item.get("id") or "")
-    ):
-        previous_candidate = _hydrate_candidate_from_existing_runtime(
-            previous_candidate,
-            existing_item=existing_active_item,
-        )
-    _log_heat_runtime_debug(
-        "heat_runtime_refresh_candidates_hydrated",
-        reason=reason,
-        channel_key=str(context.get("channel_key") or ""),
-        active_candidate_hydrated=_summarize_runtime_item_for_debug(active_candidate),
-        previous_candidate_hydrated=_summarize_runtime_item_for_debug(previous_candidate),
-        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
-        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
-    )
-    previous_candidate = _HEAT_RUNTIME_TRANSITION_SERVICE.prepare_previous_candidate(
-        previous_candidate,
-        active_candidate=active_candidate,
-        existing_previous_item=(
-            existing_previous_item if isinstance(existing_previous_item, dict) else None
-        ),
-        existing_active_item=(
-            existing_active_item if isinstance(existing_active_item, dict) else None
-        ),
-    )
-    active_candidate = _HEAT_RUNTIME_TRANSITION_SERVICE.prepare_active_candidate(
-        active_candidate,
-        previous_candidate=previous_candidate,
-        existing_previous_item=(
-            existing_previous_item if isinstance(existing_previous_item, dict) else None
-        ),
-    )
-    _log_heat_runtime_debug(
-        "heat_runtime_refresh_candidates_transitioned",
-        reason=reason,
-        channel_key=str(context.get("channel_key") or ""),
-        active_candidate_transitioned=_summarize_runtime_item_for_debug(active_candidate),
-        previous_candidate_transitioned=_summarize_runtime_item_for_debug(previous_candidate),
-        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
-        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
-    )
-    if active_candidate is not None and not _same_runtime_candidate(
-        active_candidate,
-        existing_active_item,
-    ):
-        active_seed_source: dict[str, Any] | None = None
-        if (
-            isinstance(previous_candidate, dict)
-            and str(previous_candidate.get("id") or "").strip()
-            != str(active_candidate.get("id") or "").strip()
-        ):
-            active_seed_source = previous_candidate
-        elif isinstance(existing_previous_item, dict):
-            active_seed_source = existing_previous_item
-        if active_seed_source is not None:
-            active_candidate = _seed_candidate_context_curves_from_runtime(
-                active_candidate,
-                existing_item=active_seed_source,
-            )
-    _log_heat_runtime_debug(
-        "heat_runtime_refresh_candidates_prepared",
-        reason=reason,
-        channel_key=str(context.get("channel_key") or ""),
-        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
-        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
-        active_candidate=_summarize_runtime_item_for_debug(active_candidate),
-        previous_candidate=_summarize_runtime_item_for_debug(previous_candidate),
     )
     _log_heat_runtime_debug(
         "heat_runtime_refresh_segments_resolved",
@@ -2478,6 +2477,164 @@ async def _refresh_heat_runtime_state_from_context(
         await persist_runtime_state(*_runtime_heat_sections())
         return _build_heat_runtime_refresh_meta_snapshot()
 
+    discovery_result = _build_runtime_discovery_result(
+        ordered_items=ordered_segment_items,
+        active_candidate=active_candidate,
+        previous_candidate=previous_candidate,
+        sealed_candidates=sealed_candidates,
+        snapshot_watermark=refresh_result.fetch_end_time,
+        processor_state_snapshot=refresh_result.processor_state,
+    )
+    advance_plan = _HEAT_RUNTIME_ADVANCE_SERVICE.advance_once(
+        RuntimeHeadState(
+            current_item=existing_active_item if isinstance(existing_active_item, dict) else None,
+            previous_item=existing_previous_item if isinstance(existing_previous_item, dict) else None,
+            latest_history_item=None,
+        ),
+        discovery_result,
+    )
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_advance_plan",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+        discovery_active=_summarize_runtime_item_for_debug(active_candidate),
+        discovery_previous=_summarize_runtime_item_for_debug(previous_candidate),
+        sealed_candidate_ids=[str(item.get("id") or "") for item in sealed_candidates],
+        advance_plan=_summarize_runtime_advance_plan_for_debug(advance_plan),
+    )
+    if advance_plan.action == "reattach_to_discovery_tail":
+        _log_heat_runtime_debug(
+            "heat_runtime_stale_head_reattached",
+            reason=reason,
+            channel_key=str(context.get("channel_key") or ""),
+            existing_active_id=str(existing_active_item.get("id") or "")
+            if isinstance(existing_active_item, dict)
+            else "",
+            existing_previous_id=str(existing_previous_item.get("id") or "")
+            if isinstance(existing_previous_item, dict)
+            else "",
+            discovery_active_id=str(active_candidate.get("id") or "")
+            if isinstance(active_candidate, dict)
+            else "",
+            discovery_previous_id=str(previous_candidate.get("id") or "")
+            if isinstance(previous_candidate, dict)
+            else "",
+            reattach_reason="runtime_head_outside_discovery_sequence",
+            old_head_in_ordered_slots=False,
+        )
+    reattach_disconnected_head = advance_plan.action == "reattach_to_discovery_tail"
+
+    active_candidate = _select_runtime_candidate_by_slot_key(
+        slot_key=advance_plan.next_current_slot_key,
+        ordered_item_lookup=ordered_item_lookup,
+        existing_active_item=existing_active_item if isinstance(existing_active_item, dict) else None,
+        existing_previous_item=existing_previous_item if isinstance(existing_previous_item, dict) else None,
+    )
+    previous_candidate = _select_runtime_candidate_by_slot_key(
+        slot_key=advance_plan.next_previous_slot_key,
+        ordered_item_lookup=ordered_item_lookup,
+        existing_active_item=existing_active_item if isinstance(existing_active_item, dict) else None,
+        existing_previous_item=existing_previous_item if isinstance(existing_previous_item, dict) else None,
+    )
+
+    active_candidate = _hydrate_candidate_from_existing_runtime(
+        active_candidate,
+        existing_item=(
+            None
+            if reattach_disconnected_head
+            else (existing_active_item if isinstance(existing_active_item, dict) else None)
+        ),
+    )
+    previous_hydrate_source = (
+        None
+        if reattach_disconnected_head
+        else (
+            existing_active_item
+            if (
+                isinstance(existing_active_item, dict)
+                and previous_candidate is not None
+                and str(previous_candidate.get("id") or "")
+                == str(existing_active_item.get("id") or "")
+            )
+            else (existing_previous_item if isinstance(existing_previous_item, dict) else None)
+        )
+    )
+    previous_candidate = _hydrate_candidate_from_existing_runtime(
+        previous_candidate,
+        existing_item=previous_hydrate_source,
+    )
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_candidates_hydrated",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        active_candidate_hydrated=_summarize_runtime_item_for_debug(active_candidate),
+        previous_candidate_hydrated=_summarize_runtime_item_for_debug(previous_candidate),
+        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+    )
+    previous_candidate = _HEAT_RUNTIME_TRANSITION_SERVICE.prepare_previous_candidate(
+        previous_candidate,
+        active_candidate=active_candidate,
+        existing_previous_item=(
+            None
+            if reattach_disconnected_head
+            else (existing_previous_item if isinstance(existing_previous_item, dict) else None)
+        ),
+        existing_active_item=(
+            None
+            if reattach_disconnected_head
+            else (existing_active_item if isinstance(existing_active_item, dict) else None)
+        ),
+    )
+    active_candidate = _HEAT_RUNTIME_TRANSITION_SERVICE.prepare_active_candidate(
+        active_candidate,
+        previous_candidate=previous_candidate,
+        existing_previous_item=(
+            None
+            if reattach_disconnected_head
+            else (existing_previous_item if isinstance(existing_previous_item, dict) else None)
+        ),
+    )
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_candidates_transitioned",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        active_candidate_transitioned=_summarize_runtime_item_for_debug(active_candidate),
+        previous_candidate_transitioned=_summarize_runtime_item_for_debug(previous_candidate),
+        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+    )
+    if active_candidate is not None and not _same_runtime_candidate(
+        active_candidate,
+        existing_active_item,
+    ):
+        active_seed_source: dict[str, Any] | None = None
+        if not reattach_disconnected_head and (
+            isinstance(previous_candidate, dict)
+            and str(previous_candidate.get("id") or "").strip()
+            != str(active_candidate.get("id") or "").strip()
+        ):
+            active_seed_source = previous_candidate
+        elif not reattach_disconnected_head and isinstance(existing_previous_item, dict):
+            active_seed_source = existing_previous_item
+        if active_seed_source is not None:
+            active_candidate = _seed_candidate_context_curves_from_runtime(
+                active_candidate,
+                existing_item=active_seed_source,
+            )
+    _log_heat_runtime_debug(
+        "heat_runtime_refresh_candidates_prepared",
+        reason=reason,
+        channel_key=str(context.get("channel_key") or ""),
+        existing_active=_summarize_runtime_item_for_debug(existing_active_item),
+        existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
+        active_candidate=_summarize_runtime_item_for_debug(active_candidate),
+        previous_candidate=_summarize_runtime_item_for_debug(previous_candidate),
+        advance_plan=_summarize_runtime_advance_plan_for_debug(advance_plan),
+    )
+
     active_reuses_existing = _same_runtime_candidate(active_candidate, existing_active_item)
     previous_reuses_existing = _same_runtime_candidate(previous_candidate, existing_previous_item)
     previous_reuses_existing_active = _same_runtime_candidate(
@@ -2608,19 +2765,25 @@ async def _refresh_heat_runtime_state_from_context(
         )
         active_item = _mark_active_runtime(active_runtime.to_runtime_item())
         next_active_runtime[str(active_item["id"])] = active_item
-    previous_item = _choose_next_previous_runtime(
-        existing_active_item=existing_active_item
-        if isinstance(existing_active_item, dict)
-        else None,
-        existing_previous_item=(
-            existing_previous_item if isinstance(existing_previous_item, dict) else None
-        ),
-        next_active_candidate_id=(
-            str(prepared_active_candidate["id"]) if prepared_active_candidate is not None else None
-        ),
-        prepared_previous_candidate=prepared_previous_candidate,
-        reason=reason,
-    )
+    previous_item: dict[str, Any] | None = None
+    if prepared_previous_candidate is not None:
+        previous_runtime = _build_current_heat_runtime(
+            prepared_previous_candidate,
+            trigger_source=reason,
+            processing_mode="live_incremental",
+        )
+        previous_item = _mark_previous_runtime(previous_runtime.to_runtime_item())
+    elif (
+        isinstance(existing_active_item, dict)
+        and advance_plan.next_previous_slot_key == _slot_key_for_runtime_item(existing_active_item)
+    ):
+        previous_item = _mark_previous_runtime(dict(existing_active_item))
+    elif (
+        isinstance(existing_previous_item, dict)
+        and advance_plan.next_previous_slot_key
+        == _slot_key_for_runtime_item(existing_previous_item)
+    ):
+        previous_item = _mark_previous_runtime(dict(existing_previous_item))
     if previous_item is not None:
         next_previous_runtime[str(previous_item["id"])] = previous_item
     _log_heat_runtime_debug(
@@ -2631,9 +2794,19 @@ async def _refresh_heat_runtime_state_from_context(
         next_previous=_summarize_runtime_item_for_debug(previous_item),
     )
 
+    selected_seal_candidate = _select_runtime_candidate_by_slot_key(
+        slot_key=advance_plan.seal_slot_key,
+        ordered_item_lookup=ordered_item_lookup,
+        existing_active_item=existing_active_item if isinstance(existing_active_item, dict) else None,
+        existing_previous_item=existing_previous_item if isinstance(existing_previous_item, dict) else None,
+    )
     try:
         seal_sources = _HEAT_RUNTIME_SEAL_SERVICE.resolve_seal_sources(
-            sealed_candidates=[dict(candidate) for candidate in sealed_candidates],
+            sealed_candidates=(
+                [dict(selected_seal_candidate)]
+                if isinstance(selected_seal_candidate, dict)
+                else []
+            ),
             existing_previous_item=(
                 existing_previous_item if isinstance(existing_previous_item, dict) else None
             ),
@@ -2650,7 +2823,11 @@ async def _refresh_heat_runtime_state_from_context(
             error=str(exc),
             existing_active=_summarize_runtime_item_for_debug(existing_active_item),
             existing_previous=_summarize_runtime_item_for_debug(existing_previous_item),
-            sealed_candidate_ids=[str(candidate.get("id") or "") for candidate in sealed_candidates],
+            sealed_candidate_ids=(
+                [str(selected_seal_candidate.get("id") or "")]
+                if isinstance(selected_seal_candidate, dict)
+                else []
+            ),
         )
         _mark_heat_runtime_refresh_failure(error=str(exc))
         await persist_runtime_state(*_runtime_heat_sections())
@@ -2670,7 +2847,11 @@ async def _refresh_heat_runtime_state_from_context(
         prepared_previous=_summarize_runtime_item_for_debug(prepared_previous_candidate),
         next_active_ids=list(next_active_runtime.keys()),
         next_previous_ids=list(next_previous_runtime.keys()),
-        sealed_candidate_ids=[str(candidate.get("id") or "") for candidate in sealed_candidates],
+        sealed_candidate_ids=(
+            [str(selected_seal_candidate.get("id") or "")]
+            if isinstance(selected_seal_candidate, dict)
+            else []
+        ),
     )
 
     existing_active_id = (
@@ -2684,20 +2865,27 @@ async def _refresh_heat_runtime_state_from_context(
     existing_active_end = _candidate_end_time(existing_active_item)
     next_active_end = _candidate_end_time(prepared_active_candidate)
 
-    if not prepared_active_candidate:
-        refresh_outcome = "no_new_heat_born"
-    elif existing_active_id and next_active_id == existing_active_id:
-        refresh_outcome = (
-            "active_heat_continues"
-            if (
-                existing_active_end is not None
-                and next_active_end is not None
-                and next_active_end > existing_active_end
+    if advance_plan.refresh_outcome not in {
+        "bootstrap_current",
+        "backlog_catchup",
+        "reattached_stale_runtime_head",
+    }:
+        if not prepared_active_candidate:
+            refresh_outcome = "no_new_heat_born"
+        elif existing_active_id and next_active_id == existing_active_id:
+            refresh_outcome = (
+                "active_heat_continues"
+                if (
+                    existing_active_end is not None
+                    and next_active_end is not None
+                    and next_active_end > existing_active_end
+                )
+                else "no_new_heat_born"
             )
-            else "no_new_heat_born"
-        )
+        else:
+            refresh_outcome = "new_heat_born"
     else:
-        refresh_outcome = "new_heat_born"
+        refresh_outcome = str(advance_plan.refresh_outcome)
 
     _log_heat_runtime_debug(
         "heat_runtime_live_commit_attempt",
@@ -2716,7 +2904,11 @@ async def _refresh_heat_runtime_state_from_context(
         ),
         next_active_id=next(iter(next_active_runtime.keys()), None),
         next_previous_id=next(iter(next_previous_runtime.keys()), None),
-        sealed_candidate_ids=[str(candidate.get("id") or "") for candidate in sealed_candidates],
+        sealed_candidate_ids=(
+            [str(selected_seal_candidate.get("id") or "")]
+            if isinstance(selected_seal_candidate, dict)
+            else []
+        ),
     )
 
     next_history_items: dict[str, dict[str, Any]] = {}
@@ -2724,7 +2916,10 @@ async def _refresh_heat_runtime_state_from_context(
 
     async def _commit_live_projection() -> None:
         nonlocal next_history_items, snapshot_watermark
-        next_history_items = await append_sealed_heats(seal_sources)
+        if advance_plan.action == "reattach_to_discovery_tail" or not seal_sources:
+            next_history_items = {}
+        else:
+            next_history_items = await append_sealed_heats(seal_sources)
         next_runtime_lookup = dict(next_history_items)
         next_runtime_lookup.update(next_previous_runtime)
         next_runtime_lookup.update(next_active_runtime)
@@ -3960,6 +4155,7 @@ _HEAT_RUNTIME_REFRESH_INFLIGHT: asyncio.Task[dict[str, Any]] | None = None
 _HEAT_RUNTIME_REFRESH_LOOP_TASK: asyncio.Task[None] | None = None
 _HEAT_RUNTIME_FACTORY = HeatRuntimeFactory()
 _HEAT_RUNTIME_UPDATER = HeatRuntimeUpdater()
+_HEAT_RUNTIME_ADVANCE_SERVICE = HeatRuntimeAdvanceService()
 _HEAT_RUNTIME_TRANSITION_SERVICE = HeatRuntimeTransitionService()
 _HEAT_RUNTIME_SEAL_SERVICE = HeatRuntimeSealService()
 _HEAT_RUNTIME_AGGREGATE_COORDINATOR = HeatRuntimeAggregateCoordinator()

@@ -575,71 +575,20 @@ def _seed_runtime_heat(
     import src.api.heats as heats_module
 
     runtime_start = start_time or datetime(2026, 3, 19, 8, 0, 0)
-    definition_id = str(baseline_id).split(":", 1)[0]
-    runtime_metric_series = _build_runtime_metric_series(
-        heat_id=heat_id,
-        baseline_id=baseline_id,
-        start_time=runtime_start,
-    )
-    item = {
-        "id": heat_id,
-        "heat_no": f"H{runtime_start.strftime('%Y%m%d-%H%M')}",
-        "description": "运行态炉次",
-        "start_time": runtime_start,
-        "end_time": runtime_start + timedelta(minutes=30),
-        "completion_status": "in_progress" if record_source == "active_runtime" else "completed",
-        "last_point_at": runtime_start + timedelta(minutes=30),
-        "baseline_id": baseline_id,
-        "baseline_version_id": baseline_id,
-        "baseline_effective_from": _formal_baseline_effective_from(baseline_id),
-        "baseline_ids": [baseline_id],
-        "deviation_score": None,
-        "avg_deviation_score": None,
-        "abnormal_duration_minutes": None,
-        "schedule_tag": "work",
-        "cut_reason": record_source,
-        "cut_status": "normal",
-        "major_issue": False,
-        "blocked_by_issue": False,
-        "status": "normal" if record_source != "active_runtime" else "pending",
-        "temperature": None,
-        "record_source": record_source,
-        "current_curve_source": "live_edc",
-        "baseline_curve_source": "runtime_snapshot",
-        "created_at": runtime_start,
-        "power_curve": [
-            CurvePoint(**point) for point in runtime_metric_series[0]["series_json"]["points"]
-        ],
-        "voltage_curve": [
-            CurvePoint(**point) for point in runtime_metric_series[1]["series_json"]["points"]
-        ],
-        "baseline_power_curve": [],
-        "baseline_voltage_curve": [],
-        "runtime_metric_series": runtime_metric_series,
-        "definition_metric_snapshots": _build_runtime_definition_metric_snapshots(
-            definition_id=definition_id
-        ),
-        "baseline_curve_snapshots": _build_runtime_baseline_curve_snapshots(
+    item = dict(
+        _build_runtime_item_with_birth_context(
+            heat_id=heat_id,
             baseline_id=baseline_id,
+            record_source=record_source,
             start_time=runtime_start,
-        ),
-        "baseline_bindings": [
-            {
-                "heat_id": heat_id,
-                "baseline_id": baseline_id,
-                "baseline_definition_id": definition_id,
-                "baseline_item": "001",
-                "is_primary": True,
-                "baseline_effective_from": _formal_baseline_effective_from(baseline_id),
-                "tolerance_percent": 15.0,
-                "analysis_status": "ready",
-                "deviation_score": 1.2,
-                "avg_deviation_score": 0.8,
-                "analysis_details_json": '{"abnormal_ranges":[]}',
-                "abnormal_duration_minutes": 0.0,
-            }
-        ],
-    }
+        )
+    )
+    item["description"] = "运行态炉次"
+    item["current_curve_source"] = "live_edc"
+    item["baseline_curve_source"] = "runtime_snapshot"
+    item["completion_status"] = "in_progress" if record_source == "active_runtime" else "completed"
+    item["status"] = "normal" if record_source != "active_runtime" else "pending"
+    item["record_source"] = record_source
 
     if record_source == "previous_runtime":
         heats_module._PREVIOUS_HEAT_RUNTIME[heat_id] = item
@@ -3990,7 +3939,7 @@ async def test_live_refresh_does_not_compile_raw_sealed_candidates_when_previous
 
 
 @pytest.mark.asyncio
-async def test_live_refresh_errors_when_sealed_segment_cannot_resolve_through_previous_only(
+async def test_live_refresh_advances_one_step_when_discovery_contains_intermediate_closed_slot(
     client, monkeypatch
 ) -> None:
     _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
@@ -4003,8 +3952,21 @@ async def test_live_refresh_errors_when_sealed_segment_cannot_resolve_through_pr
     previous_points = heats_module._curve_points(datetime(2026, 3, 19, 8, 0), 28, 118.0, 3.0, 0.0)
     active_points = heats_module._curve_points(datetime(2026, 3, 19, 9, 0), 28, 124.0, 3.0, 0.0)
     sealed_points = heats_module._curve_points(datetime(2026, 3, 19, 8, 31), 28, 121.0, 3.0, 0.0)
+    previous_segment = HeatSegment(points=previous_points)
     active_segment = HeatSegment(points=active_points)
     sealed_segment = HeatSegment(points=sealed_points)
+    canonical_items = heats_module._build_live_heat_items_from_segments(
+        context=context,
+        segments=[previous_segment, sealed_segment, active_segment],
+        baseline_id=context["baseline_id"],
+        expected_duration_minutes=int(context["expected_duration_minutes"]),
+        cutting_config=heats_module._resolve_live_context_cutting_config(context),
+    )
+    canonical_items.sort(key=lambda item: item["start_time"])
+    existing_previous_id = str(canonical_items[0]["id"])
+    expected_shifted_previous_id = str(canonical_items[1]["id"])
+    existing_active_id = str(canonical_items[2]["id"])
+    sealed_source_ids: list[str] = []
 
     async def fake_refresh_live_heat_segments(*args, **kwargs):
         return LiveHeatRefreshResult(
@@ -4025,7 +3987,7 @@ async def test_live_refresh_errors_when_sealed_segment_cannot_resolve_through_pr
                     "processor_phase": "awaiting_seal",
                     "activity_threshold": 100.0,
                     "last_point_timestamp": int(active_points[-1].timestamp),
-                    "current_heat_id": "runtime-active-existing",
+                    "current_heat_id": existing_active_id,
                     "pending_seal_heat_id": "sealed-runtime-missing",
                     "points_buffer": list(active_points),
                 },
@@ -4047,6 +4009,10 @@ async def test_live_refresh_errors_when_sealed_segment_cannot_resolve_through_pr
             reused_processor_snapshot=True,
         )
 
+    async def fake_append_sealed_heats(candidates):
+        sealed_source_ids.extend(str(candidate.get("id") or "") for candidate in candidates)
+        return {}
+
     heats_module._HEAT_STORE.clear()
     heats_module._ACTIVE_HEAT_RUNTIME.clear()
     heats_module._PREVIOUS_HEAT_RUNTIME.clear()
@@ -4054,12 +4020,12 @@ async def test_live_refresh_errors_when_sealed_segment_cannot_resolve_through_pr
     heats_module._HEAT_STREAM_PROCESSOR_STATE.clear()
     heats_module._reset_heat_runtime_refresh_meta()
     _seed_runtime_heat(
-        heat_id="runtime-previous-existing",
+        heat_id=existing_previous_id,
         record_source="previous_runtime",
         start_time=datetime(2026, 3, 19, 8, 0),
     )
     _seed_runtime_heat(
-        heat_id="runtime-active-existing",
+        heat_id=existing_active_id,
         record_source="active_runtime",
         start_time=datetime(2026, 3, 19, 9, 0),
     )
@@ -4072,9 +4038,146 @@ async def test_live_refresh_errors_when_sealed_segment_cannot_resolve_through_pr
         "src.api.heats.refresh_live_heat_segments",
         fake_refresh_live_heat_segments,
     )
+    monkeypatch.setattr(
+        "src.api.heats.append_sealed_heats",
+        fake_append_sealed_heats,
+    )
 
-    with pytest.raises(ValueError, match="sealed_runtime_source_missing"):
-        await heats_module.refresh_heat_runtime_state(reason="test")
+    refresh_meta = await heats_module.refresh_heat_runtime_state(reason="test")
+
+    assert refresh_meta["refresh_error"] is None
+    assert refresh_meta["refresh_failure_count"] == 0
+    assert sealed_source_ids == [existing_previous_id]
+    assert list(heats_module._ACTIVE_HEAT_RUNTIME.keys()) == [existing_active_id]
+    previous_ids = list(heats_module._PREVIOUS_HEAT_RUNTIME.keys())
+    assert len(previous_ids) == 1
+    assert previous_ids[0] == expected_shifted_previous_id
+
+
+@pytest.mark.asyncio
+async def test_restart_restores_stale_head_but_first_live_refresh_reattaches(
+    client, monkeypatch
+) -> None:
+    _SETTINGS_STORE["live_heat_inference_enabled"]["value"] = "true"
+
+    import src.api.heats as heats_module
+    from src.services.heat_stream_processor import HeatProcessorResult, HeatSegment
+    from src.services.live_heat_runtime_service import LiveHeatRefreshResult
+
+    context = _build_test_live_context()
+    previous_points = heats_module._curve_points(datetime(2026, 4, 22, 11, 0), 28, 118.0, 3.0, 0.0)
+    active_points = heats_module._curve_points(datetime(2026, 4, 22, 11, 30), 28, 124.0, 3.0, 0.0)
+    previous_segment = HeatSegment(points=previous_points)
+    active_segment = HeatSegment(points=active_points)
+    canonical_items = heats_module._build_live_heat_items_from_segments(
+        context=context,
+        segments=[previous_segment, active_segment],
+        baseline_id=context["baseline_id"],
+        expected_duration_minutes=int(context["expected_duration_minutes"]),
+        cutting_config=heats_module._resolve_live_context_cutting_config(context),
+    )
+    canonical_items.sort(key=lambda item: item["start_time"])
+    expected_previous_id = str(canonical_items[0]["id"])
+    expected_active_id = str(canonical_items[1]["id"])
+    append_calls = 0
+
+    async def fake_refresh_live_heat_segments(*args, **kwargs):
+        return LiveHeatRefreshResult(
+            processor_state={
+                "config": {
+                    "cache_key": str(context["cache_key"]),
+                    "channel_key": str(context["channel_key"]),
+                    "context_hash": str(context["context_hash"]),
+                    "expected_duration_minutes": int(context["expected_duration_minutes"]),
+                    "cutting_config_token": heats_module._resolve_live_context_cutting_config(
+                        context
+                    ).cache_token(),
+                    "processing_mode": "live_incremental",
+                    "anchor_timestamp_ms": to_timestamp_ms(datetime(2026, 4, 22, 11, 0)),
+                },
+                "state": {
+                    "bootstrapped": True,
+                    "processor_phase": "awaiting_seal",
+                    "activity_threshold": 100.0,
+                    "last_point_timestamp": int(active_points[-1].timestamp),
+                    "current_heat_id": expected_active_id,
+                    "pending_seal_heat_id": None,
+                    "points_buffer": list(active_points),
+                },
+            },
+            processor_result=HeatProcessorResult(
+                active_segment=active_segment,
+                previous_segment=previous_segment,
+                sealed_segments=[],
+                all_segments=[previous_segment, active_segment],
+                bootstrapped=True,
+                last_point_timestamp=int(active_points[-1].timestamp),
+                activity_threshold=100.0,
+            ),
+            fetch_start_time=datetime(2026, 4, 22, 11, 0),
+            fetch_end_time=datetime(2026, 4, 22, 11, 58),
+            anchor_time=datetime(2026, 4, 22, 11, 0),
+            point_count=len(previous_points) + len(active_points),
+            used_bootstrap_window=False,
+            reused_processor_snapshot=True,
+        )
+
+    async def fake_append_sealed_heats(candidates):
+        nonlocal append_calls
+        append_calls += 1
+        return {}
+
+    heats_module._HEAT_STORE.clear()
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+    heats_module._HEAT_ID_ALIAS_STORE.clear()
+    heats_module._HEAT_STREAM_PROCESSOR_STATE.clear()
+    heats_module._reset_heat_runtime_refresh_meta()
+    _seed_runtime_heat(
+        heat_id="stale-previous-runtime",
+        record_source="previous_runtime",
+        start_time=datetime(2026, 4, 20, 15, 30),
+    )
+    _seed_runtime_heat(
+        heat_id="stale-active-runtime",
+        record_source="active_runtime",
+        start_time=datetime(2026, 4, 20, 16, 0),
+    )
+    await persist_runtime_state(
+        "active_heat_runtime",
+        "previous_heat_runtime",
+        "heat_runtime_refresh_meta",
+    )
+    heats_module._ACTIVE_HEAT_RUNTIME.clear()
+    heats_module._PREVIOUS_HEAT_RUNTIME.clear()
+    heats_module._HEAT_RUNTIME_REFRESH_META.clear()
+    await load_runtime_state()
+
+    monkeypatch.setattr(
+        "src.api.heats._resolve_live_runtime_refresh_context",
+        lambda: context,
+    )
+    monkeypatch.setattr(
+        "src.api.heats.refresh_live_heat_segments",
+        fake_refresh_live_heat_segments,
+    )
+    monkeypatch.setattr(
+        "src.api.heats.append_sealed_heats",
+        fake_append_sealed_heats,
+    )
+
+    refresh_meta = await heats_module.refresh_heat_runtime_state(reason="restart_reattach")
+
+    assert refresh_meta["refresh_error"] is None
+    assert refresh_meta["refresh_failure_count"] == 0
+    assert refresh_meta["refresh_outcome"] == "reattached_stale_runtime_head"
+    assert append_calls == 0
+    assert list(heats_module._ACTIVE_HEAT_RUNTIME.keys()) == [expected_active_id]
+    assert list(heats_module._PREVIOUS_HEAT_RUNTIME.keys()) == [expected_previous_id]
+    assert (
+        next(iter(heats_module._PREVIOUS_HEAT_RUNTIME.values()))["context_start_time"]
+        >= datetime(2026, 4, 22, 11, 0)
+    )
 
 
 @pytest.mark.asyncio
