@@ -6,6 +6,82 @@
 
 ---
 
+### 2026-04-22（已完成 ASNS 宿主页 `#2 / #3 / #4` 修复与关闭）
+
+- [x] 已新建分支 `codex/asns-issues-2-3-4`
+- [x] 已完成宿主页标题修复
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/index.html`
+  - [x] `<title>` 已从 `My Google AI Studio App` 改为 `ASNS - AI感知神经系统`
+- [x] 已完成 dock 无障碍标签修复
+  - [x] `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/src/App.tsx`
+  - [x] 底部 dock 6 个按钮已补 `aria-label / title / aria-pressed`
+- [x] 已完成 app 打开加载态修复
+  - [x] 宿主页窗口打开时新增统一 loading 遮罩
+  - [x] dock 按钮在打开期间会显示旋转 loading 指示
+  - [x] 内嵌 app iframe 加载完成后自动撤掉 loading
+- [x] 已完成本地定向验证
+  - [x] `npm run build`（ASNS 宿主页）
+  - [x] 浏览器定向验证结果：
+    - [x] `title = ASNS - AI感知神经系统`
+    - [x] `dockLabelCount = 6`
+    - [x] 点击“连线设置”后立即可见 `正在打开应用`
+- [x] 已关闭 GitHub `#2 / #3 / #4`
+- [!] 当前边界
+  - [!] 本轮是宿主页定向修复与最小交互验证，不是完整公网 UAT
+
+---
+
+### 2026-04-22（已完成明显已修改 issue 的定向复验与关闭）
+
+- [x] 已完成 GitHub `#1 / #7` 宿主链路本地定向验证
+  - [x] 已拉起本地联调栈：`./scripts/start-local-edc-stack-preserve-db.ps1`
+  - [x] 宿主设置页点击“测试连接”实际命中 `POST http://127.0.0.1:3001/host-api/edc/test-connection`
+  - [x] 宿主设置页点击“保存设置”实际命中 `PUT http://127.0.0.1:3001/api/settings/host-runtime-sync`
+  - [x] 页面 DOM 可见 `设置已保存，时间：...`，成功反馈已具备明确可见性
+- [x] 已完成 GitHub `#8` 后端定向回归
+  - [x] 已执行：`uv run --directory apps/server pytest -q tests/test_heats_api.py -k test_refresh_heat_runtime_bootstrap_keeps_live_segments_in_runtime_only`
+  - [x] 结果：`1 passed`
+  - [x] 已确认 bootstrap 后只保留 `active_runtime / previous_runtime`，不会把窗口内更早 live segments 自动写入 `sealed_history`
+- [x] 已同步更新 `issue.md`
+- [!] 当前边界
+  - [!] 本轮是“已修改项定向复验”，不是完整浏览器用户路径 UAT
+  - [!] GitHub 其余仍处于 open 的 issue（如 `#2 / #3 / #4 / #5 / #6 / #9`）未在本轮关闭
+
+---
+
+### 2026-04-22（runtime 正式推进已收口为 `advance_once` 单步原语）
+
+- [x] 已完成 `current -> previous -> db` 单步推进化改造
+  - [x] 新增 `apps/server/src/services/heat_runtime_advance_service.py`
+  - [x] runtime 正式生命周期现明确拆成两层：
+    - [x] `processor / discovery` 只负责识别 slot 与 closed/open 状态
+    - [x] `advance_once` 只负责决定本轮 `noop / bootstrap / promote / seal_and_shift`
+  - [x] live refresh 现改为“一次 discovery + 一次单步推进”
+  - [x] replay aggregate 现改为“识别一次，内部循环调用同一个 `advance_once` 直到追平”
+- [x] 已完成 live backlog seal-source 语义收口
+  - [x] `seal_service` 不再直接吃整串 `sealed_candidates`
+  - [x] live refresh 现只把 `advance_once` 选中的单个 seal source 交给正式入库链
+  - [x] backlog 场景下不再因为“一轮看到多颗 closed slots”直接掉进 `sealed_runtime_source_missing`
+- [x] 已补单步推进定向回归
+  - [x] 新增 `apps/server/tests/test_heat_runtime_advance_service.py`
+  - [x] `tests/test_heats_api.py::test_live_refresh_advances_one_step_when_discovery_contains_intermediate_closed_slot`
+  - [x] replay / handoff 相关既有回归继续覆盖：
+    - [x] `stale_live_refresh_cannot_append_sealed_history_after_generation_changed`
+    - [x] `idle_window_after_replay_keeps_previous_without_error`
+    - [x] `test_replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_continuation`
+- [x] 已同步更新文档真源
+  - [x] `docs/BACKEND_STRUCTURE.md` 已补 `processor/discovery` 与 `advance_once` 的职责边界
+  - [x] `docs/testing.md` 已补 backlog / 单步推进回归口径
+- [x] 已完成本轮定向验证
+  - [x] `uv run --directory apps/server ruff check src/services/heat_runtime_advance_service.py src/services/heat_replay_runtime_aggregate_service.py src/api/heats.py tests/test_heat_runtime_advance_service.py tests/test_heats_api.py tests/test_heat_replay_api.py`
+  - [x] `uv run --directory apps/server pytest -q tests/test_heat_runtime_advance_service.py tests/test_heats_api.py -k "live_refresh_advances_one_step_when_discovery_contains_intermediate_closed_slot or stale_live_refresh_cannot_append_sealed_history_after_generation_changed or idle_window_after_replay_keeps_previous_without_error or refresh_heat_runtime_bootstrap_keeps_live_segments_in_runtime_only or refresh_heat_runtime_supports_fixed_interval_cutting_mode_on_bootstrap or replay_runtime_aggregate_keeps_open_fixed_interval_slot_as_current" tests/test_heat_replay_api.py::test_replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_continuation`
+  - [x] `uv run --directory apps/server pytest -q tests/test_heats_api.py -k "live_refresh"`
+- [!] 当前边界
+  - [!] 本轮完成的是后端生命周期契约重构与定向回归，不是完整浏览器用户路径验证，也不是正式 UAT
+  - [!] 当前还没有做“本地真实初始化后连续观察多轮自动刷新”的人工长稳验证；这一步如果要对当前联调库给最终业务结论，仍需单独执行
+
+---
+
 ### 2026-04-20（fixed_interval 弱活跃 slot 已保留，真实 replay 已恢复 09:00 炉次）
 
 - [x] 已完成 fixed_interval weak-slot existence gate 修复

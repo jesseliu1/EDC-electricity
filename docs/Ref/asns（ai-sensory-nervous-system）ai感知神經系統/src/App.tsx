@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {   
   Activity, Package, Database, Terminal, LayoutGrid, X,   
   Download, Sun, Moon, Search, Cpu, Globe, Check,   
@@ -44,6 +44,8 @@ const hostI18n: Record<string, Record<string, string>> = {
     username: '帳戶名',
     password: '密碼',
     openApp: '打開應用',
+    openingApp: '正在打開應用',
+    openingAppDesc: '正在準備視窗與內容，請稍候。',
     hostedApp: '宿主應用',
     storeIntro: '在 ASNS 宿主中安裝與打開業務應用，先完成宿主與應用的串聯。',
     embeddedHint: '目前先以宿主內嵌方式串聯，方便確認應用商店、已安裝應用與業務頁面的整體關係。',
@@ -121,6 +123,8 @@ const hostI18n: Record<string, Record<string, string>> = {
     username: '账户名',
     password: '密码',
     openApp: '打开应用',
+    openingApp: '正在打开应用',
+    openingAppDesc: '正在准备窗口与内容，请稍候。',
     hostedApp: '宿主应用',
     storeIntro: '在 ASNS 宿主中安装与打开业务应用，先完成宿主与应用的串联。',
     embeddedHint: '目前先以宿主内嵌方式串联，方便确认应用商店、已安装应用与业务页面的整体关系。',
@@ -198,6 +202,8 @@ const hostI18n: Record<string, Record<string, string>> = {
     username: 'Username',
     password: 'Password',
     openApp: 'Open App',
+    openingApp: 'Opening App',
+    openingAppDesc: 'Preparing the window and content. Please wait a moment.',
     hostedApp: 'Hosted App',
     storeIntro: 'Install and open business apps inside ASNS first, then iterate on the embedded experience.',
     embeddedHint: 'The host currently embeds the business app so we can validate store, installed-app entry, and page flow together.',
@@ -629,10 +635,12 @@ export default function App() {
   const [theme, setTheme] = useState('light');  
   const [openWindowIds, setOpenWindowIds] = useState<string[]>([]);  
   const [activeWin, setActiveWin] = useState<string | null>(null);  
+  const [loadingWindowIds, setLoadingWindowIds] = useState<string[]>([]);
   const [customApps, setCustomApps] = useState<AppWindow[]>([]);
   const [installedAppIds, setInstalledAppIds] = useState<string[]>(['edc-electricity']);
   const [isConnected, setIsConnected] = useState(false);  
   const [showLangMenu, setShowLangMenu] = useState(false);  
+  const loadingWindowTimerRef = useRef<Record<string, ReturnType<typeof setTimeout> | undefined>>({});
   const embeddedEdcUrl = resolveEmbeddedEdcUrl();
     
   // EDC API 配置狀態  
@@ -713,10 +721,59 @@ export default function App() {
   
   const openWindows = openWindowIds.map(id => appIcons.find(app => app.id === id)).filter(Boolean) as AppWindow[];
 
+  const clearWindowLoadingTimer = useCallback((appId: string) => {
+    const timer = loadingWindowTimerRef.current[appId];
+    if (timer) {
+      clearTimeout(timer);
+      delete loadingWindowTimerRef.current[appId];
+    }
+  }, []);
+
+  const finishWindowLoading = useCallback((appId: string) => {
+    clearWindowLoadingTimer(appId);
+    setLoadingWindowIds((prev) => prev.filter((id) => id !== appId));
+  }, [clearWindowLoadingTimer]);
+
+  const startWindowLoading = useCallback((app: AppWindow) => {
+    clearWindowLoadingTimer(app.id);
+    setLoadingWindowIds((prev) => (prev.includes(app.id) ? prev : [...prev, app.id]));
+    if (app.kind === 'embedded') {
+      return;
+    }
+    loadingWindowTimerRef.current[app.id] = setTimeout(() => {
+      setLoadingWindowIds((prev) => prev.filter((id) => id !== app.id));
+      delete loadingWindowTimerRef.current[app.id];
+    }, 500);
+  }, [clearWindowLoadingTimer]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(loadingWindowTimerRef.current).forEach((timer) => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+      });
+    };
+  }, []);
+
+  const closeWindow = useCallback((appId: string) => {
+    finishWindowLoading(appId);
+    setOpenWindowIds((prev) => prev.filter((id) => id !== appId));
+    setActiveWin((prev) => (prev === appId ? null : prev));
+  }, [finishWindowLoading]);
+
   const toggleWindow = (appId: string) => {
+    const targetWindow = appIcons.find((app) => app.id === appId);
+    if (!targetWindow) {
+      return;
+    }
+    const wasOpen = openWindowIds.includes(appId);
     const nextState = toggleWindowState(openWindowIds, appId);
     setOpenWindowIds(nextState.openWindowIds);
     setActiveWin(nextState.activeWin);
+    if (!wasOpen && nextState.openWindowIds.includes(appId)) {
+      startWindowLoading(targetWindow);
+    }
   };
 
   const installApp = (appId: string) => {
@@ -837,12 +894,15 @@ export default function App() {
         {/* 視窗管理系統 */}  
         {openWindows.map(win => (  
           <WindowFrame   
-            key={win.id}   
+            key={win.id}  
             win={win}   
             active={activeWin === win.id}  
             onFocus={() => setActiveWin(win.id)}  
-            onClose={() => setOpenWindowIds(openWindowIds.filter(id => id !== win.id))}  
+            onClose={() => closeWindow(win.id)}  
             theme={theme}  
+            isLoading={loadingWindowIds.includes(win.id)}
+            loadingLabel={t('openingApp')}
+            loadingHint={t('openingAppDesc')}
             >  
             {win.id === 'connect' && <HostSettingsView config={config} setConfig={setConfig} t={t} isConnected={isConnected} setIsConnected={setIsConnected} />}  
             {win.id === 'devices' && <DeviceView sensors={sensors} getLabel={getLabel} t={t} />}  
@@ -861,6 +921,7 @@ export default function App() {
                 appName={win.name}
                 launchUrl={win.launchUrl}
                 t={t}
+                onReady={() => finishWindowLoading(win.id)}
               />
             )}
           </WindowFrame>  
@@ -868,10 +929,18 @@ export default function App() {
   
         {/* 底部 Dock (iOS Style) - 懸浮玻璃質感 */}  
         <div className="absolute bottom-4 md:bottom-8 left-1/2 -translate-x-1/2 px-3 md:px-5 py-2 md:py-4 bg-white/20 dark:bg-black/20 backdrop-blur-3xl border border-white/30 dark:border-white/10 rounded-[24px] md:rounded-[40px] shadow-2xl flex items-center gap-3 md:gap-6 z-50 hover:bg-white/30 dark:hover:bg-black/30 transition-colors duration-500">  
-          {appIcons.map(app => (  
+          {appIcons.map(app => {  
+            const appButtonLabel = `${t('openApp')}：${app.name}`;
+            const isOpen = openWindowIds.includes(app.id);
+            const isLoading = loadingWindowIds.includes(app.id);
+            return (
             <button   
               key={app.id}  
               onClick={() => toggleWindow(app.id)}  
+              aria-label={appButtonLabel}
+              title={appButtonLabel}
+              aria-pressed={isOpen}
+              aria-controls={isOpen ? `window-${app.id}` : undefined}
               className={`
                 w-12 h-12 md:w-16 md:h-16 rounded-[14px] md:rounded-[20px] ${app.color} text-white p-3 md:p-4 
                 hover:scale-110 md:hover:-translate-y-4 active:scale-95 transition-all duration-300 ease-out
@@ -889,12 +958,18 @@ export default function App() {
               
               {/* 凝膠光澤 */}
               <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/25 to-transparent pointer-events-none" />
+              {isLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-950/20 backdrop-blur-[2px]">
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                </div>
+              )}
               
-              {openWindowIds.includes(app.id) && (  
+              {isOpen && (  
                 <div className="absolute -bottom-2 md:-bottom-3 w-1 h-1 md:w-1.5 md:h-1.5 bg-slate-800 dark:bg-white rounded-full shadow-lg" />  
               )}  
             </button>  
-          ))}  
+            );
+          })}  
         </div>  
       </div>  
     </div>  
@@ -902,10 +977,15 @@ export default function App() {
 }  
   
 // --- 通用視窗容器 - 增強玻璃質感 ---  
-const WindowFrame: React.FC<WindowProps> = ({ win, active, onFocus, onClose, theme, children }) => {  
+const WindowFrame: React.FC<WindowProps & {
+  isLoading?: boolean;
+  loadingLabel?: string;
+  loadingHint?: string;
+}> = ({ win, active, onFocus, onClose, theme, children, isLoading = false, loadingLabel, loadingHint }) => {  
   const isLargeWorkspace = win.id === 'connect' || win.kind === 'embedded';
   return (  
     <div   
+      id={`window-${win.id}`}
       onClick={onFocus}  
       className={`
         absolute top-0 md:top-12 left-0 md:left-1/2 md:-translate-x-1/2 w-full ${isLargeWorkspace ? 'md:w-[calc(100%-48px)] md:h-[calc(100%-112px)]' : 'md:w-[900px] md:h-[600px]'} h-full md:rounded-[32px] shadow-2xl transition-all duration-500 flex flex-col overflow-hidden backdrop-blur-3xl 
@@ -937,6 +1017,19 @@ const WindowFrame: React.FC<WindowProps> = ({ win, active, onFocus, onClose, the
       </div>  
       <div className="flex-1 overflow-hidden relative">
         {children}
+        {isLoading && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/18 backdrop-blur-md">
+            <div className="flex max-w-sm flex-col items-center gap-3 rounded-[24px] border border-white/30 bg-white/80 px-6 py-5 text-center shadow-2xl dark:border-white/10 dark:bg-slate-950/85">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-500/12 text-blue-600 dark:text-blue-300">
+                <RefreshCw className="h-5 w-5 animate-spin" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-black tracking-tight">{loadingLabel}</p>
+                <p className="text-[11px] font-medium opacity-65">{loadingHint}</p>
+              </div>
+            </div>
+          </div>
+        )}
         {/* 內容區域內陰影增強層次感 */}
         <div className="absolute inset-0 pointer-events-none shadow-[inset_0_10px_20px_-10px_rgba(0,0,0,0.05)]" />
       </div>  
@@ -1082,10 +1175,12 @@ function EmbeddedAppView({
   appName,
   launchUrl,
   t,
+  onReady,
 }: {
   appName: string;
   launchUrl: string;
   t: (key: string) => string;
+  onReady?: () => void;
 }) {
   return (
     <div className="h-full bg-gradient-to-br from-transparent to-blue-500/5 p-4 md:p-6 flex flex-col gap-4">
@@ -1109,6 +1204,7 @@ function EmbeddedAppView({
         <iframe
           title={appName}
           src={launchUrl}
+          onLoad={onReady}
           className="h-full w-full border-0 bg-white"
         />
       </div>
