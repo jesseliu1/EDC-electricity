@@ -2,6 +2,57 @@
 
 > 用于登记待处理问题。若未特别说明，默认状态统一写为“未修理”。
 
+## 2026-04-22 Issue 关闭复验
+
+### GitHub-2026-04-22-001
+
+- **状态**: 已关闭（2026-04-22，本地宿主定向验证通过）
+- **GitHub Issue**: `#1` <https://github.com/jesseliu1/EDC-electricity/issues/1>
+- **问题简述**: ASNS 前端 API 地址曾硬编码为 `localhost:8001`，导致宿主页在非本机环境下连线链路不稳定
+- **关闭依据**:
+  1. 本地启动宿主后，设置页点击“测试连接”，实际请求为 `POST http://127.0.0.1:3001/host-api/edc/test-connection`
+  2. 同页点击“保存设置”，实际请求为 `PUT http://127.0.0.1:3001/api/settings/host-runtime-sync`
+  3. 当前宿主前端请求已走宿主当前 origin 的相对路径代理，不再依赖 `localhost:8001`
+- **备注**:
+  - 本次为本地定向验证，用于判断该缺陷是否已闭环
+  - 这不是正式公网 UAT 结论
+
+### GitHub-2026-04-22-002
+
+- **状态**: 已关闭（2026-04-22，本地宿主页定向验证通过）
+- **GitHub Issue**: `#2` <https://github.com/jesseliu1/EDC-electricity/issues/2>
+- **问题简述**: ASNS 主站页面标题仍停留在模板默认值 `My Google AI Studio App`
+- **关闭依据**:
+  1. `docs/Ref/asns（ai-sensory-nervous-system）ai感知神經系統/index.html` 已改为 `ASNS - AI感知神经系统`
+  2. 本地浏览器定向验证已确认页面 `document.title = ASNS - AI感知神经系统`
+- **备注**:
+  - 本次验证范围为宿主页标题，不包含搜索引擎收录等外部缓存刷新
+
+### GitHub-2026-04-22-003
+
+- **状态**: 已关闭（2026-04-22，本地宿主页定向验证通过）
+- **GitHub Issue**: `#3` <https://github.com/jesseliu1/EDC-electricity/issues/3>
+- **问题简述**: ASNS dock 按钮缺少 `aria-label` / `title` 等无障碍语义标识
+- **关闭依据**:
+  1. 底部 dock 6 个按钮现均带 `aria-label` 与 `title`
+  2. 本地浏览器定向验证结果：
+     - `dockLabelCount = 6`
+     - 标签分别覆盖 `实时看板 / 应用商店 / 设备目录 / 应用工作室 / 连线设置 / EDC electricity`
+- **备注**:
+  - 本次修复聚焦 dock 语义标签，不额外扩展到其它非 issue 范围控件
+
+### GitHub-2026-04-22-004
+
+- **状态**: 已关闭（2026-04-22，本地宿主页定向验证通过）
+- **GitHub Issue**: `#4` <https://github.com/jesseliu1/EDC-electricity/issues/4>
+- **问题简述**: 宿主页 app 图标点击后，在内容准备阶段缺少明确 loading 状态提示
+- **关闭依据**:
+  1. 宿主页现新增统一“正在打开应用”加载遮罩
+  2. dock 按钮在窗口打开期间也会显示旋转 loading 指示
+  3. 本地浏览器定向验证已确认点击“连线设置”后立即可见 `正在打开应用`
+- **备注**:
+  - 本次修复目标是“用户点击后立即获得可见反馈”，不是改变各业务页内部的独立加载机制
+
 ## 2026-04-13 Issue 登记
 
 ### ISSUE-2026-04-13-001
@@ -245,7 +296,7 @@
 
 ### ISSUE-2026-04-06-001
 
-- **状态**: 未修理
+- **状态**: 已关闭（2026-04-22，本地宿主定向验证通过）
 - **GitHub Issue**: `#7` <https://github.com/jesseliu1/EDC-electricity/issues/7>
 - **问题简述**: ASNS 设置页“同步通道 / 保存设置”成功反馈不够明显，用户容易误判为没有保存成功
 - **影响范围**: 宿主设置页、通道同步与保存操作的可感知性、UAT 判断、误操作率
@@ -255,8 +306,9 @@
   3. 页面不会弹出明显 toast
   4. 用户需要额外观察右下角或蓝色状态区的小块提示，才知道已经成功
 - **备注**:
-  - 当前问题先按“反馈可见性不足”登记，不等于保存逻辑失败
-  - 用户在公网实际操作时已感知“像是同步了，但没有明显消息提示”
+  - `2026-04-22` 本地宿主定向验证已确认：点击“保存设置”后，页面 DOM 可见 `设置已保存，时间：...`
+  - 同一保存链路实际命中 `PUT /api/settings/host-runtime-sync` 且返回 `200`
+  - 当前该问题已从“成功但缺少明确反馈”收口为“保存成功反馈可见”
 
 ### ISSUE-2026-04-06-002
 
@@ -321,7 +373,7 @@
 
 ### ISSUE-2026-04-07-001
 
-- **状态**: 调查完成，未修理
+- **状态**: 已关闭（2026-04-22，后端定向回归通过）
 - **GitHub Issue**: `#8` <https://github.com/jesseliu1/EDC-electricity/issues/8>
 - **问题简述**: blank 重部署后，只要重新接回真实 EDC 并启用 `live_heat_inference`，后端就会自动回拉最近 `72` 小时原始点、切割并固化历史炉次，导致系统不再保持“空白待初始化”语义
 - **影响范围**: blank 环境语义、炉次浏览、后端 runtime 刷新链、历史炉次正式表写入、部署/UAT 预期
@@ -354,10 +406,11 @@
     - 而是“只要真实源接通，后台就自动回拉近 72 小时并补历史炉次”
     - 这与当前期望的 blank / 初始化边界不一致
 - **备注**:
-  - 当前问题先标记为后端行为语义问题，不等于 runtime 机制本身卡住
-  - 运行态刷新当前是通的:
-    - `/api/settings/runtime-status` 显示 `overall_code = ready`
-    - `/api/heats` 返回 `snapshot_status = refreshing_history`
+  - `2026-04-22` 已执行：
+    - `uv run --directory apps/server pytest -q tests/test_heats_api.py -k test_refresh_heat_runtime_bootstrap_keeps_live_segments_in_runtime_only`
+  - 回归结果：`1 passed`
+  - 该测试已直接断言 bootstrap 后只保留 `active_runtime / previous_runtime` 两条 runtime，`sealed_history` 中不存在 `live-heat-*` 自动固化历史
+  - 当前该问题已从“blank 接回真实源会自动补历史正式表”收口为“bootstrap 仅维护 runtime，不自动补历史正式表”
     - `refresh_error = null`
     - `refresh_failure_count = 0`
   - 后续修复应优先先定产品语义:
