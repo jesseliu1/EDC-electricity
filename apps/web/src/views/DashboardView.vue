@@ -3,8 +3,8 @@ import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import StatCard from '@/components/dashboard/StatCard.vue'
-import RealtimeChart from '@/components/dashboard/RealtimeChart.vue'
 import HeatList from '@/components/dashboard/HeatList.vue'
+import HeatComparePanel from '@/components/heat/HeatComparePanel.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import { useDashboardStore } from '@/stores/dashboard'
 import type { TaskStatus } from '@/api/task'
@@ -19,10 +19,22 @@ const statsUnavailable = computed(() => Boolean(dashboardStore.statsError) && !d
 const recentHeatsPending = computed(
   () => dashboardStore.loading && !dashboardStore.recentHeatsLoaded
 )
+const currentHeatCompare = computed(() => dashboardStore.currentHeatCompare)
+const currentHeatCompareReady = computed(
+  () => currentHeatCompare.value.baselineComparisons.length > 0 && !dashboardStore.currentHeatCompareError
+)
+const currentHeatCompareActiveBaselineId = computed(
+  () =>
+    currentHeatCompare.value.activeBaselineId ||
+    currentHeatCompare.value.baselineComparisons[0]?.baseline.id ||
+    ''
+)
 const dashboardWarnings = computed(() =>
-  [dashboardStore.statsError, dashboardStore.realtimeError, dashboardStore.recentHeatsError].filter(
-    (item): item is string => Boolean(item)
-  )
+  [
+    dashboardStore.statsError,
+    dashboardStore.currentHeatCompareError,
+    dashboardStore.recentHeatsError,
+  ].filter((item): item is string => Boolean(item))
 )
 
 const inboxPreview = computed(() =>
@@ -79,11 +91,13 @@ const stats = computed(() => [
     description:
       statsUnavailable.value
         ? t('dashboard.statsLoadFailedHint')
-        : dashboardStore.realtimeError
-          ? t('dashboard.realtimeLoadFailedHint')
-        : dashboardStore.realtime.timestamp
-          ? formatTimestamp(dashboardStore.realtime.timestamp)
-          : '',
+        : dashboardStore.currentHeatCompareError
+          ? t('dashboard.currentHeatCompareFailedHint')
+          : currentHeatCompare.value.currentHeatStartTime
+            ? formatTimestamp(currentHeatCompare.value.currentHeatStartTime)
+            : dashboardStore.currentHeatCompareEmptyReason === 'no_current_heat'
+              ? t('dashboard.currentHeatEmptyShort')
+              : '',
     icon: 'verified',
     accentColor: 'green' as const,
   },
@@ -129,10 +143,6 @@ const quickLinks = computed(() => [
   },
 ])
 
-const handleRangeChange = (range: '5m' | '1h' | '6h' | '24h') => {
-  void dashboardStore.fetchRealtime(range)
-}
-
 const navigateTo = (route: string) => {
   void router.push(route)
 }
@@ -153,6 +163,36 @@ const taskStatusLabel = (status: TaskStatus) => {
 const formatTaskDeviation = (value: number | null) => {
   return value === null ? t('task.deviationPending') : `${value}%`
 }
+
+const currentHeatCompareSubtitle = computed(() => {
+  const parts: string[] = []
+
+  if (currentHeatCompare.value.currentHeatNo) {
+    parts.push(
+      t('dashboard.currentHeatSubtitleHeat', {
+        heat: currentHeatCompare.value.currentHeatNo,
+      })
+    )
+  }
+
+  if (currentHeatCompare.value.currentHeatStartTime) {
+    parts.push(
+      t('dashboard.currentHeatSubtitleStartTime', {
+        time: formatTimestamp(currentHeatCompare.value.currentHeatStartTime, 'YYYY-MM-DD HH:mm'),
+      })
+    )
+  }
+
+  if (currentHeatCompare.value.baselineName) {
+    parts.push(
+      t('dashboard.currentHeatSubtitleBaseline', {
+        baseline: currentHeatCompare.value.baselineName,
+      })
+    )
+  }
+
+  return parts.join(' · ')
+})
 
 onMounted(() => {
   void dashboardStore.fetchAll()
@@ -227,18 +267,72 @@ onMounted(() => {
       </button>
     </div>
 
-    <div class="h-[500px]">
-      <RealtimeChart
-        :timestamp="dashboardStore.realtime.timestamp"
-        :power="dashboardStore.realtime.power"
-        :baseline-power="dashboardStore.realtime.baselinePower"
-        :selected-range="dashboardStore.timeRange"
-        :baseline-name="dashboardStore.realtime.baselineName"
-        :power-source-label="dashboardStore.realtime.powerSourceLabel"
-        :voltage-source-label="dashboardStore.realtime.voltageSourceLabel"
-        :error-message="dashboardStore.realtimeError"
-        @range-change="handleRangeChange"
+    <div
+      class="bg-white rounded-xl border border-border-light shadow-card p-6"
+      data-testid="dashboard-current-heat-card"
+    >
+      <HeatComparePanel
+        v-if="currentHeatCompareReady"
+        :heat-id="currentHeatCompare.currentHeatId || 'dashboard-current-heat'"
+        :baseline-comparisons="currentHeatCompare.baselineComparisons"
+        :active-baseline-id="currentHeatCompareActiveBaselineId"
+        :heat-core-window="currentHeatCompare.heatCoreWindow"
+        :compare-context-window="currentHeatCompare.compareContextWindow"
+        :fallback-deviation-ranges="currentHeatCompare.fallbackDeviationRanges"
+        mode="dashboard"
+        :title="t('dashboard.currentHeatCurve')"
+        :subtitle="currentHeatCompareSubtitle"
+        :header-badge="t('dashboard.currentHeatBadge')"
+        :show-baseline-tabs="false"
+        chart-test-id="dashboard-current-heat-chart"
+        inline-chart-height-class="h-[360px] lg:h-[420px]"
       />
+      <div
+        v-else-if="dashboardStore.currentHeatCompareError"
+        class="flex min-h-[420px] items-center justify-center rounded-xl border border-dashed border-rose-200 bg-rose-50/80 px-6 text-center"
+        data-testid="dashboard-current-heat-error"
+      >
+        <div class="max-w-xl">
+          <div class="text-base font-semibold text-rose-700">
+            {{ t('dashboard.currentHeatCompareFailedTitle') }}
+          </div>
+          <div class="mt-2 text-sm leading-6 text-rose-600">
+            {{ dashboardStore.currentHeatCompareError }}
+          </div>
+          <div class="mt-3 text-xs text-rose-500">
+            {{ t('dashboard.currentHeatCompareFailedHint') }}
+          </div>
+        </div>
+      </div>
+      <div
+        v-else-if="dashboardStore.currentHeatCompareLoaded"
+        class="flex min-h-[420px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-6 text-center"
+        data-testid="dashboard-current-heat-empty"
+      >
+        <div class="max-w-xl">
+          <div class="text-base font-semibold text-slate-700">
+            {{
+              dashboardStore.currentHeatCompareEmptyReason === 'no_compare_baseline'
+                ? t('dashboard.currentHeatNoBaselineTitle')
+                : t('dashboard.currentHeatEmptyTitle')
+            }}
+          </div>
+          <div class="mt-2 text-sm leading-6 text-slate-500">
+            {{
+              dashboardStore.currentHeatCompareEmptyReason === 'no_compare_baseline'
+                ? t('dashboard.currentHeatNoBaselineBody')
+                : t('dashboard.currentHeatEmptyBody')
+            }}
+          </div>
+        </div>
+      </div>
+      <div
+        v-else
+        class="flex min-h-[420px] items-center justify-center text-sm text-slate-400"
+        data-testid="dashboard-current-heat-loading"
+      >
+        {{ t('common.loading') }}
+      </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">

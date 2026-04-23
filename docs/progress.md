@@ -6,6 +6,45 @@
 
 ---
 
+### 2026-04-22（总览主图已改为当前炉次 vs 默认黄金基线）
+
+- [x] 已完成 Dashboard 主图数据源切换
+  - [x] `apps/web/src/stores/dashboard.ts`
+  - [x] 总览主图不再依赖 `/api/dashboard/realtime?duration=*`
+  - [x] 现改为先读 `/api/heats` 找 `realtime_current = true` 的当前炉次，再读 `/api/heats/{id}/compare`
+  - [x] 若没有当前炉次，不回退最近一炉，直接进入明确空态
+- [x] 已完成 Dashboard compare 组件复用
+  - [x] `apps/web/src/components/heat/HeatComparePanel.vue`
+  - [x] 新增 dashboard 模式：隐藏 baseline tabs、隐藏 fullscreen 按钮、支持标题/副标题/“当前炉次”标识
+  - [x] 总览主图改为固定展示默认黄金基线的多指标 compare
+- [x] 已完成总览页文案与交互收口
+  - [x] `apps/web/src/views/DashboardView.vue`
+  - [x] 已移除 `5分钟 / 1小时 / 6小时 / 24小时` 范围按钮
+  - [x] 副标题现展示：当前炉次编号、开始时间、对比基线
+  - [x] 已补空态 / compare 失败 / 无基线数据三类状态
+- [x] 已同步 locale 与正式验收脚本
+  - [x] 更新 `apps/web/src/locales/zh-CN.json`
+  - [x] 更新 `apps/web/src/locales/zh-TW.json`
+  - [x] 更新 `apps/web/src/locales/en-US.json`
+  - [x] 更新 `apps/web/src/locales/ja-JP.json`
+  - [x] 更新 `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`，将 Dashboard 验收口径改为“当前炉次曲线对比”
+- [x] 已补前端回归
+  - [x] 更新 `apps/web/e2e/issue-acceptance.spec.ts`
+  - [x] 新增 Dashboard success / empty / compare error / no-baseline 四类断言
+  - [x] 已回归 heat detail compare 旧路径，确认未被新改动打坏
+- [x] 已完成本轮定向验证
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "dashboard|heat detail"`
+  - [x] 结果：`8 passed`
+- [!] 当前边界
+  - [!] 本轮仍在独立 worktree `D:\project\EDC electricity-heat-detail-compare` / 分支 `codex/heat-detail-compare-fullscreen` 上完成
+  - [!] `lint` 无新增 error；仓库内仍有既有 Vue 风格 warning
+  - [!] 尚未做接真实链路的正式浏览器 UAT 留图，本轮只能算定向前端回归
+
+---
+
 ### 2026-04-22（炉次详情摘要已简化，基线对比已支持全屏弹窗）
 
 - [x] 已完成炉次详情页摘要时间收口

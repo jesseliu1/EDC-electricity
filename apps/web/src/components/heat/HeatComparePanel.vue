@@ -38,13 +38,27 @@ interface Props {
   heatCoreWindow: TimeWindow | null
   compareContextWindow: TimeWindow | null
   fallbackDeviationRanges: DeviationRange[]
+  mode?: 'detail' | 'dashboard'
   surface?: 'inline' | 'fullscreen'
+  title?: string | null
+  subtitle?: string | null
+  headerBadge?: string | null
+  showBaselineTabs?: boolean
   showFullscreenButton?: boolean
+  chartTestId?: string | null
+  inlineChartHeightClass?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  mode: 'detail',
   surface: 'inline',
+  title: null,
+  subtitle: null,
+  headerBadge: null,
+  showBaselineTabs: true,
   showFullscreenButton: false,
+  chartTestId: null,
+  inlineChartHeightClass: 'h-80',
 })
 
 const emit = defineEmits<{
@@ -55,6 +69,9 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 const isFullscreen = computed(() => props.surface === 'fullscreen')
+const resolvedTitle = computed(() =>
+  props.title || (props.mode === 'dashboard' ? t('dashboard.currentHeatCurve') : t('heat.compareWithBaseline'))
+)
 
 const selectedComparison = computed(() => {
   if (props.baselineComparisons.length === 0) return null
@@ -295,10 +312,14 @@ const compareChartWindowAttrs = computed(() => ({
   coreEnd: props.heatCoreWindow?.end ?? '',
 }))
 
-const chartClassName = computed(() => (isFullscreen.value ? 'h-[78vh] min-h-[560px]' : 'h-80'))
-const chartTestId = computed(() =>
-  isFullscreen.value ? 'heat-compare-fullscreen-chart' : 'heat-compare-chart'
+const chartClassName = computed(() =>
+  isFullscreen.value ? 'h-[78vh] min-h-[560px]' : props.inlineChartHeightClass
 )
+const chartTestId = computed(() => {
+  if (props.chartTestId) return props.chartTestId
+  if (isFullscreen.value) return 'heat-compare-fullscreen-chart'
+  return props.mode === 'dashboard' ? 'dashboard-current-heat-chart' : 'heat-compare-chart'
+})
 
 function handleBaselineChange(value: string | number) {
   emit('update:activeBaselineId', String(value))
@@ -308,12 +329,22 @@ function handleBaselineChange(value: string | number) {
 <template>
   <div class="space-y-4">
     <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-      <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
-        <span class="material-symbols-outlined text-primary text-[20px]">ssid_chart</span>
-        {{ t('heat.compareWithBaseline') }}
-      </h3>
+      <div>
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary text-[20px]">ssid_chart</span>
+          {{ resolvedTitle }}
+        </h3>
+        <p
+          v-if="subtitle"
+          class="mt-1 text-xs text-slate-400"
+          :data-testid="mode === 'dashboard' ? 'dashboard-current-heat-subtitle' : undefined"
+        >
+          {{ subtitle }}
+        </p>
+      </div>
       <div class="flex flex-wrap items-center gap-3">
         <el-tabs
+          v-if="showBaselineTabs"
           :model-value="selectedComparison?.baseline.id || activeBaselineId"
           class="-mb-[15px] mr-2"
           @update:model-value="handleBaselineChange"
@@ -325,6 +356,13 @@ function handleBaselineChange(value: string | number) {
             :label="item.baseline.name"
           />
         </el-tabs>
+        <span
+          v-if="headerBadge"
+          class="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600"
+          :data-testid="mode === 'dashboard' ? 'dashboard-current-heat-badge' : undefined"
+        >
+          {{ headerBadge }}
+        </span>
         <el-button
           v-if="showFullscreenButton"
           data-testid="heat-compare-fullscreen-button"
