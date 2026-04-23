@@ -91,6 +91,8 @@ class HeatRuntimeAdvanceService:
         if self._is_disconnected_head(
             head_keys=[current_key, previous_key],
             ordered_index=ordered_index,
+            discovery_keys=[active_slot_key, previous_slot_key],
+            sealed_keys=sealed_keys,
         ):
             next_previous_key, next_current_key = self._discovery_tail_keys(
                 ordered_keys=ordered_keys,
@@ -237,11 +239,21 @@ class HeatRuntimeAdvanceService:
         *,
         head_keys: list[str | None],
         ordered_index: dict[str, int],
+        discovery_keys: list[str | None],
+        sealed_keys: set[str],
     ) -> bool:
         present_keys = [key for key in head_keys if key is not None]
         if not present_keys:
             return False
-        return all(key not in ordered_index for key in present_keys)
+        discovered_keys = {
+            key for key in discovery_keys if isinstance(key, str) and key
+        }
+        return all(
+            key not in ordered_index
+            and key not in discovered_keys
+            and key not in sealed_keys
+            for key in present_keys
+        )
 
     @staticmethod
     def _discovery_tail_keys(

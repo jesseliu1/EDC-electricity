@@ -21,6 +21,13 @@
 
 ## 记录
 
+### 2026-04-23 runtime item 不能在 candidate -> runtime 组装时丢 live 身份元数据
+
+- **错误模式**: live discovery candidate 已经带有 `_live_original_start_ts / _live_original_end_ts / _live_slot_start_timestamp_ms` 等内部身份字段，但在 `_build_current_heat_runtime(...).to_runtime_item()` 后只保留了业务展示字段，导致 runtime head 下一轮 refresh 再参与 `advance_once` 时退化成仅靠 `id` 比对。结果会把正常 continuation / rollover 误判成 `reattached_stale_runtime_head`，并连带打坏旧 runtime id 兼容解析。
+- **正确做法**: 只要 candidate 上带有 live 身份元数据，转成 runtime item 时也必须原样保留；同时 discovery slot key 归一化只能在“严格时间窗重叠”的前提下沿用 existing runtime 身份，不能拿带容差的近似 overlap 去替代同一炉次判定。
+- **适用场景**: live runtime 刷新、replay seed 后 continuation、legacy runtime head 与新 slot-key 真源并存的过渡期，以及任何需要把 candidate 内部身份一路传到 runtime head / alias 解析 / stale-head 判定的链路。
+- **相关文档**: `apps/server/src/api/heats.py`, `apps/server/src/services/heat_runtime_advance_service.py`, `docs/progress.md`
+
 ### 2026-04-19 previous 升格继承上下文时，不能用会退回 start_time 的 helper 抢先短路
 
 - **错误模式**: `HeatRuntimeTransitionService.prepare_previous_candidate()` 在决定 `previous_runtime.context_start_time` 时，先调用 `_context_start(prepared)`。而 `_context_start(...)` 的语义是“`context_start_time` 不存在时退回 `start_time`”，结果 candidate 只要还没显式带 `context_start_time`，就会直接拿到自己的 `start_time`，把 existing previous 原本更宽的 `N-1` 上下文短路掉。

@@ -170,6 +170,53 @@ def test_advance_once_reattaches_single_slot_discovery_without_previous() -> Non
     assert plan.next_current_slot_key == "slot-1130"
 
 
+def test_advance_once_does_not_reattach_when_head_still_matches_discovery_tail() -> None:
+    service = HeatRuntimeAdvanceService()
+
+    plan = service.advance_once(
+        RuntimeHeadState(
+            current_item=_runtime_item("runtime-active", datetime(2026, 4, 20, 16, 0)),
+            previous_item=_runtime_item("runtime-previous", datetime(2026, 4, 20, 15, 30)),
+        ),
+        RuntimeDiscoveryResult(
+            ordered_slots=[],
+            active_slot_key="runtime-active",
+            previous_slot_key="runtime-previous",
+            sealed_slot_keys=[],
+        ),
+    )
+
+    assert plan.action == "noop"
+    assert plan.refresh_outcome == "active_heat_continues"
+    assert plan.next_previous_slot_key == "runtime-previous"
+    assert plan.next_current_slot_key == "runtime-active"
+
+
+def test_advance_once_does_not_reattach_when_head_only_moves_into_sealed_backlog() -> None:
+    service = HeatRuntimeAdvanceService()
+
+    plan = service.advance_once(
+        RuntimeHeadState(
+            current_item=_runtime_item("runtime-active", datetime(2026, 4, 20, 16, 0)),
+            previous_item=_runtime_item("runtime-previous", datetime(2026, 4, 20, 15, 30)),
+        ),
+        RuntimeDiscoveryResult(
+            ordered_slots=[
+                DiscoveredSlotSummary(slot_key="runtime-next-previous"),
+                DiscoveredSlotSummary(slot_key="runtime-next-active"),
+            ],
+            active_slot_key="runtime-next-active",
+            previous_slot_key="runtime-next-previous",
+            sealed_slot_keys=["runtime-previous", "runtime-active"],
+        ),
+    )
+
+    assert plan.action == "noop"
+    assert plan.refresh_outcome == "active_heat_continues"
+    assert plan.next_previous_slot_key == "runtime-previous"
+    assert plan.next_current_slot_key == "runtime-active"
+
+
 def test_advance_once_uses_stable_slot_key_before_runtime_id() -> None:
     service = HeatRuntimeAdvanceService()
 

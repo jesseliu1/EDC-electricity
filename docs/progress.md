@@ -6,6 +6,39 @@
 
 ---
 
+### 2026-04-23（已完成 `asns-issues-2-3-4` 与 `heat-detail-compare-fullscreen` 集成，并修复 merge 暴露的 runtime 回归）
+
+- [x] 已完成合并前现场隔离
+  - [x] 当前工作区未提交内容已先 stash 隔离，未混入本轮分支集成
+  - [x] 以 `codex/fixed-interval-weak-slot-retention` 作为集成基底
+- [x] 已完成两轮 merge commit
+  - [x] `Merge branch 'codex/asns-issues-2-3-4' into codex/fixed-interval-weak-slot-retention`
+  - [x] `Merge branch 'codex/heat-detail-compare-fullscreen' into codex/fixed-interval-weak-slot-retention`
+  - [x] `docs/progress.md` 冲突已按“保留双方事实，不覆盖旧记录”收口
+- [x] 已修复 merge 暴露的 runtime continuity 回归
+  - [x] `apps/server/src/api/heats.py`
+  - [x] `apps/server/src/services/heat_runtime_advance_service.py`
+  - [x] `apps/server/tests/test_heat_runtime_advance_service.py`
+  - [x] live runtime item 现保留 `_live_original_* / _live_slot_*` 身份元数据
+  - [x] discovery slot key 归一化改为兼容 legacy runtime head，但只认严格时间窗重叠
+  - [x] stale head reattach 现只在“旧 head 不在 ordered slots / discovery tail / sealed backlog 任一处”时触发
+- [x] 已完成后端集成验证
+  - [x] `uv run --directory apps/server ruff check src/services/heat_runtime_advance_service.py src/services/heat_replay_runtime_aggregate_service.py src/api/heats.py tests/test_heat_runtime_advance_service.py tests/test_heats_api.py tests/test_heat_replay_api.py`
+  - [x] `uv run --directory apps/server pytest -q tests/test_heat_runtime_advance_service.py tests/test_heat_replay_api.py tests/test_heats_api.py -k "live_refresh or restart_restores_stale_head_but_first_live_refresh_reattaches or fixed_interval or previous_runtime_id_stays_resolvable_after_rollover or list_heats or replay_job_rebuilds_fixed_interval_processor_snapshot_for_live_continuation"`
+  - [x] 结果：`24 passed`
+- [x] 已完成前端集成验证
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "dashboard|heat detail"`
+  - [x] Playwright 结果：`8 passed`
+- [!] 当前边界
+  - [!] 本轮完成的是分支集成、定向回归与前端路径回归，不是正式完整 UAT 留图
+  - [!] `pnpm --dir apps/web lint` 仍只有仓库内既有 Vue 风格 warning，无新增 error
+  - [!] Playwright 期间 Vite 控制台仍会打印本地 `127.0.0.1:8000/api/settings/runtime-status` 代理拒连噪声，但本轮 dashboard / heat detail 定向用例均已通过
+
+---
+
 ### 2026-04-22（已修复重启后 stale runtime head 不前进的问题）
 
 - [x] 已完成 stale/disconnected runtime head 自动重挂修复

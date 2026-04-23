@@ -1489,6 +1489,28 @@ def _merge_live_heat_with_persisted_state(
     return merged
 
 
+def _preserve_runtime_identity_metadata(
+    runtime_item: dict[str, Any], candidate: dict[str, Any] | None
+) -> dict[str, Any]:
+    if not isinstance(candidate, dict):
+        return runtime_item
+    merged = dict(runtime_item)
+    for key in (
+        "_live_context_key",
+        "_live_context_hash",
+        "_live_anchor_ms",
+        "_live_duration_bucket_minutes",
+        "_live_original_start_ts",
+        "_live_original_end_ts",
+        "_live_slot_start_timestamp_ms",
+        "_live_slot_end_timestamp_ms",
+        "_live_active_covered_minutes",
+    ):
+        if key in candidate:
+            merged[key] = candidate.get(key)
+    return merged
+
+
 def _resolve_item_time_window_ms(item: dict[str, Any]) -> tuple[int, int] | None:
     start_ts = item.get("_live_original_start_ts")
     end_ts = item.get("_live_original_end_ts")
@@ -1512,6 +1534,17 @@ def _has_overlapping_time_window(left_item: dict[str, Any], right_item: dict[str
     left_start, left_end = left_window
     right_start, right_end = right_window
     return left_start <= right_end + tolerance_ms and right_start <= left_end + tolerance_ms
+
+
+def _has_strict_time_window_overlap(left_item: dict[str, Any], right_item: dict[str, Any]) -> bool:
+    left_window = _resolve_item_time_window_ms(left_item)
+    right_window = _resolve_item_time_window_ms(right_item)
+    if not left_window or not right_window:
+        return False
+
+    left_start, left_end = left_window
+    right_start, right_end = right_window
+    return left_start <= right_end and right_start <= left_end
 
 
 def _find_persisted_live_heat_alias(live_item: dict[str, Any]) -> dict[str, Any] | None:
@@ -1846,6 +1879,30 @@ def _slot_key_for_runtime_item(item: dict[str, Any] | None) -> str | None:
     return runtime_slot_key(item)
 
 
+def _normalize_discovery_slot_key(
+    item: dict[str, Any] | None,
+    *,
+    existing_active_item: dict[str, Any] | None,
+    existing_previous_item: dict[str, Any] | None,
+) -> str | None:
+    slot_key = _slot_key_for_runtime_item(item)
+    for existing_item in (existing_active_item, existing_previous_item):
+        if not isinstance(existing_item, dict):
+            continue
+        if not _has_strict_time_window_overlap(item or {}, existing_item):
+            continue
+        existing_slot_key = _slot_key_for_runtime_item(existing_item)
+        if not existing_slot_key:
+            continue
+        if slot_key is None:
+            return existing_slot_key
+        if slot_key.startswith("slot-start:") and not existing_slot_key.startswith("slot-start:"):
+            return existing_slot_key
+        if not slot_key.startswith("slot-start:"):
+            return existing_slot_key
+    return slot_key
+
+
 def _build_runtime_discovery_result(
     *,
     ordered_items: list[dict[str, Any]],
@@ -1854,19 +1911,43 @@ def _build_runtime_discovery_result(
     sealed_candidates: list[dict[str, Any]],
     snapshot_watermark: datetime | None,
     processor_state_snapshot: dict[str, Any] | None,
+    existing_active_item: dict[str, Any] | None,
+    existing_previous_item: dict[str, Any] | None,
 ) -> RuntimeDiscoveryResult:
     return RuntimeDiscoveryResult(
         ordered_slots=[
             DiscoveredSlotSummary(slot_key=slot_key)
             for item in ordered_items
-            if (slot_key := _slot_key_for_runtime_item(item)) is not None
+            if (
+                slot_key := _normalize_discovery_slot_key(
+                    item,
+                    existing_active_item=existing_active_item,
+                    existing_previous_item=existing_previous_item,
+                )
+            )
+            is not None
         ],
-        active_slot_key=_slot_key_for_runtime_item(active_candidate),
-        previous_slot_key=_slot_key_for_runtime_item(previous_candidate),
+        active_slot_key=_normalize_discovery_slot_key(
+            active_candidate,
+            existing_active_item=existing_active_item,
+            existing_previous_item=existing_previous_item,
+        ),
+        previous_slot_key=_normalize_discovery_slot_key(
+            previous_candidate,
+            existing_active_item=existing_active_item,
+            existing_previous_item=existing_previous_item,
+        ),
         sealed_slot_keys=[
             slot_key
             for candidate in sealed_candidates
-            if (slot_key := _slot_key_for_runtime_item(candidate)) is not None
+            if (
+                slot_key := _normalize_discovery_slot_key(
+                    candidate,
+                    existing_active_item=existing_active_item,
+                    existing_previous_item=existing_previous_item,
+                )
+            )
+            is not None
         ],
         snapshot_watermark=snapshot_watermark,
         processor_state_snapshot=processor_state_snapshot,
@@ -2138,7 +2219,12 @@ async def _apply_replay_runtime_seed_with_context(
             trigger_source=reason,
             processing_mode="live_incremental",
         )
-        previous_item = _mark_previous_runtime(previous_runtime.to_runtime_item())
+        previous_item = _mark_previous_runtime(
+            _preserve_runtime_identity_metadata(
+                previous_runtime.to_runtime_item(),
+                prepared_previous_candidate,
+            )
+        )
         next_previous_runtime[str(previous_item["id"])] = previous_item
     if prepared_active_candidate is not None:
         active_runtime = _build_current_heat_runtime(
@@ -2146,7 +2232,12 @@ async def _apply_replay_runtime_seed_with_context(
             trigger_source=reason,
             processing_mode="live_incremental",
         )
-        active_item = _mark_active_runtime(active_runtime.to_runtime_item())
+        active_item = _mark_active_runtime(
+            _preserve_runtime_identity_metadata(
+                active_runtime.to_runtime_item(),
+                prepared_active_candidate,
+            )
+        )
         next_active_runtime[str(active_item["id"])] = active_item
 
     formal_items = {str(item["id"]): item for item in await list_formal_heat_records()}
@@ -2326,7 +2417,18 @@ async def _refresh_heat_runtime_state_from_context(
     ordered_item_lookup = {
         slot_key: item
         for item in ordered_segment_items
-        if (slot_key := _slot_key_for_runtime_item(item)) is not None
+        if (
+            slot_key := _normalize_discovery_slot_key(
+                item,
+                existing_active_item=existing_active_item
+                if isinstance(existing_active_item, dict)
+                else None,
+                existing_previous_item=existing_previous_item
+                if isinstance(existing_previous_item, dict)
+                else None,
+            )
+        )
+        is not None
     }
     _log_heat_runtime_debug(
         "heat_runtime_refresh_candidates_segment_resolved",
@@ -2484,6 +2586,10 @@ async def _refresh_heat_runtime_state_from_context(
         sealed_candidates=sealed_candidates,
         snapshot_watermark=refresh_result.fetch_end_time,
         processor_state_snapshot=refresh_result.processor_state,
+        existing_active_item=existing_active_item if isinstance(existing_active_item, dict) else None,
+        existing_previous_item=existing_previous_item
+        if isinstance(existing_previous_item, dict)
+        else None,
     )
     advance_plan = _HEAT_RUNTIME_ADVANCE_SERVICE.advance_once(
         RuntimeHeadState(
@@ -2763,7 +2869,12 @@ async def _refresh_heat_runtime_state_from_context(
             trigger_source=reason,
             processing_mode="live_incremental",
         )
-        active_item = _mark_active_runtime(active_runtime.to_runtime_item())
+        active_item = _mark_active_runtime(
+            _preserve_runtime_identity_metadata(
+                active_runtime.to_runtime_item(),
+                prepared_active_candidate,
+            )
+        )
         next_active_runtime[str(active_item["id"])] = active_item
     previous_item: dict[str, Any] | None = None
     if prepared_previous_candidate is not None:
@@ -2772,7 +2883,12 @@ async def _refresh_heat_runtime_state_from_context(
             trigger_source=reason,
             processing_mode="live_incremental",
         )
-        previous_item = _mark_previous_runtime(previous_runtime.to_runtime_item())
+        previous_item = _mark_previous_runtime(
+            _preserve_runtime_identity_metadata(
+                previous_runtime.to_runtime_item(),
+                prepared_previous_candidate,
+            )
+        )
     elif (
         isinstance(existing_active_item, dict)
         and advance_plan.next_previous_slot_key == _slot_key_for_runtime_item(existing_active_item)
@@ -4857,7 +4973,12 @@ def _choose_next_previous_runtime(
                 trigger_source=reason,
                 processing_mode="live_incremental",
             )
-            chosen_previous = _mark_previous_runtime(previous_runtime.to_runtime_item())
+            chosen_previous = _mark_previous_runtime(
+                _preserve_runtime_identity_metadata(
+                    previous_runtime.to_runtime_item(),
+                    prepared_previous_candidate,
+                )
+            )
             _log_heat_runtime_debug(
                 "heat_runtime_refresh_previous_choice",
                 reason=reason,
@@ -4888,7 +5009,12 @@ def _choose_next_previous_runtime(
             trigger_source=reason,
             processing_mode="live_incremental",
         )
-        chosen_previous = _mark_previous_runtime(previous_runtime.to_runtime_item())
+        chosen_previous = _mark_previous_runtime(
+            _preserve_runtime_identity_metadata(
+                previous_runtime.to_runtime_item(),
+                prepared_previous_candidate,
+            )
+        )
         _log_heat_runtime_debug(
             "heat_runtime_refresh_previous_choice",
             reason=reason,
