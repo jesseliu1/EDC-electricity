@@ -28,6 +28,7 @@ import type { HeatDataSource } from '@/api/heat'
 import { taskApi } from '@/api/task'
 import { useHeatStore } from '@/stores/heat'
 import PageHeader from '@/components/common/PageHeader.vue'
+import HeatComparePanel from '@/components/heat/HeatComparePanel.vue'
 import SystemReadinessBanner from '@/components/common/SystemReadinessBanner.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import {
@@ -83,11 +84,6 @@ interface DataZoomPayload {
 }
 
 type ExposedChart = ECharts | { value?: ECharts | undefined }
-type ChartRuntimeSeriesSummary = {
-  name: string
-  type: string
-  pointCount: number
-}
 
 const { t } = useI18n()
 const route = useRoute()
@@ -113,6 +109,7 @@ const showSnapshotErrorInDetail = computed(() => current.value?.base.runtimeSnap
 const editingDescription = ref(false)
 const descriptionDraft = ref('')
 const activeBaselineId = ref('')
+const compareFullscreenVisible = ref(false)
 const creatingTask = ref(false)
 
 const manualAdjustVisible = ref(false)
@@ -171,32 +168,6 @@ const primaryComparisonMetric = computed<{
 
   return fallbackMetric
 })
-
-const compareSeriesCount = computed(() => {
-  const metricCurves =
-    comparisonMetricCurves.value.length > 0
-      ? comparisonMetricCurves.value
-      : [primaryComparisonMetric.value]
-  return metricCurves.length * 2
-})
-
-const compareChartKey = computed(
-  () => `${heatId.value}-${selectedComparison.value?.baseline.id || 'default'}`
-)
-
-function summarizeChartSeries(option: EChartsOption): ChartRuntimeSeriesSummary[] {
-  const rawSeries = option.series
-  const seriesList = Array.isArray(rawSeries) ? rawSeries : rawSeries ? [rawSeries] : []
-
-  return seriesList.map((series) => {
-    const candidate = series as { name?: string; type?: string; data?: unknown[] }
-    return {
-      name: String(candidate.name || ''),
-      type: String(candidate.type || ''),
-      pointCount: Array.isArray(candidate.data) ? candidate.data.length : 0,
-    }
-  })
-}
 
 function normalizedTimestamp(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === '') return null
@@ -310,55 +281,6 @@ function localizeTimelineDetail(detail: string) {
   return normalizedDetail
 }
 
-function normalizeHexColor(color: string) {
-  const value = color.trim()
-  if (/^#[0-9a-fA-F]{6}$/.test(value)) return value
-  if (/^#[0-9a-fA-F]{3}$/.test(value)) {
-    const [, r, g, b] = value
-    return `#${r}${r}${g}${g}${b}${b}`
-  }
-  return '#409EFF'
-}
-
-function mixHexColor(color: string, target: string, ratio: number) {
-  const source = normalizeHexColor(color)
-  const destination = normalizeHexColor(target)
-  const weight = Math.min(Math.max(ratio, 0), 1)
-  const channels = [0, 2, 4].map((offset) => {
-    const from = Number.parseInt(source.slice(offset + 1, offset + 3), 16)
-    const to = Number.parseInt(destination.slice(offset + 1, offset + 3), 16)
-    return Math.round(from + (to - from) * weight)
-      .toString(16)
-      .padStart(2, '0')
-  })
-  return `#${channels.join('')}`
-}
-
-function areCurvesFullyOverlapped(
-  baselineCurve: Array<{ timestamp: number; value: number }>,
-  currentCurve: Array<{ timestamp: number; value: number }>
-) {
-  if (baselineCurve.length === 0 || currentCurve.length === 0) return false
-  if (baselineCurve.length !== currentCurve.length) return false
-
-  return baselineCurve.every((point, index) => {
-    const currentPoint = currentCurve[index]
-    if (!currentPoint) return false
-    return (
-      point.timestamp === currentPoint.timestamp &&
-      Math.abs(point.value - currentPoint.value) < 0.0001
-    )
-  })
-}
-
-function clipCurveToWindow(
-  curve: Array<{ timestamp: number; value: number }>,
-  start: number,
-  end: number
-) {
-  return curve.filter((point) => point.timestamp >= start && point.timestamp <= end)
-}
-
 function inferCurveWindow(curves: Array<Array<{ timestamp: number; value: number }>>) {
   const timestamps = curves.flatMap((curve) => curve.map((point) => point.timestamp))
   if (timestamps.length === 0) return null
@@ -424,14 +346,6 @@ const compareContextWindow = computed(
   () => actualContextWindow.value || declaredContextWindow.value || heatCoreWindow.value
 )
 
-const hasPartialContextCoverage = computed(() => {
-  if (!declaredContextWindow.value || !actualContextWindow.value) return false
-  return (
-    actualContextWindow.value.start > declaredContextWindow.value.start ||
-    actualContextWindow.value.end < declaredContextWindow.value.end
-  )
-})
-
 const endTimeDisplay = computed(() => {
   if (!current.value) return '--'
   if (current.value.base.completionStatus === 'in_progress') {
@@ -450,137 +364,6 @@ const shouldShowSourceBanner = computed(() => {
     current.value.base.baselineCurveSource !== 'live_edc'
   )
 })
-
-const selectedComparisonOverlap = computed(() => {
-  if (!selectedComparison.value) return null
-  const primaryMetric = primaryComparisonMetric.value
-  const clippedCurrentCurve = heatCoreWindow.value
-    ? clipCurveToWindow(
-        primaryMetric.current_curve,
-        heatCoreWindow.value.start,
-        heatCoreWindow.value.end
-      )
-    : primaryMetric.current_curve
-  if (!areCurvesFullyOverlapped(primaryMetric.baseline_curve, clippedCurrentCurve)) {
-    return null
-  }
-
-  return {
-    metricName: primaryMetric.metric_name,
-    baselineName: selectedComparison.value.baseline.name,
-  }
-})
-
-const selectedComparisonMissingCurrentMetrics = computed(() =>
-  (selectedComparison.value?.metric_curves || [])
-    .filter((metric) => metric.current_curve.length === 0)
-    .map((metric) => metric.metric_name)
-)
-
-const compareOption = computed<EChartsOption>(() => {
-  if (!current.value) return {}
-  const metricCurves =
-    comparisonMetricCurves.value.length > 0
-      ? comparisonMetricCurves.value
-      : [primaryComparisonMetric.value]
-  const units = Array.from(new Set(metricCurves.map((item) => item.unit)))
-  const firstCurrentCurve = metricCurves[0]?.current_curve || []
-  const deviationRanges =
-    selectedComparison.value?.deviation_ranges || current.value.deviationRanges
-
-  return {
-    animation: false,
-    grid: { left: 56, right: 72, top: 40, bottom: 32 },
-    tooltip: { trigger: 'axis' },
-    legend: {
-      data: metricCurves.flatMap((item) => [
-        `${item.metric_name}-${t('dashboard.chart.goldenBaseline')}`,
-        `${item.metric_name}-${t('dashboard.chart.currentProduction')}`,
-      ]),
-      top: 0,
-    },
-    xAxis: {
-      type: 'time',
-      min: compareContextWindow.value?.start,
-      max: compareContextWindow.value?.end,
-      axisLabel: {
-        formatter: (value: number) => formatTimestamp(value, 'HH:mm'),
-      },
-    },
-    yAxis: units.map((unit, index) => ({
-      type: 'value',
-      name: unit,
-      position: index % 2 === 0 ? 'left' : 'right',
-      offset: index > 1 ? Math.floor((index - 1) / 2) * 56 : 0,
-      splitLine: index === 0 ? { lineStyle: { color: '#e2e8f0' } } : { show: false },
-    })),
-    series: metricCurves.flatMap((metric, index) => [
-      {
-        name: `${metric.metric_name}-${t('dashboard.chart.goldenBaseline')}`,
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        yAxisIndex: units.indexOf(metric.unit),
-        lineStyle: {
-          width: 2,
-          type: 'dashed',
-          color: mixHexColor(metric.color, '#ffffff', 0.42),
-        },
-        z: 2,
-        data: metric.baseline_curve.map((point) => [point.timestamp, point.value]),
-      },
-      {
-        name: `${metric.metric_name}-${t('dashboard.chart.currentProduction')}`,
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        yAxisIndex: units.indexOf(metric.unit),
-        lineStyle: { width: index === 0 ? 2.5 : 2, color: metric.color },
-        areaStyle: index === 0 ? { color: metric.color, opacity: 0.05 } : undefined,
-        z: 4,
-        markArea:
-          index === 0
-            ? {
-                itemStyle: { color: 'rgba(245, 108, 108, 0.12)' },
-                data: deviationRanges.map((range) => [
-                  { xAxis: range.start },
-                  { xAxis: range.end },
-                ]),
-              }
-            : undefined,
-        markLine:
-          index === 0 && heatCoreWindow.value
-            ? {
-                symbol: 'none',
-                label: { show: false },
-                lineStyle: {
-                  color: 'rgba(15, 23, 42, 0.42)',
-                  type: 'dashed',
-                  width: 1.5,
-                },
-                data: [
-                  { xAxis: heatCoreWindow.value.start },
-                  { xAxis: heatCoreWindow.value.end },
-                ],
-              }
-            : undefined,
-        data: metric.current_curve.map((point) => [point.timestamp, point.value]),
-      },
-    ]),
-    dataZoom: firstCurrentCurve.length > 120 ? [{ type: 'inside' }] : undefined,
-  }
-})
-
-const compareRuntimeSeriesSummary = computed(() =>
-  JSON.stringify(summarizeChartSeries(compareOption.value))
-)
-
-const compareChartWindowAttrs = computed(() => ({
-  displayStart: compareContextWindow.value?.start ?? '',
-  displayEnd: compareContextWindow.value?.end ?? '',
-  coreStart: heatCoreWindow.value?.start ?? '',
-  coreEnd: heatCoreWindow.value?.end ?? '',
-}))
 
 const manualAdjustContext = computed(() => {
   if (!current.value) {
@@ -1250,59 +1033,16 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="bg-white rounded-xl border border-border-light shadow-card p-5">
-          <div class="flex flex-col lg:flex-row justify-between lg:items-center mb-4 gap-4">
-            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
-              <span class="material-symbols-outlined text-primary text-[20px]">ssid_chart</span>
-              {{ t('heat.compareWithBaseline') }}
-            </h3>
-            <div class="flex items-center gap-3">
-              <el-tabs v-model="activeBaselineId" class="-mb-[15px] mr-2">
-                <el-tab-pane
-                  v-for="item in current.baselineComparisons"
-                  :key="item.baseline.id"
-                  :name="item.baseline.id"
-                  :label="item.baseline.name"
-                />
-              </el-tabs>
-            </div>
-          </div>
-          <div
-            v-if="selectedComparisonOverlap"
-            class="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800"
-            data-testid="heat-compare-overlap-note"
-          >
-            {{
-              t('heat.compareOverlapHint', {
-                metric: selectedComparisonOverlap.metricName,
-                baseline: selectedComparisonOverlap.baselineName,
-              })
-            }}
-          </div>
-          <div
-            v-if="selectedComparisonMissingCurrentMetrics.length > 0"
-            class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
-            data-testid="heat-compare-missing-current-note"
-          >
-            {{
-              t('heat.compareMissingCurrentHint', {
-                metrics: selectedComparisonMissingCurrentMetrics.join(' / '),
-              })
-            }}
-          </div>
-          <v-chart
-            :key="compareChartKey"
-            :option="compareOption"
-            autoresize
-            class="h-80"
-            data-testid="heat-compare-chart"
-            :data-series-count="compareSeriesCount"
-            :data-runtime-series-summary="compareRuntimeSeriesSummary"
-            :data-active-baseline-id="selectedComparison?.baseline.id || ''"
-            :data-active-baseline-name="selectedComparison?.baseline.name || ''"
-            :data-display-start="compareChartWindowAttrs.displayStart"
-            :data-display-end="compareChartWindowAttrs.displayEnd"
-            :data-core-start="compareChartWindowAttrs.coreStart"
-            :data-core-end="compareChartWindowAttrs.coreEnd"
+          <HeatComparePanel
+            :heat-id="heatId"
+            :baseline-comparisons="current.baselineComparisons"
+            :active-baseline-id="activeBaselineId"
+            :heat-core-window="heatCoreWindow"
+            :compare-context-window="compareContextWindow"
+            :fallback-deviation-ranges="current.deviationRanges"
+            show-fullscreen-button
+            @update:active-baseline-id="activeBaselineId = $event"
+            @open-fullscreen="compareFullscreenVisible = true"
           />
         </div>
 
@@ -1401,66 +1141,33 @@ onBeforeUnmount(() => {
               </template>
             </div>
 
-            <div class="rounded-lg bg-slate-50 border border-border-light p-3">
-              <div class="text-xs uppercase tracking-wider text-slate-400">时序与切割分析</div>
-              <div class="mt-3 space-y-2 font-mono text-xs">
-                <div class="flex justify-between">
-                  <span class="font-sans text-slate-400">{{ t('heat.startTime') }}</span>
-                  <span>{{ formatTimestamp(current.base.startTime, 'YYYY-MM-DD HH:mm:ss') }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span class="font-sans text-slate-400">{{ t('heat.endTime') }}</span>
-                  <span>{{ endTimeDisplay }}</span>
-                </div>
-              </div>
-              <div class="mt-4 grid gap-3 md:grid-cols-2">
+            <div
+              class="rounded-lg border border-border-light bg-slate-50 p-4"
+              data-testid="heat-detail-time-window-card"
+            >
+              <div class="grid gap-3">
                 <div class="rounded-lg border border-slate-200 bg-white px-3 py-3">
                   <div class="text-[11px] uppercase tracking-wider text-slate-400">
-                    {{ t('heat.declaredContextWindow') }}
+                    {{ t('heat.currentHeatWindow') }}
                   </div>
                   <div class="mt-3 space-y-2 font-mono text-xs">
                     <div class="flex justify-between gap-3">
-                      <span class="font-sans text-slate-400">{{ t('heat.declaredStartTime') }}</span>
-                      <span>{{
-                        formatTimestampOrFallback(
-                          declaredContextWindow?.start ?? null,
-                          '--',
-                          'YYYY-MM-DD HH:mm:ss'
-                        )
-                      }}</span>
+                      <span class="font-sans text-slate-400">{{ t('heat.startTime') }}</span>
+                      <span>{{ formatTimestamp(current.base.startTime, 'YYYY-MM-DD HH:mm:ss') }}</span>
                     </div>
                     <div class="flex justify-between gap-3">
-                      <span class="font-sans text-slate-400">{{ t('heat.declaredEndTime') }}</span>
-                      <span>{{
-                        formatTimestampOrFallback(
-                          declaredContextWindow?.end ?? null,
-                          '--',
-                          'YYYY-MM-DD HH:mm:ss'
-                        )
-                      }}</span>
+                      <span class="font-sans text-slate-400">{{ t('heat.endTime') }}</span>
+                      <span>{{ endTimeDisplay }}</span>
                     </div>
                   </div>
                 </div>
-                <div
-                  class="rounded-lg border px-3 py-3"
-                  :class="
-                    hasPartialContextCoverage
-                      ? 'border-amber-200 bg-amber-50'
-                      : 'border-slate-200 bg-white'
-                  "
-                >
-                  <div
-                    class="text-[11px] uppercase tracking-wider"
-                    :class="hasPartialContextCoverage ? 'text-amber-600' : 'text-slate-400'"
-                  >
-                    {{ t('heat.actualCoverageWindow') }}
+                <div class="rounded-lg border border-slate-200 bg-white px-3 py-3">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-400">
+                    {{ t('heat.curveCoverageWindow') }}
                   </div>
                   <div class="mt-3 space-y-2 font-mono text-xs">
                     <div class="flex justify-between gap-3">
-                      <span
-                        class="font-sans"
-                        :class="hasPartialContextCoverage ? 'text-amber-600' : 'text-slate-400'"
-                      >{{ t('heat.actualStartTime') }}</span>
+                      <span class="font-sans text-slate-400">{{ t('heat.startTime') }}</span>
                       <span>{{
                         formatTimestampOrFallback(
                           actualContextWindow?.start ?? null,
@@ -1470,10 +1177,7 @@ onBeforeUnmount(() => {
                       }}</span>
                     </div>
                     <div class="flex justify-between gap-3">
-                      <span
-                        class="font-sans"
-                        :class="hasPartialContextCoverage ? 'text-amber-600' : 'text-slate-400'"
-                      >{{ t('heat.actualEndTime') }}</span>
+                      <span class="font-sans text-slate-400">{{ t('heat.endTime') }}</span>
                       <span>{{
                         formatTimestampOrFallback(
                           actualContextWindow?.end ?? null,
@@ -1485,12 +1189,6 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
               </div>
-              <p
-                v-if="hasPartialContextCoverage"
-                class="mt-3 text-xs text-amber-700"
-              >
-                {{ t('heat.contextWindowPartialHint') }}
-              </p>
             </div>
 
             <div
@@ -1586,6 +1284,26 @@ onBeforeUnmount(() => {
         {{ t('heat.manualAdjustUnavailable') }}
       </p>
     </div>
+
+    <el-dialog
+      v-model="compareFullscreenVisible"
+      :title="t('heat.compareFullscreenTitle')"
+      fullscreen
+      append-to-body
+      data-testid="heat-compare-fullscreen-dialog"
+    >
+      <HeatComparePanel
+        v-if="current"
+        :heat-id="heatId"
+        :baseline-comparisons="current.baselineComparisons"
+        :active-baseline-id="activeBaselineId"
+        :heat-core-window="heatCoreWindow"
+        :compare-context-window="compareContextWindow"
+        :fallback-deviation-ranges="current.deviationRanges"
+        surface="fullscreen"
+        @update:active-baseline-id="activeBaselineId = $event"
+      />
+    </el-dialog>
 
     <el-dialog
       v-model="manualAdjustVisible"

@@ -120,6 +120,78 @@
   - [!] 本轮完成的是后端生命周期契约重构与定向回归，不是完整浏览器用户路径验证，也不是正式 UAT
   - [!] 当前还没有做“本地真实初始化后连续观察多轮自动刷新”的人工长稳验证；这一步如果要对当前联调库给最终业务结论，仍需单独执行
 
+### 2026-04-22（总览主图已改为当前炉次 vs 默认黄金基线）
+
+- [x] 已完成 Dashboard 主图数据源切换
+  - [x] `apps/web/src/stores/dashboard.ts`
+  - [x] 总览主图不再依赖 `/api/dashboard/realtime?duration=*`
+  - [x] 现改为先读 `/api/heats` 找 `realtime_current = true` 的当前炉次，再读 `/api/heats/{id}/compare`
+  - [x] 若没有当前炉次，不回退最近一炉，直接进入明确空态
+- [x] 已完成 Dashboard compare 组件复用
+  - [x] `apps/web/src/components/heat/HeatComparePanel.vue`
+  - [x] 新增 dashboard 模式：隐藏 baseline tabs、隐藏 fullscreen 按钮、支持标题/副标题/“当前炉次”标识
+  - [x] 总览主图改为固定展示默认黄金基线的多指标 compare
+- [x] 已完成总览页文案与交互收口
+  - [x] `apps/web/src/views/DashboardView.vue`
+  - [x] 已移除 `5分钟 / 1小时 / 6小时 / 24小时` 范围按钮
+  - [x] 副标题现展示：当前炉次编号、开始时间、对比基线
+  - [x] 已补空态 / compare 失败 / 无基线数据三类状态
+- [x] 已同步 locale 与正式验收脚本
+  - [x] 更新 `apps/web/src/locales/zh-CN.json`
+  - [x] 更新 `apps/web/src/locales/zh-TW.json`
+  - [x] 更新 `apps/web/src/locales/en-US.json`
+  - [x] 更新 `apps/web/src/locales/ja-JP.json`
+  - [x] 更新 `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md`，将 Dashboard 验收口径改为“当前炉次曲线对比”
+- [x] 已补前端回归
+  - [x] 更新 `apps/web/e2e/issue-acceptance.spec.ts`
+  - [x] 新增 Dashboard success / empty / compare error / no-baseline 四类断言
+  - [x] 已回归 heat detail compare 旧路径，确认未被新改动打坏
+- [x] 已完成本轮定向验证
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web lint`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "dashboard|heat detail"`
+  - [x] 结果：`8 passed`
+- [!] 当前边界
+  - [!] 本轮仍在独立 worktree `D:\project\EDC electricity-heat-detail-compare` / 分支 `codex/heat-detail-compare-fullscreen` 上完成
+  - [!] `lint` 无新增 error；仓库内仍有既有 Vue 风格 warning
+  - [!] 尚未做接真实链路的正式浏览器 UAT 留图，本轮只能算定向前端回归
+
+---
+
+### 2026-04-22（炉次详情摘要已简化，基线对比已支持全屏弹窗）
+
+- [x] 已完成炉次详情页摘要时间收口
+  - [x] `apps/web/src/views/HeatDetailView.vue`
+  - [x] 右侧摘要区已删除“声明上下文窗口”与“按实际覆盖范围展示”提示
+  - [x] 摘要区现只展示两组时间：`当前炉次时间`、`曲线覆盖窗口时间`
+  - [x] 展示数据仍沿用现有真源：`startTime / endTime(lastPointAt)` 与 `actualContextWindow`
+- [x] 已完成“与基线对比”全屏弹窗能力
+  - [x] 新增 `apps/web/src/components/heat/HeatComparePanel.vue`
+  - [x] compare 区域已从 `HeatDetailView.vue` 抽出为独立面板组件，统一承载基线 tab、提示条、图表容器
+  - [x] 普通态与全屏态共享同一份基线选中状态；全屏切换后关闭弹窗，普通态保持同步
+  - [x] 全屏图表已放大高度、图例字号、坐标轴字号与主线宽，未使用浏览器原生 Fullscreen API
+- [x] 已同步文案与正式验收脚本
+  - [x] 更新 `apps/web/src/locales/zh-CN.json`
+  - [x] 更新 `apps/web/src/locales/zh-TW.json`
+  - [x] 更新 `apps/web/src/locales/en-US.json`
+  - [x] 更新 `apps/web/src/locales/ja-JP.json`
+  - [x] 更新 `docs/test-reports/UAT-EDC-ASNS-commercial-acceptance.md` 中 `S06-TC03`，将详情摘要口径改为“两组时间 + 全屏查看”
+- [x] 已补前端回归
+  - [x] 更新 `apps/web/e2e/issue-acceptance.spec.ts`
+  - [x] 新增 fullscreen state sync 用例
+  - [x] 已补摘要区不再显示声明窗口文案的断言
+- [x] 已完成本轮定向验证
+  - [x] `pnpm --dir apps/web install --frozen-lockfile`
+  - [x] `pnpm --dir apps/web test:i18n`
+  - [x] `pnpm --dir apps/web build`
+  - [x] `pnpm --dir apps/web exec playwright test e2e/issue-acceptance.spec.ts -g "heat detail"`
+  - [x] 结果：`4 passed`
+- [!] 当前边界
+  - [!] 本轮是在独立 worktree `D:\project\EDC electricity-heat-detail-compare` / 分支 `codex/heat-detail-compare-fullscreen` 上完成，未混入你当前后端脏工作区
+  - [!] `pnpm --dir apps/web lint` 已执行；仅存在仓库内既有 Vue 风格 warning，无新增 error
+  - [!] 尚未按 `docs/testing.md` 完成浏览器侧完整用户路径 UAT 留存；本轮不能声称“正式 UAT 已完成”
+
 ---
 
 ### 2026-04-20（fixed_interval 弱活跃 slot 已保留，真实 replay 已恢复 09:00 炉次）

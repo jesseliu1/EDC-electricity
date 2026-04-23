@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia'
 import { dashboardApi } from '@/api/dashboard'
+import { heatApi } from '@/api/heat'
 import { taskApi } from '@/api/task'
 import { resolveApiErrorMessage } from '@/utils/apiError'
 import type {
-  CurvePoint,
   DashboardStatsResponse,
   RecentHeatsResponse,
   RecentHeatResponseItem,
@@ -11,6 +11,13 @@ import type {
   TimeRange
 } from '@/api/dashboard'
 import type { TaskItemResponse, TaskStatus } from '@/api/task'
+import type {
+  BaselineCompareItem,
+  CurvePoint,
+  DeviationRange,
+  HeatCompareResponse,
+  MetricCompareSeries,
+} from '@/api/heat'
 
 interface DashboardStats {
   todayHeats: number
@@ -30,6 +37,25 @@ interface RealtimeData {
   voltage: CurvePoint[]
   baselinePower: CurvePoint[]
   baselineVoltage: CurvePoint[]
+}
+
+interface TimeWindow {
+  start: number
+  end: number
+}
+
+type DashboardCurrentHeatEmptyReason = 'no_current_heat' | 'no_compare_baseline' | null
+
+interface DashboardCurrentHeatCompare {
+  currentHeatId: string | null
+  currentHeatNo: string | null
+  currentHeatStartTime: number | null
+  baselineName: string | null
+  activeBaselineId: string | null
+  baselineComparisons: BaselineCompareItem[]
+  heatCoreWindow: TimeWindow | null
+  compareContextWindow: TimeWindow | null
+  fallbackDeviationRanges: DeviationRange[]
 }
 
 export interface RecentHeatItem {
@@ -70,6 +96,18 @@ const defaultRealtime: RealtimeData = {
   baselineVoltage: []
 }
 
+const defaultCurrentHeatCompare: DashboardCurrentHeatCompare = {
+  currentHeatId: null,
+  currentHeatNo: null,
+  currentHeatStartTime: null,
+  baselineName: null,
+  activeBaselineId: null,
+  baselineComparisons: [],
+  heatCoreWindow: null,
+  compareContextWindow: null,
+  fallbackDeviationRanges: [],
+}
+
 function mapStats(data: DashboardStatsResponse): DashboardStats {
   return {
     todayHeats: data.today_heats,
@@ -91,6 +129,103 @@ function mapRealtime(data: RealtimeResponse): RealtimeData {
     voltage: data.voltage,
     baselinePower: data.baseline_power,
     baselineVoltage: data.baseline_voltage
+  }
+}
+
+function normalizedTimestamp(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === '') return null
+  const timestamp = Number(value)
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+function inferCurveWindow(curves: Array<Array<{ timestamp: number; value: number }>>) {
+  const timestamps = curves.flatMap((curve) => curve.map((point) => point.timestamp))
+  if (timestamps.length === 0) return null
+
+  return {
+    start: Math.min(...timestamps),
+    end: Math.max(...timestamps),
+  }
+}
+
+function selectPrimaryComparison(compare: HeatCompareResponse) {
+  const comparisons = compare.baselines || []
+  if (comparisons.length === 0) return null
+
+  return (
+    comparisons.find((item) => item.baseline.id === compare.heat.baseline_id) ||
+    (compare.baseline ? comparisons.find((item) => item.baseline.id === compare.baseline?.id) : null) ||
+    comparisons[0] ||
+    null
+  )
+}
+
+function buildHeatCoreWindow(compare: HeatCompareResponse) {
+  const heatEnd =
+    compare.heat.completion_status === 'in_progress'
+      ? compare.heat.last_point_at || compare.heat.end_time
+      : compare.heat.end_time
+  return {
+    start: compare.heat.start_time,
+    end: heatEnd,
+  }
+}
+
+function buildCompareContextWindow(
+  compare: HeatCompareResponse,
+  metricCurves: MetricCompareSeries[],
+  heatCoreWindow: TimeWindow
+) {
+  const explicitActualStart = normalizedTimestamp(compare.heat.actual_context_start_time)
+  const explicitActualEnd = normalizedTimestamp(compare.heat.actual_context_end_time)
+  if (
+    explicitActualStart !== null &&
+    explicitActualEnd !== null &&
+    explicitActualStart <= explicitActualEnd
+  ) {
+    return {
+      start: explicitActualStart,
+      end: explicitActualEnd,
+    }
+  }
+
+  const explicitDeclaredStart = normalizedTimestamp(compare.heat.context_start_time)
+  const explicitDeclaredEnd = normalizedTimestamp(compare.heat.context_end_time)
+  if (
+    explicitDeclaredStart !== null &&
+    explicitDeclaredEnd !== null &&
+    explicitDeclaredStart <= explicitDeclaredEnd
+  ) {
+    return {
+      start: Math.min(explicitDeclaredStart, heatCoreWindow.start),
+      end: Math.max(explicitDeclaredEnd, heatCoreWindow.end),
+    }
+  }
+
+  return inferCurveWindow(metricCurves.map((metric) => metric.current_curve)) || heatCoreWindow
+}
+
+function mapCurrentHeatCompare(compare: HeatCompareResponse): DashboardCurrentHeatCompare | null {
+  const primaryComparison = selectPrimaryComparison(compare)
+  if (!primaryComparison || primaryComparison.metric_curves.length === 0) {
+    return null
+  }
+
+  const heatCoreWindow = buildHeatCoreWindow(compare)
+  return {
+    currentHeatId: compare.heat.id,
+    currentHeatNo: compare.heat.heat_no,
+    currentHeatStartTime: compare.heat.start_time,
+    baselineName: primaryComparison.baseline.name,
+    activeBaselineId: primaryComparison.baseline.id,
+    baselineComparisons: [primaryComparison],
+    heatCoreWindow,
+    compareContextWindow: buildCompareContextWindow(
+      compare,
+      primaryComparison.metric_curves,
+      heatCoreWindow
+    ),
+    fallbackDeviationRanges: primaryComparison.deviation_ranges || compare.deviation_ranges,
   }
 }
 
@@ -124,6 +259,10 @@ export const useDashboardStore = defineStore('dashboard', {
     realtime: { ...defaultRealtime },
     realtimeLoaded: false,
     realtimeError: null as string | null,
+    currentHeatCompare: { ...defaultCurrentHeatCompare },
+    currentHeatCompareLoaded: false,
+    currentHeatCompareError: null as string | null,
+    currentHeatCompareEmptyReason: null as DashboardCurrentHeatEmptyReason,
     recentHeats: [] as RecentHeatItem[],
     recentHeatsLoaded: false,
     recentHeatsError: null as string | null,
@@ -156,6 +295,36 @@ export const useDashboardStore = defineStore('dashboard', {
         this.realtimeLoaded = true
       }
     },
+    async fetchCurrentHeatCompare() {
+      this.currentHeatCompareLoaded = false
+      this.currentHeatCompareError = null
+      this.currentHeatCompareEmptyReason = null
+      this.currentHeatCompare = { ...defaultCurrentHeatCompare }
+      try {
+        const heatList = await heatApi.list({ page: 1, page_size: 20 })
+        const currentHeat = heatList.items.find((item) => item.realtime_current)
+        if (!currentHeat) {
+          this.currentHeatCompareLoaded = true
+          this.currentHeatCompareEmptyReason = 'no_current_heat'
+          return
+        }
+
+        const compare = await heatApi.getCompare(currentHeat.id)
+        const mapped = mapCurrentHeatCompare(compare)
+        if (!mapped) {
+          this.currentHeatCompareLoaded = true
+          this.currentHeatCompareEmptyReason = 'no_compare_baseline'
+          return
+        }
+
+        this.currentHeatCompare = mapped
+        this.currentHeatCompareLoaded = true
+      } catch (error) {
+        console.error('Dashboard current heat compare request failed.', error)
+        this.currentHeatCompareError = resolveApiErrorMessage(error, '当前炉次对比加载失败')
+        this.currentHeatCompareLoaded = true
+      }
+    },
     async fetchRecentHeats(limit = 8) {
       this.recentHeatsError = null
       try {
@@ -186,7 +355,7 @@ export const useDashboardStore = defineStore('dashboard', {
       this.loading = true
       await Promise.all([
         this.fetchStats(),
-        this.fetchRealtime(this.timeRange),
+        this.fetchCurrentHeatCompare(),
         this.fetchRecentHeats(),
         this.fetchPendingTaskPreview()
       ])

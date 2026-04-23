@@ -83,43 +83,229 @@ async function wheelChartAt(
   await page.mouse.wheel(0, deltaY)
 }
 
-async function mockDashboardRanges(page: Page) {
-  await page.route('**/api/dashboard/realtime?duration=*', async (route) => {
-    const url = new URL(route.request().url())
-    const duration = url.searchParams.get('duration') || '1h'
-    const pointsByDuration = {
-      '5m': 8,
-      '1h': 12,
-      '6h': 18,
-      '24h': 24,
-    }
-    const count = pointsByDuration[duration as keyof typeof pointsByDuration] || 12
-    const power = buildCurvePoints(
-      '2026-03-13T00:00:00Z',
-      count,
-      duration === '24h' ? 60 : 10,
-      440,
-      5
-    )
-
+async function mockDashboardCurrentHeat(
+  page: Page,
+  options?: {
+    noCurrentHeat?: boolean
+    compareFailure?: boolean
+    noBaselineCompare?: boolean
+  }
+) {
+  await page.route('**/api/dashboard/stats', async (route) => {
     await fulfillJson(route, {
-      timestamp: '2026-03-13T09:30:00Z',
-      baseline_id: 'baseline-001',
-      baseline_name: '标准基线 v2.1',
-      power_source_label: 'SSTW 380V-220V電力 · 三相智能电表 / 总有功功率 / kW',
-      voltage_source_label: 'SSTW 380V-220V電力 · 三相智能电表 / A相电压 / V',
-      power,
-      voltage: buildCurvePoints(
-        '2026-03-13T00:00:00Z',
-        count,
-        duration === '24h' ? 60 : 10,
-        382,
-        1
-      ),
-      baseline_power: power.map((item) => ({ ...item, value: 460 })),
-      baseline_voltage: power.map((item) => ({ ...item, value: 385 })),
+      today_heats: 3,
+      avg_deviation_score: 8.2,
+      pending_tasks: 2,
+      active_baseline: '标准基线 v2.1',
+      normal_rate: 66.7,
     })
   })
+
+  await page.route('**/api/dashboard/recent-heats?*', async (route) => {
+    await fulfillJson(route, {
+      items: [
+        {
+          id: 'issue-heat',
+          heat_no: 'H20260313-001',
+          start_time: toTimestampMs('2026-03-13T08:36:00Z'),
+          end_time: toTimestampMs('2026-03-13T09:21:00Z'),
+          status: 'abnormal',
+          deviation_score: 18.5,
+        },
+        {
+          id: 'completed-heat',
+          heat_no: 'H20260313-000',
+          start_time: toTimestampMs('2026-03-13T07:30:00Z'),
+          end_time: toTimestampMs('2026-03-13T08:10:00Z'),
+          status: 'normal',
+          deviation_score: 3.2,
+        },
+      ],
+    })
+  })
+
+  await page.route('**/api/tasks?*', async (route) => {
+    const url = new URL(route.request().url())
+    const status = url.searchParams.get('status')
+    if (status === 'pending') {
+      await fulfillJson(route, {
+        items: [
+          {
+            id: 'task-pending-001',
+            task_no: 'T20260313-001',
+            heat_id: 'issue-heat',
+            deviation_score: 18.5,
+            cause_analysis: null,
+            improvement: null,
+            prevention: null,
+            status: 'pending',
+            created_at: toTimestampMs('2026-03-13T09:25:00Z'),
+            updated_at: toTimestampMs('2026-03-13T09:28:00Z'),
+            completed_at: null,
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 3,
+      })
+      return
+    }
+
+    await fulfillJson(route, {
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 3,
+    })
+  })
+
+  await page.route('**/api/heats?*', async (route) => {
+    await fulfillJson(route, {
+      items: options?.noCurrentHeat
+        ? [
+            {
+              id: 'completed-heat',
+              heat_no: 'H20260313-000',
+              description: null,
+              start_time: toTimestampMs('2026-03-13T07:30:00Z'),
+              end_time: toTimestampMs('2026-03-13T08:10:00Z'),
+              context_start_time: toTimestampMs('2026-03-13T07:00:00Z'),
+              context_end_time: toTimestampMs('2026-03-13T08:20:00Z'),
+              actual_context_start_time: toTimestampMs('2026-03-13T07:00:00Z'),
+              actual_context_end_time: toTimestampMs('2026-03-13T08:20:00Z'),
+              completion_status: 'completed',
+              last_point_at: toTimestampMs('2026-03-13T08:10:00Z'),
+              runtime_snapshot_status: 'ready',
+              realtime_current: false,
+              baseline_id: 'baseline-001',
+              baseline_version_id: 'baseline-001',
+              baseline_effective_from: null,
+              deviation_score: 3.2,
+              avg_deviation_score: 2.1,
+              abnormal_duration_minutes: 0,
+              schedule_tag: 'work',
+              cut_reason: 'within_tolerance',
+              cut_status: 'normal',
+              major_issue: false,
+              blocked_by_issue: false,
+              status: 'normal',
+              temperature: 1452,
+              record_source: 'sealed_history',
+              current_curve_source: 'sealed_history',
+              baseline_curve_source: 'sealed_history',
+              created_at: toTimestampMs('2026-03-13T07:30:00Z'),
+            },
+          ]
+        : [
+            {
+              id: 'issue-heat',
+              heat_no: 'H20260313-001',
+              description: null,
+              start_time: toTimestampMs('2026-03-13T08:36:00Z'),
+              end_time: toTimestampMs('2026-03-13T09:21:00Z'),
+              context_start_time: toTimestampMs('2026-03-13T07:36:00Z'),
+              context_end_time: toTimestampMs('2026-03-13T10:21:00Z'),
+              actual_context_start_time: toTimestampMs('2026-03-13T07:36:00Z'),
+              actual_context_end_time: toTimestampMs('2026-03-13T10:21:00Z'),
+              completion_status: 'in_progress',
+              last_point_at: toTimestampMs('2026-03-13T09:21:00Z'),
+              runtime_snapshot_status: 'ready',
+              realtime_current: true,
+              baseline_id: 'baseline-001',
+              baseline_version_id: 'baseline-001',
+              baseline_effective_from: null,
+              deviation_score: 18.5,
+              avg_deviation_score: 9.2,
+              abnormal_duration_minutes: 4,
+              schedule_tag: 'work',
+              cut_reason: 'time_offset_exceed',
+              cut_status: 'normal',
+              major_issue: false,
+              blocked_by_issue: false,
+              status: 'abnormal',
+              temperature: 1458,
+              record_source: 'active_runtime',
+              current_curve_source: 'active_runtime',
+              baseline_curve_source: 'sealed_history',
+              created_at: toTimestampMs('2026-03-13T08:36:00Z'),
+            },
+          ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      snapshot_status: 'ready',
+      snapshot_watermark: toTimestampMs('2026-03-13T09:21:00Z'),
+      last_refresh_started_at: toTimestampMs('2026-03-13T09:21:00Z'),
+      last_refresh_completed_at: toTimestampMs('2026-03-13T09:21:05Z'),
+      refresh_error: null,
+      refresh_failure_count: 0,
+    })
+  })
+
+  if (options?.noCurrentHeat) {
+    return
+  }
+
+  await mockHeatAcceptance(page, { useExtendedCompareCurrentCurve: true })
+
+  if (options?.compareFailure) {
+    await page.route('**/api/heats/issue-heat/compare', async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: '当前炉次 compare 服务暂不可用' }),
+      })
+    })
+    return
+  }
+
+  if (options?.noBaselineCompare) {
+    await page.route('**/api/heats/issue-heat/compare', async (route) => {
+      const heatStart = toTimestampMs('2026-03-13T08:36:00Z')
+      const heatEnd = toTimestampMs('2026-03-13T09:21:00Z')
+      await fulfillJson(route, {
+        heat: {
+          id: 'issue-heat',
+          heat_no: 'H20260313-001',
+          description: null,
+          start_time: heatStart,
+          end_time: heatEnd,
+          context_start_time: toTimestampMs('2026-03-13T07:36:00Z'),
+          context_end_time: toTimestampMs('2026-03-13T10:21:00Z'),
+          actual_context_start_time: toTimestampMs('2026-03-13T07:36:00Z'),
+          actual_context_end_time: toTimestampMs('2026-03-13T10:21:00Z'),
+          completion_status: 'in_progress',
+          last_point_at: heatEnd,
+          runtime_snapshot_status: 'ready',
+          realtime_current: true,
+          baseline_id: 'baseline-001',
+          baseline_version_id: 'baseline-001',
+          baseline_effective_from: null,
+          deviation_score: 18.5,
+          avg_deviation_score: 9.2,
+          abnormal_duration_minutes: 4,
+          schedule_tag: 'work',
+          cut_reason: 'time_offset_exceed',
+          cut_status: 'normal',
+          major_issue: false,
+          blocked_by_issue: false,
+          status: 'abnormal',
+          temperature: 1458,
+          record_source: 'active_runtime',
+          current_curve_source: 'active_runtime',
+          baseline_curve_source: 'sealed_history',
+          created_at: heatStart,
+          power_curve: buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 438, 6),
+          voltage_curve: buildCurvePoints('2026-03-13T08:36:00Z', 46, 1, 386, 1.5),
+        },
+        baseline: null,
+        baselines: [],
+        deviation_ranges: [],
+        deviation_score: null,
+        avg_deviation_score: null,
+      })
+    })
+  }
 }
 
 async function mockBaselineWizardAcceptance(
@@ -601,40 +787,82 @@ async function mockHeatAcceptance(
 }
 
 test.describe('EDC issue acceptance checks', () => {
-  test('dashboard range buttons request the target durations and update active state', async ({
+  test('dashboard renders the current heat compare chart instead of realtime range controls', async ({
     page,
   }) => {
-    const durations: string[] = []
-    await mockDashboardRanges(page)
-    await page.route('**/api/dashboard/realtime?duration=*', async (route) => {
-      const url = new URL(route.request().url())
-      durations.push(url.searchParams.get('duration') || '')
-      await route.fallback()
-    })
+    await mockDashboardCurrentHeat(page)
 
     await page.goto('')
     await expect(page.getByTestId('dashboard-page')).toBeVisible()
-    await expect(page.getByTestId('dashboard-realtime-subtitle')).toContainText(
-      '数据时间 2026-03-13 09:30'
+    await expect(page.getByTestId('dashboard-current-heat-card')).toBeVisible()
+    await expect(page.getByTestId('dashboard-current-heat-badge')).toHaveText('当前炉次')
+    await expect(page.getByTestId('dashboard-current-heat-subtitle')).toContainText(
+      '炉次 H20260313-001'
     )
-    await expect(page.getByTestId('dashboard-realtime-subtitle')).toContainText(
+    await expect(page.getByTestId('dashboard-current-heat-subtitle')).toContainText(
+      '开始时间 2026-03-13 16:36'
+    )
+    await expect(page.getByTestId('dashboard-current-heat-subtitle')).toContainText(
       '对比基线 标准基线 v2.1'
     )
-    await expect(page.getByTestId('dashboard-realtime-subtitle')).not.toContainText(
-      '当前炉次 #H-20231025-08'
+    await expect(page.getByTestId('dashboard-current-heat-chart')).toBeVisible()
+    await expect(page.getByTestId('dashboard-current-heat-chart')).toHaveAttribute(
+      'data-series-count',
+      '6'
     )
-    await expect(page.getByTestId('dashboard-realtime-subtitle')).not.toContainText('黄金基线 V3.2')
+    await expect(page.getByTestId('dashboard-current-heat-chart')).toHaveAttribute(
+      'data-active-baseline-name',
+      '标准基线 v2.1'
+    )
+    await expect(page.getByTestId('dashboard-current-heat-chart')).toHaveAttribute(
+      'data-display-start',
+      String(toTimestampMs('2026-03-13T07:36:00Z'))
+    )
+    await expect(page.getByTestId('dashboard-range-1h')).toHaveCount(0)
+    await expect(page.getByRole('tab', { name: '标准基线 v2.1' })).toHaveCount(0)
+  })
 
-    await page.getByTestId('dashboard-range-6h').click()
-    await expect(page.getByTestId('dashboard-range-6h')).toHaveClass(/bg-white/)
-    await expect(page.getByTestId('dashboard-realtime-subtitle')).toContainText('6小时')
+  test('dashboard shows an empty state when there is no current heat', async ({ page }) => {
+    await mockDashboardCurrentHeat(page, { noCurrentHeat: true })
 
-    await page.getByTestId('dashboard-range-24h').click()
-    await expect(page.getByTestId('dashboard-range-24h')).toHaveClass(/bg-white/)
-    await expect(page.getByTestId('dashboard-realtime-subtitle')).toContainText('24小时')
-    await expect(page.getByTestId('dashboard-source-summary')).toBeVisible()
-    await expect.poll(() => durations.filter((item) => item === '6h').length).toBeGreaterThan(0)
-    await expect.poll(() => durations.filter((item) => item === '24h').length).toBeGreaterThan(0)
+    await page.goto('')
+    await expect(page.getByTestId('dashboard-page')).toBeVisible()
+    await expect(page.getByTestId('dashboard-current-heat-empty')).toContainText(
+      '当前无进行中的炉次'
+    )
+    await expect(page.getByTestId('dashboard-current-heat-chart')).toHaveCount(0)
+    await expect(page.getByTestId('dashboard-load-warning')).toHaveCount(0)
+  })
+
+  test('dashboard shows a compare error state when current heat compare fails', async ({
+    page,
+  }) => {
+    await mockDashboardCurrentHeat(page, { compareFailure: true })
+
+    await page.goto('')
+    await expect(page.getByTestId('dashboard-page')).toBeVisible()
+    await expect(page.getByTestId('dashboard-current-heat-error')).toContainText(
+      '当前炉次对比加载失败'
+    )
+    await expect(page.getByTestId('dashboard-current-heat-error')).toContainText(
+      '当前炉次 compare 服务暂不可用'
+    )
+    await expect(page.getByTestId('dashboard-load-warning')).toContainText(
+      '当前炉次 compare 服务暂不可用'
+    )
+  })
+
+  test('dashboard shows a no-baseline empty state when compare returns no baseline data', async ({
+    page,
+  }) => {
+    await mockDashboardCurrentHeat(page, { noBaselineCompare: true })
+
+    await page.goto('')
+    await expect(page.getByTestId('dashboard-page')).toBeVisible()
+    await expect(page.getByTestId('dashboard-current-heat-empty')).toContainText(
+      '当前炉次尚未绑定可对比基线'
+    )
+    await expect(page.getByTestId('dashboard-current-heat-chart')).toHaveCount(0)
   })
 
   test('baseline wizard keeps chart picking, zoom dragging, and fullscreen state in sync', async ({
@@ -786,6 +1014,10 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(page.getByTestId('heat-detail-deviation-status')).toContainText('异常')
     await expect(page.getByTestId('heat-detail-cut-status')).toContainText('切割执行状态')
     await expect(page.getByTestId('heat-detail-cut-status')).toContainText('正常')
+    await expect(page.getByTestId('heat-detail-time-window-card')).toContainText('当前炉次时间')
+    await expect(page.getByTestId('heat-detail-time-window-card')).toContainText('曲线覆盖窗口时间')
+    await expect(page.getByText('声明上下文窗口')).toHaveCount(0)
+    await expect(page.getByText('按实际覆盖范围展示')).toHaveCount(0)
     await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute('data-series-count', '6')
     await expect(page.getByTestId('heat-source-binding-list')).toHaveCount(0)
     await page.getByRole('tab', { name: '高功率基线' }).click()
@@ -861,6 +1093,48 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(endInput).not.toHaveValue(originalEnd)
     await expect(chartRoot).not.toHaveAttribute('data-range-end', originalRangeEnd || '')
     await expect(chartRoot).toHaveAttribute('data-series-count', '8')
+  })
+
+  test('heat detail compare panel keeps fullscreen state and baseline selection in sync', async ({
+    page,
+  }) => {
+    await mockHeatAcceptance(page, { useExtendedCompareCurrentCurve: true })
+    await page.goto('heats/issue-heat')
+
+    await expect(page.getByTestId('heat-detail-page')).toBeVisible()
+    await page.getByRole('tab', { name: '高功率基线' }).click()
+    await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute(
+      'data-active-baseline-name',
+      '高功率基线'
+    )
+
+    await page.getByTestId('heat-compare-fullscreen-button').click()
+    const dialog = page.getByTestId('heat-compare-fullscreen-dialog')
+    const fullscreenChart = dialog.getByTestId('heat-compare-fullscreen-chart')
+    await expect(dialog).toBeVisible()
+    await expect(fullscreenChart).toHaveAttribute('data-active-baseline-name', '高功率基线')
+    await expect(fullscreenChart).toHaveAttribute(
+      'data-display-start',
+      String(toTimestampMs('2026-03-13T07:36:00Z'))
+    )
+    await expect(fullscreenChart).toHaveAttribute(
+      'data-core-start',
+      String(toTimestampMs('2026-03-13T08:36:00Z'))
+    )
+
+    await dialog.getByRole('tab', { name: '标准基线 v2.1' }).click()
+    await expect(fullscreenChart).toHaveAttribute('data-active-baseline-name', '标准基线 v2.1')
+    await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute(
+      'data-active-baseline-name',
+      '标准基线 v2.1'
+    )
+
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute(
+      'data-active-baseline-name',
+      '标准基线 v2.1'
+    )
   })
 
   test('heat detail compare chart keeps extended current curves and exposes context window', async ({
