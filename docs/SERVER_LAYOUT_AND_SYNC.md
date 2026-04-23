@@ -30,6 +30,7 @@
 - `deploy/systemd/asns-host.service.example`
 - `scripts/sync-edc-server.sh`
 - `scripts/publish-edc-web-and-asns.sh`
+- `scripts/redeploy-public-blank.sh`
 
 当前指向关系：
 
@@ -314,6 +315,23 @@ curl -sS -H 'content-type: application/json' -d '{}' \
 6. 发布 EDC 前端
 7. 重启 EDC 后端和 ASNS
 8. 做验收
+
+如果目标不是“普通同步”，而是“删库重建 + blank 重部署”，优先直接执行：
+
+```bash
+cd /home/openclaw/projects/EDC-electricity
+./scripts/redeploy-public-blank.sh
+```
+
+当前脚本会一次性完成：
+
+- `sync-edc-server.sh` 的 runtime 同步，但强制 `EDC_SERVER_SKIP_START=1`
+- 跳过 `deploy-refresh`，避免 blank 重建前重新灌回旧 source-bound 状态
+- 备份当前运行库数据库文件
+- 写入 `edc-backend.service.d/blank-bootstrap.conf`
+- 对运行库执行 `factory-reset`
+- 启动 blank 后端
+- 发布 EDC 前端与 ASNS
 
 ## 6. 最小验收命令
 

@@ -8,6 +8,7 @@
 - `deploy/systemd/asns-host.service.example`
 - `scripts/sync-edc-server.sh`
 - `scripts/publish-edc-web-and-asns.sh`
+- `scripts/redeploy-public-blank.sh`
 - 服务器路径与同步原则见 `docs/SERVER_LAYOUT_AND_SYNC.md`
 
 本机 Windows 联调入口：
@@ -106,15 +107,17 @@ ASNS_DEBUG=false
 - 如果目标是“公网 blank 重部署”，推荐先用 `EDC_SERVER_SKIP_START=1` 同步 runtime，避免后端在删库前先带着旧 SQLite 短暂启动一次：
 
 ```bash
-EDC_SERVER_SKIP_SOURCE_REFRESH=1 EDC_SERVER_SKIP_START=1 ./scripts/sync-edc-server.sh
-systemctl --user stop edc-backend.service
-/home/openclaw/edc-electricity-server/venv/bin/python -m src.runtime_state_admin \
-  --db /home/openclaw/edc-electricity-server/data/asns.db \
-  --mode factory-reset
-systemctl --user start edc-backend.service
-./scripts/publish-edc-web-and-asns.sh
+./scripts/redeploy-public-blank.sh
 ```
 
+- `scripts/redeploy-public-blank.sh` 当前会固化以下顺序：
+  - 以 `EDC_SERVER_SKIP_SOURCE_REFRESH=1 EDC_SERVER_SKIP_START=1` 运行 `scripts/sync-edc-server.sh`
+  - 停止 `edc-backend.service`
+  - 备份现有 `asns.db / -wal / -shm / -journal`
+  - 写入 `blank-bootstrap.conf`，确保后端以 `ASNS_BOOTSTRAP_MODE=blank` 启动
+  - 对运行库执行 `factory-reset`
+  - 启动后端并验活
+  - 执行 `scripts/publish-edc-web-and-asns.sh`
 - 上述顺序的目标是：先把代码同步到 runtime，但在 SQLite 仍是旧库时不让后端先起来；真正的第一次启动应发生在 `factory-reset` 之后
 - 当前仓库部署口径已不再要求保留旧 `venv/`，而是每次同步后从源码重建运行环境
 - 当前项目没有额外的 Redis、MQ、对象存储前置要求
@@ -249,16 +252,10 @@ PORT=3001
 如果这次是公网 blank 重部署，标准顺序改为：
 
 ```bash
-./scripts/sync-edc-server.sh
-systemctl --user stop edc-backend.service
-/home/openclaw/edc-electricity-server/venv/bin/python -m src.runtime_state_admin \
-  --db /home/openclaw/edc-electricity-server/data/asns.db \
-  --mode factory-reset
-systemctl --user start edc-backend.service
-./scripts/publish-edc-web-and-asns.sh
+./scripts/redeploy-public-blank.sh
 ```
 
-其中第 3 步当前会直接删除旧 SQLite 并按最新 schema 重建空库，所以这是“真正重建”，不是“保留旧库后清空数据”。
+其中 `factory-reset` 当前会直接删除旧 SQLite 并按最新 schema 重建空库，所以这是“真正重建”，不是“保留旧库后清空数据”。
 
 其中 `scripts/sync-edc-server.sh` 当前还会在同步完成后自动执行：
 
