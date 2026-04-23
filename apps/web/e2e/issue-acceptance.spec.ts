@@ -786,6 +786,10 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(page.getByTestId('heat-detail-deviation-status')).toContainText('异常')
     await expect(page.getByTestId('heat-detail-cut-status')).toContainText('切割执行状态')
     await expect(page.getByTestId('heat-detail-cut-status')).toContainText('正常')
+    await expect(page.getByTestId('heat-detail-time-window-card')).toContainText('当前炉次时间')
+    await expect(page.getByTestId('heat-detail-time-window-card')).toContainText('曲线覆盖窗口时间')
+    await expect(page.getByText('声明上下文窗口')).toHaveCount(0)
+    await expect(page.getByText('按实际覆盖范围展示')).toHaveCount(0)
     await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute('data-series-count', '6')
     await expect(page.getByTestId('heat-source-binding-list')).toHaveCount(0)
     await page.getByRole('tab', { name: '高功率基线' }).click()
@@ -861,6 +865,48 @@ test.describe('EDC issue acceptance checks', () => {
     await expect(endInput).not.toHaveValue(originalEnd)
     await expect(chartRoot).not.toHaveAttribute('data-range-end', originalRangeEnd || '')
     await expect(chartRoot).toHaveAttribute('data-series-count', '8')
+  })
+
+  test('heat detail compare panel keeps fullscreen state and baseline selection in sync', async ({
+    page,
+  }) => {
+    await mockHeatAcceptance(page, { useExtendedCompareCurrentCurve: true })
+    await page.goto('heats/issue-heat')
+
+    await expect(page.getByTestId('heat-detail-page')).toBeVisible()
+    await page.getByRole('tab', { name: '高功率基线' }).click()
+    await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute(
+      'data-active-baseline-name',
+      '高功率基线'
+    )
+
+    await page.getByTestId('heat-compare-fullscreen-button').click()
+    const dialog = page.getByTestId('heat-compare-fullscreen-dialog')
+    const fullscreenChart = dialog.getByTestId('heat-compare-fullscreen-chart')
+    await expect(dialog).toBeVisible()
+    await expect(fullscreenChart).toHaveAttribute('data-active-baseline-name', '高功率基线')
+    await expect(fullscreenChart).toHaveAttribute(
+      'data-display-start',
+      String(toTimestampMs('2026-03-13T07:36:00Z'))
+    )
+    await expect(fullscreenChart).toHaveAttribute(
+      'data-core-start',
+      String(toTimestampMs('2026-03-13T08:36:00Z'))
+    )
+
+    await dialog.getByRole('tab', { name: '标准基线 v2.1' }).click()
+    await expect(fullscreenChart).toHaveAttribute('data-active-baseline-name', '标准基线 v2.1')
+    await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute(
+      'data-active-baseline-name',
+      '标准基线 v2.1'
+    )
+
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(page.getByTestId('heat-compare-chart')).toHaveAttribute(
+      'data-active-baseline-name',
+      '标准基线 v2.1'
+    )
   })
 
   test('heat detail compare chart keeps extended current curves and exposes context window', async ({
