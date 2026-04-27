@@ -6,7 +6,7 @@ import {
   onMounted,
   reactive,
   ref,
-  type ComponentPublicInstance
+  type ComponentPublicInstance,
 } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -17,6 +17,7 @@ import {
   ElInputNumber,
   ElMessage,
   ElOption,
+  ElRadio,
   ElRadioButton,
   ElRadioGroup,
   ElSelect,
@@ -83,6 +84,20 @@ const replayInitializationForm = reactive({
   primaryBaselineId: '',
   baselineIds: [] as string[],
 })
+const cuttingModeOptions = computed(() => [
+  {
+    value: 'signal_inference' as const,
+    testId: 'settings-cutting-mode-signal',
+    label: t('settings.cuttingModeSignalInference'),
+    description: t('settings.cuttingModeSignalInferenceHint'),
+  },
+  {
+    value: 'fixed_interval' as const,
+    testId: 'settings-cutting-mode-fixed',
+    label: t('settings.cuttingModeFixedInterval'),
+    description: t('settings.cuttingModeFixedIntervalHint'),
+  },
+])
 
 function formatReplayBaselineLabel(baseline: BaselineResponse | null | undefined) {
   if (!baseline) return ''
@@ -93,7 +108,7 @@ function formatReplayBaselineLabel(baseline: BaselineResponse | null | undefined
 const replayPrimaryBaseline = computed(
   () =>
     replayBaselineOptions.value.find(
-      item => item.id === replayInitializationForm.primaryBaselineId
+      (item) => item.id === replayInitializationForm.primaryBaselineId
     ) ?? null
 )
 
@@ -107,13 +122,13 @@ const replaySelectableBaselineOptions = computed(() => {
     return replayBaselineOptions.value
   }
   return replayBaselineOptions.value.filter(
-    item => item.expected_duration_minutes === expectedDuration
+    (item) => item.expected_duration_minutes === expectedDuration
   )
 })
 
 function syncReplaySelectionToPrimaryDefinition() {
-  const allowedIds = new Set(replaySelectableBaselineOptions.value.map(item => item.id))
-  replayInitializationForm.baselineIds = replayInitializationForm.baselineIds.filter(id =>
+  const allowedIds = new Set(replaySelectableBaselineOptions.value.map((item) => item.id))
+  replayInitializationForm.baselineIds = replayInitializationForm.baselineIds.filter((id) =>
     allowedIds.has(id)
   )
   ensureReplayPrimaryInSelection()
@@ -128,16 +143,16 @@ function ensureReplayPrimaryInSelection() {
 }
 
 function handleReplayBaselineSelectionChange(value: string[]) {
-  const allowedIds = new Set(replaySelectableBaselineOptions.value.map(item => item.id))
-  replayInitializationForm.baselineIds = value.filter(id => allowedIds.has(id))
+  const allowedIds = new Set(replaySelectableBaselineOptions.value.map((item) => item.id))
+  replayInitializationForm.baselineIds = value.filter((id) => allowedIds.has(id))
   ensureReplayPrimaryInSelection()
 }
 
 async function loadReplayBaselineOptions() {
   const response = await baselineApi.list('published')
   replayBaselineOptions.value = response.items
-  const baselineIds = response.items.map(item => item.id)
-  replayInitializationForm.baselineIds = replayInitializationForm.baselineIds.filter(id =>
+  const baselineIds = response.items.map((item) => item.id)
+  replayInitializationForm.baselineIds = replayInitializationForm.baselineIds.filter((id) =>
     baselineIds.includes(id)
   )
   if (
@@ -147,7 +162,7 @@ async function loadReplayBaselineOptions() {
     replayInitializationForm.primaryBaselineId = ''
   }
 
-  const defaultBaseline = response.items.find(item => item.is_default) ?? response.items[0]
+  const defaultBaseline = response.items.find((item) => item.is_default) ?? response.items[0]
   if (defaultBaseline) {
     replayInitializationForm.primaryBaselineId = defaultBaseline.id
   } else {
@@ -163,7 +178,7 @@ async function pollReplayInitializationJob(jobId: string) {
     if (['completed', 'failed', 'cancelled'].includes(job.status)) {
       return job
     }
-    await new Promise(resolve => window.setTimeout(resolve, 1000))
+    await new Promise((resolve) => window.setTimeout(resolve, 1000))
   }
   return replayInitializationJob.value
 }
@@ -241,9 +256,7 @@ function syncActiveSection() {
         distance: Math.abs(element.getBoundingClientRect().top - 144),
       }
     })
-    .filter(
-      (item): item is { id: SettingsSectionId; distance: number } => item !== null
-    )
+    .filter((item): item is { id: SettingsSectionId; distance: number } => item !== null)
 
   if (!candidates.length) return
 
@@ -309,21 +322,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div
-    ref="pageRef"
-    class="flex flex-col gap-6"
-    data-testid="settings-page"
-  >
+  <div ref="pageRef" class="flex flex-col gap-6" data-testid="settings-page">
     <!-- 页面头部 -->
-    <PageHeader
-      :title="t('settings.title')"
-      :subtitle="t('settings.subtitle')"
-    />
+    <PageHeader :title="t('settings.title')" :subtitle="t('settings.subtitle')" />
 
-    <SystemReadinessBanner
-      section="settings"
-      test-id="settings-runtime-banner"
-    />
+    <SystemReadinessBanner section="settings" test-id="settings-runtime-banner" />
 
     <!-- 两栏布局: 左侧导航 + 右侧内容 -->
     <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -386,14 +389,14 @@ onBeforeUnmount(() => {
               "
             >
               {{
-                hostConnectivity.isConnected
-                  ? t('settings.hostOnline')
-                  : t('settings.hostOffline')
+                hostConnectivity.isConnected ? t('settings.hostOnline') : t('settings.hostOffline')
               }}
             </span>
           </div>
 
-          <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 mb-6">
+          <div
+            class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 mb-6"
+          >
             {{ t('settings.hostManagedConnectionNotice') }}
           </div>
 
@@ -475,19 +478,20 @@ onBeforeUnmount(() => {
                 {{ t('settings.replayInitializationDescription') }}
               </p>
             </div>
-            <span class="text-xs px-2.5 py-1 rounded-full border border-slate-200 bg-slate-50 text-slate-600">
+            <span
+              class="text-xs px-2.5 py-1 rounded-full border border-slate-200 bg-slate-50 text-slate-600"
+            >
               {{ t('settings.replayInitializationModeLabel') }}
             </span>
           </div>
 
-          <div class="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700 mb-6">
+          <div
+            class="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700 mb-6"
+          >
             {{ t('settings.replayInitializationNotice') }}
           </div>
 
-          <el-form
-            label-position="top"
-            class="grid grid-cols-1 md:grid-cols-2 gap-4"
-          >
+          <el-form label-position="top" class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <el-form-item :label="t('settings.replayInitializationStartTime')">
               <el-date-picker
                 v-model="replayInitializationForm.startTime"
@@ -541,17 +545,20 @@ onBeforeUnmount(() => {
             data-testid="settings-replay-job-status"
           >
             <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <span>{{ t('settings.replayInitializationJobId') }}: {{ replayInitializationJob.id }}</span>
-              <span>{{ t('settings.replayInitializationJobStatus') }}: {{ replayInitializationJob.status }}</span>
+              <span
+                >{{ t('settings.replayInitializationJobId') }}:
+                {{ replayInitializationJob.id }}</span
+              >
+              <span
+                >{{ t('settings.replayInitializationJobStatus') }}:
+                {{ replayInitializationJob.status }}</span
+              >
               <span>
                 {{ t('settings.replayInitializationJobProgress') }}:
                 {{ replayInitializationJob.generated_heat_count }}
               </span>
             </div>
-            <div
-              v-if="replayInitializationJob.error_message"
-              class="mt-2 text-xs text-red-600"
-            >
+            <div v-if="replayInitializationJob.error_message" class="mt-2 text-xs text-red-600">
               {{ replayInitializationJob.error_message }}
             </div>
           </div>
@@ -587,22 +594,33 @@ onBeforeUnmount(() => {
             {{ t('settings.toleranceSectionDescription') }}
           </p>
 
-          <!-- 警告提示 -->
-          <div class="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6 flex items-start gap-3">
-            <span class="material-symbols-outlined text-orange-500 text-[20px] mt-0.5">info</span>
+          <div
+            class="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-6 flex items-start gap-3"
+          >
+            <span class="material-symbols-outlined text-slate-500 text-[20px] mt-0.5">info</span>
             <div>
-              <p class="text-sm font-semibold text-orange-700">
-                {{ t('settings.impactWarningTitle') }}
+              <p class="text-sm font-semibold text-slate-700">
+                {{ t('settings.unusedSettingTitle') }}
               </p>
-              <p class="text-xs text-orange-600 mt-0.5">
-                收紧阈值可能导致过渡态下出现更多的误报。
+              <p class="text-xs text-slate-500 mt-0.5">
+                {{ t('settings.unusedSettingDescription') }}
               </p>
             </div>
           </div>
 
           <el-form label-position="top">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <el-form-item :label="t('settings.reportTime')">
+              <el-form-item>
+                <template #label>
+                  <div class="flex items-center gap-2">
+                    <span>{{ t('settings.reportTime') }}</span>
+                    <span
+                      class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500"
+                    >
+                      {{ t('settings.unusedSettingBadge') }}
+                    </span>
+                  </div>
+                </template>
                 <div class="flex items-center gap-3 w-full">
                   <el-input-number
                     v-model="settingStore.data.reportGenerationHour"
@@ -619,14 +637,30 @@ onBeforeUnmount(() => {
                     保存报表时间
                   </button>
                 </div>
+                <div class="mt-1 text-xs text-slate-400">
+                  {{ t('settings.reportTimeUnusedHint') }}
+                </div>
               </el-form-item>
-              <el-form-item :label="t('settings.defaultTolerance')">
+              <el-form-item>
+                <template #label>
+                  <div class="flex items-center gap-2">
+                    <span>{{ t('settings.defaultTolerance') }}</span>
+                    <span
+                      class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500"
+                    >
+                      {{ t('settings.unusedSettingBadge') }}
+                    </span>
+                  </div>
+                </template>
                 <el-input-number
                   v-model="settingStore.data.defaultTolerancePercent"
                   :min="0"
                   :max="100"
                   data-testid="settings-default-tolerance-input"
                 />
+                <div class="mt-1 text-xs text-slate-400">
+                  {{ t('settings.defaultToleranceUnusedHint') }}
+                </div>
               </el-form-item>
             </div>
           </el-form>
@@ -664,30 +698,46 @@ onBeforeUnmount(() => {
             {{ t('settings.cuttingConfigDescription') }}
           </p>
 
-          <el-form
-            label-position="top"
-            class="grid grid-cols-1 gap-4 md:grid-cols-2"
-          >
-            <el-form-item
-              :label="t('settings.cuttingMode')"
-              class="md:col-span-2"
-            >
+          <el-form label-position="top" class="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <el-form-item :label="t('settings.cuttingMode')" class="md:col-span-2">
               <el-radio-group
                 v-model="settingStore.data.cuttingMode"
                 data-testid="settings-cutting-mode-group"
+                class="grid grid-cols-1 gap-3 md:grid-cols-2"
               >
-                <el-radio-button
-                  value="signal_inference"
-                  data-testid="settings-cutting-mode-signal"
+                <el-radio
+                  v-for="option in cuttingModeOptions"
+                  :key="option.value"
+                  :value="option.value"
+                  :data-testid="option.testId"
+                  border
+                  class="cutting-mode-card !mr-0"
                 >
-                  {{ t('settings.cuttingModeSignalInference') }}
-                </el-radio-button>
-                <el-radio-button
-                  value="fixed_interval"
-                  data-testid="settings-cutting-mode-fixed"
-                >
-                  {{ t('settings.cuttingModeFixedInterval') }}
-                </el-radio-button>
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="flex flex-col items-start gap-1">
+                      <span class="text-sm font-semibold text-slate-800">
+                        {{ option.label }}
+                      </span>
+                      <span class="text-xs leading-5 text-slate-500">
+                        {{ option.description }}
+                      </span>
+                    </div>
+                    <span
+                      class="material-symbols-outlined text-[20px]"
+                      :class="
+                        settingStore.data.cuttingMode === option.value
+                          ? 'text-primary'
+                          : 'text-slate-300'
+                      "
+                    >
+                      {{
+                        settingStore.data.cuttingMode === option.value
+                          ? 'radio_button_checked'
+                          : 'radio_button_unchecked'
+                      }}
+                    </span>
+                  </div>
+                </el-radio>
               </el-radio-group>
             </el-form-item>
             <el-form-item
@@ -739,30 +789,18 @@ onBeforeUnmount(() => {
               </div>
             </el-form-item>
             <el-form-item :label="t('settings.workStartTime')">
-              <el-input
-                v-model="settingStore.data.workStartTime"
-                placeholder="08:00"
-              />
+              <el-input v-model="settingStore.data.workStartTime" placeholder="08:00" />
             </el-form-item>
             <el-form-item :label="t('settings.workEndTime')">
-              <el-input
-                v-model="settingStore.data.workEndTime"
-                placeholder="18:00"
-              />
+              <el-input v-model="settingStore.data.workEndTime" placeholder="18:00" />
             </el-form-item>
-            <el-form-item
-              :label="t('settings.breakPeriods')"
-              class="md:col-span-2"
-            >
+            <el-form-item :label="t('settings.breakPeriods')" class="md:col-span-2">
               <el-input
                 v-model="settingStore.data.breakPeriods"
                 :placeholder="t('settings.breakPeriodsPlaceholder')"
               />
             </el-form-item>
-            <el-form-item
-              :label="t('settings.baselineLengthScopeMode')"
-              class="md:col-span-2"
-            >
+            <el-form-item :label="t('settings.baselineLengthScopeMode')" class="md:col-span-2">
               <el-radio-group v-model="settingStore.data.baselineLengthScopeMode">
                 <el-radio-button value="definition">
                   {{ t('settings.scopeDefinition') }}
@@ -791,3 +829,40 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+:deep(.cutting-mode-card.el-radio.is-bordered) {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border-radius: 1rem;
+  border-color: rgb(226 232 240);
+  background: rgb(255 255 255);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+:deep(.cutting-mode-card.el-radio.is-bordered:hover) {
+  border-color: rgb(147 197 253);
+}
+
+:deep(.cutting-mode-card .el-radio__input) {
+  display: none;
+}
+
+:deep(.cutting-mode-card .el-radio__label) {
+  display: block;
+  width: 100%;
+  padding: 1rem 1.125rem;
+  white-space: normal;
+}
+
+:deep(.cutting-mode-card.is-checked) {
+  border-color: rgb(59 130 246);
+  background: rgb(239 246 255);
+  box-shadow: 0 0 0 3px rgb(219 234 254);
+}
+</style>

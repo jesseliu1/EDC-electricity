@@ -32,7 +32,15 @@ DASHBOARD_REALTIME_EDC_TIMEOUT_SECONDS = 8.0
 async def _sorted_dashboard_heats() -> list[dict[str, Any]]:
     from . import heats as heats_api
 
-    items = list((await heats_api._list_heat_store()).values())
+    store = await heats_api._list_heat_store()
+    if isinstance(store, dict):
+        raw_items = list(store.values())
+    elif isinstance(store, list):
+        raw_items = list(store)
+    else:
+        raw_items = []
+
+    items = [item for item in raw_items if isinstance(item, dict)]
     items.sort(key=lambda item: item["start_time"], reverse=True)
     return items
 
@@ -41,6 +49,7 @@ def _resolve_active_baseline() -> dict[str, Any] | None:
     from .baselines import _resolve_active_baseline_item
 
     return _resolve_active_baseline_item()
+
 
 def _resolve_dashboard_realtime_context() -> dict[str, Any]:
     baseline = _resolve_active_baseline()
@@ -115,8 +124,7 @@ async def _load_realtime_curves_from_edc(
         raise EDCClientError(f"实时曲线拉取失败：{exc}") from exc
 
     curves_by_key = {
-        metric_key: result
-        for metric_key, result in zip(tasks.keys(), results, strict=False)
+        metric_key: result for metric_key, result in zip(tasks.keys(), results, strict=False)
     }
     power_points = curves_by_key.get("power") or []
     voltage_points = curves_by_key.get("voltage") or []
@@ -125,9 +133,7 @@ async def _load_realtime_curves_from_edc(
         return None
 
     baseline_power = _build_flat_baseline_curve(power_points, 460.0)
-    baseline_voltage = (
-        _build_flat_baseline_curve(voltage_points, 385.0) if voltage_points else []
-    )
+    baseline_voltage = _build_flat_baseline_curve(voltage_points, 385.0) if voltage_points else []
     return {
         "power": power_points,
         "voltage": voltage_points,
@@ -153,7 +159,9 @@ async def get_dashboard_stats() -> DashboardStats:
     heats = await _sorted_dashboard_heats()
     timezone_name = get_plant_timezone()
     today = plant_date_of(utc_now(), timezone_name)
-    today_heats = [item for item in heats if plant_date_of(item["start_time"], timezone_name) == today]
+    today_heats = [
+        item for item in heats if plant_date_of(item["start_time"], timezone_name) == today
+    ]
     scoped_heats = today_heats or heats
     deviations = [
         float(item["deviation_score"])
@@ -222,9 +230,7 @@ async def get_realtime_data(
         missing_required_roles = sources.get("missing_required_roles", [])
         detail = "未获取到真实实时数据，请检查宿主连接和通道绑定"
         if missing_required_roles:
-            detail = (
-                "Dashboard 实时主曲线角色未配置，请先绑定 dashboard_primary 对应通道"
-            )
+            detail = "Dashboard 实时主曲线角色未配置，请先绑定 dashboard_primary 对应通道"
         log_event(
             "api_dashboard_realtime",
             duration=duration,
@@ -286,9 +292,7 @@ async def get_recent_heats(limit: int = 10) -> RecentHeatsResponse:
             end_time=item["end_time"],
             status=str(item["status"]),
             deviation_score=(
-                float(item["deviation_score"])
-                if item.get("deviation_score") is not None
-                else None
+                float(item["deviation_score"]) if item.get("deviation_score") is not None else None
             ),
         )
         for item in heats[: max(limit, 0)]

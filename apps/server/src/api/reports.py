@@ -67,8 +67,7 @@ def _top_deviations_for_heats(heats: list[dict[str, Any]]) -> list[dict[str, Any
     sortable = [
         item
         for item in heats
-        if isinstance(item.get("deviation_score"), (float, int))
-        and item.get("heat_no")
+        if isinstance(item.get("deviation_score"), (float, int)) and item.get("heat_no")
     ]
     sortable.sort(key=lambda item: float(item["deviation_score"]), reverse=True)
     return [
@@ -115,13 +114,9 @@ def _build_daily_report(
     )
 
     generated_candidates = [
-        item["start_time"]
-        for item in scoped_heats
-        if isinstance(item.get("start_time"), datetime)
+        item["start_time"] for item in scoped_heats if isinstance(item.get("start_time"), datetime)
     ] + [
-        item["updated_at"]
-        for item in scoped_tasks
-        if isinstance(item.get("updated_at"), datetime)
+        item["updated_at"] for item in scoped_tasks if isinstance(item.get("updated_at"), datetime)
     ]
 
     return DailyReportDetail(
@@ -144,7 +139,15 @@ def _build_daily_report(
 async def _report_context() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     from . import heats as heats_api
 
-    heats = list((await heats_api._list_heat_store()).values())
+    store = await heats_api._list_heat_store()
+    if isinstance(store, dict):
+        raw_heats = list(store.values())
+    elif isinstance(store, list):
+        raw_heats = list(store)
+    else:
+        raw_heats = []
+
+    heats = [item for item in raw_heats if isinstance(item, dict)]
     tasks = list(_list_task_store().values())
     return heats, tasks
 
